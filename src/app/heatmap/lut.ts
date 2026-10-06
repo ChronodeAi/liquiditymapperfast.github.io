@@ -1,4 +1,5 @@
 import type { Palette } from '../theme.ts';
+import { t } from '../i18n.ts';
 
 /**
  * 'size': one sequential colormap for size (side is implied by position relative to the mark), opaque cells whose
@@ -6,8 +7,8 @@ import type { Palette } from '../theme.ts';
  */
 export type HeatStyleId = 'size' | 'sides';
 export const HEAT_STYLES: { id: HeatStyleId; label: string; title: string }[] = [
-  { id: 'size', label: 'Size', title: 'One colour ramp for size; log scale' },
-  { id: 'sides', label: 'Sides', title: 'Two hues: bids and asks; linear scale' },
+  { id: 'size', label: t('Size'), title: t('One colour ramp for size; log scale') },
+  { id: 'sides', label: t('Sides'), title: t('Two hues: bids and asks; linear scale') },
 ];
 
 type Stop = [number, string];
