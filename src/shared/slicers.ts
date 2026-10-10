@@ -115,6 +115,8 @@ export function readFamily(group: readonly Clip[], kind: SlicerKind, o: SlicerOp
 interface Track {
   side: Side; lo: number; hi: number; clip: number; onset: number; minutes: number; active: boolean; inactive: number;
   total: number; against: number; exact: boolean; episode: SlicerEpisode | null;
+  /** The reading of the last minute that counted for it. */
+  reading: FamilyReading;
 }
 interface Instrument {
   /** Second start → the largest clips of that second, per side. */
@@ -205,7 +207,7 @@ export class SlicerDetector {
       let track = inst.tracks.find(t => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed));
       if (!track) {
         if (!directed) continue;
-        track = { side: r.side, lo: r.lo, hi: r.hi, clip: r.clip, onset: minute, minutes: 0, active: false, inactive: 0, total: 0, against: 0, exact: false, episode: null };
+        track = { side: r.side, lo: r.lo, hi: r.hi, clip: r.clip, reading: r, onset: minute, minutes: 0, active: false, inactive: 0, total: 0, against: 0, exact: false, episode: null };
         inst.tracks.push(track);
       }
       const list = hits.get(track); if (list) list.push(r); else hits.set(track, [r]);
@@ -223,7 +225,7 @@ export class SlicerDetector {
       // one around it qualifies keeps it going and adds nothing.
       const exactHit = seen.find(r => r.kind === 'exact'), best = exactHit ?? seen[0]!, counts = !track.exact || exactHit !== undefined;
       track.minutes++; track.inactive = 0;
-      if (counts) { track.lo = best.lo; track.hi = best.hi; track.clip = best.clip; track.total += best.minuteUsd; track.against += best.minuteAgainst; }
+      if (counts) { track.reading = best; track.lo = best.lo; track.hi = best.hi; track.clip = best.clip; track.total += best.minuteUsd; track.against += best.minuteAgainst; }
       if (exactHit) track.exact = true;
       if (!track.active && track.minutes >= o.sustain) {
         track.active = true;
@@ -232,14 +234,16 @@ export class SlicerDetector {
         const repeat = inst.recent.some(r => r.side === track.side && (r.exact && track.exact ? Math.abs(track.clip / r.clip - 1) <= o.match : near(r, track)));
         if (!repeat) inst.recent.push({ side: track.side, lo: track.lo, hi: track.hi, clip: track.clip, exact: track.exact, at: minute });
         track.episode = {
-          id: `${id}|${track.side}|${track.onset}`, instrumentId: id, side: track.side, onset: track.onset, alertAt: minute, last: minute, end: null,
-          lo: 0, hi: 0, clip: 0, rate: 0, usdPerMin: 0, gap: 0, gapShare: 0, direction: 0, total: 0, against: 0, exact: false, repeat,
+          // Two programs can begin the same minute on one side; their clips tell them apart.
+          id: `${id}|${track.side}|${track.onset}|${Math.round(track.clip)}`, instrumentId: id, side: track.side, onset: track.onset, alertAt: minute, last: minute,
+          end: null, lo: 0, hi: 0, clip: 0, rate: 0, usdPerMin: 0, gap: 0, gapShare: 0, direction: 0, total: 0, against: 0, exact: false, repeat,
         };
       }
       if (track.episode) {
-        track.episode.last = minute;
-        if (counts) Object.assign(track.episode, { lo: track.lo, hi: track.hi, clip: best.clip, rate: best.rate, usdPerMin: best.usdPerMin, gap: best.gap,
-          gapShare: best.gapShare, direction: best.direction, total: track.total, against: track.against, exact: track.exact });
+        // The numbers are those of the last minute that counted (an alert in a minute only the wide family held still has its exact ones).
+        const r = track.reading;
+        Object.assign(track.episode, { last: minute, lo: track.lo, hi: track.hi, clip: r.clip, rate: r.rate, usdPerMin: r.usdPerMin, gap: r.gap,
+          gapShare: r.gapShare, direction: r.direction, total: track.total, against: track.against, exact: track.exact });
         this.#fresh.push({ ...track.episode });
       }
       kept.push(track);

@@ -28,7 +28,8 @@ function program(from: number, to: number, every: number, side: Side | (() => Si
 /** Feed the orders in time order with the clock at each one, then run the clock to `until`; the last snapshot of every episode. */
 function run(orders: Order[], until: number, options: Partial<SlicerOptions> = {}, scale = 1): SlicerEpisode[] {
   const d = new SlicerDetector(options, scale), seen = new Map<string, SlicerEpisode>();
-  const take = () => { for (const e of d.takeFresh()) seen.set(e.id, e); };
+  // Every snapshot carries its clips' numbers, the alert's first of all (it is the one a sound would be made from).
+  const take = () => { for (const e of d.takeFresh()) { assert.ok(e.clip > 0 && e.rate > 0 && e.usdPerMin > 0 && e.gap > 0 && e.total > 0, `snapshot ${JSON.stringify(e)}`); seen.set(e.id, e); } };
   for (const o of [...orders].sort((a, b) => a.t - b.t)) { d.step(o.t); d.add([o]); take(); }
   d.step(until); take();
   return [...seen.values()].sort((a, b) => a.onset - b.onset);
@@ -81,6 +82,14 @@ test('the same side and clip again within six hours is shown as a repeat; the ot
   ];
   const episodes = run(orders, T0 + 260 * MIN);
   assert.deepEqual(episodes.map(e => [e.side, Math.round(e.clip / 1_000), e.repeat]), [['buy', 5, false], ['buy', 5, true], ['sell', 5, false], ['buy', 20, false]]);
+});
+
+test('two programs beginning the same minute on one side are two episodes', () => {
+  const rand = rng(7);
+  const orders = [...noise(rand, T0, T0 + 60 * MIN, 30), ...program(T0 + 15 * MIN, T0 + 50 * MIN, 3_000, 'sell', () => 5_000), ...program(T0 + 15 * MIN, T0 + 50 * MIN, 4_000, 'sell', () => 40_000)];
+  const episodes = run(orders, T0 + 60 * MIN);
+  assert.deepEqual(episodes.map(e => Math.round(e.clip / 1_000)).sort((a, b) => a - b), [5, 40]);
+  assert.equal(new Set(episodes.map(e => e.id)).size, 2);
 });
 
 test('a running episode does not go on with a family that is no longer one-sided', () => {
