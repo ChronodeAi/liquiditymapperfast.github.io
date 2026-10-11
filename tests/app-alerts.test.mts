@@ -119,6 +119,36 @@ test('a wall that moved a bin keeps its standing; one seen during warm-up is not
   assert.deepEqual(look(14_000, 1_000), [], 'the price is at the wall: it was eaten, not pulled');
 });
 
+test('a tracked wall stays itself: a bigger wall close by does not take its place, one far away does not hide its move', () => {
+  const ids = new Set(['a:BTC']), two = (a: [number, number] | null, b: [number, number] | null): LevelsFrame => frame([...(a ? [a] : []), ...(b ? [b] : []), [99_000, 100_000]], [[100_100, 100_000]]);
+  const w = new WallWatch(), at = (t: number, f: LevelsFrame) => w.update(t, bookBins(f, ids, MARK, 0.01), MARK, 10_000_000);
+  for (let t = 0; t <= 12_000; t += 2_000) at(t, two(null, null));
+  assert.deepEqual(at(14_000, two([99_900, 25_000_000], null)).map(s => [s.kind, s.price]), [['appeared', 99_910]]);
+  for (let t = 16_000; t <= 22_000; t += 2_000) at(t, two([99_900, 25_000_000], [99_940, 40_000_000]));
+  assert.deepEqual(at(24_000, two(null, [99_940, 40_000_000])).map(s => [s.kind, s.price]), [['pulled', 99_910]], 'the wall beside it was already there: it is not where this one went');
+  const v = new WallWatch(), look = (t: number, f: LevelsFrame) => v.update(t, bookBins(f, ids, MARK, 0.01), MARK, 10_000_000);
+  for (let t = 0; t <= 12_000; t += 2_000) look(t, two(null, null));
+  look(14_000, two([99_900, 25_000_000], null));
+  for (let t = 16_000; t <= 22_000; t += 2_000) look(t, two([99_900, 25_000_000], null));
+  assert.deepEqual(look(24_000, two([99_920, 25_000_000], [99_500, 40_000_000])), [], 'it moved a bin while a bigger wall came far away');
+  assert.deepEqual(look(26_000, two(null, [99_500, 40_000_000])).map(s => [s.kind, s.price]), [['pulled', 99_930]], 'and its pull, from where it moved to, is heard');
+});
+
+test('the balance only watches while the book is arriving: a lopsided book found then is not news', () => {
+  const w = new ImbalanceWatch();
+  assert.deepEqual([0.9, 0.9].map(v => w.update(v, 70, false)), [null, null]);
+  assert.deepEqual([0.9, 0.3, 0.8].map(v => w.update(v, 70)), [null, null, 'buy'], 'it has to come back inside the line before it can sound');
+});
+
+test("a grouped venue's top groups count in the totals by their whole span's share inside the range, wherever the split is", () => {
+  // A venue priced 1 % off the mark: its top groups straddle the range's edge; moving only the split must not move the totals.
+  const band = (rows: [number, number, number][]) => ({ lo: Float64Array.from(rows.map(r => r[0])), hi: Float64Array.from(rows.map(r => r[1])), usd: Float64Array.from(rows.map(r => r[2])) });
+  const at = (cut: number) => bookBins({ asOf: 0, books: [{ id: 'hl:BTC', venue: 'hl', timestamp: 0, coarse: true, touch: { lo: 98_900, hi: 99_000 }, bids: band([[98_900, cut, 20_000_000]]), asks: band([[cut, 99_000, 3_000_000]]) }] }, new Set(['hl:BTC']), 99_920, 0.01);
+  const a = at(98_912.5), b = at(98_987.5);
+  assert.deepEqual([a.bidTotal, a.askTotal], [b.bidTotal, b.askTotal]);
+  assert.ok(Math.abs(a.bidTotal - 20_000_000 * 0.792) < 1 && Math.abs(a.askTotal - 3_000_000 * 0.792) < 1, '79.2 of the span lies inside the range');
+});
+
 test('the balance tips once and must come back before it tips again', () => {
   const w = new ImbalanceWatch();
   // 0.72 again after only 0.5 does not sound (0.5 is not back inside 60 % of the line); after 0.3 it does.

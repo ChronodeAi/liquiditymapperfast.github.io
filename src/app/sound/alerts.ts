@@ -130,14 +130,15 @@ export class Alerts {
     if (!panels.book.wall && !panels.depth.imbalance) { this.#walls.reset(); return; }
     if (!s.levels || !(mark > 0) || now - s.levels.asOf > FRESH_MS) return;
     const active = new Set(activeIds(s)), bins = bookBins(s.levels, active, mark, 0.01);
-    // The books the bins are made of: when that set changes (a venue chip, a venue that dropped out of the feed) the walls start over.
-    const context = s.levels.books.filter(book => active.has(book.id)).map(book => book.id).sort().join(',');
+    // The books the bins are made of and the market whose price centres them: when either changes (a venue chip, a venue that dropped out of
+    // the feed, another chart market) the walls start over, and the balance only watches until they have warmed up again.
+    const context = `${s.levels.books.filter(book => active.has(book.id)).map(book => book.id).sort().join(',')}|${s.marketId}|${s.seriesInstrument}`;
     for (const signal of this.#walls.update(now, bins, mark, scaledUsd(panels.book.usd), context)) {
       if (!panels.book.wall) continue;
       const word = signal.kind === 'appeared' ? t('wall appeared') : t('wall pulled');
       this.#fire(now, 'book', signal.kind === 'appeared' ? 'wall-appeared' : 'wall-pulled', signal.side, `${signal.side === 'buy' ? t('Bid') : t('Ask')} ${word}: $${usd(signal.usd)}`, `wall:${signal.side}:${signal.kind}`, WALL_COOLDOWN_MS);
     }
-    const tip = this.#balance.update(imbalanceOf(bins), panels.depth.pct);
+    const tip = this.#balance.update(imbalanceOf(bins), panels.depth.pct, !this.#walls.warming(now));
     if (tip && panels.depth.imbalance) this.#fire(now, 'depth', 'imbalance', tip, tip === 'buy' ? t('Bids outweigh asks within 1% of the price') : t('Asks outweigh bids within 1% of the price'), 'imbalance', IMBALANCE_COOLDOWN_MS);
   }
 

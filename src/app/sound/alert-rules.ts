@@ -60,7 +60,9 @@ export function bookBins(frame: LevelsFrame | null, ids: ReadonlySet<string>, ma
         const whole = inTouch(book.touch, side.lo[i]!, side.hi[i]!), l = whole ? book.touch!.lo : side.lo[i]!, h = whole ? book.touch!.hi : side.hi[i]!;
         if (!(usd > 0)) continue;
         addsToTotal = !whole;
-        if (whole && side.lo[i]! >= lo && side.hi[i]! <= hi) out[key] += usd;
+        // Its total is its share of the whole span inside the range: never the pieces a split at an estimate made of it, so a split that
+        // moves does not move the total.
+        if (whole) { const span = book.touch!.hi - book.touch!.lo, inside = Math.min(book.touch!.hi, hi) - Math.max(book.touch!.lo, lo); if (inside > 0) out[key] += usd * Math.min(1, inside / span); }
         if (!(h > l)) {
           // Bids count below the mark and asks above it: a crossed or stale level on the wrong side is not liquidity.
           if (l < lo || l > hi || (isBid ? l > mark : l < mark)) continue;
@@ -104,8 +106,13 @@ export class WallWatch {
   /** The width of the bins last time: walls are remembered by the bin they stood in, so another width is another grid. */
   #bin = 0;
   #last = -1;
+  /** Each side's bins at the look before: a wall that moved is one whose old bin emptied as a bin close by gained about as much. */
+  #before: { buy: ReadonlyMap<number, number>; sell: ReadonlyMap<number, number> } = { buy: new Map(), sell: new Map() };
 
-  reset(): void { this.#start = -1; this.#armed = { buy: false, sell: false }; this.#stood = { buy: null, sell: null }; this.#context = ''; this.#bin = 0; this.#last = -1; }
+  reset(): void { this.#start = -1; this.#armed = { buy: false, sell: false }; this.#stood = { buy: null, sell: null }; this.#context = ''; this.#bin = 0; this.#last = -1; this.#before = { buy: new Map(), sell: new Map() }; }
+
+  /** Whether the book is still arriving (the first ten seconds, again after a change of what the bins are made of): nothing is news yet. */
+  warming(now: number): boolean { return this.#start < 0 || now - this.#start < 10_000; }
 
   /**
    * `context` names what the bins are made of (which books, and which instrument's price): when it changes, a venue was switched on or
@@ -130,25 +137,32 @@ export class WallWatch {
         if (binLo < bins.lo || binHi > bins.hi) this.#stood[side] = null;
         else {
           const here = map.get(bin0) ?? 0;
-          // A wall that moved to a bin close by is the same wall (handled below, keeping how long it has stood), not one that went.
-          const moved = wall !== null && wall.usd >= minUsd && Math.abs(wall.price - stood.price) <= bins.bin * 3;
-          if (here < stood.usd * 0.3 && !moved) {
-            // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached its bin
-            // (within 4 bp, judged on the bin's edges: at a small price a bin's middle can be bp away from a price inside it) or passed
-            // through it traded it away.
-            const crossed = side === 'buy' ? mark <= binHi : mark >= binLo, reached = mark >= binLo * (1 - 0.0004) && mark <= binHi * (1 + 0.0004);
-            if (warm && now - stood.since >= 5_000 && !crossed && !reached) out.push({ kind: 'pulled', side, price: stood.price, usd: stood.usd });
-            this.#stood[side] = null;
+          if (here >= stood.usd * 0.3) this.#stood[side] = { ...stood, usd: here }; // still where it stood (whatever else the side holds)
+          else {
+            // It left its bin. It moved if a bin within three of it gained about as much since the look before (a wall that was already there,
+            // however big, is another wall): the same wall, keeping how long it has stood.
+            const before = this.#before[side];
+            let dest = 0, gain = 0;
+            for (let b = bin0 - 3; b <= bin0 + 3; b++) { const g = (map.get(b) ?? 0) - (before.get(b) ?? 0); if (b !== bin0 && g > gain) { dest = b; gain = g; } }
+            if (gain >= stood.usd * 0.6) this.#stood[side] = { price: (dest + 0.5) * bins.bin, usd: map.get(dest)!, since: stood.since };
+            else {
+              // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached its bin
+              // (within 4 bp, judged on the bin's edges: at a small price a bin's middle can be bp away from a price inside it) or passed
+              // through it traded it away.
+              const crossed = side === 'buy' ? mark <= binHi : mark >= binLo, reached = mark >= binLo * (1 - 0.0004) && mark <= binHi * (1 + 0.0004);
+              if (warm && now - stood.since >= 5_000 && !crossed && !reached) out.push({ kind: 'pulled', side, price: stood.price, usd: stood.usd });
+              this.#stood[side] = null;
+            }
           }
         }
       }
+      this.#before[side] = map;
       const standing = this.#stood[side];
       if (wall && wall.usd >= minUsd) {
         // A wall seen while the book is still arriving is part of the book, not news: taken as standing, never announced later.
         if (!warm) this.#armed[side] = false;
         if (this.#armed[side]) { out.push({ kind: 'appeared', side, price: wall.price, usd: wall.usd }); this.#armed[side] = false; this.#stood[side] = { ...wall, since: now }; }
         else if (!standing) this.#stood[side] = { ...wall, since: now };
-        else if (Math.abs(wall.price - standing.price) <= bins.bin * 3) this.#stood[side] = { price: wall.price, usd: wall.usd, since: standing.since };
         continue;
       }
       if (!wall || wall.usd < minUsd * 0.6) this.#armed[side] = true;
@@ -163,13 +177,16 @@ export const imbalanceOf = (bins: Pick<BookBins, 'bidTotal' | 'askTotal'>): numb
 
 /**
  * One tip of the balance: fires when the imbalance passes `pct` percent one way, then not again until it has come back inside 60 % of that
- * (a book that hovers at the line sounds once, not on every wobble).
+ * (a book that hovers at the line sounds once, not on every wobble). While the book is still arriving (`warm` false: the walls' warm-up,
+ * which starts again when the books or the chart's market change) it only watches: a balance already past the line then is the book as it
+ * was found, not news, and must come back before it can sound.
  */
 export class ImbalanceWatch {
   #armed = true;
-  update(imbalance: number, pct: number): 'buy' | 'sell' | null {
+  update(imbalance: number, pct: number, warm = true): 'buy' | 'sell' | null {
     const limit = pct / 100;
     if (Math.abs(imbalance) < limit * 0.6) this.#armed = true;
+    if (!warm) { if (Math.abs(imbalance) >= limit) this.#armed = false; return null; }
     if (!this.#armed || Math.abs(imbalance) < limit) return null;
     this.#armed = false;
     return imbalance > 0 ? 'buy' : 'sell';
