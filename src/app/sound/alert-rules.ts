@@ -47,14 +47,25 @@ export function bookBins(frame: LevelsFrame | null, ids: ReadonlySet<string>, ma
   for (const book of frame.books) {
     if (!ids.has(book.id)) continue;
     for (const [side, map, key] of [[book.bids, out.bid, 'bidTotal'], [book.asks, out.ask, 'askTotal']] as const) {
-      const n = Math.min(side.lo.length, side.hi.length, side.usd.length);
+      const n = Math.min(side.lo.length, side.hi.length, side.usd.length), isBid = map === out.bid;
+      const add = (b: number, usd: number) => { map.set(b, (map.get(b) ?? 0) + usd); out[key] += usd; };
       for (let i = 0; i < n; i++) {
-        const usd = side.usd[i]!, price = (side.lo[i]! + side.hi[i]!) / 2;
-        if (!(usd > 0) || price < lo || price > hi) continue;
-        // Bids count below the mark and asks above it: a crossed or stale level on the wrong side is not liquidity.
-        if (map === out.bid ? price > mark : price < mark) continue;
-        const b = Math.floor(price / bin);
-        map.set(b, (map.get(b) ?? 0) + usd); out[key] += usd;
+        const usd = side.usd[i]!, l = side.lo[i]!, h = side.hi[i]!;
+        if (!(usd > 0)) continue;
+        if (!(h > l)) {
+          // Bids count below the mark and asks above it: a crossed or stale level on the wrong side is not liquidity.
+          if (l < lo || l > hi || (isBid ? l > mark : l < mark)) continue;
+          add(Math.floor(l / bin), usd);
+          continue;
+        }
+        // A band (a grouped venue's level) counts by the part of it on its own side of the mark and inside the range, spread over the bins
+        // it covers as the chart spreads it: put whole at its middle, a $100 group would be a wall five bins tall.
+        const a = Math.max(l, lo, isBid ? -Infinity : mark), z = Math.min(h, hi, isBid ? mark : Infinity);
+        if (!(z > a)) continue;
+        for (let b = Math.floor(a / bin); b * bin < z; b++) {
+          const part = Math.min(z, (b + 1) * bin) - Math.max(a, b * bin);
+          if (part > (h - l) * 1e-9) add(b, usd * part / (h - l));
+        }
       }
     }
   }

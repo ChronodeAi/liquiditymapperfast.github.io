@@ -112,18 +112,35 @@ test('valueBook converts contracts to USD and gives grouped levels their group: 
   assert.equal(hl.coarse, true);
   assert.deepEqual([[...hl.bids.lo], [...hl.bids.hi]], [[85_100, 85_000], [85_150, 85_100]]);
   assert.deepEqual([[...hl.asks.lo], [...hl.asks.hi]], [[85_150, 85_200], [85_200, 85_300]]);
-  const traded = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_103)!;
-  assert.deepEqual([traded.bids.lo[0], traded.bids.hi[0], traded.asks.lo[0], traded.asks.hi[0]], [85_100, 85_103, 85_103, 85_200]);
+  const traded = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_140)!;
+  assert.deepEqual([traded.bids.lo[0], traded.bids.hi[0], traded.asks.lo[0], traded.asks.hi[0]], [85_100, 85_140, 85_140, 85_200]);
   assert.deepEqual([traded.bids.lo[1], traded.bids.hi[1], traded.asks.lo[1], traded.asks.hi[1]], [85_000, 85_100, 85_200, 85_300], 'groups away from the touch are untouched');
+  // The cut stays an eighth of the group from its edges (a trade on an edge would squeeze one side's group into a single price, a false
+  // wall), and a trade outside the group (the book and the trade disagree) is not used.
+  const near = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_103)!;
+  assert.deepEqual([near.bids.lo[0], near.bids.hi[0], near.asks.lo[0], near.asks.hi[0]], [85_100, 85_112.5, 85_112.5, 85_200]);
+  for (const hint of [85_100, 85_200, 85_250, 84_000]) {
+    const v = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, hint)!;
+    assert.ok(v.bids.hi[0]! > v.bids.lo[0]! && v.asks.hi[0]! > v.asks.lo[0]!, `no group squeezed to a point at ${hint}`);
+  }
+  // A crossed grouped book (a bid group wholly above the ask group) has no shared group: nothing is moved.
+  const crossed = valueBook('hyperliquid:BTC-PERP', { bids: [[85_300, 1]], asks: [[85_200, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_250)!;
+  assert.deepEqual([crossed.bids.lo[0], crossed.bids.hi[0], crossed.asks.lo[0], crossed.asks.hi[0]], [85_300, 85_400, 85_100, 85_200]);
   const outside = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_250)!;
-  assert.deepEqual([outside.bids.hi[0], outside.asks.lo[0]], [85_200, 85_200], 'a trade outside the shared group splits it at its edge');
+  assert.deepEqual([outside.bids.hi[0], outside.asks.lo[0], outside.asks.hi[0]], [85_150, 85_150, 85_200], 'a trade outside the shared group: split at its middle');
   // An ask named on a power of ten holds the prices just below it, a tenth of its own step wide.
   const decade = valueBook('hyperliquid:BTC-PERP', { bids: [[99_800, 1]], asks: [[100_000, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0)!;
   assert.deepEqual([decade.bids.lo[0], decade.bids.hi[0], decade.asks.lo[0], decade.asks.hi[0]], [99_800, 99_900, 99_900, 100_000]);
-  // A whole side has one step, its best level's: SOL's bids at three significant figures run 109 ... 100, 99 ... 90, a dollar apart.
+  // The whole book has one step, its best bid's: SOL's bids at three significant figures run 109 ... 100, 99 ... 90, a dollar apart.
   const sol = valueBook('hyperliquid:SOL-PERP', { bids: [[109, 1], [100, 1], [99, 1], [90, 1]], asks: [[110, 1], [111, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 109.4)!;
   assert.deepEqual([...sol.bids.lo].map((lo, i) => [lo, sol.bids.hi[i]]), [[109, 109.4], [100, 101], [99, 100], [90, 91]]);
   assert.deepEqual([...sol.asks.lo].map((lo, i) => [lo, sol.asks.hi[i]]), [[109.4, 110], [110, 111]]);
+  // A book across a power of ten: the asks keep the best bid's step (0.999 / 1.0009 listed asks 1.001, 1.003, 1.004, measured).
+  const straddle = valueBook('hyperliquid:X-PERP', { bids: [[0.999, 1000]], asks: [[1.001, 1000], [1.003, 1000]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0)!;
+  assert.deepEqual([straddle.asks.lo[1], straddle.asks.hi[1]], [1.002, 1.003]);
+  // Deribit ETH grouped by 10 is spaced $0.10 (its labels are hundredths of a dollar).
+  const eth = valueBook('deribit:ETH-PERPETUAL', { bids: [[2497.2, 1000]], asks: [[2497.3, 1000]], units: 'quote', sourceGrouping: 0.1, sourceTimestamp: T0 }, { venue: 'deribit', quote: 'USD', inverse: true, quantityUnit: 'quote' }, T0)!;
+  assert.deepEqual([eth.bids.lo[0], eth.bids.hi[0], eth.asks.lo[0], eth.asks.hi[0]].map(x => +x!.toFixed(2)), [2497.2, 2497.25, 2497.25, 2497.3]);
   // Deribit's $10 grouping names its groups the same way.
   const deribit = valueBook('deribit:BTC-PERPETUAL', { bids: [[82_980, 1]], asks: [[82_990, 1]], units: 'base', sourceGrouping: 10, sourceTimestamp: T0 }, { venue: 'deribit', quote: 'USD' }, T0, undefined, 82_984)!;
   assert.deepEqual([deribit.bids.lo[0], deribit.bids.hi[0], deribit.asks.lo[0], deribit.asks.hi[0]], [82_980, 82_984, 82_984, 82_990]);

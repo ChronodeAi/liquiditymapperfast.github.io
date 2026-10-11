@@ -2,7 +2,7 @@ import type { PriceAmount, OpenInterestSample, HyperliquidMetadataSnapshot, Trad
 import { recordValue, arrayValue, type AdapterOptions, type AdapterTransport, type NormalizedAdapterCandle, type WireRecord } from './common.mts';
 import { AdapterTransportError, epochMs, finiteNumber, intervalMilliseconds, sideLevels, validateCandle } from './common.mts';
 import { bookKey, bookResolutionKey } from '../core/book-key.mts';
-import { hyperliquidLevelBounds, hyperliquidSideStep } from '../analytics/hyperliquid-bounds.mts';
+import { hyperliquidBookStep, hyperliquidLevelBounds, hyperliquidSideStep } from '../analytics/hyperliquid-bounds.mts';
 
 /** Hyperliquid public Info REST endpoint. No request is sent by this module. */
 export const HYPERLIQUID_INFO_URL = 'https://api.hyperliquid.xyz/info';
@@ -33,7 +33,7 @@ export function validateHyperliquidGrouping(nSigFigs: unknown, mantissa: unknown
 }
 /**
  * Recover the lower/upper edges of the group a coarse book's level holds: a bid's group starts at its price, an ask's ends there. `step` is
- * the side's (`hyperliquidSideStep` of its best level); without it the level is taken as the best of its side.
+ * the book's (`hyperliquidBookStep`); without it the level is taken as the best of its side.
  */
 export function hyperliquidBucketBounds(price: unknown, nSigFigs: unknown, mantissa: unknown, side: 'bid' | 'ask', step?: number) {
   const px = finiteNumber(price, 'price');
@@ -179,17 +179,18 @@ export function normalizeHyperliquidBook(payload: unknown, { instrumentId, nSigF
   const resolutionDigits = responseSig ?? nSigFigs;
   const grouping = validateHyperliquidGrouping(resolutionDigits, responseMantissa ?? mantissa);
   const coarse = grouping.nSigFigs != null || grouping.mantissa != null;
-  const annotate = (rows: PriceAmount[], side: 'bid' | 'ask'): HyperliquidPriceAmount[] => {
-    if (!coarse || !rows.length) return rows;
-    // One step for the whole side, its best level's. Coarse grouping validation above requires nSigFigs.
-    const best = rows.reduce((at, row) => side === 'bid' ? Math.max(at, row.price) : Math.min(at, row.price), side === 'bid' ? -Infinity : Infinity);
-    const step = hyperliquidSideStep(best, side, grouping.nSigFigs!, grouping.mantissa);
-    return rows.map((row) => {
-      const bounds = hyperliquidBucketBounds(row.price, grouping.nSigFigs, grouping.mantissa, side, step)!;
-      return { ...row, priceLow: bounds.lower, priceHigh: bounds.upper, sourceGrouping: bounds.step, sourceGroupingBounds: bounds };
-    });
-  };
-  const bids = annotate(sideLevels(levels[0], 'bids'), 'bid'); const asks = annotate(sideLevels(levels[1], 'asks'), 'ask');
+  const rawBids = sideLevels(levels[0], 'bids'), rawAsks = sideLevels(levels[1], 'asks');
+  // One step for the whole book, its best bid's (`hyperliquidBookStep`), from levels that hold something (the valuation drops empty ones,
+  // and both must pick the same best). Coarse grouping validation above requires nSigFigs.
+  const held = (rows: PriceAmount[]) => rows.filter(row => row.amount > 0).map(row => row.price);
+  let bestBid = Math.max(-Infinity, ...held(rawBids)), bestAsk = Math.min(Infinity, ...held(rawAsks));
+  if (bestBid === -Infinity && bestAsk === Infinity) { bestBid = Math.max(-Infinity, ...rawBids.map(row => row.price)); bestAsk = Math.min(Infinity, ...rawAsks.map(row => row.price)); }
+  const step = coarse && (rawBids.length || rawAsks.length) ? hyperliquidBookStep(bestBid, bestAsk, grouping.nSigFigs!, grouping.mantissa) : 0;
+  const annotate = (rows: PriceAmount[], side: 'bid' | 'ask'): HyperliquidPriceAmount[] => coarse ? rows.map((row) => {
+    const bounds = hyperliquidBucketBounds(row.price, grouping.nSigFigs, grouping.mantissa, side, step)!;
+    return { ...row, priceLow: bounds.lower, priceHigh: bounds.upper, sourceGrouping: bounds.step, sourceGroupingBounds: bounds };
+  }) : rows;
+  const bids = annotate(rawBids, 'bid'); const asks = annotate(rawAsks, 'ask');
   const resolvedInstrumentId = instrumentId ?? ('hyperliquid:' + coin + '-PERP');
   const resolvedResolution = coarse ? 'coarse' : 'native';
   const observedResolutionKey = hyperliquidBookResolutionKey(grouping);

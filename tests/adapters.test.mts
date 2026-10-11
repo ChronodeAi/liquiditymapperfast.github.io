@@ -48,6 +48,12 @@ test('Hyperliquid coarse l2Book carries resolution and conservative coverage', (
   assert.deepEqual(sol.bids.map(l => [l.priceLow, l.priceHigh]), [[109, 110], [100, 101], [99, 100], [90, 91]]);
   assert.deepEqual(sol.asks.map(l => [l.priceLow, l.priceHigh]), [[109, 110], [110, 111]]);
   assert.deepEqual([sol.bids[0]!.sourceGroupingBounds!.boundarySemantics, sol.asks[0]!.sourceGroupingBounds!.boundarySemantics], ['lower-edge-grid', 'upper-edge-grid']);
+  // The best levels are the ones holding something (the valuation drops empty levels, and both must agree on the step).
+  const emptyTop = normalizeHyperliquidBook({ data: { coin: 'X', time: 1700000000000, nSigFigs: 3, levels: [[{ px: '100', sz: '0' }, { px: '99', sz: '1' }], [{ px: '101', sz: '1' }]] } }, { receivedAt: 1700000000100 });
+  assert.deepEqual([emptyTop.bids[1]!.priceLow, emptyTop.bids[1]!.priceHigh], [99, 99.1]);
+  // Across a power of ten the asks keep the best bid's step (a book at 0.999 / 1.0009 listed asks 1.001, 1.003, 1.004, measured).
+  const straddle = normalizeHyperliquidBook({ data: { coin: 'X', time: 1700000000000, nSigFigs: 3, levels: [[{ px: '0.999', sz: '1' }], [{ px: '1.001', sz: '1' }, { px: '1.003', sz: '1' }]] } }, { receivedAt: 1700000000100 });
+  assert.deepEqual(straddle.asks.map(l => [l.priceLow, l.priceHigh]), [[1, 1.001], [1.002, 1.003]]);
   const aero = normalizeHyperliquidBook({ data: { coin: 'AERO', time: 1700000000000, nSigFigs: 3, levels: [[{ px: '0.998', sz: '1' }], [{ px: '0.999', sz: '1' }, { px: '1', sz: '1' }, { px: '1.001', sz: '1' }]] } }, { receivedAt: 1700000000100 });
   assert.deepEqual(aero.asks.map(l => [l.priceLow, l.priceHigh]), [[0.998, 0.999], [0.999, 1], [1, 1.001]]);
   assert.throws(() => normalizeHyperliquidBook({ data: { coin: 'BTC', time: 1, nSigFigs: 3, levels: [[{ px: '1000', sz: '2' }], [{ px: '1100', sz: '1' }]] } }, { nSigFigs: 2 }), /contradicts/);

@@ -1,5 +1,5 @@
 import { baseSizeUsdRate, usdBookLevels } from '../../core/book-valuation.mts';
-import { hyperliquidLevelBounds, hyperliquidSideStep } from '../../analytics/hyperliquid-bounds.mts';
+import { hyperliquidBookStep, hyperliquidLevelBounds } from '../../analytics/hyperliquid-bounds.mts';
 import { gridStepFor } from '../../shared/grid.ts';
 import { mergeByDistance } from '../../shared/merge.ts';
 import { splitTouch, type SideLevels, type ValuedBook } from '../../shared/levels.ts';
@@ -26,13 +26,13 @@ const empty = (): SideLevels => ({ lo: new Float64Array(0), hi: new Float64Array
  * Price band a level covers. A grouped level (Hyperliquid's significant figures, Deribit's grouping) names a bid group by its lower edge and
  * an ask group by its upper edge, so a bid holds [P, P + step) and an ask (P - step, P] (both measured against the ungrouped book 2026-10-11).
  */
-function band(price: number, book: BookLike, side: 'bid' | 'ask', best: number): { lo: number; hi: number; coarse: boolean } {
+function band(price: number, book: BookLike, side: 'bid' | 'ask', bestBid: number, bestAsk: number): { lo: number; hi: number; coarse: boolean } {
   const sigFigs = Number(book.nSigFigs);
   if (Number.isInteger(sigFigs) && sigFigs >= 2 && sigFigs <= 5) {
     try {
-      // Hyperliquid groups a whole side at one step, its best level's (`hyperliquidSideStep`).
+      // Hyperliquid groups the whole book at one step, its best bid's (`hyperliquidBookStep`).
       const mantissa = Number(book.mantissa), m = Number.isInteger(mantissa) ? mantissa : undefined;
-      const bounds = hyperliquidLevelBounds(price, side, sigFigs, m, hyperliquidSideStep(best, side, sigFigs, m));
+      const bounds = hyperliquidLevelBounds(price, side, sigFigs, m, hyperliquidBookStep(bestBid, bestAsk, sigFigs, m));
       return { lo: bounds.lower, hi: bounds.upper, coarse: true };
     } catch { /* fall through to a point level */ }
   }
@@ -89,7 +89,7 @@ export function valueBook(instrumentId: string, book: BookLike | null | undefine
   let coarse = false, bestBid = -Infinity, bestAsk = Infinity;
   for (const row of rows) { if (row.side === 'bid') bestBid = Math.max(bestBid, row.price); else bestAsk = Math.min(bestAsk, row.price); }
   for (const row of rows) {
-    const b = band(row.price, book, row.side, row.side === 'bid' ? bestBid : bestAsk);
+    const b = band(row.price, book, row.side, bestBid, bestAsk);
     coarse ||= b.coarse;
     const side = sides[row.side];
     side.lo.push(b.lo); side.hi.push(b.hi); side.usd.push(row.notionalUsd);

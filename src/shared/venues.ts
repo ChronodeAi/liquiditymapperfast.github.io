@@ -1,6 +1,6 @@
 import { BinanceDiffDepthConnector, BookConnector, type Market } from './connector.ts';
 import { BTC, EARLIER_BROWSER_VENUES, type Coin, type MarketVenue } from './coins.ts';
-import { hyperliquidLevelBounds, hyperliquidSideStep } from '../analytics/hyperliquid-bounds.mts';
+import { hyperliquidBookStep, hyperliquidLevelBounds } from '../analytics/hyperliquid-bounds.mts';
 
 /**
  * The venues the browser connects to itself: public order-book and trade feeds for one coin (BTC unless the page was opened on another).
@@ -349,12 +349,13 @@ export class DeribitConnector extends MarketBook {
   protected override usdOf(price: number, size: number) { return this.market.inverse ? size : price * size; }
   onMessage(text: string) {
     const m = this.record(JSON.parse(text)); const params = this.record(m?.params); if (!params) return;
+    // Only this instrument's channels: another one's book or trades would put its prices here.
     const channel = String(params.channel ?? '');
-    if (channel.startsWith('book.')) {
+    if (channel.startsWith(`book.${this.symbol}.`)) {
       const d = this.record(params.data); if (!d) return;
       this.replace(this.bids, this.rows(d.bids)); this.replace(this.asks, this.rows(d.asks)); this.touch(); return;
     }
-    if (channel.startsWith('trades.')) {
+    if (channel.startsWith(`trades.${this.symbol}.`)) {
       /** The forced fills of this frame, one entry per forced order (its fills share a time and a side). */
       const forced = new Map<string, { t: number; side: 'long' | 'short'; coins: number; usd: number }>();
       for (const item of Array.isArray(params.data) ? params.data : []) {
@@ -396,9 +397,9 @@ export class HyperliquidConnector extends MarketBook {
   /** The instrument is named as the server names it (BTC-PERP); the market's own name for the coin is what it subscribes with. */
   override get symbol(): string { return `${this.market.symbol}-PERP`; }
   protected override get coarse() { return true; }
-  /** One step for a whole side, its best level's (`hyperliquidSideStep`). */
-  protected override band(price: number, side: 'bid' | 'ask', best: number) {
-    try { const b = hyperliquidLevelBounds(price, side, HL_SIG_FIGS, undefined, hyperliquidSideStep(best, side, HL_SIG_FIGS)); return { lo: b.lower, hi: b.upper }; } catch { return { lo: price, hi: price }; }
+  /** One step for the whole book, its best bid's (`hyperliquidBookStep`). */
+  protected override band(price: number, side: 'bid' | 'ask', touch: { bid: number; ask: number }) {
+    try { const b = hyperliquidLevelBounds(price, side, HL_SIG_FIGS, undefined, hyperliquidBookStep(touch.bid, touch.ask, HL_SIG_FIGS)); return { lo: b.lower, hi: b.upper }; } catch { return { lo: price, hi: price }; }
   }
   protected url() { return 'wss://api.hyperliquid.xyz/ws'; }
   protected open(send: (p: unknown) => void) {
@@ -409,14 +410,16 @@ export class HyperliquidConnector extends MarketBook {
   onMessage(text: string) {
     const m = this.record(JSON.parse(text)); if (!m) return;
     if (m.channel === 'l2Book') {
-      const levels = this.record(m.data)?.levels;
+      // Only this coin's book and trades: another coin's frame would put its prices into this book (and its trades into where it is split).
+      const data = this.record(m.data); if (!data || data.coin !== this.market.symbol) return;
+      const levels = data.levels;
       if (!Array.isArray(levels) || levels.length < 2) return;
       const side = (rows: unknown): [number, number][] => Array.isArray(rows) ? rows.flatMap(r => { const d = this.record(r); return d ? [[num(d.px), num(d.sz)] as [number, number]] : []; }).filter(([p, q]) => p > 0 && q >= 0) : [];
       this.replace(this.bids, side(levels[0])); this.replace(this.asks, side(levels[1])); this.touch(); return;
     }
     if (m.channel === 'trades') {
       for (const item of Array.isArray(m.data) ? m.data : []) {
-        const d = this.record(item); if (!d) continue;
+        const d = this.record(item); if (!d || d.coin !== this.market.symbol) continue;
         const price = num(d.px), amount = num(d.sz), t = num(d.time), side = d.side === 'B' ? 'buy' : d.side === 'A' ? 'sell' : null;
         // The fills of one market order share its transaction hash (a batch of orders sent in one transaction shares it too: there is no
         // public taker order id); about one row in seven has an all-zero hash, which names nothing.

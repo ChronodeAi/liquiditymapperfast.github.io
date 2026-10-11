@@ -71,10 +71,10 @@ export function hyperliquidGroupingBoundsDecimal(price: number, nSigFigs: number
 }
 
 /**
- * The step of one side of a grouped Hyperliquid book: one step for the whole side, the step at its best level. SOL's bids at three
- * significant figures run 109, 108, ..., 100, 99, ..., 90, a dollar apart, and at two the bid named 90 holds [90, 100) (measured
- * 2026-10-11), so a level past a power of ten keeps the step of the best one. A best ask named on a power of ten (100,000) holds the prices
- * just below it, whose step is a tenth of its own.
+ * The step a grouped Hyperliquid side has when `best` is its best level: one step for the whole side. SOL's bids at three significant
+ * figures run 109, 108, ..., 100, 99, ..., 90, a dollar apart, and at two the bid named 90 holds [90, 100) (measured 2026-10-11), so a
+ * level past a power of ten keeps the step of the best one. A best ask named on a power of ten (100,000) holds the prices just below it,
+ * whose step is a tenth of its own. A whole book takes its best bid's (`hyperliquidBookStep`).
  */
 export function hyperliquidSideStep(best: number, side: 'bid' | 'ask', nSigFigs: number, mantissa?: number | null): number {
   const own = hyperliquidGroupingBoundsDecimal(best, nSigFigs, mantissa);
@@ -84,9 +84,18 @@ export function hyperliquidSideStep(best: number, side: 'bid' | 'ask', nSigFigs:
 }
 
 /**
- * The group a level of a grouped Hyperliquid side holds, given the side's step (`hyperliquidSideStep` of its best level; a level alone is
- * its own best). Bids are named by the group's lower edge, [P, P + step); asks by its upper edge, (P - step, P]: the finer groups add up to
- * a coarser one exactly that way (BTC, ETH, SOL, measured 2026-10-11). Counted in whole units of the finest decimal, never by shifting the
+ * The step of a grouped Hyperliquid book: one for both sides, the best bid's. The asks follow the bids even past a power of ten (a book
+ * at 0.999 / 1.0009 lists asks 1.001, 1.003, 1.004 at three significant figures, a thousandth apart, measured 2026-10-11). A book with
+ * no bids takes its best ask's (`hyperliquidSideStep`).
+ */
+export function hyperliquidBookStep(bestBid: number, bestAsk: number, nSigFigs: number, mantissa?: number | null): number {
+  return bestBid > 0 && Number.isFinite(bestBid) ? hyperliquidSideStep(bestBid, 'bid', nSigFigs, mantissa) : hyperliquidSideStep(bestAsk, 'ask', nSigFigs, mantissa);
+}
+
+/**
+ * The group a level of a grouped Hyperliquid book holds, given the book's step (`hyperliquidBookStep`; a level alone is the best of its
+ * side). Bids are named by the group's lower edge, [P, P + step); asks by its upper edge, (P - step, P]: the finer groups add up to a
+ * coarser one exactly that way (BTC, ETH, SOL, measured 2026-10-11). Counted in whole units of the finest decimal, never by shifting the
  * price (14.3 - 0.0001 is 14.299900000000001, whose digits overflow the scale).
  */
 export function hyperliquidLevelBounds(price: number, side: 'bid' | 'ask', nSigFigs: number, mantissa?: number | null, step = hyperliquidSideStep(price, side, nSigFigs, mantissa)): HyperliquidGroupingBounds {

@@ -41,6 +41,16 @@ test('bins add the books of the chosen instruments on the right side of the pric
   assert.equal(imbalanceOf(bookBins(null, new Set(), MARK, 0.01)), 0);
 });
 
+test("a grouped venue's band is spread over the bins it covers, and counts by the part on its own side of the price", () => {
+  // A $100 group of bids (five 20-dollar bins) and an ask group the mark cuts in two.
+  const band = (rows: [number, number, number][]) => ({ lo: Float64Array.from(rows.map(r => r[0])), hi: Float64Array.from(rows.map(r => r[1])), usd: Float64Array.from(rows.map(r => r[2])) });
+  const f: LevelsFrame = { asOf: 0, books: [{ id: 'hl:BTC', venue: 'hl', timestamp: 0, coarse: true, bids: band([[99_800, 99_900, 5_000_000]]), asks: band([[99_960, 100_060, 2_000_000]]) }] };
+  const bins = bookBins(f, new Set(['hl:BTC']), MARK, 0.01);
+  assert.equal(bins.bidTotal, 5_000_000);
+  assert.equal(biggest(bins).bid!.usd, 1_000_000, 'a fifth of the group in each bin, not all of it at its middle');
+  assert.ok(Math.abs(bins.askTotal - 1_200_000) < 1e-6, 'the 60 dollars of the ask group above the mark count (3/5 of it), the 40 below do not');
+});
+
 const wall = (usd: number, price = 99_900): LevelsFrame => frame([[price, usd], [99_000, 100_000]], [[100_100, 100_000]]);
 
 test('a wall that is there at the start is not news; one that appears later, after the book has settled, is', () => {

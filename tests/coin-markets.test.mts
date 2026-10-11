@@ -104,15 +104,21 @@ test('grouped books in the browser: a bid holds its group from its price up, an 
   hl.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2503.2', sz: '1', time: now, tid: 1, hash: '0x1' }] }));
   const traded = hl.valued(now)!;
   assert.deepEqual([traded.bids.hi[0], traded.asks.lo[0]], [2503.2, 2503.2]);
-  // And once that trade is over a minute old, the split goes back to the middle while the book is still fresh.
-  hl.lastUpdate = now + 61_000;
-  assert.deepEqual([hl.valued(now + 61_000)!.bids.hi[0]], [2505]);
-  // A trade older than a minute says nothing about where the touch is now.
-  const stale = new HyperliquidConnector({ coin: 'ETH', symbol: 'ETH', unit: 1 });
-  stale.state = 'connecting';
-  stale.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2503.2', sz: '1', time: now - 120_000, tid: 1, hash: '0x1' }] }));
-  stale.onMessage(msg({ channel: 'l2Book', data: levels }));
-  assert.equal(stale.valued(now)!.bids.hi[0], 2505);
+  // And once that trade is over ten seconds old, the split goes back to the middle while the book is still fresh.
+  hl.lastUpdate = now + 11_000;
+  assert.deepEqual([hl.valued(now + 11_000)!.bids.hi[0]], [2505]);
+  // Another coin's frames are not this book's (they would split it at a price from elsewhere), and a trade stamped an hour ahead (a bad
+  // clock) gives way to the next one instead of holding the split.
+  const other = new HyperliquidConnector({ coin: 'ETH', symbol: 'ETH', unit: 1 });
+  other.state = 'connecting';
+  other.onMessage(msg({ channel: 'trades', data: [{ coin: 'BTC', side: 'B', px: '2509', sz: '1', time: now, tid: 1, hash: '0x1' }] }));
+  other.onMessage(msg({ channel: 'l2Book', data: { ...levels, coin: 'BTC' } }));
+  assert.equal(other.valued(now), null, 'no book from a BTC frame');
+  other.onMessage(msg({ channel: 'l2Book', data: levels }));
+  assert.equal(other.valued(now)!.bids.hi[0], 2505, 'and no split at a BTC trade');
+  other.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2507', sz: '1', time: now + 3_600_000, tid: 2, hash: '0x2' }] }));
+  other.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2502', sz: '1', time: now, tid: 3, hash: '0x3' }] }));
+  assert.equal(other.valued(now)!.bids.hi[0], 2502);
   // A whole side has one step, its best level's: SOL's bids past 100 stay a dollar apart.
   const sol = new HyperliquidConnector({ coin: 'SOL', symbol: 'SOL', unit: 1 });
   sol.state = 'connecting';

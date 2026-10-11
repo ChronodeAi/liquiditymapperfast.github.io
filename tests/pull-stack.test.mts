@@ -81,6 +81,22 @@ test('rows the price reached between the snapshots are marked: the inside market
   assert.deepEqual(touched, [81_990, 82_000, 82_010, 82_020, 82_030, 82_040, 82_050, 82_060]);
 });
 
+test("a grouped book's top groups count as reached: a split that moved with the trades is not a pull or a stack", async () => {
+  const kernels = await loadWasm();
+  // A grouped venue whose shared top group [81,900, 82,000] was split at 81,960 and then at 81,980 (`splitTouch`), beside a point book.
+  const grouped = (cut: number): LiveBook => ({ ...book('hl:BTC', [[81_900, cut, 600], [81_800, 81_900, 300]], [[cut, 82_000, 400], [82_000, 82_100, 300]]), coarse: true });
+  const then = snapshot(kernels, frame(wide('a:BTC'), grouped(81_960)), BASE, MARK, 0, 1), now = snapshot(kernels, frame(wide('a:BTC'), grouped(81_980)), BASE, MARK, 60_000, 2);
+  const step = 10, bin0 = 8_180, n = 30; // 81,800 … 82,090
+  const rows = pullRows(then, now, [now], ['a:BTC', 'hl:BTC'], step, bin0, n)!;
+  const at = (price: number) => Math.floor(price / step) - bin0;
+  assert.ok(rows.bid[at(81_970)]! > 0 && rows.ask[at(81_970)]! < 0, 'the split moved liquidity between the sides there');
+  assert.equal(rows.touched[at(81_970)], 1, 'but the row lies in the grouped top group, so it is marked reached (drawn grey)');
+  assert.equal(rows.touched[at(81_890)], 0, 'below the top groups nothing changes');
+  const plain = (cut: number): LiveBook => ({ ...grouped(cut), coarse: false });
+  const asPoints = pullRows(snapshot(kernels, frame(wide('a:BTC'), plain(81_960)), BASE, MARK, 0, 1), snapshot(kernels, frame(wide('a:BTC'), plain(81_980)), BASE, MARK, 60_000, 2), [], ['a:BTC', 'hl:BTC'], step, bin0, n)!;
+  assert.equal(asPoints.touched[at(81_970)], 0, 'the same bands from a book that is not grouped are what they say');
+});
+
 test('the window fills before it shows, snapshots keep their spacing, a gap starts again, and a view is worked out once per snapshot', async () => {
   const kernels = await loadWasm();
   const h = new PullHistory(), f = frame(wide('a:BTC', [[81_950, 81_950, 100]]));

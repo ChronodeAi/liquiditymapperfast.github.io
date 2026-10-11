@@ -75,10 +75,11 @@ export abstract class BookConnector {
   #generation = 0; #connectAt = 0;
   #version = 0; #cachedVersion = -1; #cached: ValuedBook | null = null; #cachedAt = 0;
   /**
-   * The last trade on this socket (price as listed, and its own time): where a grouped book's shared top group is split (`splitTouch`); and
-   * the price the cached valuation was split at, so a newer trade (or one going stale) values the book again.
+   * The last trade on this socket (price as listed, its own time, and when it arrived here): where a grouped book's shared top group is
+   * split (`splitTouch`); and the price the cached valuation was split at, so a newer trade (or one going stale) values the book again.
+   * Freshness is judged by arrival, on this machine's clock, so an exchange clock a few seconds off does not hide every trade.
    */
-  #lastTrade: { price: number; t: number } | null = null;
+  #lastTrade: { price: number; t: number; at: number } | null = null;
   #cachedHint: number | undefined = undefined;
 
   get instrumentId(): string { return `${this.id}:${this.symbol}`; }
@@ -108,15 +109,16 @@ export abstract class BookConnector {
   /** USD value of `size` resting at `price`: base-coin sizes by default; venues that size in contracts or in USD override. */
   protected usdOf(price: number, size: number): number { return price * size; }
   /**
-   * Venues that publish aggregated price bands rather than ticks name the band a level of each side belongs to (`best`: the side's best
-   * price, for a venue that groups a whole side at one step); those books are never merged.
+   * Venues that publish aggregated price bands rather than ticks name the band a level of each side belongs to (`touch`: the book's best
+   * bid and ask as listed, for a venue that groups the whole book at one step); those books are never merged.
    */
   protected get coarse(): boolean { return false; }
-  protected band(_price: number, _side: 'bid' | 'ask', _best: number): { lo: number; hi: number } { return { lo: _price, hi: _price }; }
+  protected band(_price: number, _side: 'bid' | 'ask', _touch: { bid: number; ask: number }): { lo: number; hi: number } { return { lo: _price, hi: _price }; }
   /** Report a trade parsed from this venue's frames (price and amount as listed: they are converted to one coin here). */
   protected emitTrade(trade: Omit<TradeEvent, 'instrumentId'>): void {
-    const unit = this.unit;
-    if (trade.price > 0 && trade.t >= (this.#lastTrade?.t ?? -Infinity)) this.#lastTrade = { price: trade.price, t: trade.t };
+    const unit = this.unit, at = Date.now(), held = this.#lastTrade;
+    // The newest by its own time; one stamped well ahead of this machine's clock (a bad stamp) gives way to the next instead of holding on.
+    if (trade.price > 0 && (!held || trade.t >= held.t || held.t > at + TOUCH_HINT_MS)) this.#lastTrade = { price: trade.price, t: trade.t, at };
     this.onTrade({ instrumentId: this.instrumentId, ...trade, ...(unit === 1 ? {} : { price: trade.price / unit, amount: trade.amount * unit }) });
   }
 
@@ -155,7 +157,7 @@ export abstract class BookConnector {
     const socket = this.#socket; this.#socket = null; try { socket?.close(); } catch { /* already closed */ }
     this.#scheduleReconnect();
   }
-  protected reset(): void { this.bids.clear(); this.asks.clear(); this.#version++; }
+  protected reset(): void { this.bids.clear(); this.asks.clear(); this.#lastTrade = null; this.#version++; }
   protected touch(): void { this.lastUpdate = Date.now(); this.#version++; if (this.state === 'connecting') { this.state = 'live'; this.#attempt = 0; this.lastError = null; this.everLive = true; this.failures = 0; } }
   protected replace(side: Map<number, number>, levels: [number, number][]): void { side.clear(); for (const [p, q] of levels) if (q > 0) side.set(p, q); }
   protected apply(side: Map<number, number>, levels: [number, number][]): void { for (const [p, q] of levels) { if (q > 0) side.set(p, q); else side.delete(p); } }
@@ -202,16 +204,19 @@ export abstract class BookConnector {
   /** The current book in USD (price x base size, all venues here quote in USD or a USD stable), or null when not fresh and uncrossed. Prices are one coin's. */
   valued(now: number, gridStep?: number): ValuedBook | null {
     if (this.state !== 'live' || now - this.lastUpdate > this.silenceMs() + 10_000) return null;
-    const last = this.coarse ? this.#lastTrade : null, hint = last && Math.abs(now - last.t) <= TOUCH_HINT_MS ? last.price / this.unit : undefined;
+    const last = this.coarse ? this.#lastTrade : null, hint = last && Math.abs(now - last.at) <= TOUCH_HINT_MS ? last.price / this.unit : undefined;
     if (this.#cachedVersion === this.#version && this.#cachedHint === hint) return this.#cached;
     // A deep book changes on nearly every tick and costs a pass over every level; the map and ladder move slowly, so it is re-valued at most once a second.
     if (this.#cached && this.bids.size + this.asks.size >= DEEP_BOOK_LEVELS && now - this.#cachedAt < DEEP_BOOK_INTERVAL_MS) return this.#cached;
     this.#cachedVersion = this.#version; this.#cachedAt = now; this.#cachedHint = hint;
+    // A grouped book's bands depend on its touch (one step for the whole book, the best bid's): found once, before either side.
+    const touch = { bid: -Infinity, ask: Infinity };
+    if (this.coarse) { for (const p of this.bids.keys()) if (p > touch.bid) touch.bid = p; for (const p of this.asks.keys()) if (p < touch.ask) touch.ask = p; }
     const side = (map: Map<number, number>, descending: boolean): SideLevels => {
       const prices = [...map.keys()].sort((a, b) => descending ? b - a : a - b);
       const lo = new Float64Array(prices.length), hi = this.coarse ? new Float64Array(prices.length) : lo, usd = new Float64Array(prices.length);
-      const unit = this.unit, coarse = this.coarse, which = descending ? 'bid' : 'ask', best = prices[0]!;
-      prices.forEach((p, i) => { const b = coarse ? this.band(p, which, best) : null; lo[i] = (b ? b.lo : p) / unit; if (b) hi[i] = b.hi / unit; usd[i] = this.usdOf(p, map.get(p)!); });
+      const unit = this.unit, coarse = this.coarse, which = descending ? 'bid' : 'ask';
+      prices.forEach((p, i) => { const b = coarse ? this.band(p, which, touch) : null; lo[i] = (b ? b.lo : p) / unit; if (b) hi[i] = b.hi / unit; usd[i] = this.usdOf(p, map.get(p)!); });
       return { lo, hi, usd };
     };
     let bids = side(this.bids, true), asks = side(this.asks, false);
