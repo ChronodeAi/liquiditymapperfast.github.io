@@ -100,10 +100,13 @@ test('grouped books in the browser: a bid holds its group from its price up, an 
   const book = hl.valued(now)!;
   assert.deepEqual([[...book.bids.lo], [...book.bids.hi]], [[2500, 2490], [2505, 2500]]);
   assert.deepEqual([[...book.asks.lo], [...book.asks.hi]], [[2505, 2510], [2510, 2520]]);
+  // A trade alone (no new book) moves the split: the cached valuation knows which trade it was split at.
   hl.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2503.2', sz: '1', time: now, tid: 1, hash: '0x1' }] }));
-  hl.onMessage(msg({ channel: 'l2Book', data: levels }));
   const traded = hl.valued(now)!;
   assert.deepEqual([traded.bids.hi[0], traded.asks.lo[0]], [2503.2, 2503.2]);
+  // And once that trade is over a minute old, the split goes back to the middle while the book is still fresh.
+  hl.lastUpdate = now + 61_000;
+  assert.deepEqual([hl.valued(now + 61_000)!.bids.hi[0]], [2505]);
   // A trade older than a minute says nothing about where the touch is now.
   const stale = new HyperliquidConnector({ coin: 'ETH', symbol: 'ETH', unit: 1 });
   stale.state = 'connecting';

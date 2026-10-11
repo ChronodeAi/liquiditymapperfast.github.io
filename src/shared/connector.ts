@@ -74,8 +74,12 @@ export abstract class BookConnector {
   /** Bumped whenever a connection ends or a new one starts, so what an old connection left in flight (a REST snapshot, an open event) can tell it is stale. */
   #generation = 0; #connectAt = 0;
   #version = 0; #cachedVersion = -1; #cached: ValuedBook | null = null; #cachedAt = 0;
-  /** The last trade on this socket (price as listed, and its own time): where a grouped book's shared top group is split (`splitTouch`). */
+  /**
+   * The last trade on this socket (price as listed, and its own time): where a grouped book's shared top group is split (`splitTouch`); and
+   * the price the cached valuation was split at, so a newer trade (or one going stale) values the book again.
+   */
   #lastTrade: { price: number; t: number } | null = null;
+  #cachedHint: number | undefined = undefined;
 
   get instrumentId(): string { return `${this.id}:${this.symbol}`; }
   protected abstract url(): string;
@@ -198,10 +202,11 @@ export abstract class BookConnector {
   /** The current book in USD (price x base size, all venues here quote in USD or a USD stable), or null when not fresh and uncrossed. Prices are one coin's. */
   valued(now: number, gridStep?: number): ValuedBook | null {
     if (this.state !== 'live' || now - this.lastUpdate > this.silenceMs() + 10_000) return null;
-    if (this.#cachedVersion === this.#version) return this.#cached;
+    const last = this.coarse ? this.#lastTrade : null, hint = last && Math.abs(now - last.t) <= TOUCH_HINT_MS ? last.price / this.unit : undefined;
+    if (this.#cachedVersion === this.#version && this.#cachedHint === hint) return this.#cached;
     // A deep book changes on nearly every tick and costs a pass over every level; the map and ladder move slowly, so it is re-valued at most once a second.
     if (this.#cached && this.bids.size + this.asks.size >= DEEP_BOOK_LEVELS && now - this.#cachedAt < DEEP_BOOK_INTERVAL_MS) return this.#cached;
-    this.#cachedVersion = this.#version; this.#cachedAt = now;
+    this.#cachedVersion = this.#version; this.#cachedAt = now; this.#cachedHint = hint;
     const side = (map: Map<number, number>, descending: boolean): SideLevels => {
       const prices = [...map.keys()].sort((a, b) => descending ? b - a : a - b);
       const lo = new Float64Array(prices.length), hi = this.coarse ? new Float64Array(prices.length) : lo, usd = new Float64Array(prices.length);
@@ -212,8 +217,7 @@ export abstract class BookConnector {
     let bids = side(this.bids, true), asks = side(this.asks, false);
     if (this.coarse) {
       if (!bids.usd.length || !asks.usd.length) { this.#cached = null; return null; }
-      const last = this.#lastTrade;
-      ({ bids, asks } = splitTouch(bids, asks, last && Math.abs(now - last.t) <= TOUCH_HINT_MS ? last.price / this.unit : undefined));
+      ({ bids, asks } = splitTouch(bids, asks, hint));
       this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: true, bids, asks };
       return this.#cached;
     }

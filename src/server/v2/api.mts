@@ -116,8 +116,11 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   // Exchanges the feed manager has depth for but no trade feed: their trades come from the browser engine's connectors (see flow-sources.mts).
   const flowSources = new FlowSources(takeTrade, undefined, undefined, takeLiquidation);
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
-  /** Each venue's book as last valued, by the book object it was valued from: an update replaces the object, so an unchanged object is an unchanged book. */
-  const valued = new Map<string, { source: unknown; book: ValuedBook | null; at: number }>();
+  /**
+   * Each venue's book as last valued, by the book object it was valued from (an update replaces the object, so an unchanged object is an
+   * unchanged book) and, for a grouped book, the trade its shared top group was split at (`splitTouch`): a newer trade re-values it.
+   */
+  const valued = new Map<string, { source: unknown; touch: number | undefined; book: ValuedBook | null; at: number }>();
   /** Instruments whose book is crossed (a feed fault), so they are valued as nothing rather than drawn as false walls. */
   const degraded = new Map<string, string>();
   let levelsDirty = true;
@@ -138,17 +141,19 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       // key made of the stamp, the counts and the touch cannot see a change that leaves those alone (a venue with no stamp and a
       // settled book), and a quiet venue's fresh receipts never reached the valuation either.
       const cached = valued.get(id);
-      if (cached?.source === book) continue;
+      // Only a grouped book is split at the last trade (`splitTouch`), so only its valuation depends on the trades as well as the book.
+      const grouped = Number(book.nSigFigs) > 0 || Number(book.sourceGrouping) > 0, last = grouped ? lastPrice.get(id) : undefined;
+      const touch = last && Math.abs(now - last.at) <= TOUCH_HINT_MS ? last.price : undefined;
+      if (cached?.source === book && cached.touch === touch) continue;
       // A deep book (Coinbase holds tens of thousands of levels) changes on nearly every tick and costs a pass over every level; the
       // recorder samples every 5 s and the map and ladder move slowly, so re-value it at most once a second.
       if (cached && book.bids.length + book.asks.length >= DEEP_BOOK_LEVELS && now - cached.at < DEEP_BOOK_INTERVAL_MS) continue;
-      const last = lastPrice.get(id), touch = last && Math.abs(now - last.at) <= TOUCH_HINT_MS ? last.price : undefined;
       const value = valueBook(id, book, marketOf(id), now, recorder.steps.get(id), touch), cross = value ? crossedByBp(value) : 0;
       if (cross > MAX_CROSSED_BP) {
         if (!degraded.has(id)) console.warn(`${id}: book crossed by ${Math.round(cross)} bp, left off the map until it is consistent again`);
         degraded.set(id, `book crossed by ${Math.round(cross)} bp, left off the map`);
       } else if (value && degraded.delete(id)) console.warn(`${id}: book is consistent again`); // a gapped book (null) says nothing about whether it still crosses
-      valued.set(id, { source: book, book: cross > MAX_CROSSED_BP ? null : value, at: now });
+      valued.set(id, { source: book, touch, book: cross > MAX_CROSSED_BP ? null : value, at: now });
       levelsDirty = true;
     }
     for (const id of [...valued.keys()]) if (!live.has(id)) { valued.delete(id); degraded.delete(id); levelsDirty = true; }
