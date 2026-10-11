@@ -137,6 +137,13 @@ test('a tracked wall stays itself: a bigger wall close by does not take its plac
   for (let t = 0; t <= 12_000; t += 2_000) step(t, 1_000_000);
   step(14_000, 30_000_000); step(16_000, 30_000_000); step(18_000, 30_000_000); step(20_000, 30_000_000);
   assert.deepEqual([9_000_000, 4_000_000].map((usd, k) => step(22_000 + k * 2_000, usd).map(x => [x.kind, x.usd])), [[], [['pulled', 30_000_000]]]);
+  // Shrunk under the threshold and then moved a bin, unchanged: the same wall (what it held at the last look moved), not a pull.
+  const m = new WallWatch(), go = (t: number, f: LevelsFrame) => m.update(t, bookBins(f, ids, MARK, 0.01), MARK, 10_000_000);
+  for (let t = 0; t <= 12_000; t += 2_000) go(t, two(null, null));
+  go(14_000, two([99_900, 25_000_000], null)); go(16_000, two([99_900, 25_000_000], null)); go(18_000, two([99_900, 25_000_000], null)); go(20_000, two([99_900, 25_000_000], null));
+  assert.deepEqual(go(22_000, two([99_900, 9_000_000], null)), []);
+  assert.deepEqual(go(24_000, two([99_920, 9_000_000], null)), [], 'it moved');
+  assert.deepEqual(go(26_000, two([99_920, 1_000_000], null)).map(x => [x.kind, x.usd]), [['pulled', 25_000_000]], 'and when it goes, it is judged against the size it stood at');
 });
 
 test('the balance only watches while the book is arriving: a lopsided book found then is not news', () => {

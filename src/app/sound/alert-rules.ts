@@ -100,7 +100,11 @@ export interface WallSignal { kind: 'appeared' | 'pulled'; side: 'buy' | 'sell';
 export class WallWatch {
   #start = -1;
   #armed = { buy: false, sell: false };
-  #stood: { buy: (Wall & { since: number }) | null; sell: (Wall & { since: number }) | null } = { buy: null, sell: null };
+  /**
+   * The wall each side is following: `usd` its size while it was last a wall (what a pull is judged against), `seen` its size at the last
+   * look (what a move must carry), `since` when it was first seen.
+   */
+  #stood: { buy: (Wall & { seen: number; since: number }) | null; sell: (Wall & { seen: number; since: number }) | null } = { buy: null, sell: null };
   /** What the bins were made of last time (the books they came from): a change in it is not a change in the book. */
   #context = '';
   /** The width of the bins last time: walls are remembered by the bin they stood in, so another width is another grid. */
@@ -141,16 +145,17 @@ export class WallWatch {
         if (binLo < bins.lo || binHi > bins.hi) this.#stood[side] = null;
         else {
           const here = map.get(bin0) ?? 0;
-          // Still where it stood (whatever else the side holds). Its size follows the bin only while it is still a wall: one taken down in
-          // steps keeps the size it stood at, so the steps add up to a pull.
-          if (here >= stood.usd * 0.3) { if (here >= minUsd) this.#stood[side] = { ...stood, usd: here }; }
+          // Still where it stood (whatever else the side holds). The size a pull is judged against follows the bin only while it is still a
+          // wall: one taken down in steps keeps the size it stood at, so the steps add up to a pull.
+          if (here >= stood.usd * 0.3) this.#stood[side] = { ...stood, seen: here, usd: here >= minUsd ? here : stood.usd };
           else {
-            // It left its bin. It moved if a bin within three of it gained about as much since the look before (a wall that was already there,
-            // however big, is another wall): the same wall, keeping how long it has stood.
+            // It left its bin. It moved if a bin within three of it gained about what it held at the look before (a wall that was already
+            // there, however big, is another wall): the same wall, keeping how long it has stood and the size a pull is judged against.
             const before = this.#before[side];
             let dest = 0, gain = 0;
             for (let b = bin0 - 3; b <= bin0 + 3; b++) { const g = (map.get(b) ?? 0) - (before.get(b) ?? 0); if (b !== bin0 && g > gain) { dest = b; gain = g; } }
-            if (gain >= stood.usd * 0.6) this.#stood[side] = { price: (dest + 0.5) * bins.bin, usd: map.get(dest)!, since: stood.since };
+            const there = map.get(dest) ?? 0;
+            if (gain > 0 && gain >= stood.seen * 0.6) this.#stood[side] = { price: (dest + 0.5) * bins.bin, seen: there, usd: there >= minUsd ? there : stood.usd, since: stood.since };
             else {
               // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached its bin
               // (within 4 bp, judged on the bin's edges: at a small price a bin's middle can be bp away from a price inside it) or passed
@@ -167,8 +172,8 @@ export class WallWatch {
       if (wall && wall.usd >= minUsd) {
         // A wall seen while the book is still arriving is part of the book, not news: taken as standing, never announced later.
         if (!warm) this.#armed[side] = false;
-        if (this.#armed[side]) { out.push({ kind: 'appeared', side, price: wall.price, usd: wall.usd }); this.#armed[side] = false; this.#stood[side] = { ...wall, since: now }; }
-        else if (!standing) this.#stood[side] = { ...wall, since: now };
+        if (this.#armed[side]) { out.push({ kind: 'appeared', side, price: wall.price, usd: wall.usd }); this.#armed[side] = false; this.#stood[side] = { ...wall, seen: wall.usd, since: now }; }
+        else if (!standing) this.#stood[side] = { ...wall, seen: wall.usd, since: now };
         continue;
       }
       if (!wall || wall.usd < minUsd * 0.6) this.#armed[side] = true;
