@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DepthRecorder, COLUMN_MS, KEEP_ALWAYS, MIN_BIN_USD, RETENTION_MS, SAMPLE_MS, accumulateSide, gridStepFor, type Column, type ColumnStore } from '../src/server/v2/recorder.mts';
 import { valueBook, type ValuedBook, type SideLevels } from '../src/server/v2/levels.mts';
 import { encodeColumns, encodeLevels } from '../src/server/v2/wire.mts';
+import { decodeLevels } from '../src/app/wire.ts';
 import { aggregateCandles, aggregateOi, withLiveOi } from '../src/server/v2/series.mts';
 import { SqliteColumnStore } from '../src/server/v2/store.mts';
 import { FootprintRecorder } from '../src/server/v2/footprint.mts';
@@ -126,6 +127,11 @@ test('valueBook converts contracts to USD and gives grouped levels their group: 
   // A crossed grouped book (a bid group wholly above the ask group) has no shared group: nothing is moved.
   const crossed = valueBook('hyperliquid:BTC-PERP', { bids: [[85_300, 1]], asks: [[85_200, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_250)!;
   assert.deepEqual([crossed.bids.lo[0], crossed.bids.hi[0], crossed.asks.lo[0], crossed.asks.hi[0]], [85_300, 85_400, 85_100, 85_200]);
+  // The top groups as reported travel with the book (and through the wire), for readers that compare the book over time.
+  assert.deepEqual(near.touch, { lo: 85_100, hi: 85_200 });
+  const wire = encodeLevels([near, okx], T0);
+  assert.deepEqual(decodeLevels(wire.buffer.slice(wire.byteOffset, wire.byteOffset + wire.byteLength) as ArrayBuffer).books.map(b => b.touch), [{ lo: 85_100, hi: 85_200 }, undefined]);
+  assert.equal(crossed.touch, undefined, 'a crossed grouped book has no shared group');
   const outside = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_250)!;
   assert.deepEqual([outside.bids.hi[0], outside.asks.lo[0], outside.asks.hi[0]], [85_150, 85_150, 85_200], 'a trade outside the shared group: split at its middle');
   // An ask named on a power of ten holds the prices just below it, a tenth of its own step wide.

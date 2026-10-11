@@ -32,7 +32,7 @@ export function binsPerRow(step: number, base: number): number {
 /** One venue's book at one moment on the base grid: the bins its book covers (inside the reach), the price range it reached, its best prices. */
 export interface VenueSnap {
   bin0: number; bid: Float32Array; ask: Float32Array; cover: Cover; bestBid: number; bestAsk: number;
-  /** A grouped book's top bid and ask groups, from the bid group's low to the ask group's high: where its touch may be. */
+  /** A grouped book's top bid and ask groups as reported (`ValuedBook.touch`): where its touch may be. */
   touchSpan?: { lo: number; hi: number };
 }
 export interface BookSnap {
@@ -53,13 +53,11 @@ export function snapshot(kernels: Kernels, frame: LevelsFrame, base: number, mar
     if (!book || !cover) return;
     const lo = Math.max(0, Math.floor(cover.lo / base) - g.bin0), hi = Math.min(g.nBins - 1, Math.floor(cover.hi / base) - g.bin0);
     if (hi < lo) return;
-    let bestBid = -Infinity, bestAsk = Infinity, topBidLo = Infinity, topAskHi = -Infinity;
-    for (let i = 0; i < book.bids.usd.length; i++) if (book.bids.usd[i]! > 0 && book.bids.hi[i]! > bestBid) { bestBid = book.bids.hi[i]!; topBidLo = book.bids.lo[i]!; }
-    for (let i = 0; i < book.asks.usd.length; i++) if (book.asks.usd[i]! > 0 && book.asks.lo[i]! < bestAsk) { bestAsk = book.asks.lo[i]!; topAskHi = book.asks.hi[i]!; }
-    // A grouped book's touch is somewhere inside its top groups (split between bids and asks at an estimate, `splitTouch`): the whole of
-    // them counts as reached, so a split that moves with the trades is not read as liquidity pulled or stacked.
-    const touchSpan = book.coarse && topBidLo <= topAskHi ? { lo: topBidLo, hi: topAskHi } : undefined;
-    venues.set(id, { bin0: g.bin0 + lo, bid: g.bid[k]!.slice(lo, hi + 1), ask: g.ask[k]!.slice(lo, hi + 1), cover, bestBid, bestAsk, ...(touchSpan ? { touchSpan } : {}) });
+    let bestBid = -Infinity, bestAsk = Infinity;
+    for (let i = 0; i < book.bids.usd.length; i++) if (book.bids.usd[i]! > 0 && book.bids.hi[i]! > bestBid) bestBid = book.bids.hi[i]!;
+    for (let i = 0; i < book.asks.usd.length; i++) if (book.asks.usd[i]! > 0 && book.asks.lo[i]! < bestAsk) bestAsk = book.asks.lo[i]!;
+    // A grouped book's top groups are split between bids and asks at an estimate (`splitTouch`): kept so its change there is not counted.
+    venues.set(id, { bin0: g.bin0 + lo, bid: g.bid[k]!.slice(lo, hi + 1), ask: g.ask[k]!.slice(lo, hi + 1), cover, bestBid, bestAsk, ...(book.touch ? { touchSpan: book.touch } : {}) });
   });
   return { seq, t, base, venues, markLo: Math.min(markLo, mark), markHi: Math.max(markHi, mark) };
 }
@@ -78,6 +76,8 @@ function binSum(v: VenueSnap, side: 'bid' | 'ask', b0: number, b1: number): numb
 
 /** Whether the row [lo, hi) lies wholly inside the price range a book reached (a row holding the book's last price is left out: it may be cut). */
 const inside = (cover: Cover, lo: number, hi: number): boolean => lo >= cover.lo && hi <= cover.hi;
+/** Whether the row [lo, hi) reaches into a grouped venue's top-group span. */
+const overlaps = (span: VenueSnap['touchSpan'], lo: number, hi: number): boolean => span !== undefined && hi > span.lo && lo < span.hi;
 
 /**
  * The change at rows [bin0, bin0 + n) of `step` from `then` to `now` over the venues `ids`; `between` is every snapshot after `then` up to
@@ -93,6 +93,9 @@ export function pullRows(then: BookSnap, now: BookSnap, between: readonly BookSn
     for (let j = 0; j < n; j++) {
       const lo = (bin0 + j) * step, hi = lo + step;
       if (!inside(a.cover, lo, hi) || !inside(b.cover, lo, hi)) continue;
+      // A grouped venue's own top groups are split between bids and asks at an estimate that moves with the trades (`splitTouch`): what
+      // changed there is not known, so that venue does not count in those rows (the other venues still do).
+      if (overlaps(a.touchSpan, lo, hi) || overlaps(b.touchSpan, lo, hi)) continue;
       const b0 = (bin0 + j) * k, b1 = b0 + k - 1;
       const db = binSum(b, 'bid', b0, b1) - binSum(a, 'bid', b0, b1), da = binSum(b, 'ask', b0, b1) - binSum(a, 'ask', b0, b1);
       if (db === db) bid[j] = (bid[j]! === bid[j]! ? bid[j]! : 0) + db;
@@ -103,11 +106,7 @@ export function pullRows(then: BookSnap, now: BookSnap, between: readonly BookSn
   let lo = Infinity, hi = -Infinity;
   for (const s of [then, ...between]) {
     let bestBid = -Infinity, bestAsk = Infinity;
-    for (const id of ids) {
-      const v = s.venues.get(id); if (!v) continue;
-      bestBid = Math.max(bestBid, v.bestBid); bestAsk = Math.min(bestAsk, v.bestAsk);
-      if (v.touchSpan) { lo = Math.min(lo, v.touchSpan.lo); hi = Math.max(hi, v.touchSpan.hi); }
-    }
+    for (const id of ids) { const v = s.venues.get(id); if (v) { bestBid = Math.max(bestBid, v.bestBid); bestAsk = Math.min(bestAsk, v.bestAsk); } }
     if (s !== then) { lo = Math.min(lo, s.markLo); hi = Math.max(hi, s.markHi); }
     if (bestBid > -Infinity) lo = Math.min(lo, bestBid);
     if (bestAsk < Infinity) hi = Math.max(hi, bestAsk);

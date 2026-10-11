@@ -90,6 +90,16 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   const liquidations = new LiquidationStream(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
   /** Each instrument's last traded price and when it came: where a liquidation reported at its bankruptcy price is drawn. */
   const lastPrice = new Map<string, { price: number; at: number }>(); // `at` is the trade's own time, the clock a liquidation's time is on
+  /**
+   * Each instrument's newest trade that says where its touch is now (`splitTouch`): stamped within the window of its arrival (the recent
+   * trades a venue sends again on a reconnect arrive now but happened before, and a stamp far ahead is a bad clock), aged by arrival on this
+   * machine's clock (`at`), so an exchange clock a few seconds off does not stop the split from following the trades.
+   */
+  const touchHints = new Map<string, { price: number; t: number; at: number }>();
+  const noteTouch = (id: string, price: number, t: number, at: number): void => {
+    const held = touchHints.get(id);
+    if (price > 0 && Math.abs(at - t) <= TOUCH_HINT_MS && (!held || t >= held.t)) touchHints.set(id, { price, t, at });
+  };
   const flow = new FlowRecorder(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
   /** How far the recordings reach (read now, before any trade): what a venue sends again after a restart is not counted twice. */
   const recorded = new RecordedBefore(flow, footprint);
@@ -107,6 +117,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   // The connector venues carry their own trades: the flow column, the footprint and the large-trade bubbles count them like the feed manager's.
   const takeTrade = (trade: import('../../shared/connector.ts').TradeEvent): void => {
     if (trade.t >= (lastPrice.get(trade.instrumentId)?.at ?? -Infinity)) lastPrice.set(trade.instrumentId, { price: trade.price, at: trade.t });
+    noteTouch(trade.instrumentId, trade.price, trade.t, Date.now());
     if (recorded.holds(trade.instrumentId, trade.t)) return;
     const row = { instrumentId: trade.instrumentId, tradeId: trade.tradeId, side: trade.side, price: trade.price, notionalUsd: trade.notionalUsd, sourceTimestamp: trade.t };
     footprint.ingest([row]); flow.ingest([row]); detect(orders.add([{ ...row, order: trade.order }]));
@@ -142,8 +153,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       // settled book), and a quiet venue's fresh receipts never reached the valuation either.
       const cached = valued.get(id);
       // Only a grouped book is split at the last trade (`splitTouch`), so only its valuation depends on the trades as well as the book.
-      const grouped = Number(book.nSigFigs) > 0 || Number(book.sourceGrouping) > 0, last = grouped ? lastPrice.get(id) : undefined;
-      const touch = last && Math.abs(now - last.at) <= TOUCH_HINT_MS ? last.price : undefined;
+      const grouped = Number(book.nSigFigs) > 0 || Number(book.sourceGrouping) > 0, last = grouped ? touchHints.get(id) : undefined;
+      const touch = last && now - last.at <= TOUCH_HINT_MS ? last.price : undefined;
       if (cached?.source === book && cached.touch === touch) continue;
       // A deep book (Coinbase holds tens of thousands of levels) changes on nearly every tick and costs a pass over every level; the
       // recorder samples every 5 s and the map and ladder move slowly, so re-value it at most once a second.
@@ -177,6 +188,13 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
   const tick = (): void => {
     const now = Date.now();
+    // The trades first: the books valued next are split at the newest of them.
+    for (const trade of app.state.trades ?? []) {
+      const price = Number(trade.price), at = Number(trade.sourceTimestamp ?? trade.receivedAt), id = String(trade.instrumentId ?? '');
+      if (price > 0 && id && Number.isFinite(at) && at >= (lastPrice.get(id)?.at ?? -Infinity)) lastPrice.set(id, { price, at });
+      const received = Number(trade.receivedAt);
+      if (price > 0 && id && Number.isFinite(at)) noteTouch(id, price, at, Number.isFinite(received) ? received : now);
+    }
     refreshBooks(now);
     if (extra.enabledCount > 0) levelsDirty = true;
     const books = liveBooks(now), members = membersOf(books);
@@ -184,10 +202,6 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     // is an empty frame), or a client would draw liquidity that is no longer there while the heartbeats go on.
     if (members !== lastMembers) { lastMembers = members; levelsDirty = true; }
     if (now - lastSample >= SAMPLE_MS) { lastSample = now; recorder.sample(books, now); }
-    for (const trade of app.state.trades ?? []) {
-      const price = Number(trade.price), at = Number(trade.sourceTimestamp ?? trade.receivedAt), id = String(trade.instrumentId ?? '');
-      if (price > 0 && id && Number.isFinite(at) && at >= (lastPrice.get(id)?.at ?? -Infinity)) lastPrice.set(id, { price, at });
-    }
     const trades = unrecorded(app.state.trades ?? []);
     footprint.ingest(trades);
     flow.ingest(trades);

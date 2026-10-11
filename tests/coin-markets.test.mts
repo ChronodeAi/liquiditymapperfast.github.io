@@ -116,6 +116,10 @@ test('grouped books in the browser: a bid holds its group from its price up, an 
   assert.equal(other.valued(now), null, 'no book from a BTC frame');
   other.onMessage(msg({ channel: 'l2Book', data: levels }));
   assert.equal(other.valued(now)!.bids.hi[0], 2505, 'and no split at a BTC trade');
+  assert.deepEqual(other.valued(now)!.touch, { lo: 2500, hi: 2510 }, 'the top groups as reported, for readers that compare over time');
+  // A trade a venue sends again on a reconnect arrives now but happened a minute ago: it says nothing about the touch now.
+  other.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2503', sz: '1', time: now - 60_000, tid: 4, hash: '0x4' }] }));
+  assert.equal(other.valued(now)!.bids.hi[0], 2505);
   other.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2507', sz: '1', time: now + 3_600_000, tid: 2, hash: '0x2' }] }));
   other.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2502', sz: '1', time: now, tid: 3, hash: '0x3' }] }));
   assert.equal(other.valued(now)!.bids.hi[0], 2502);

@@ -1,5 +1,6 @@
 import type { LevelsFrame } from '../wire.ts';
 import { gridStepFor } from '../../shared/grid.ts';
+import { inTouch } from '../../shared/levels.ts';
 
 /**
  * The decisions behind the panel sounds, with no audio and no DOM: each is a small state machine fed a reading at a time, so a test
@@ -50,7 +51,10 @@ export function bookBins(frame: LevelsFrame | null, ids: ReadonlySet<string>, ma
       const n = Math.min(side.lo.length, side.hi.length, side.usd.length), isBid = map === out.bid;
       const add = (b: number, usd: number) => { map.set(b, (map.get(b) ?? 0) + usd); out[key] += usd; };
       for (let i = 0; i < n; i++) {
-        const usd = side.usd[i]!, l = side.lo[i]!, h = side.hi[i]!;
+        const usd = side.usd[i]!;
+        // A grouped venue's top groups are spread over their whole span (`ValuedBook.touch`), not the part a split at an estimate of the
+        // touch gave them: a split that moves with the trades would otherwise squeeze a group into fewer bins and sound as a wall.
+        const whole = inTouch(book.touch, side.lo[i]!, side.hi[i]!), l = whole ? book.touch!.lo : side.lo[i]!, h = whole ? book.touch!.hi : side.hi[i]!;
         if (!(usd > 0)) continue;
         if (!(h > l)) {
           // Bids count below the mark and asks above it: a crossed or stale level on the wrong side is not liquidity.

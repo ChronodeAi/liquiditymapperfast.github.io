@@ -14,6 +14,12 @@ export interface ValuedBook {
   coarse: boolean;
   bids: SideLevels;
   asks: SideLevels;
+  /**
+   * A grouped book's top bid and ask groups as the venue reports them, before `splitTouch` divided them between the sides at an estimate
+   * of the touch: where the touch may be. A reader that compares the book over time spreads both over this span, since a split that moves
+   * with the trades is not liquidity coming or going.
+   */
+  touch?: { lo: number; hi: number };
 }
 /** A single venue's book crossed by more than this many basis points is a feed fault, not a market state. */
 export const MAX_CROSSED_BP = 5;
@@ -29,9 +35,10 @@ export const TOUCH_HINT_MS = 10_000;
  * bid group and the top ask group are the same price interval ([P, P + step) on Hyperliquid). Bids rest below the venue's price and asks
  * above it: the shared interval is split there, at `price` (the venue's last trade, when fresh and inside the interval) or else at the
  * interval's middle, so no reader sees bids above asks. The cut stays an eighth of the interval from either edge: a trade on the edge
- * would squeeze one side's whole group into a single price, a wall that is not there. Returns the sides unchanged when they do not overlap.
+ * would squeeze one side's whole group into a single price, a wall that is not there. Returns the sides unchanged when they do not overlap;
+ * when they do, also the span of the two top groups (`ValuedBook.touch`).
  */
-export function splitTouch(bids: SideLevels, asks: SideLevels, price?: number): { bids: SideLevels; asks: SideLevels } {
+export function splitTouch(bids: SideLevels, asks: SideLevels, price?: number): { bids: SideLevels; asks: SideLevels; touch?: { lo: number; hi: number } } {
   let bidTop = -Infinity, bidTopLo = Infinity, askBottom = Infinity, askBottomHi = -Infinity;
   for (let i = 0; i < bids.hi.length; i++) if (bids.hi[i]! > bidTop) { bidTop = bids.hi[i]!; bidTopLo = bids.lo[i]!; }
   for (let i = 0; i < asks.lo.length; i++) if (asks.lo[i]! < askBottom) { askBottom = asks.lo[i]!; askBottomHi = asks.hi[i]!; }
@@ -48,8 +55,14 @@ export function splitTouch(bids: SideLevels, asks: SideLevels, price?: number): 
     }
     return { lo, hi, usd: side.usd };
   };
-  return { bids: clip(bids, true), asks: clip(asks, false) };
+  return { bids: clip(bids, true), asks: clip(asks, false), touch: { lo: Math.min(bidTopLo, askBottom), hi: Math.max(bidTop, askBottomHi) } };
 }
+
+/**
+ * Whether a level lies inside a grouped book's top-group span (`ValuedBook.touch`), so a reader comparing the book over time spreads it over
+ * the whole span: it is part of a group whose division between bids and asks is only an estimate.
+ */
+export const inTouch = (touch: ValuedBook['touch'], lo: number, hi: number): touch is { lo: number; hi: number } => touch !== undefined && lo >= touch.lo && hi <= touch.hi && hi > lo;
 
 /**
  * How far the best bid sits above the best ask, in basis points (0 when the book is not crossed or a side is empty). It reads the extremes,

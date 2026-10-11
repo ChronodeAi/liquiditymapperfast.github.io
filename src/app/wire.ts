@@ -6,7 +6,8 @@ interface PartSpec { kind: PartKind; offset: number; length: number }
 interface FrameHeader { type: string; parts: PartSpec[] }
 
 export interface SideArrays { lo: Float64Array; hi: Float64Array; usd: Float64Array }
-export interface LiveBook { id: string; venue: string; timestamp: number; coarse: boolean; bids: SideArrays; asks: SideArrays }
+/** `touch`: a grouped book's top-group span, where its touch may be (`ValuedBook.touch`). */
+export interface LiveBook { id: string; venue: string; timestamp: number; coarse: boolean; bids: SideArrays; asks: SideArrays; touch?: { lo: number; hi: number } }
 export interface LevelsFrame { asOf: number; books: LiveBook[] }
 
 function open(buffer: ArrayBuffer): { header: FrameHeader & Record<string, unknown>; part(index: number): Float64Array | Float32Array | Int32Array } {
@@ -39,7 +40,13 @@ export function decodeColumns(buffer: ArrayBuffer): ColumnsFrame {
 export function decodeLevels(buffer: ArrayBuffer): LevelsFrame {
   const { header, part } = open(buffer);
   if (header.type !== 'levels') throw new Error(`Expected a levels frame, got ${header.type}`);
-  const raw = header.instruments as { id: string; venue: string; timestamp: number; coarse: boolean }[];
+  const raw = header.instruments as { id: string; venue: string; timestamp: number; coarse: boolean; touch?: unknown }[];
   const side = (at: number): SideArrays => ({ lo: part(at) as Float64Array, hi: part(at + 1) as Float64Array, usd: part(at + 2) as Float64Array });
-  return { asOf: Number(header.asOf), books: raw.map((item, i) => ({ id: item.id, venue: item.venue, timestamp: item.timestamp, coarse: item.coarse, bids: side(i * 6), asks: side(i * 6 + 3) })) };
+  // A touch span is taken only when it is two ordered finite prices (an older server sends none).
+  const touchOf = (value: unknown): { lo: number; hi: number } | undefined =>
+    Array.isArray(value) && value.length === 2 && Number.isFinite(value[0]) && Number.isFinite(value[1]) && value[1] > value[0] ? { lo: value[0], hi: value[1] } : undefined;
+  return { asOf: Number(header.asOf), books: raw.map((item, i) => {
+    const touch = touchOf(item.touch);
+    return { id: item.id, venue: item.venue, timestamp: item.timestamp, coarse: item.coarse, bids: side(i * 6), asks: side(i * 6 + 3), ...(touch ? { touch } : {}) };
+  }) };
 }

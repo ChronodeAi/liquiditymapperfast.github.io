@@ -77,7 +77,8 @@ export abstract class BookConnector {
   /**
    * The last trade on this socket (price as listed, its own time, and when it arrived here): where a grouped book's shared top group is
    * split (`splitTouch`); and the price the cached valuation was split at, so a newer trade (or one going stale) values the book again.
-   * Freshness is judged by arrival, on this machine's clock, so an exchange clock a few seconds off does not hide every trade.
+   * It ages by arrival, on this machine's clock; an exchange clock more than the window off leaves no trade to use (the split falls back to
+   * the group's middle).
    */
   #lastTrade: { price: number; t: number; at: number } | null = null;
   #cachedHint: number | undefined = undefined;
@@ -117,8 +118,9 @@ export abstract class BookConnector {
   /** Report a trade parsed from this venue's frames (price and amount as listed: they are converted to one coin here). */
   protected emitTrade(trade: Omit<TradeEvent, 'instrumentId'>): void {
     const unit = this.unit, at = Date.now(), held = this.#lastTrade;
-    // The newest by its own time; one stamped well ahead of this machine's clock (a bad stamp) gives way to the next instead of holding on.
-    if (trade.price > 0 && (!held || trade.t >= held.t || held.t > at + TOUCH_HINT_MS)) this.#lastTrade = { price: trade.price, t: trade.t, at };
+    // Only a trade stamped within the window of its arrival says where the touch is now: the recent trades a venue sends again on a reconnect
+    // arrive now but happened before (and a stamp far ahead is a bad clock). The newest of those by its own time.
+    if (trade.price > 0 && Math.abs(at - trade.t) <= TOUCH_HINT_MS && (!held || trade.t >= held.t)) this.#lastTrade = { price: trade.price, t: trade.t, at };
     this.onTrade({ instrumentId: this.instrumentId, ...trade, ...(unit === 1 ? {} : { price: trade.price / unit, amount: trade.amount * unit }) });
   }
 
@@ -222,8 +224,8 @@ export abstract class BookConnector {
     let bids = side(this.bids, true), asks = side(this.asks, false);
     if (this.coarse) {
       if (!bids.usd.length || !asks.usd.length) { this.#cached = null; return null; }
-      ({ bids, asks } = splitTouch(bids, asks, hint));
-      this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: true, bids, asks };
+      const split = splitTouch(bids, asks, hint);
+      this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: true, bids: split.bids, asks: split.asks, ...(split.touch ? { touch: split.touch } : {}) };
       return this.#cached;
     }
     if (bids.usd.length && asks.usd.length && bids.lo[0]! < asks.lo[0]!) {

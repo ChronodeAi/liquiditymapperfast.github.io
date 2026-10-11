@@ -23,7 +23,7 @@ function side(levels: ValuedBook['bids']): SideArrays {
   return { lo, hi: levels.hi === levels.lo ? lo : compact(levels.hi), usd: compact(levels.usd) };
 }
 function frameOf(books: readonly ValuedBook[], asOf: number): LevelsFrame {
-  return { asOf, books: books.map(b => ({ id: b.instrumentId, venue: b.venue, timestamp: b.timestamp, coarse: b.coarse, bids: side(b.bids), asks: side(b.asks) })) };
+  return { asOf, books: books.map(b => ({ id: b.instrumentId, venue: b.venue, timestamp: b.timestamp, coarse: b.coarse, bids: side(b.bids), asks: side(b.asks), ...(b.touch ? { touch: b.touch } : {}) })) };
 }
 
 const withTimeout = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>

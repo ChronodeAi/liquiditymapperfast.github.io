@@ -49,6 +49,13 @@ test("a grouped venue's band is spread over the bins it covers, and counts by th
   assert.equal(bins.bidTotal, 5_000_000);
   assert.equal(biggest(bins).bid!.usd, 1_000_000, 'a fifth of the group in each bin, not all of it at its middle');
   assert.ok(Math.abs(bins.askTotal - 1_200_000) < 1e-6, 'the 60 dollars of the ask group above the mark count (3/5 of it), the 40 below do not');
+  // A grouped venue's shared top group split at an estimate of the touch (`splitTouch`) is spread over its whole span: a split that moves
+  // with the trades does not squeeze the group into fewer bins, which would sound as a wall appearing.
+  const split = (cut: number): LevelsFrame => ({ asOf: 0, books: [{ id: 'hl:BTC', venue: 'hl', timestamp: 0, coarse: true, touch: { lo: 99_900, hi: 100_000 },
+    bids: band([[99_900, cut, 20_000_000], [99_800, 99_900, 1_000_000]]), asks: band([[cut, 100_000, 3_000_000]]) }] });
+  const middle = bookBins(split(99_950), new Set(['hl:BTC']), MARK, 0.01), edge = bookBins(split(99_912.5), new Set(['hl:BTC']), MARK, 0.01);
+  assert.deepEqual([...edge.bid].sort((x, y) => x[0] - y[0]), [...middle.bid].sort((x, y) => x[0] - y[0]));
+  assert.equal(biggest(middle).bid!.usd, 4_000_000, 'the $20M group over its five bins');
 });
 
 const wall = (usd: number, price = 99_900): LevelsFrame => frame([[price, usd], [99_000, 100_000]], [[100_100, 100_000]]);
