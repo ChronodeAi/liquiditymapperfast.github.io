@@ -168,17 +168,19 @@ export class RangeTool {
    * and the large orders are loaded for the map's window: a selection reaching outside it (across the flow column on a longer span) has them
    * only for its part on the map.
    */
-  #held(sel: RangeSelection): Pick<RangeInput, 'marks' | 'prints' | 'liquidations' | 'liquidationMin' | 'kind' | 'partial'> {
+  #held(sel: RangeSelection): Pick<RangeInput, 'marks' | 'marksCut' | 'prints' | 'liquidations' | 'liquidationMin' | 'kind' | 'partial'> {
     const state = this.store.state, ids = flowIds(state, this.hub.flow.ids), idSet = new Set(ids);
     const band = sel.p0 !== null && sel.p1 !== null ? { p0: sel.p0, p1: sel.p1 } : null;
     const inside = (time: number, price: number): boolean => time >= sel.t0 && time < sel.t1 && (!band || (price >= band.p0 && price < band.p1));
-    const s = state.absorption, now = Date.now();
-    const marks = s.on ? this.hub.absorption.marks(ids, this.hub.absorption.thresholds(ids, s, now), sel.t0, sel.t1, band?.p0 ?? 0, band?.p1 ?? Infinity).filter(m => inside(m.t0, m.price)) : null;
+    const s = state.absorption, now = Date.now(), thresholds = s.on ? this.hub.absorption.thresholds(ids, s, now) : null;
+    const marks = thresholds ? this.hub.absorption.marks(ids, thresholds, sel.t0, sel.t1, band?.p0 ?? 0, band?.p1 ?? Infinity).filter(m => inside(m.t0, m.price)) : null;
+    // Instruments whose marks may be missing at their thresholds (an answer cut at its limit, or more than the page holds), as the map says.
+    const marksCut = thresholds ? ids.filter(id => { const most = this.hub.absorptionCut.get(id), threshold = thresholds.get(id); return most !== undefined && threshold !== null && threshold !== undefined && most >= threshold; }) : [];
     const prints = state.show.bubbles ? this.hub.prints.items.filter(p => idSet.has(p.id) && inside(p.t, p.price)) : null;
     const liquidations = state.liquidations.on ? this.hub.liquidations.items.filter(l => idSet.has(l.id) && inside(l.t, l.price)) : null;
     const kind = (id: string) => kindOf(state.markets, id);
     const map = this.mapWindow(), partial = map !== null && (sel.t0 < map.t0 || (!sel.live && sel.t1 > map.t1));
-    return { marks, prints, liquidations, liquidationMin: scaledUsd(state.liquidations.minUsd), kind, partial };
+    return { marks, marksCut, prints, liquidations, liquidationMin: scaledUsd(state.liquidations.minUsd), kind, partial };
   }
 
   /**

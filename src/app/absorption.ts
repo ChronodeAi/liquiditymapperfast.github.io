@@ -1,4 +1,4 @@
-import { ABSORPTION_WINDOW_MS, GROUP_FLOOR_USD, autoThreshold, markedPart, peakOf, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute } from '../shared/absorption.ts';
+import { ABSORPTION_WINDOW_MS, GROUP_FLOOR_USD, GROUPS_PER_MINUTE, autoThreshold, markedPart, peakOf, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute } from '../shared/absorption.ts';
 import { clock, price as fmtPrice, usd } from './format.ts';
 import { venueLabel } from './venues.ts';
 import { t, tn } from './i18n.ts';
@@ -86,11 +86,44 @@ export function iconsOf(marks: readonly AbsorptionMark[], xOf: (m: AbsorptionMar
 
 const MINUTE = 60_000;
 const keyOf = (g: AbsorptionGroup): string => `${g.id}|${g.side}|${g.price}|${g.t0}`;
+/** The instrument and minute a group is kept under, as the recorder keeps it: the minute of its first fill. */
+const slotOf = (g: AbsorptionGroup): string => `${g.id}|${Math.floor(g.t0 / MINUTE)}`;
 
-/** The recorded groups and minutes the page holds: what the window on screen was answered with, and what the live stream added since. */
+/**
+ * What the last history answer says the book holds: every group of its instruments that started in [from, to) (`to` is Infinity when the
+ * answer reached the live edge, which the stream then keeps current) with a peak of at least what that instrument was asked from.
+ */
+export interface AbsorptionCover { from: number; to: number; mins: ReadonlyMap<string, number> }
+
+/**
+ * The recorded groups and minutes the page holds: what the window on screen was answered with, and what the live stream added since.
+ *
+ * It holds what the recorder holds. The live stream sends a group when it is found, and the recorder later lets the smallest of a busy
+ * minute go (it keeps GROUPS_PER_MINUTE per instrument and minute): the book keeps each instrument's largest of a minute the same way, and
+ * those are the recorder's, since each of them was among the largest when it was found, so it was sent. A page open through busy hours
+ * otherwise marked more than the recording did.
+ *
+ * And it lets go only of what can be asked for again. Past `max` groups it frees a tenth of its room: first what the last history answer
+ * does not claim (`cover`: a group from outside its window, of an instrument it did not ask about, or under the peak its instrument was
+ * asked from), the oldest first, which the hub asks for again if the view or a threshold comes to need it; then claimed groups older than
+ * the map's view needs (`needFrom`), the oldest first, the cover starting after them so that a view moving back there asks again; and only
+ * then claimed groups the view needs, the smallest first, each instrument's largest let go kept in `cut` so the map and the Range panel say
+ * its marks may be incomplete. Letting the smallest go across every day held (as it once did) kept large groups of days ago that nobody was
+ * looking at and dropped real marks of the hours on screen: a tab open since the day before lost a quarter of a selection's marks.
+ */
 export class AbsorptionBook {
   readonly #groups = new Map<string, AbsorptionGroup>();
+  /** The groups of each instrument and minute (`slotOf`), so that keeping a minute's largest looks at that minute alone. */
+  readonly #slots = new Map<string, Map<string, AbsorptionGroup>>();
   readonly #minutes = new Map<string, Map<number, AbsorptionMinute>>();
+  #cover: AbsorptionCover | null = null;
+  /** Where the map's view starts needing groups (the hub asks a quarter of the view further back than it shows); none before a view. */
+  #needFrom = -Infinity;
+  /**
+   * Instruments whose marks may be missing, each with the largest peak that may be: from an answer cut at its limit (the smallest peak it
+   * kept) or from claimed groups this book had to let go. A threshold at or under it may leave marks out.
+   */
+  readonly cut = new Map<string, number>();
   /**
    * Every group that is a mark at the thresholds last asked for, with the time it started, in the order the groups came: judged again only
    * when the groups, the thresholds (a new map from the caller) or the instruments change, so a frame that only moves the pointer, or the
@@ -100,19 +133,62 @@ export class AbsorptionBook {
   #judged: { version: number; thresholds: ReadonlyMap<string, number | null>; ids: string; marks: { t0: number; mark: AbsorptionMark }[] }[] = [];
   /** Bumped whenever anything changes, so a painter can tell its cache is stale. */
   version = 0;
-  constructor(private max = 40_000) {}
+  constructor(private max = 40_000, private perMinute = GROUPS_PER_MINUTE) {}
 
   get size(): number { return this.#groups.size; }
+  /** What the last history answer claims the book holds (null before one). */
+  get cover(): AbsorptionCover | null { return this.#cover; }
+  /** The map's view needs groups from `from` on (the hub says so as the map draws): a full book may let claimed ones before it go first. */
+  needFrom(from: number): void { this.#needFrom = from; }
 
   add(groups: readonly AbsorptionGroup[]): void {
     if (!groups.length) return;
-    for (const g of groups) this.#groups.set(keyOf(g), g);
-    if (this.#groups.size > this.max) {
-      // The smallest go first (no threshold marks them before the others), down to nine tenths so it is not done again on every live push.
-      const sorted = [...this.#groups.entries()].sort((a, b) => peakOf(a[1]) - peakOf(b[1]));
-      for (const [key] of sorted.slice(0, this.#groups.size - Math.floor(this.max * 0.9))) this.#groups.delete(key);
+    const crowded = new Set<string>();
+    for (const g of groups) {
+      const key = keyOf(g), slot = slotOf(g);
+      this.#groups.set(key, g);
+      let held = this.#slots.get(slot); if (!held) { held = new Map(); this.#slots.set(slot, held); }
+      held.set(key, g);
+      if (held.size > this.perMinute) crowded.add(slot);
     }
+    for (const slot of crowded) {
+      const held = this.#slots.get(slot)!;
+      for (const [key, g] of [...held].sort((a, b) => peakOf(b[1]) - peakOf(a[1])).slice(this.perMinute)) this.#drop(key, g);
+    }
+    if (this.#groups.size > this.max) this.#evict();
     this.version++;
+  }
+
+  #drop(key: string, g: AbsorptionGroup): void {
+    this.#groups.delete(key);
+    const slot = slotOf(g), held = this.#slots.get(slot);
+    if (held) { held.delete(key); if (!held.size) this.#slots.delete(slot); }
+  }
+
+  /** Free a tenth of the room, in the order the class comment gives, down to nine tenths so it is not done again on every live push. */
+  #evict(): void {
+    const cover = this.#cover;
+    const claims = (g: AbsorptionGroup): boolean => {
+      if (!cover || g.t0 < cover.from || g.t0 >= cover.to) return false;
+      const min = cover.mins.get(g.id);
+      return min !== undefined && peakOf(g) >= min;
+    };
+    const free: [string, AbsorptionGroup][] = [], old: [string, AbsorptionGroup][] = [], shown: [string, AbsorptionGroup][] = [];
+    for (const entry of this.#groups) (!claims(entry[1]) ? free : entry[1].t0 < this.#needFrom ? old : shown).push(entry);
+    const byAge = (a: [string, AbsorptionGroup], b: [string, AbsorptionGroup]): number => a[1].t0 - b[1].t0;
+    let excess = this.#groups.size - Math.floor(this.max * 0.9);
+    for (const [key, g] of free.sort(byAge)) { if (excess <= 0) return; this.#drop(key, g); excess--; }
+    for (const [key, g] of old.sort(byAge)) {
+      if (excess <= 0) return;
+      this.#drop(key, g); excess--;
+      // What is still claimed starts after it: the view does not reach back there, and a view that does is not covered and asks again.
+      this.#cover = { ...this.#cover!, from: Math.max(this.#cover!.from, g.t0 + 1) };
+    }
+    for (const [key, g] of shown.sort((a, b) => peakOf(a[1]) - peakOf(b[1]))) {
+      if (excess <= 0) return;
+      this.#drop(key, g); excess--;
+      this.cut.set(g.id, Math.max(this.cut.get(g.id) ?? 0, peakOf(g)));
+    }
   }
 
   addMinutes(minutes: readonly AbsorptionMinute[]): void {
@@ -126,8 +202,19 @@ export class AbsorptionBook {
     this.version++;
   }
 
-  /** Take a history answer for a window: its groups and minutes join what is held. */
-  load(answer: AbsorptionAnswer): void {
+  /**
+   * Take a history answer for a window: its groups and minutes join what is held. `cover` is what it was asked for (the hub gives it when the
+   * answer belongs to the connection it was asked on), taken before the groups, so a full book never lets the fresh answer go first; it starts
+   * a new `cut` with the instruments the answer cut at its limit, each at the smallest peak it kept.
+   */
+  load(answer: AbsorptionAnswer, cover: AbsorptionCover | null = null): void {
+    if (cover) {
+      this.#cover = cover; this.cut.clear();
+      for (const id of answer.capped) {
+        let least = Infinity; for (const g of answer.groups) if (g.id === id) least = Math.min(least, peakOf(g));
+        if (Number.isFinite(least)) this.cut.set(id, least);
+      }
+    }
     this.add(answer.groups); this.addMinutes(answer.minutes);
     this.version++;
   }

@@ -31,6 +31,8 @@ export interface RangeInput {
   error: 'older' | 'failed' | null;
   /** Absorption marks inside the selection; null when Absorption is off (none are loaded). */
   marks: readonly AbsorptionMark[] | null;
+  /** Instruments whose marks may be missing from `marks` at their thresholds: an answer cut at its limit, or more than the page holds. */
+  marksCut?: readonly string[];
   /** What each instrument held inside the box, averaged over its time; null for a stretch of time, or before it is known. */
   resting: readonly CellShare[] | null;
   /** The largest market orders the map holds inside the selection (the trade bubbles); null when they are off. */
@@ -268,6 +270,7 @@ function absorptionLines(input: RangeInput, s: ReturnType<typeof totals> | null)
   if (input.marks === null) { out.push({ key: 'abs-off', kind: 'note', tone: 'muted', cells: [t('Absorption is off: switch it on to count its marks here.')] }); return out; }
   const marks = input.marks;
   if (input.partial) out.push({ key: 'abs-partial', kind: 'note', tone: 'muted', cells: [t('The map shows only part of this selection: its absorption marks and its largest order are counted for that part alone.')] });
+  if (input.marksCut?.length) out.push({ key: 'abs-cut', kind: 'note', tone: 'muted', cells: [t('Only the largest marks of {venues} are held for these minutes, so their smaller ones are not counted.', { venues: [...new Set(input.marksCut.map(id => venueLabel(id)))].join(', ') })] });
   if (!marks.length) { out.push({ key: 'abs-none', kind: 'note', tone: 'muted', cells: [t('No absorption marks in this selection.')] }); return out; }
   // A mark's side is the side of the market orders: passive buyers took market sells, passive sellers took market buys. A price is added up
   // per side: passive buyers and passive sellers can both have taken orders at one price, and one figure would give the other side's to one.

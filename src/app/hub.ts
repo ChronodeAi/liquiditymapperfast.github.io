@@ -13,7 +13,7 @@ import { pickOi, weakOi, type OiCandidate } from './oi-source.ts';
 import { t } from './i18n.ts';
 import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
 import { AbsorptionBook } from './absorption.ts';
-import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS, peakOf } from '../shared/absorption.ts';
+import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
 import { webGet } from '../shared/history.ts';
 import { KeyLevelHistory } from './keylevels/history.ts';
@@ -141,22 +141,23 @@ export class Hub {
   busyMs = 0;
   /** Absorption candidates and window statistics: the window on screen and what the live stream added since. */
   readonly absorption = new AbsorptionBook();
-  /** Instruments whose groups the last history answer cut at its limit (the smallest left out). */
   /**
-   * For each instrument whose last answer was cut at the limit, the smallest peak it kept. The server keeps the largest, so marks are
-   * missing only where that is at or above the instrument's threshold; below it, what was cut was too small to be a mark.
+   * For each instrument whose marks may be missing, the largest peak that may be: the smallest peak an answer cut at its limit kept (the
+   * server keeps the largest), or the largest the book had to let go of the window on screen. Marks are missing only where that is at or above
+   * the instrument's threshold; below it, what was left out was too small to be a mark.
    */
-  absorptionCut: ReadonlyMap<string, number> = new Map();
+  get absorptionCut(): ReadonlyMap<string, number> { return this.absorption.cut; }
   /** 'unavailable': the source has no absorption (an older server); 'failed': a request failed, and is tried again a minute later. */
   absorptionState: 'ready' | 'unavailable' | 'failed' = 'ready';
   /** Called when absorption groups or minutes arrived (history or live). */
   onAbsorptionChanged: () => void = () => {};
   #absorptionLoading = false; #absorptionRetryAt = 0;
   /**
-   * What the last absorption answer covers, for the connection it was asked on: the instruments and threshold span (`key`), the window, the
-   * amount each instrument was asked from, and the time from which its minutes are held (the live stream keeps both current after that).
+   * The last absorption answer asked on this connection: the instruments and threshold span (`key`) and the time from which their minutes
+   * are held (the live stream keeps them current after that). Its window and the amount each instrument was asked from are the book's
+   * `cover`, which a full book narrows when it lets claimed groups the view no longer needs go.
    */
-  #absorptionCover: { key: string; from: number; to: number; mins: number[]; minutesFrom: number } | null = null;
+  #absorptionCover: { key: string; minutesFrom: number } | null = null;
   /** The traded-volume column's last answer, the row step it was asked on, and whether the source can answer at all. */
   traded: { step: number; answer: ProfileAnswer } | null = null;
   /**
@@ -377,23 +378,27 @@ export class Hub {
    * Make sure the absorption book holds the window on screen for these instruments, and the minutes of the last `sdMinutes` for the
    * automatic threshold. Each instrument is asked from a quarter under its threshold, so a threshold drifting down a little does not ask
    * again (one with no threshold yet is asked only for its minutes, and then again once they give it one). As with the bubbles, history is
-   * asked once per window and the live stream keeps it current: again when the window leaves what was asked, a threshold falls under what
-   * it was asked from, or the stream reconnected. A source that cannot answer (an older server) is asked again a minute later.
+   * asked once per window and the live stream keeps it current: again when the window leaves what the book still claims (a full book lets go
+   * of claimed groups the view no longer reaches, and its cover then starts after them), a threshold falls under what it was asked from, or
+   * the stream reconnected. A source that cannot answer (an older server) is asked again a minute later.
    */
   ensureAbsorption(allIds: readonly string[], allThresholds: readonly (number | null)[], view: Bounds, sdMinutes: number): void {
     // More instruments than one question may name is more markets than any page has; the first are asked about.
     const ids = allIds.slice(0, MAX_ABSORPTION_INSTRUMENTS), thresholds = allThresholds.slice(0, MAX_ABSORPTION_INSTRUMENTS);
-    if (this.#absorptionLoading || !ids.length || !(view.t1 > view.t0)) return;
+    if (!ids.length || !(view.t1 > view.t0)) return;
     const now = Date.now(), MIN = 60_000;
-    if (this.absorptionState !== 'ready' && now < this.#absorptionRetryAt) return;
     // Nothing older than the recorder keeps exists (and the server refuses a question of more than eight days): a map zoomed out further
     // asks from there.
     const kept = Math.floor((now - ABSORPTION_RETENTION_MS) / MIN) * MIN, t0 = Math.max(view.t0, kept);
     if (!(view.t1 > t0)) return;
-    const key = `${ids.join(',')}|${sdMinutes}`, have = this.#absorptionCover?.key === key ? this.#absorptionCover : null;
-    if (have && have.from <= t0 && have.to >= Math.min(view.t1, now) && thresholds.every((v, i) => v === null || v >= have.mins[i]!)) return;
-    const span = view.t1 - view.t0;
-    const from = Math.max(kept, Math.floor((t0 - span * 0.25) / MIN) * MIN), to = Math.ceil(Math.min(view.t1 + span * 0.1, now + MIN) / MIN) * MIN;
+    const span = view.t1 - view.t0, from = Math.max(kept, Math.floor((t0 - span * 0.25) / MIN) * MIN);
+    // How far back the view needs groups, told as the map draws: claimed groups before it are what a full book lets go first.
+    this.absorption.needFrom(from);
+    if (this.#absorptionLoading) return;
+    if (this.absorptionState !== 'ready' && now < this.#absorptionRetryAt) return;
+    const key = `${ids.join(',')}|${sdMinutes}`, have = this.#absorptionCover?.key === key ? this.#absorptionCover : null, cover = this.absorption.cover;
+    if (have && cover && cover.from <= t0 && cover.to >= Math.min(view.t1, now) && thresholds.every((v, i) => v === null || v >= (cover.mins.get(ids[i]!) ?? Infinity))) return;
+    const to = Math.ceil(Math.min(view.t1 + span * 0.1, now + MIN) / MIN) * MIN;
     const mins = thresholds.map(v => v === null ? Number.MAX_SAFE_INTEGER : Math.floor(v * 0.75));
     // The minutes: all of the span the first time, then the last few (the stream has brought the rest).
     const need = Math.floor(now / MIN) * MIN - (sdMinutes + 1) * MIN;
@@ -402,11 +407,12 @@ export class Hub {
     this.#absorptionLoading = true;
     this.source.absorption([...ids], mins, from, to, 4_000, since).then(
       answer => {
-        const cut = new Map<string, number>();
-        for (const id of answer.capped) { let least = Infinity; for (const g of answer.groups) if (g.id === id) least = Math.min(least, peakOf(g)); if (Number.isFinite(least)) cut.set(id, least); }
-        this.absorption.load(answer); this.absorptionCut = cut; this.absorptionState = 'ready';
-        // The answer covers its window for the connection it was asked on; one that reached the live edge is kept current by the stream.
-        if (connection === this.#connection) this.#absorptionCover = { key, from, to: to >= now ? Infinity : to, mins, minutesFrom: Math.min(since, have?.minutesFrom ?? Infinity) };
+        // The answer covers its window for the connection it was asked on (one that reached the live edge is kept current by the stream), and
+        // the book takes what it claims with its groups.
+        const current = connection === this.#connection;
+        this.absorption.load(answer, current ? { from, to: to >= now ? Infinity : to, mins: new Map(ids.map((id, i) => [id, mins[i]!])) } : null);
+        this.absorptionState = 'ready';
+        if (current) this.#absorptionCover = { key, minutesFrom: Math.min(since, have?.minutesFrom ?? Infinity) };
         this.onAbsorptionChanged();
       },
       (error: unknown) => {

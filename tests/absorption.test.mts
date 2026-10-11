@@ -213,12 +213,65 @@ test('trades sent again after a restart add nothing: the first row of a minute s
   } finally { second.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a page book that is full lets its smallest groups go', () => {
-  const book = new AbsorptionBook(10), T = Math.floor(Date.now() / MIN) * MIN;
-  book.load({ groups: [], floors: { 'a:BTC': 25_000 }, minutes: [], capped: [] });
-  book.add(Array.from({ length: 12 }, (_, i): AbsorptionGroup => ({ id: 'a:BTC', side: 'buy', price: 100 + i, t0: T + i, steps: [[30_000 + i * 1_000, 30_000 + i * 1_000, 1, T + i, T + i]] })));
-  assert.equal(book.size, 9, 'down to nine tenths');
-  assert.deepEqual(book.marks(['a:BTC'], new Map([['a:BTC', 30_000]]), T - MIN, T + MIN, 0, 1e6).map(m => m.peak).sort(), [33_000, 34_000, 35_000, 36_000, 37_000, 38_000, 39_000, 40_000, 41_000]);
+/** The groups a page book holds, as `id|side|price|t0` (every group is a mark at a threshold of 1). */
+const heldBy = (book: AbsorptionBook, ids: readonly string[]): string[] =>
+  book.marks(ids, new Map(ids.map(id => [id, 1])), 0, Number.MAX_SAFE_INTEGER, 0, 1e9).map(m => `${m.id}|${m.side}|${m.price}|${m.t0}`).sort();
+
+test('a page book keeps what the recorder keeps: of a busy minute the largest, whatever order they were found and sent in', async () => {
+  // Twelve groups of one instrument in one minute, found in this order (USD thousands). The stream sends each when it is found; the recorder
+  // then lets the two smallest go (30 and 35, sent while they were still among the largest ten). Another instrument in that minute and the
+  // same instrument in the next minute are not touched.
+  let now = T0; const recorder = new AbsorptionRecorder(null, () => now);
+  [60, 30, 90, 40, 120, 50, 80, 35, 110, 70, 100, 45].forEach((k, i) => { now = T0 + i * 1_000 + 300; recorder.add('a:BTC', T0 + i * 1_000, 100 + i, k * 1_000, 'buy'); });
+  now = T0 + 20_300; recorder.add('b:BTC', T0 + 20_000, 200, 30_000, 'sell');
+  now = T0 + MIN + 1_300; recorder.add('a:BTC', T0 + MIN + 1_000, 300, 26_000, 'sell');
+  now = T0 + 3 * MIN; recorder.step(true);
+  const sent = recorder.takeFresh().groups;
+  assert.equal(sent.length, 14, 'every group was sent while it was among the largest ten');
+  const kept = (await recorder.query(['a:BTC', 'b:BTC'], [25_000, 25_000], T0 - MIN, T0 + 3 * MIN, 100, T0)).groups.map(groupKey).sort();
+  assert.equal(kept.length, 12, 'the recorder keeps ten of the busy minute');
+  // Taken a few at a time as the stream brings them, or all at once in another order: the page holds exactly what the recorder keeps.
+  const live = new AbsorptionBook();
+  for (let i = 0; i < sent.length; i += 3) live.add(sent.slice(i, i + 3));
+  assert.deepEqual(heldBy(live, ['a:BTC', 'b:BTC']), kept);
+  const reversed = new AbsorptionBook(); reversed.add([...sent].reverse());
+  assert.deepEqual(heldBy(reversed, ['a:BTC', 'b:BTC']), kept, 'in any order');
+});
+
+test('a full page book lets go first of what the last answer does not claim, then of what the view no longer reaches, and says when it cut the view', () => {
+  const g = (id: string, minute: number, peak: number, price: number): AbsorptionGroup => ({ id, side: 'buy', price, t0: T0 + minute * MIN, steps: [[peak, peak, 1, T0 + minute * MIN, T0 + minute * MIN]] });
+  const count = (book: AbsorptionBook, id: string): number => heldBy(book, [id]).length;
+  const book = new AbsorptionBook(20), ids = ['a:BTC', 'b:BTC', 'c:BTC'];
+  // The answer claims a:BTC from $100K and b:BTC from $50K over minutes 10 to 40.
+  const claimed = Array.from({ length: 10 }, (_, i) => g('a:BTC', 10 + i, 200_000 + i * 1_000, 100));
+  book.load({ groups: claimed, floors: {}, minutes: [], capped: [] }, { from: T0 + 10 * MIN, to: T0 + 40 * MIN, mins: new Map([['a:BTC', 100_000], ['b:BTC', 50_000]]) });
+  // The stream brings what it does not claim: from before the window, from after it, of an instrument not asked about, under what was asked.
+  book.add([g('a:BTC', 2, 900_000, 100), g('a:BTC', 45, 900_000, 100), g('c:BTC', 15, 900_000, 100), ...Array.from({ length: 8 }, (_, i) => g('a:BTC', 12 + i, 60_000, 200))]);
+  // 21 held, room for 20: down to 18, the three oldest of those it does not claim, the largest of all among them.
+  assert.equal(book.size, 18);
+  const held = heldBy(book, ids);
+  assert.ok(!held.includes(`a:BTC|buy|100|${T0 + 2 * MIN}`) && !held.includes(`a:BTC|buy|200|${T0 + 12 * MIN}`) && !held.includes(`a:BTC|buy|200|${T0 + 13 * MIN}`), 'the oldest unclaimed went, however large');
+  assert.ok(claimed.every(c => held.includes(groupKey(c))), 'nothing the answer claims');
+  assert.equal(book.cut.size, 0);
+  // The view moves on to minute 25 and more claimed groups come: everything unclaimed goes, then the claimed the view no longer reaches,
+  // the oldest first, and the cover then starts after them (so a view moving back asks again).
+  book.needFrom(T0 + 25 * MIN);
+  book.add([...Array.from({ length: 10 }, (_, i) => g('a:BTC', 25 + i, 300_000 + i * 1_000, 300)), ...Array.from({ length: 5 }, (_, i) => g('b:BTC', 25 + i, 60_000, 400))]);
+  assert.equal(book.size, 18);
+  assert.deepEqual([count(book, 'c:BTC'), heldBy(book, ['a:BTC']).filter(k => k.includes('|200|')).length], [0, 0], 'nothing unclaimed is left');
+  assert.equal(book.cover!.from, T0 + 16 * MIN + 1, 'minutes 10 to 16 went, the oldest first');
+  assert.equal(book.cut.size, 0, 'nothing the view needs went');
+  // A burst inside the view, past the room even after the old claimed groups: the smallest the view needs go, and the book says so.
+  book.add([...Array.from({ length: 5 }, (_, i) => g('a:BTC', 35 + i, 150_000 + i * 1_000, 500)), ...Array.from({ length: 5 }, (_, i) => g('b:BTC', 30 + i, 55_000 + i * 1_000, 600))]);
+  assert.equal(book.size, 18);
+  assert.equal(count(book, 'a:BTC'), 15, 'every a:BTC group of the view is held');
+  assert.deepEqual([...book.cut], [['b:BTC', 60_000]], 'b:BTC lost groups up to $60K: marks there at a threshold up to that may be missing');
+  // The next answer starts again from what it says: nothing cut, or what it cut at its limit (the smallest peak it kept).
+  const cover = { from: T0 + 20 * MIN, to: Infinity, mins: new Map([['a:BTC', 100_000]]) };
+  book.load({ groups: [], floors: {}, minutes: [], capped: [] }, cover);
+  assert.equal(book.cut.size, 0);
+  book.load({ groups: [g('a:BTC', 50, 700_000, 700), g('a:BTC', 51, 400_000, 700)], floors: {}, minutes: [], capped: ['a:BTC'] }, cover);
+  assert.deepEqual([...book.cut], [['a:BTC', 400_000]]);
 });
 
 test('the server store keeps groups and minutes across a restart and answers each instrument from its own threshold, the largest first', async () => {
@@ -446,7 +499,8 @@ test('the marks of a window are judged once until the groups or thresholds chang
   let s = 3; const rnd = (): number => { s = (s * 1_103_515_245 + 12_345) & 0x7fffffff; return s / 0x7fffffff; };
   const T = Math.floor(Date.now() / MIN) * MIN, ids = ['a:BTC', 'b:BTC', 'c:BTC'];
   const groupAt = (t0: number): AbsorptionGroup => { const usd = 20_000 + Math.floor(rnd() * 200_000); return { id: ids[Math.floor(rnd() * 3)]!, side: rnd() < 0.5 ? 'buy' : 'sell', price: 100 + Math.floor(rnd() * 50), t0, steps: [[usd, usd, 1 + Math.floor(rnd() * 5), t0, t0 + 3]] }; };
-  const book = new AbsorptionBook(900), all = new Map<string, AbsorptionGroup>();
+  // Up to a minute's ten per instrument is tested on its own: here every group stands, so the book is judged against all of them.
+  const book = new AbsorptionBook(900, Infinity), all = new Map<string, AbsorptionGroup>();
   const add = (groups: AbsorptionGroup[]): void => { book.add(groups); for (const g of groups) all.set(groupKey(g), g); };
   const thresholds = new Map<string, number | null>([['a:BTC', 50_000], ['b:BTC', 30_000], ['c:BTC', null]]);
   const reference = (t0: number, t1: number, p0: number, p1: number): AbsorptionMark[] => {
@@ -475,7 +529,7 @@ test('the marks of a window are judged once until the groups or thresholds chang
   add(Array.from({ length: 150 }, (_, i) => groupAt(T + i * 7)));
   add(Array.from({ length: 30 }, () => groupAt(T + 999)));
   check('an older window loaded');
-  // Past the limit the smallest go, and what is left is found the same way.
+  // Past the limit some go (no answer claims any of them here, so the oldest), and what is left is found the same way.
   add(Array.from({ length: 700 }, (_, i) => groupAt(T + 3_000 + i)));
   const kept = new Set<string>(); for (const m of book.marks(ids, new Map(ids.map(id => [id, 0])), 0, Number.MAX_SAFE_INTEGER, 0, 1e9)) kept.add(`${m.id}|${m.side}|${m.price}|${m.t0}`);
   for (const key of [...all.keys()]) if (!kept.has(key)) all.delete(key);

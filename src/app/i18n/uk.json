@@ -550,6 +550,7 @@
  "Absorption marks": "Позначки поглинання",
  "Absorption is off: switch it on to count its marks here.": "Поглинання вимкнено: увімкніть його, щоб рахувати тут його позначки.",
  "The map shows only part of this selection: its absorption marks and its largest order are counted for that part alone.": "Карта показує лише частину цього виділення: його позначки поглинання та найбільший ордер рахуються лише для цієї частини.",
+ "Only the largest marks of {venues} are held for these minutes, so their smaller ones are not counted.": "За ці хвилини зберігаються лише найбільші позначки {venues}, тож менші не враховуються.",
  "No absorption marks in this selection.": "У цьому виділенні немає позначок поглинання.",
  "{share} of them": "{share} від них",
  "Passive buyers took": "Пасивні покупці поглинули",

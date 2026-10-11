@@ -104,6 +104,10 @@ test('absorption at one price is told per side, and the marks are counted as the
   assert.equal(line(lines, 'abs-price-84000-buy')!.tone, 'sell', 'passive sellers in the sell colour');
   const many = rangeLines(input({ marks: Array.from({ length: 1_647 }, (_, i) => mark('buy', 100_000, 81_000 + i * 0.5)) }));
   assert.deepEqual(line(many, 'abs-count')!.cells, ['Marks', '1,647 marks'], 'with the thousands separated, as the orders are');
+  // Marks the page could not hold all of (an answer cut at its limit, or more than it holds) are said to be incomplete, as on the map.
+  const cut = rangeLines(input({ marks: [mark('buy', 1_000_000, 84_000)], marksCut: ['bybit:BTCUSDT', 'binance:BTCUSDT', 'bybit:BTCUSDT'] }));
+  assert.match(line(cut, 'abs-cut')!.cells[0]!, /^Only the largest marks of (Bybit, Binance|Binance, Bybit) are held for these minutes, so their smaller ones are not counted\.$/);
+  assert.equal(line(rangeLines(input({ marks: [], marksCut: [] })), 'abs-cut'), undefined);
 });
 
 test('the tag beside a selection being dragged gives its minutes, and a box its height', () => {
