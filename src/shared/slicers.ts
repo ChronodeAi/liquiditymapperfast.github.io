@@ -134,6 +134,36 @@ interface Instrument {
   recent: { side: Side; lo: number; hi: number; clip: number; exact: boolean; at: number; track: Track }[];
 }
 
+/** Above this many ways to pair, the pairing is the closest pairs first (an instrument holds a few programs at most, each near one or two). */
+const PAIR_SEARCH_MAX = 4_096;
+/**
+ * Each family to one track at most and each track one family at most, where `fits` allows: the most pairs, and among those the least total
+ * `gap`. Searched whole for the few tracks and families an instrument has; the closest pairs first beyond `PAIR_SEARCH_MAX` ways.
+ */
+export function pairUp<T, R>(tracks: readonly T[], families: readonly R[], fits: (t: T, r: R) => boolean, gap: (t: T, r: R) => number): [T, R][] {
+  const options = tracks.map(t => families.flatMap((r, j) => (fits(t, r) ? [j] : [])));
+  if (options.reduce((ways, js) => ways * (js.length + 1), 1) > PAIR_SEARCH_MAX) {
+    const pairs = options.flatMap((js, i) => js.map(j => ({ i, j, d: gap(tracks[i]!, families[j]!) }))).sort((a, b) => a.d - b.d);
+    const ti = new Set<number>(), fj = new Set<number>(), out: [T, R][] = [];
+    for (const { i, j } of pairs) if (!ti.has(i) && !fj.has(j)) { ti.add(i); fj.add(j); out.push([tracks[i]!, families[j]!]); }
+    return out;
+  }
+  let best = { n: -1, cost: Infinity, pick: [] as number[] };
+  const pick: number[] = tracks.map(() => -1), used = new Set<number>();
+  const walk = (i: number, n: number, cost: number): void => {
+    if (i === tracks.length) { if (n > best.n || (n === best.n && cost < best.cost)) best = { n, cost, pick: [...pick] }; return; }
+    walk(i + 1, n, cost);
+    for (const j of options[i]!) {
+      if (used.has(j)) continue;
+      used.add(j); pick[i] = j;
+      walk(i + 1, n + 1, cost + gap(tracks[i]!, families[j]!));
+      used.delete(j); pick[i] = -1;
+    }
+  };
+  walk(0, 0, 0);
+  return best.pick.flatMap((j, i) => (j >= 0 ? [[tracks[i]!, families[j]!] as [T, R]] : []));
+}
+
 const keepLargest = (list: number[], usd: number, n: number): void => {
   if (list.length < n) { list.push(usd); return; }
   let min = 0; for (let i = 1; i < list.length; i++) if (list[i]! < list[min]!) min = i;
@@ -212,11 +242,11 @@ export class SlicerDetector {
     // which in a busy market let a wide family of unrelated orders hold an episode open long after its program stopped).
     const fits = (t: Track, r: FamilyReading): boolean => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed(r));
     const gap = (t: Track, r: FamilyReading): number => Math.abs(Math.log(t.clip / r.clip));
-    // Exact families first, the closest pairs of a track and an exact family before any other, one exact family a track: a program keeps its
-    // own family when a louder one a few percent away appears, and two fixed programs a few percent apart ($5,000 and $5,100) stay two.
+    // Exact families first, one a track, as many pairs as can be made and of those the closest: a program keeps its own family when a
+    // louder one a few percent away appears, two fixed programs a few percent apart ($5,000 and $5,100) stay two, and two that both move
+    // their clip within `match` keep their tracks.
     const exact = candidates.filter(r => r.kind === 'exact'), placed = new Set<FamilyReading>();
-    const pairs = inst.tracks.flatMap(t => exact.filter(r => fits(t, r)).map(r => ({ t, r, d: gap(t, r) }))).sort((a, b) => a.d - b.d);
-    for (const { t, r } of pairs) if (!placed.has(r) && !hits.get(t)?.some(h => h.kind === 'exact')) { join(t, r); placed.add(r); }
+    for (const [t, r] of pairUp(inst.tracks, exact, fits, gap)) { join(t, r); placed.add(r); }
     // An exact family left over starts its own track; a wide one joins the track nearest its clip, or starts one.
     for (const r of [...exact.filter(r => !placed.has(r)), ...candidates.filter(r => r.kind !== 'exact')]) {
       const host = r.kind === 'exact' ? undefined : inst.tracks.filter(t => fits(t, r)).sort((a, b) => gap(a, r) - gap(b, r))[0];
@@ -256,10 +286,13 @@ export class SlicerDetector {
         };
       }
       if (track.episode) {
-        // The numbers are those of the last minute that counted (an alert in a minute only the wide family held still has its exact ones).
+        // The numbers are those of the last minute that counted (an alert in a minute only the wide family held still has its exact ones),
+        // and so is `last`: a fixed program's wide family stays a candidate for a few minutes after it stops, on its clips still in the
+        // window, which keeps the episode open but is not the program.
         const r = track.reading;
-        Object.assign(track.episode, { last: minute, lo: track.lo, hi: track.hi, clip: r.clip, rate: r.rate, usdPerMin: r.usdPerMin, gap: r.gap,
+        Object.assign(track.episode, { lo: track.lo, hi: track.hi, clip: r.clip, rate: r.rate, usdPerMin: r.usdPerMin, gap: r.gap,
           gapShare: r.gapShare, direction: r.direction, total: track.total, against: track.against, exact: track.exact });
+        if (counts || track.episode.alertAt === minute) track.episode.last = minute;
         this.#fresh.push({ ...track.episode });
       }
       kept.push(track);

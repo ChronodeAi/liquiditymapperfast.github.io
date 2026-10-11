@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GRACE_MS, SLICER_DEFAULTS, SlicerDetector, families, type SlicerEpisode, type SlicerOptions } from '../src/shared/slicers.ts';
+import { GRACE_MS, SLICER_DEFAULTS, SlicerDetector, families, pairUp, type SlicerEpisode, type SlicerOptions } from '../src/shared/slicers.ts';
 
 const MIN = 60_000, T0 = 1_800_000_000_000, ID = 'binancespot:ETHUSDT';
 type Side = 'buy' | 'sell';
@@ -124,6 +124,25 @@ test('a louder burst a few percent away does not take a running program\'s episo
   const episodes = run(orders, T0 + 80 * MIN);
   assert.deepEqual(episodes.map(e => Math.round(e.clip)), [5_000], 'one episode, still the $5,000 program\'s');
   assert.ok(episodes[0]!.onset < T0 + 35 * MIN && episodes[0]!.end !== null && episodes[0]!.end >= T0 + 70 * MIN);
+});
+
+test('two programs that both move their clip 1.4 % keep their own episodes', () => {
+  const rand = rng(11), at = T0 + 50 * MIN;
+  const orders = [...noise(rand, T0, T0 + 90 * MIN, 30),
+    ...program(T0 + 5 * MIN, T0 + 80 * MIN, 2_400, 'buy', () => 5_000), ...program(T0 + 5 * MIN + 1_000, T0 + 80 * MIN, 2_000, 'buy', () => 5_100)]
+    .map(o => (o.t >= at && (o.usd === 5_000 || o.usd === 5_100) ? { ...o, usd: o.usd * 1.014 } : o));
+  const episodes = run(orders, T0 + 100 * MIN);
+  assert.equal(episodes.length, 2, episodes.map(e => `${Math.round(e.clip)} ${(e.onset - T0) / MIN}-${((e.end ?? 0) - T0) / MIN}`).join(', '));
+  // Both run to the end, and end then: the minutes the wide family lingers on their last clips are not theirs.
+  assert.ok(episodes.every(e => e.end !== null && e.end >= T0 + 80 * MIN && e.end <= T0 + 82 * MIN && !e.repeat), episodes.map(e => ((e.end ?? 0) - T0) / MIN).join(', '));
+});
+
+test('pairing: the most pairs, then the closest', () => {
+  const fits = (t: number, r: number) => Math.abs(r / t - 1) <= 0.025, gap = (t: number, r: number) => Math.abs(Math.log(r / t));
+  // The closest pair first ($5,100 with $5,070) would leave $5,000 with nothing; two pairs can be made.
+  assert.deepEqual(pairUp([5_000, 5_100], [5_070, 5_171.4], fits, gap), [[5_000, 5_070], [5_100, 5_171.4]]);
+  assert.deepEqual(pairUp([5_000], [5_010, 5_002], fits, gap), [[5_000, 5_002]]);
+  assert.deepEqual(pairUp([5_000], [9_000], fits, gap), []);
 });
 
 test('a running episode does not go on with a family that is no longer one-sided', () => {
