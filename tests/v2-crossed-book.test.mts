@@ -20,10 +20,14 @@ test('bids above asks are reported in basis points from the extremes, as measure
   assert.ok(crossedByBp(book([100.02], [100])) < MAX_CROSSED_BP, 'a tick of crossing in a fast market stays under the limit');
 });
 
-test('empty sides and aggregated provider bands are not judged', () => {
+test('empty sides are not judged; a grouped book is judged once its shared top group is split', () => {
   assert.equal(crossedByBp(book([], [100])), 0); assert.equal(crossedByBp(book([100], [])), 0);
-  // Hyperliquid names the lower edge of a wide band, and the bid band at the touch can reach past the ask band's lower edge.
-  assert.equal(crossedByBp(book([100.5], [100], true)), 0);
+  // Hyperliquid's top bid group [85,100, 85,200) and top ask group (85,100, 85,200] share an interval, split at the touch: they meet.
+  const shared = valueBook('hyperliquid:BTC-PERP', { bids: [[85_100, 1]], asks: [[85_200, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0)!;
+  assert.equal(crossedByBp(shared), 0);
+  // A bid group above the ask group shares nothing: that book is crossed by more than a group, a feed fault like any other.
+  const faulty = valueBook('hyperliquid:BTC-PERP', { bids: [[85_300, 1]], asks: [[85_100, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0)!;
+  assert.ok(crossedByBp(faulty) > MAX_CROSSED_BP);
 });
 
 test('a crossed raw book is caught after valuation', () => {

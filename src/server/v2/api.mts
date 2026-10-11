@@ -192,8 +192,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     for (const trade of app.state.trades ?? []) {
       const price = Number(trade.price), at = Number(trade.sourceTimestamp ?? trade.receivedAt), id = String(trade.instrumentId ?? '');
       if (price > 0 && id && Number.isFinite(at) && at >= (lastPrice.get(id)?.at ?? -Infinity)) lastPrice.set(id, { price, at });
+      // Only with its arrival time: the list is handed over whole on every pass, and stamping a trade with now would keep it fresh for ever.
       const received = Number(trade.receivedAt);
-      if (price > 0 && id && Number.isFinite(at)) noteTouch(id, price, at, Number.isFinite(received) ? received : now);
+      if (price > 0 && id && Number.isFinite(at) && Number.isFinite(received)) noteTouch(id, price, at, received);
     }
     refreshBooks(now);
     if (extra.enabledCount > 0) levelsDirty = true;

@@ -1,4 +1,4 @@
-import { splitTouch, TOUCH_HINT_MS, type ValuedBook, type SideLevels } from './levels.ts';
+import { MAX_CROSSED_BP, crossedByBp, splitTouch, TOUCH_HINT_MS, type ValuedBook, type SideLevels } from './levels.ts';
 import { gridStepFor } from './grid.ts';
 import { mergeByDistance } from './merge.ts';
 import type { LiquidationEvent } from './liquidations.ts';
@@ -225,6 +225,8 @@ export abstract class BookConnector {
     if (this.coarse) {
       if (!bids.usd.length || !asks.usd.length) { this.#cached = null; return null; }
       const split = splitTouch(bids, asks, hint);
+      // A grouped book whose bid group lies above its ask group (no shared group to split) is a feed fault, as a crossed book is.
+      if (crossedByBp({ ...split, coarse: true }) > MAX_CROSSED_BP) { this.#cached = null; return null; }
       this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: true, bids: split.bids, asks: split.asks, ...(split.touch ? { touch: split.touch } : {}) };
       return this.#cached;
     }

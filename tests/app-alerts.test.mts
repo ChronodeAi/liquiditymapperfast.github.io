@@ -92,6 +92,7 @@ test('ask walls sound as sells, and a wall must stand five seconds before pullin
   for (let t = 0; t <= 12_000; t += 2_000) at(t, ask(1_000_000));
   assert.deepEqual(at(14_000, ask(40_000_000)).map(s => [s.kind, s.side]), [['appeared', 'sell']]);
   assert.deepEqual(at(16_000, ask(100_000)), [], 'gone after two seconds: it never stood');
+  assert.deepEqual([18_000, 20_000, 22_000].flatMap(t => at(t, ask(100_000))), [], 'and it is not called pulled later either');
 });
 
 test('the balance tips once and must come back before it tips again', () => {

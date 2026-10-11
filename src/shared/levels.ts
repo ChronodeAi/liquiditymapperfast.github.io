@@ -40,8 +40,9 @@ export const TOUCH_HINT_MS = 10_000;
  */
 export function splitTouch(bids: SideLevels, asks: SideLevels, price?: number): { bids: SideLevels; asks: SideLevels; touch?: { lo: number; hi: number } } {
   let bidTop = -Infinity, bidTopLo = Infinity, askBottom = Infinity, askBottomHi = -Infinity;
-  for (let i = 0; i < bids.hi.length; i++) if (bids.hi[i]! > bidTop) { bidTop = bids.hi[i]!; bidTopLo = bids.lo[i]!; }
-  for (let i = 0; i < asks.lo.length; i++) if (asks.lo[i]! < askBottom) { askBottom = asks.lo[i]!; askBottomHi = asks.hi[i]!; }
+  // The top groups that hold something: an empty level shares nothing.
+  for (let i = 0; i < bids.hi.length; i++) if (bids.usd[i]! > 0 && bids.hi[i]! > bidTop) { bidTop = bids.hi[i]!; bidTopLo = bids.lo[i]!; }
+  for (let i = 0; i < asks.lo.length; i++) if (asks.usd[i]! > 0 && asks.lo[i]! < askBottom) { askBottom = asks.lo[i]!; askBottomHi = asks.hi[i]!; }
   // Only top groups that share an interval are split: a bid group wholly above the ask group is a crossed book, not a shared group, and
   // moving its liquidity would draw walls that are not there.
   const lo = Math.max(askBottom, bidTopLo), hi = Math.min(bidTop, askBottomHi);
@@ -65,14 +66,13 @@ export function splitTouch(bids: SideLevels, asks: SideLevels, price?: number): 
 export const inTouch = (touch: ValuedBook['touch'], lo: number, hi: number): touch is { lo: number; hi: number } => touch !== undefined && lo >= touch.lo && hi <= touch.hi && hi > lo;
 
 /**
- * How far the best bid sits above the best ask, in basis points (0 when the book is not crossed or a side is empty). It reads the extremes,
- * so the order a venue sends its levels in does not matter. Aggregated provider bands overlap at the touch by construction, so they are
- * not judged.
+ * How far the best bid sits above the best ask, in basis points (0 when the book is not crossed or a side is empty), over the levels that
+ * hold something. It reads the extremes, so the order a venue sends its levels in does not matter. A grouped book is judged after
+ * `splitTouch`: its shared top group then meets at one price, so only a book whose bid group lies above its ask group is crossed.
  */
 export function crossedByBp(book: Pick<ValuedBook, 'bids' | 'asks' | 'coarse'>): number {
-  if (book.coarse || !book.bids.usd.length || !book.asks.usd.length) return 0;
   let bid = -Infinity, ask = Infinity;
-  for (const price of book.bids.hi) if (price > bid) bid = price;
-  for (const price of book.asks.lo) if (price < ask) ask = price;
+  for (let i = 0; i < book.bids.hi.length; i++) if (book.bids.usd[i]! > 0 && book.bids.hi[i]! > bid) bid = book.bids.hi[i]!;
+  for (let i = 0; i < book.asks.lo.length; i++) if (book.asks.usd[i]! > 0 && book.asks.lo[i]! < ask) ask = book.asks.lo[i]!;
   return bid > ask ? (bid - ask) / ((bid + ask) / 2) * 1e4 : 0;
 }

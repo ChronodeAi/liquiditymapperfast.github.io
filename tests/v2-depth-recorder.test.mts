@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DepthRecorder, COLUMN_MS, KEEP_ALWAYS, MIN_BIN_USD, RETENTION_MS, SAMPLE_MS, accumulateSide, gridStepFor, type Column, type ColumnStore } from '../src/server/v2/recorder.mts';
-import { valueBook, type ValuedBook, type SideLevels } from '../src/server/v2/levels.mts';
+import { crossedByBp, valueBook, type ValuedBook, type SideLevels } from '../src/server/v2/levels.mts';
+import { splitTouch } from '../src/shared/levels.ts';
 import { encodeColumns, encodeLevels } from '../src/server/v2/wire.mts';
 import { decodeLevels } from '../src/app/wire.ts';
 import { aggregateCandles, aggregateOi, withLiveOi } from '../src/server/v2/series.mts';
@@ -132,6 +133,11 @@ test('valueBook converts contracts to USD and gives grouped levels their group: 
   const wire = encodeLevels([near, okx], T0);
   assert.deepEqual(decodeLevels(wire.buffer.slice(wire.byteOffset, wire.byteOffset + wire.byteLength) as ArrayBuffer).books.map(b => b.touch), [{ lo: 85_100, hi: 85_200 }, undefined]);
   assert.equal(crossed.touch, undefined, 'a crossed grouped book has no shared group');
+  assert.ok(crossedByBp(crossed) > 11, 'and it is crossed, as a point book would be (the guard that keeps it off the map applies)');
+  assert.equal(crossedByBp(near), 0, 'a split shared group meets at one price: not crossed');
+  // An empty top level shares nothing: only levels holding something make the shared group.
+  const empties = splitTouch(side([[100, 110, 0], [90, 100, 100]]), side([[100, 110, 100]]));
+  assert.deepEqual([empties.asks.lo[0], empties.touch], [100, undefined]);
   const outside = valueBook('hyperliquid:BTC-PERP', hlBook, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 85_250)!;
   assert.deepEqual([outside.bids.hi[0], outside.asks.lo[0], outside.asks.hi[0]], [85_150, 85_150, 85_200], 'a trade outside the shared group: split at its middle');
   // An ask named on a power of ten holds the prices just below it, a tenth of its own step wide.

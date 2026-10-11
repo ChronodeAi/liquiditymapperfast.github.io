@@ -117,12 +117,14 @@ export class WallWatch {
     for (const [side, wall, map] of [['buy', top.bid, bins.bid], ['sell', top.ask, bins.ask]] as const) {
       const stood = this.#stood[side];
       // The wall that has been standing is judged where it stood, whatever else the book holds: a bigger one elsewhere does not hide its going.
-      if (stood && now - stood.since >= 5_000) {
+      // Its going is looked for at every look, so one that went before it had stood five seconds is forgotten then, not called pulled later.
+      if (stood) {
         const here = map.get(Math.floor(stood.price / bins.bin)) ?? 0;
         if (here < stood.usd * 0.3) {
-          // Gone from where it stood. It was pulled only if the price did not come to it: a market that reached it (within 4 bp) or passed through it traded it away.
+          // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached it (within
+          // 4 bp) or passed through it traded it away.
           const crossed = side === 'buy' ? mark <= stood.price : mark >= stood.price, reached = Math.abs(mark - stood.price) / stood.price <= 0.0004;
-          if (warm && !crossed && !reached) out.push({ kind: 'pulled', side, price: stood.price, usd: stood.usd });
+          if (warm && now - stood.since >= 5_000 && !crossed && !reached) out.push({ kind: 'pulled', side, price: stood.price, usd: stood.usd });
           this.#stood[side] = null;
         }
       }
