@@ -126,15 +126,27 @@ test('a louder burst a few percent away does not take a running program\'s episo
   assert.ok(episodes[0]!.onset < T0 + 35 * MIN && episodes[0]!.end !== null && episodes[0]!.end >= T0 + 70 * MIN);
 });
 
-test('two programs that both move their clip 1.4 % keep their own episodes', () => {
+test('two fixed-coin programs whose clips move 0.3 % with the price keep their own episodes', () => {
   const rand = rng(11), at = T0 + 50 * MIN;
   const orders = [...noise(rand, T0, T0 + 90 * MIN, 30),
     ...program(T0 + 5 * MIN, T0 + 80 * MIN, 2_400, 'buy', () => 5_000), ...program(T0 + 5 * MIN + 1_000, T0 + 80 * MIN, 2_000, 'buy', () => 5_100)]
-    .map(o => (o.t >= at && (o.usd === 5_000 || o.usd === 5_100) ? { ...o, usd: o.usd * 1.014 } : o));
+    .map(o => (o.t >= at && (o.usd === 5_000 || o.usd === 5_100) ? { ...o, usd: o.usd * 1.003 } : o));
   const episodes = run(orders, T0 + 100 * MIN);
   assert.equal(episodes.length, 2, episodes.map(e => `${Math.round(e.clip)} ${(e.onset - T0) / MIN}-${((e.end ?? 0) - T0) / MIN}`).join(', '));
   // Both run to the end, and end then: the minutes the wide family lingers on their last clips are not theirs.
   assert.ok(episodes.every(e => e.end !== null && e.end >= T0 + 80 * MIN && e.end <= T0 + 82 * MIN && !e.repeat), episodes.map(e => ((e.end ?? 0) - T0) / MIN).join(', '));
+});
+
+test('a program that stops does not lend its episode to a neighbour 2 % away, and one starting beside them is its own', () => {
+  const rand = rng(12), at = T0 + 50 * MIN;
+  const orders = [...noise(rand, T0, T0 + 100 * MIN, 30), ...program(T0 + 5 * MIN, at, 2_400, 'buy', () => 5_000),
+    ...program(T0 + 5 * MIN + 1_000, T0 + 90 * MIN, 2_000, 'buy', () => 5_100), ...program(at + 500, T0 + 90 * MIN, 2_000, 'buy', () => 5_220)];
+  const episodes = run(orders, T0 + 100 * MIN);
+  const show = episodes.map(e => `${Math.round(e.clip)} ${(e.onset - T0) / MIN}-${((e.end ?? 0) - T0) / MIN}${e.repeat ? ' repeat' : ''}`).join(', ');
+  assert.deepEqual(episodes.map(e => Math.round(e.clip)).sort((a, b) => a - b), [5_000, 5_100, 5_220], show);
+  const by = new Map(episodes.map(e => [Math.round(e.clip), e]));
+  // The $5,000 one ends when it stops; the $5,100 one runs on from before (still open at the end of the clock, or closed after 90).
+  assert.ok(by.get(5_000)!.end! <= at + 2 * MIN && (by.get(5_100)!.end ?? Infinity) >= T0 + 90 * MIN && by.get(5_100)!.onset < at && !by.get(5_220)!.repeat, show);
 });
 
 test('pairing: the most pairs, then the closest', () => {

@@ -35,6 +35,11 @@ export interface SlicerOptions {
   sustain: number; inactivity: number; suppressMin: number; perSecond: number;
   /** How far apart (as a fraction) two families' sizes may be and still be one program from minute to minute. */
   match: number;
+  /**
+   * The same for a fixed clip: an exact family and a fixed program's track, and a fixed program and an earlier one (a repeat). A clip of
+   * fixed dollars does not move, one of fixed coins moves with the price; `match` would take a neighbour 2 % away for the same program.
+   */
+  exactMatch: number;
   /** The share of its family's clips a running episode's side must keep (one still building needs its kind's `minDirection`). */
   keepDirection: number;
   /** Minutes in a row an episode still building may miss without starting over. */
@@ -44,7 +49,7 @@ export interface SlicerOptions {
 /** The exact kind's settings, and the wide kind measured beside them. */
 export const SLICER_DEFAULTS: SlicerOptions = {
   windowMin: 10, minClipUsd: 1000, minUsdPerMin: 50_000, minGapShare: 0.5, minGaps: 20, maxStaleS: 90,
-  sustain: 15, inactivity: 5, suppressMin: 360, perSecond: 5, match: 0.025, keepDirection: 0.75, pendingSlack: 2,
+  sustain: 15, inactivity: 5, suppressMin: 360, perSecond: 5, match: 0.025, exactMatch: 0.005, keepDirection: 0.75, pendingSlack: 2,
   kinds: [
     { name: 'exact', bucket: 0.002, minRate: 5, maxGap: 30, maxSpread: 0.002, minDirection: 0.9 },
     { name: 'wide', bucket: 0.5, minRate: 20, maxGap: 5, maxSpread: Infinity, minDirection: 0.9 },
@@ -240,7 +245,9 @@ export class SlicerDetector {
     const directed = (r: FamilyReading): boolean => r.direction >= kinds.get(r.kind)!.minDirection;
     // One still building needs every minute directed; a running episode goes on with `keepDirection` (keeping it on any direction,
     // which in a busy market let a wide family of unrelated orders hold an episode open long after its program stopped).
-    const fits = (t: Track, r: FamilyReading): boolean => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed(r));
+    const sameClip = (a: number, b: number): boolean => Math.abs(Math.log(a / b)) <= Math.log1p(o.exactMatch);
+    const fits = (t: Track, r: FamilyReading): boolean => t.side === r.side && (t.exact && r.kind === 'exact' ? sameClip(t.clip, r.clip) : near(t, r))
+      && (t.active ? r.direction >= o.keepDirection : directed(r));
     const gap = (t: Track, r: FamilyReading): number => Math.abs(Math.log(t.clip / r.clip));
     // Exact families first, one a track, as many pairs as can be made and of those the closest: a program keeps its own family when a
     // louder one a few percent away appears, two fixed programs a few percent apart ($5,000 and $5,100) stay two, and two that both move
@@ -277,7 +284,7 @@ export class SlicerDetector {
         // A repeat is a program that ended and came back: the same side and clip (a fixed clip within `match` of the earlier one, a random
         // one's sizes overlapping) as an episode that is over. One still running beside it is another program.
         inst.recent = inst.recent.filter(r => r.at > minute - o.suppressMin * MINUTE);
-        const repeat = inst.recent.some(r => r.track.ended && r.side === track.side && (r.exact && track.exact ? Math.abs(track.clip / r.clip - 1) <= o.match : near(r, track)));
+        const repeat = inst.recent.some(r => r.track.ended && r.side === track.side && (r.exact && track.exact ? sameClip(track.clip, r.clip) : near(r, track)));
         if (!repeat) inst.recent.push({ side: track.side, lo: track.lo, hi: track.hi, clip: track.clip, exact: track.exact, at: minute, track });
         track.episode = {
           // Two programs can begin the same minute on one side; their clips tell them apart (to six figures: a small coin's are a few dollars).
