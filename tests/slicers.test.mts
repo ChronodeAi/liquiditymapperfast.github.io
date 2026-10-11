@@ -137,6 +137,16 @@ test('two fixed-coin programs whose clips move 0.3 % with the price keep their o
   assert.ok(episodes.every(e => e.end !== null && e.end >= T0 + 80 * MIN && e.end <= T0 + 82 * MIN && !e.repeat), episodes.map(e => ((e.end ?? 0) - T0) / MIN).join(', '));
 });
 
+test('a fixed-coin program that drifted with the price, stopped and came back is a repeat', () => {
+  const rand = rng(13);
+  // $5,000 drifting 0.3 % every ten minutes to $5,060 (1.2 % past its size when it alerted), a pause, then $5,060 again.
+  const drift = (t: number) => 5_000 * 1.003 ** Math.min(4, Math.floor((t - T0 - 5 * MIN) / (10 * MIN)));
+  const first = program(T0 + 5 * MIN, T0 + 55 * MIN, 3_000, 'sell', () => 0).map(o => ({ ...o, usd: drift(o.t) }));
+  const orders = [...noise(rand, T0, T0 + 140 * MIN, 30), ...first, ...program(T0 + 80 * MIN, T0 + 120 * MIN, 3_000, 'sell', () => 5_000 * 1.003 ** 4)];
+  const episodes = run(orders, T0 + 140 * MIN);
+  assert.deepEqual(episodes.map(e => e.repeat), [false, true]);
+});
+
 test('a program that stops does not lend its episode to a neighbour 2 % away, and one starting beside them is its own', () => {
   const rand = rng(12), at = T0 + 50 * MIN;
   const orders = [...noise(rand, T0, T0 + 100 * MIN, 30), ...program(T0 + 5 * MIN, at, 2_400, 'buy', () => 5_000),

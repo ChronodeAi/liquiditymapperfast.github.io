@@ -135,8 +135,8 @@ interface Instrument {
   /** The start of the next minute to judge. */
   next: number;
   tracks: Track[];
-  /** Alerts within the suppression time: their side, sizes, minute and track. */
-  recent: { side: Side; lo: number; hi: number; clip: number; exact: boolean; at: number; track: Track }[];
+  /** Alerts within the suppression time: the minute and the track (its side and clip as they are now, or were when it ended). */
+  recent: { at: number; track: Track }[];
 }
 
 /** Above this many ways to pair, the pairing is the closest pairs first (an instrument holds a few programs at most, each near one or two). */
@@ -284,8 +284,9 @@ export class SlicerDetector {
         // A repeat is a program that ended and came back: the same side and clip (a fixed clip within `match` of the earlier one, a random
         // one's sizes overlapping) as an episode that is over. One still running beside it is another program.
         inst.recent = inst.recent.filter(r => r.at > minute - o.suppressMin * MINUTE);
-        const repeat = inst.recent.some(r => r.track.ended && r.side === track.side && (r.exact && track.exact ? sameClip(track.clip, r.clip) : near(r, track)));
-        if (!repeat) inst.recent.push({ side: track.side, lo: track.lo, hi: track.hi, clip: track.clip, exact: track.exact, at: minute, track });
+        // Against the earlier track as it ended (a fixed-coin clip drifts with the price while it runs).
+        const repeat = inst.recent.some(({ track: was }) => was.ended && was.side === track.side && (was.exact && track.exact ? sameClip(track.clip, was.clip) : near(was, track)));
+        if (!repeat) inst.recent.push({ at: minute, track });
         track.episode = {
           // Two programs can begin the same minute on one side; their clips tell them apart (to six figures: a small coin's are a few dollars).
           id: `${id}|${track.side}|${track.onset}|${track.clip.toPrecision(6)}`, instrumentId: id, side: track.side, onset: track.onset, alertAt: minute, last: minute,
