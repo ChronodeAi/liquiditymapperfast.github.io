@@ -18,7 +18,8 @@ const STORES: Name[] = ['columns', 'footprint', 'prints', 'flow', 'absorption', 
 const ABSORPTION_MEMORY_MS = 2 * 3_600_000;
 interface AbsorptionRow { inst: string; t0: number; side: 'buy' | 'sell'; price: number; peak: number; steps: AbsorptionGroup['steps'] }
 interface AbsorptionMinuteRow { inst: string; t: number; n: number; mean: number; m2: number; floor: number }
-interface ColumnRow { inst: string; t: number; step: number; n: number; bins: Int32Array; bid: Float32Array; ask: Float32Array }
+/** `lt`/`ltN`: the Liquidity Tracker kept with the minute (`Column.lt`), absent in rows written before it was kept. */
+interface ColumnRow { inst: string; t: number; step: number; n: number; bins: Int32Array; bid: Float32Array; ask: Float32Array; lt?: Float32Array; ltN?: number }
 interface PrintRow extends Print { k: string }
 
 /** `name` is the coin's database (app/coin.ts recordingsName): each coin's recordings are kept and read apart. */
@@ -106,9 +107,11 @@ export async function openRecordings(name: string, since: number, canWrite: () =
   };
 
   const columns: ColumnStore = {
-    load: () => columnRows.map(row => ({ instrumentId: row.inst, step: row.step, column: { t: row.t, n: row.n, bins: row.bins, bid: row.bid, ask: row.ask } satisfies Column })),
+    load: () => columnRows.map(row => ({ instrumentId: row.inst, step: row.step, column: {
+      t: row.t, n: row.n, bins: row.bins, bid: row.bid, ask: row.ask, ...(row.lt instanceof Float32Array && (row.ltN ?? 0) > 0 ? { lt: row.lt, ltN: row.ltN! } : {}) } satisfies Column })),
     save: (instrumentId, column, step) => enqueue(tx => {
-      const row = { inst: instrumentId, t: column.t, step, n: column.n, bins: own(column.bins), bid: own(column.bid), ask: own(column.ask) } satisfies ColumnRow;
+      const row = { inst: instrumentId, t: column.t, step, n: column.n, bins: own(column.bins), bid: own(column.bid), ask: own(column.ask),
+        ...(column.lt && (column.ltN ?? 0) > 0 ? { lt: own(column.lt), ltN: column.ltN! } : {}) } satisfies ColumnRow;
       putFuller<ColumnRow>(tx, 'columns', [instrumentId, column.t], row, fullerColumn);
     }),
     prune: before => enqueue(tx => prune(tx, 'columns', before)),

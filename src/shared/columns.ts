@@ -1,8 +1,24 @@
-/** Recorded or live columns of one instrument as the page reads them: column `c` holds `counts[c]` bins starting where the previous one ended. */
+import { LT_LENGTH } from './lt-sample.ts';
+import type { Column } from './recorder.ts';
+
+/**
+ * Recorded or live columns of one instrument as the page reads them: column `c` holds `counts[c]` bins starting where the previous one ended.
+ * `lt`: the Liquidity Tracker kept with each column (`Column.lt`), LT_LENGTH values per column, NaN for a column that has none; absent when
+ * no column has one (an older source).
+ */
 export interface ColumnSet {
   id: string; step: number;
   times: number[]; counts: number[]; samples: number[];
   bins: Int32Array; bid: Float32Array; ask: Float32Array;
+  lt?: Float32Array;
+}
+
+/** The trackers of `columns` side by side (NaN where a column has none), or undefined when none has one. */
+export function packLt(columns: readonly Column[]): Float32Array | undefined {
+  if (!columns.some(c => c.lt)) return undefined;
+  const out = new Float32Array(columns.length * LT_LENGTH).fill(NaN);
+  columns.forEach((c, k) => { if (c.lt && c.lt.length === LT_LENGTH) out.set(c.lt, k * LT_LENGTH); });
+  return out;
 }
 export interface ColumnsFrame { from: number; to: number; stepMs: number; instruments: ColumnSet[] }
 

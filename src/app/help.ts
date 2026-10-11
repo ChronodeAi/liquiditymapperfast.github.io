@@ -167,8 +167,9 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
   ltPane: {
     title: t('Liquidity Tracker'), guide: 'lower-panes',
     tip: t('Two lines: how much bid and how much ask liquidity sits near the price, weighted so that what is closest counts most.'),
-    body: [t('LT-Bid and LT-Ask are the USD size on each side of the combined book of the enabled venues. A level counts fully at the touch and half as much for every half-life further away (measured in basis points), so thin, distant orders barely move the line.'),
-      t('Bid above ask means more support close under the price than resistance above it. Switch the view to imbalance to see (bid - ask) / (bid + ask) as one line between -100 % and +100 %. The options set the half-life, the smallest and largest bin that counts, and whether to average per level.')],
+    body: [t("LT-Bid and LT-Ask are the USD size on each side of the enabled venues' books, each venue measured from its own best bid and best ask and the venues then added up: they do not trade at one price (spot in USDT sits a few basis points above the perpetuals, spot in USD below them). A level counts fully at the touch and half as much for every half-life further away (measured in basis points), so thin, distant orders barely move the line."),
+      t('Bid above ask means more support close under the price than resistance above it. Switch the view to imbalance to see (bid - ask) / (bid + ask) as one line between -100 % and +100 %. The options set the half-life, the smallest and largest bin that counts, and whether to average per level.'),
+      t("Each minute is measured at every sample the recording takes, so zooming out shows the average of its minutes, not a different measure. ≈ before the numbers means part of the line was worked out from the minutes' average books instead: when a size filter is set, or for minutes recorded before the tracker was kept. That is an estimate, rougher the further you zoom out.")],
   },
   barStats: {
     title: t('Bar stats'), guide: 'footprint',

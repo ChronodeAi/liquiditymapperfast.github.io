@@ -1,5 +1,6 @@
 /** Decoders for the v2 binary frames (see src/server/v2/wire.mts for the layout). */
 import type { ColumnSet, ColumnsFrame } from '../shared/columns.ts';
+import { LT_LENGTH } from '../shared/lt-sample.ts';
 export type { ColumnSet, ColumnsFrame };
 type PartKind = 'f64' | 'f32' | 'i32';
 interface PartSpec { kind: PartKind; offset: number; length: number }
@@ -32,9 +33,14 @@ export function frameType(buffer: ArrayBuffer): string { return open(buffer).hea
 export function decodeColumns(buffer: ArrayBuffer): ColumnsFrame {
   const { header, part } = open(buffer);
   if (header.type !== 'columns') throw new Error(`Expected a columns frame, got ${header.type}`);
-  const raw = header.instruments as { id: string; step: number; times: number[]; counts: number[]; samples: number[] }[];
-  return { from: Number(header.from), to: Number(header.to), stepMs: Number(header.stepMs), instruments: raw.map((item, i) => ({
-    ...item, bins: part(i * 3) as Int32Array, bid: part(i * 3 + 1) as Float32Array, ask: part(i * 3 + 2) as Float32Array })) };
+  const raw = header.instruments as { id: string; step: number; times: number[]; counts: number[]; samples: number[]; lt?: unknown }[];
+  return { from: Number(header.from), to: Number(header.to), stepMs: Number(header.stepMs), instruments: raw.map((item, i) => {
+    const { lt: ltPart, ...rest } = item;
+    // The tracker kept with the columns, when the server sends it: a part of LT_LENGTH floats per column (an older server sends none).
+    const lt = typeof ltPart === 'number' && Number.isInteger(ltPart) ? part(ltPart) : null;
+    return { ...rest, bins: part(i * 3) as Int32Array, bid: part(i * 3 + 1) as Float32Array, ask: part(i * 3 + 2) as Float32Array,
+      ...(lt instanceof Float32Array && lt.length === item.times.length * LT_LENGTH ? { lt } : {}) };
+  }) };
 }
 
 export function decodeLevels(buffer: ArrayBuffer): LevelsFrame {

@@ -20,6 +20,7 @@ import { el } from '../dom.ts';
 import { button, checkRow, heading, note, numberRow, selectRow, sizeControl, sizeRow, sortableList, togglePanel, type Panel } from '../ui.ts';
 import { COMMON_SIZES, SIZE_FLOOR_USD, SIZE_MAX_USD, sizeText } from '../sizes.ts';
 import type { LtSeries } from '../lt.ts';
+import { LT_HALF_LIVES } from '../../shared/lt-sample.ts';
 import { GestureRecognizer, bindTouch, type GestureHandlers, type Pt } from '../touch.ts';
 import { panelSwitchRow, panelSwitchOn, panelSwitchTip, setPanelSwitch } from '../sound/panel.ts';
 import { t, tn } from '../i18n.ts';
@@ -439,7 +440,6 @@ export class OiPane extends TimePane {
   }
 }
 
-const HALF_LIVES = [2, 5, 10, 25, 50, 100, 250, 1000];
 /** The Liquidity Tracker's size filters' menus (any size can be typed; the menus' "any" and "no cap" are 0). */
 const MIN_SIZES = [10_000, 50_000, 100_000, 250_000, 500_000, 1_000_000];
 const MAX_SIZES = [100_000, 250_000, 500_000, 1_000_000, 5_000_000];
@@ -456,7 +456,7 @@ export class LtPane extends TimePane {
     super(host, store, view, 'lt');
     this.head.innerHTML = `<strong>${t('Liquidity Tracker')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('ltPane'));
-    setTip(this.head.querySelector('strong')!, t("Weighted USD liquidity near the touch of the aggregated book of the enabled venues. A level weighs 1 at the touch and halves every half-life. The size filter applies to a venue's aggregated size at one price bin, not to individual orders."));
+    setTip(this.head.querySelector('strong')!, t("Weighted USD liquidity near the touch: each enabled venue measured from its own best bid and best ask, then added up. A level weighs 1 at the touch and halves every half-life. The size filter applies to a venue's aggregated size at one price bin, not to individual orders."));
     const lt = () => this.store.state.lt;
     const patch = (change: Partial<AppState['lt']>) => this.store.set({ lt: { ...lt(), ...change } });
     const select = (label: string, title: string, options: [string, string][], get: () => string, set: (value: string) => void) => {
@@ -474,7 +474,8 @@ export class LtPane extends TimePane {
       wrap.append(control.root); this.head.append(wrap);
       this.#sync.push(() => control.set(scaledUsd(get())));
     };
-    select(t('Half-life'), t("Distance from the touch, in basis points of price, at which a level's weight halves"), HALF_LIVES.map(v => [String(v), `${v} bp`]), () => String(lt().halfLifeBp), v => patch({ halfLifeBp: Number(v) }));
+    // Exactly the half-lives the recording keeps the tracker for (`shared/lt-sample.ts`).
+    select(t('Half-life'), t("Distance from the touch, in basis points of price, at which a level's weight halves"), LT_HALF_LIVES.map(v => [String(v), `${v} bp`]), () => String(lt().halfLifeBp), v => patch({ halfLifeBp: Number(v) }));
     size(t('Min'), t('Ignore price bins smaller than this'), '≥', t('any'), MIN_SIZES, () => lt().minUsd, v => patch({ minUsd: v }));
     size(t('Max'), t('Ignore price bins larger than this'), '≤', t('no cap'), MAX_SIZES, () => lt().maxUsd, v => patch({ maxUsd: v }));
     const avg = document.createElement('label'); avg.className = 'ctl'; setTip(avg, t('Divide by the summed weights of the non-empty levels, as if each had size 1'));
@@ -559,7 +560,8 @@ export class LtPane extends TimePane {
     let at = n - 1;
     if (state.hover) { at = 0; for (let i = 0; i < n; i++) if (s.times[i]! <= state.hover.t) at = i; }
     const b = s.bid[at]!, a = s.ask[at]!, total = b + a;
-    setHtml(readout, `${t('Bid')} <b class="bid">${usd(b)}</b> ${t('Ask')} <b class="ask">${usd(a)}</b> Δ <b>${usd(b - a)}</b> ${t('imb')} <b>${total > 0 ? Math.round((b - a) / total * 100) : 0}%</b> · ${tn(ids.length, '{n} venue', '{n} venues')}`);
+    // ≈: part of the line was worked out from the minutes' average books (a size filter, or minutes recorded before the tracker was kept: see the help).
+    setHtml(readout, `${s.estimated ? '≈ ' : ''}${t('Bid')} <b class="bid">${usd(b)}</b> ${t('Ask')} <b class="ask">${usd(a)}</b> Δ <b>${usd(b - a)}</b> ${t('imb')} <b>${total > 0 ? Math.round((b - a) / total * 100) : 0}%</b> · ${tn(ids.length, '{n} venue', '{n} venues')}`);
     const over = state.hover && this.pointer ? readAt(slotAt(s.times, step, state.hover.t), state.hover.t, n - 1, s.times[n - 1]) : -1;
     if (over >= 0 && state.hover && state.hover.t >= s.times[over]! + step) this.cursorT = s.times[over]! + step / 2;
     if (over >= 0) this.#lines = ltCardLines({ time: s.times[over]!, bid: s.bid[over]!, ask: s.ask[over]!, halfLifeBp: lt.halfLifeBp, venues: ids.length });

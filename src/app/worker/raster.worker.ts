@@ -6,8 +6,8 @@ import { shareInCell, type CellShare } from '../cell-sources.ts';
 import { depthSeries } from '../depth-series.ts';
 import { dropAbsent } from './membership.ts';
 
-/** A set of recorded or live columns for one instrument, flat for the raster kernel. */
-interface Store { step: number; times: Float64Array; counts: Uint32Array; bins: Int32Array; bid: Float32Array; ask: Float32Array }
+/** A set of recorded or live columns for one instrument, flat for the raster kernel (`lt`: the tracker kept with recorded columns). */
+interface Store { step: number; times: Float64Array; counts: Uint32Array; bins: Int32Array; bid: Float32Array; ask: Float32Array; lt?: Float32Array }
 
 export type WorkerIn =
   | { type: 'columns'; stepMs: number; instruments: ColumnSet[] }
@@ -23,7 +23,7 @@ export type WorkerOut =
   | { type: 'ready' }
   | { type: 'raster'; id: number; w: number; h: number; data: Float32Array; stats: RasterStats; busyMs: number }
   | { type: 'depth'; id: number; w: number; bid: Float32Array; ask: Float32Array }
-  | { type: 'lt'; id: number; times: Float64Array; bid: Float32Array; ask: Float32Array }
+  | { type: 'lt'; id: number; times: Float64Array; bid: Float32Array; ask: Float32Array; estimated: boolean }
   | { type: 'cell'; id: number; items: CellShare[] }
   | { type: 'error'; message: string };
 
@@ -39,7 +39,7 @@ const live = new Map<string, Store & { minute: number }>();
 const steps = new Map<string, number>();
 
 function toStore(set: ColumnSet): Store {
-  return { step: set.step, times: Float64Array.from(set.times), counts: Uint32Array.from(set.counts), bins: set.bins, bid: set.bid, ask: set.ask };
+  return { step: set.step, times: Float64Array.from(set.times), counts: Uint32Array.from(set.counts), bins: set.bins, bid: set.bid, ask: set.ask, ...(set.lt ? { lt: set.lt } : {}) };
 }
 
 /** Convert the current book of one instrument into a single sparse column on the instrument's grid. */
@@ -142,17 +142,20 @@ function cell(message: Extract<WorkerIn, { type: 'cell' }>): void {
   scope.postMessage({ type: 'cell', id: message.id, items });
 }
 
-/** Liquidity Tracker over the aggregated recorded columns, with the live column replacing its own minute. */
+/**
+ * Liquidity Tracker over the recorded columns (each venue's own, kept with its minutes), with the live column replacing its own minute at
+ * one-minute steps: one instant's book, measured from its own touch.
+ */
 function lt(message: Extract<WorkerIn, { type: 'lt' }>): void {
   const useLive = recordedStepMs === COLUMN_MS;
   const stores: LtStore[] = [];
   for (const id of message.enabled) {
     const rec = recorded.get(id), lv = useLive ? live.get(id) : undefined;
     if (rec) stores.push({ ...rec, cutoff: lv?.minute });
-    if (lv) stores.push(lv);
+    if (lv) stores.push({ ...lv, instant: true });
   }
   const out = ltSeries(stores, message.t0, message.t1, recordedStepMs, message.params);
-  scope.postMessage({ type: 'lt', id: message.id, times: out.times, bid: out.bid, ask: out.ask }, [out.times.buffer, out.bid.buffer, out.ask.buffer]);
+  scope.postMessage({ type: 'lt', id: message.id, times: out.times, bid: out.bid, ask: out.ask, estimated: out.estimated }, [out.times.buffer, out.bid.buffer, out.ask.buffer]);
 }
 
 scope.onmessage = event => {

@@ -7,7 +7,8 @@ import { DepthRecorder, COLUMN_MS, KEEP_ALWAYS, MIN_BIN_USD, RETENTION_MS, SAMPL
 import { crossedByBp, valueBook, type ValuedBook, type SideLevels } from '../src/server/v2/levels.mts';
 import { splitTouch } from '../src/shared/levels.ts';
 import { encodeColumns, encodeLevels } from '../src/server/v2/wire.mts';
-import { decodeLevels } from '../src/app/wire.ts';
+import { decodeColumns, decodeLevels } from '../src/app/wire.ts';
+import { LT_LENGTH, addLtSample, ltIndex } from '../src/shared/lt-sample.ts';
 import { aggregateCandles, aggregateOi, withLiveOi } from '../src/server/v2/series.mts';
 import { SqliteColumnStore } from '../src/server/v2/store.mts';
 import { FootprintRecorder } from '../src/server/v2/footprint.mts';
@@ -56,6 +57,56 @@ test('samples within a minute average over observed samples and commit on rollov
   recorder.sample([book('x:BTC', T0 + COLUMN_MS, [[85_000, 85_000, 10]], [])], T0 + COLUMN_MS);
   assert.equal(recorder.columns.get('x:BTC')!.length, 1);
   assert.equal(recorder.columns.get('x:BTC')![0]!.t, T0);
+});
+
+test('the Liquidity Tracker is kept per minute, measured at each sample from that sample own touch, and windows average it by samples', () => {
+  const recorder = new DepthRecorder({ now: () => T0 });
+  recorder.steps.set('x:BTC', 20);
+  // Two samples whose touch moved: measured at each sample the touch level counts in full both times; a minute average book would smear it.
+  const first = book('x:BTC', T0, [[85_000, 85_000, 1_000_000]], [[85_020, 85_020, 1_000_000]]);
+  const second = book('x:BTC', T0 + SAMPLE_MS, [[85_100, 85_100, 1_000_000]], [[85_120, 85_120, 1_000_000]]);
+  recorder.sample([first], T0); recorder.sample([second], T0 + SAMPLE_MS);
+  recorder.sample([book('x:BTC', T0 + COLUMN_MS, [[85_100, 85_100, 3_000_000]], [[85_120, 85_120, 3_000_000]])], T0 + COLUMN_MS);
+  const column = recorder.columns.get('x:BTC')![0]!, at = ltIndex(10);
+  assert.equal(column.ltN, 2);
+  assert.ok(Math.abs(column.lt![at]! - 1_000_000) < 1 && Math.abs(column.lt![at + 1]! - 1_000_000) < 1, 'each sample put its whole touch level at weight 1');
+  // The same by hand, from the shared evaluator.
+  const expected = new Float64Array(LT_LENGTH);
+  for (const b of [first, second]) { const bid = new Map<number, number>(), ask = new Map<number, number>(); accumulateSide(b.bids, 20, bid); accumulateSide(b.asks, 20, ask); addLtSample(bid, ask, 20, expected); }
+  assert.ok([...column.lt!].every((v, i) => Math.abs(v - expected[i]! / 2) <= Math.abs(expected[i]! / 2) * 1e-6 + 1e-9));
+  // A two-minute window: the minutes' means weighted by their samples (2 of them at 1M, 1 at 3M).
+  const merged = recorder.query('x:BTC', T0, T0 + 2 * COLUMN_MS, 2 * COLUMN_MS)[0]!;
+  assert.equal(merged.ltN, 3);
+  assert.ok(Math.abs(merged.lt![at]! - (2 * 1_000_000 + 3_000_000) / 3) < 1);
+  // A window with minutes from before the tracker was kept averages only the minutes that have it.
+  assert.equal(mergedWithout().lt, undefined);
+  function mergedWithout(): Column { const r = new DepthRecorder({ now: () => T0 }); r.columns.set('y', [{ t: T0, n: 3, bins: Int32Array.of(1), bid: Float32Array.of(5), ask: Float32Array.of(0) }]); return r.query('y', T0, T0 + 2 * COLUMN_MS, 2 * COLUMN_MS)[0]!; }
+});
+
+test('the kept tracker survives SQLite, a minute reopened after a restart, and the wire; minutes without one stay without', () => {
+  const store = new SqliteColumnStore(':memory:');
+  const lt = Float32Array.from({ length: LT_LENGTH }, (_, i) => i + 0.5);
+  store.save('x:BTC', { t: T0, n: 3, bins: Int32Array.of(4), bid: Float32Array.of(1.5), ask: Float32Array.of(0), lt, ltN: 3 }, 20);
+  store.save('x:BTC', { t: T0 + COLUMN_MS, n: 2, bins: Int32Array.of(4), bid: Float32Array.of(2), ask: Float32Array.of(0) }, 20);
+  const rows = [...store.load(0)];
+  assert.deepEqual([rows[0]!.column.ltN, [...rows[0]!.column.lt!]], [3, [...lt]]);
+  assert.equal(rows[1]!.column.lt, undefined);
+  store.prune(T0 + 1);
+  assert.equal([...store.load(0)].length, 1);
+  store.close();
+  // Reopened within its minute after a restart: the samples before and after average together, the tracker over its own count.
+  const saved: { id: string; column: Column; step: number }[] = [{ id: 'x:BTC', column: { t: T0, n: 2, bins: Int32Array.of(4250), bid: Float32Array.of(1_000_000), ask: Float32Array.of(0), lt: new Float32Array(LT_LENGTH).fill(10), ltN: 2 }, step: 20 }];
+  const again = new DepthRecorder({ store: { load: () => saved.map(r => ({ instrumentId: r.id, column: r.column, step: r.step })), save: () => {}, prune: () => {} }, now: () => T0 + 30_000 });
+  again.sample([book('x:BTC', T0 + 30_000, [[85_000, 85_000, 1_000_000]], [])], T0 + 30_000);
+  const open = again.query('x:BTC', T0, T0 + COLUMN_MS)[0]!;
+  assert.deepEqual([open.n, open.ltN], [3, 3]);
+  // The wire carries it after every instrument's three parts; a page reads it back by the index in the header.
+  const frame = encodeColumns([{ instrumentId: 'x:BTC', step: 20, columns: [{ t: T0, n: 3, bins: Int32Array.of(4), bid: Float32Array.of(1), ask: Float32Array.of(0), lt, ltN: 3 }, { t: T0 + COLUMN_MS, n: 1, bins: Int32Array.of(4), bid: Float32Array.of(1), ask: Float32Array.of(0) }] },
+    { instrumentId: 'y:BTC', step: 20, columns: [{ t: T0, n: 1, bins: Int32Array.of(4), bid: Float32Array.of(1), ask: Float32Array.of(0) }] }], T0, T0 + 2 * COLUMN_MS, COLUMN_MS);
+  const decoded = decodeColumns(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength) as ArrayBuffer);
+  const x = decoded.instruments[0]!.lt!;
+  assert.deepEqual([[...x.subarray(0, LT_LENGTH)], x.subarray(LT_LENGTH).every(Number.isNaN), decoded.instruments[1]!.lt], [[...lt], true, undefined]);
+  assert.deepEqual([...decoded.instruments[1]!.bid], [1], 'the depth parts are where they were');
 });
 
 test('stale books leave the minute unobserved instead of carrying forward', () => {

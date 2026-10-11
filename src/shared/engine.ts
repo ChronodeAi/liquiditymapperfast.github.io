@@ -13,7 +13,7 @@ import { OI_SAMPLE_VENUES, fetchCandles, fetchOiHistory, fetchOiSample, oiBars, 
 import { browserVenues, type BrowserVenue } from './venues.ts';
 import { BTC, SCALES, type Coin, type MarketVenue } from './coins.ts';
 import type { BookConnector, TradeEvent } from './connector.ts';
-import type { ColumnSet, ColumnsFrame } from './columns.ts';
+import { packLt, type ColumnSet, type ColumnsFrame } from './columns.ts';
 
 /**
  * The whole data plane without a server: it runs the exchange connectors for the selected venues, values their books, records minute
@@ -86,7 +86,8 @@ export function packColumns(results: readonly { instrumentId: string; step: numb
     const bins = new Int32Array(total), bid = new Float32Array(total), ask = new Float32Array(total);
     let at = 0;
     for (const c of columns) { bins.set(c.bins, at); bid.set(c.bid, at); ask.set(c.ask, at); at += c.bins.length; }
-    return { id: instrumentId, step, times: columns.map(c => c.t), counts: columns.map(c => c.bins.length), samples: columns.map(c => c.n), bins, bid, ask };
+    const lt = packLt(columns);
+    return { id: instrumentId, step, times: columns.map(c => c.t), counts: columns.map(c => c.bins.length), samples: columns.map(c => c.n), bins, bid, ask, ...(lt ? { lt } : {}) };
   });
 }
 

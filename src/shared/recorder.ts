@@ -1,5 +1,6 @@
 import type { ValuedBook, SideLevels } from './levels.ts';
 import { gridStepFor } from './grid.ts';
+import { LT_LENGTH, addLtSample } from './lt-sample.ts';
 
 export const COLUMN_MS = 60_000;
 export const SAMPLE_MS = 5_000;
@@ -19,13 +20,24 @@ export interface Column {
   bins: Int32Array;
   bid: Float32Array;
   ask: Float32Array;
+  /**
+   * The Liquidity Tracker over the same minute, measured at each sample from the venue's own touch (`shared/lt-sample.ts`): the mean over
+   * `ltN` samples (its own count: a minute reopened after a restart that recorded no tracker before has fewer). Absent in minutes recorded
+   * before it was kept.
+   */
+  lt?: Float32Array;
+  ltN?: number;
 }
 export interface ColumnStore {
   load(sinceMs: number): Iterable<{ instrumentId: string; column: Column; step: number }>;
   save(instrumentId: string, column: Column, step: number): void;
   prune(beforeMs: number): void;
 }
-interface Pending { t: number; n: number; step: number; bid: Map<number, number>; ask: Map<number, number> }
+/** An open minute: the USD per bin summed over its `n` samples, and the tracker summed over its `ltN` samples (null until the first). */
+interface Pending { t: number; n: number; step: number; bid: Map<number, number>; ask: Map<number, number>; lt: Float64Array | null; ltN: number }
+
+/** The tracker's mean from its sums over `n` samples (undefined when there were none). */
+const ltMean = (sums: Float64Array | null, n: number): Float32Array | undefined => sums && n > 0 ? Float32Array.from(sums, v => v / n) : undefined;
 
 export { gridStepFor } from './grid.ts';
 
@@ -58,10 +70,29 @@ export function accumulateSide(side: SideLevels, step: number, into: Map<number,
 export const MIN_BIN_USD = 10_000;
 export const KEEP_ALWAYS = 300;
 
-function finalize(pending: Pick<Pending, 't' | 'n' | 'bid' | 'ask'>, minBinUsd: number = MIN_BIN_USD): Column {
+function finalize(pending: Pick<Pending, 't' | 'n' | 'bid' | 'ask'> & Partial<Pick<Pending, 'lt' | 'ltN'>>, minBinUsd: number = MIN_BIN_USD): Column {
   const keys = new Set<number>([...pending.bid.keys(), ...pending.ask.keys()]);
   const bins = Int32Array.from([...keys].sort((a, b) => a - b));
-  return finish(pending.t, pending.n, bins, Float64Array.from(bins, bin => pending.bid.get(bin) ?? 0), Float64Array.from(bins, bin => pending.ask.get(bin) ?? 0), minBinUsd);
+  return withLt(finish(pending.t, pending.n, bins, Float64Array.from(bins, bin => pending.bid.get(bin) ?? 0), Float64Array.from(bins, bin => pending.ask.get(bin) ?? 0), minBinUsd), pending.lt ?? null, pending.ltN ?? 0);
+}
+
+/** A column with the tracker's mean over `ltN` samples, from its sums (as it was when there were none). */
+function withLt(column: Column, sums: Float64Array | null, ltN: number): Column {
+  const lt = ltMean(sums, ltN);
+  return lt ? { ...column, lt, ltN } : column;
+}
+
+/** The tracker of columns `[start, end)` as one window: their means weighted by the samples behind each (the columns without one left out). */
+function mergedLt(columns: readonly Column[], start: number, end: number): { sums: Float64Array | null; n: number } {
+  let sums: Float64Array | null = null, n = 0;
+  for (let k = start; k < end; k++) {
+    const c = columns[k]!, lt = c.lt, w = c.ltN ?? 0;
+    if (!lt || !(w > 0)) continue;
+    sums ??= new Float64Array(LT_LENGTH);
+    for (let i = 0; i < LT_LENGTH; i++) sums[i]! += lt[i]! * w;
+    n += w;
+  }
+  return { sums, n };
 }
 
 /** A column from the USD summed over `n` samples in each of `bins` (ascending): the mean per bin, the smallest bins left out of a large column. */
@@ -97,6 +128,11 @@ let denseBid = new Float64Array(0), denseAsk = new Float64Array(0), denseSeen = 
  * operation per bin.
  */
 function mergeWindow(columns: readonly Column[], start: number, end: number, t: number, minBinUsd: number): Column {
+  const lt = mergedLt(columns, start, end);
+  return withLt(mergeDepth(columns, start, end, t, minBinUsd), lt.sums, lt.n);
+}
+
+function mergeDepth(columns: readonly Column[], start: number, end: number, t: number, minBinUsd: number): Column {
   let n = 0, lo = Infinity, hi = -Infinity, total = 0;
   for (let k = start; k < end; k++) {
     const c = columns[k]!, m = c.bins.length; n += c.n; total += m;
@@ -198,9 +234,16 @@ export class DepthRecorder {
       }
       let pending = this.#pending.get(book.instrumentId);
       if (pending && pending.t !== minute) { this.#commit(book.instrumentId, pending); pending = undefined; }
-      if (!pending) { pending = this.#reopen(book.instrumentId, minute) ?? { t: minute, n: 0, step, bid: new Map(), ask: new Map() }; this.#pending.set(book.instrumentId, pending); }
-      accumulateSide(book.bids, step, pending.bid);
-      accumulateSide(book.asks, step, pending.ask);
+      if (!pending) { pending = this.#reopen(book.instrumentId, minute) ?? { t: minute, n: 0, step, bid: new Map(), ask: new Map(), lt: null, ltN: 0 }; this.#pending.set(book.instrumentId, pending); }
+      // This sample's bins on their own first: the tracker is measured on them, from this book's own touch, before they join the minute.
+      const bid = new Map<number, number>(), ask = new Map<number, number>();
+      accumulateSide(book.bids, step, bid);
+      accumulateSide(book.asks, step, ask);
+      pending.lt ??= new Float64Array(LT_LENGTH);
+      addLtSample(bid, ask, step, pending.lt);
+      pending.ltN += 1;
+      for (const [bin, usd] of bid) pending.bid.set(bin, (pending.bid.get(bin) ?? 0) + usd);
+      for (const [bin, usd] of ask) pending.ask.set(bin, (pending.ask.get(bin) ?? 0) + usd);
       pending.n += 1;
     }
     for (const [id, pending] of this.#pending) if (pending.t < minute) this.#commit(id, pending);
@@ -215,8 +258,9 @@ export class DepthRecorder {
     const list = this.columns.get(id), last = list?.[list.length - 1];
     if (!list || !last || last.t !== minute || !(last.n > 0)) return null;
     list.pop();
-    const pending: Pending = { t: minute, n: last.n, step: this.steps.get(id)!, bid: new Map(), ask: new Map() };
-    // A column holds the mean over its samples, an open minute the sum.
+    // A column holds the mean over its samples, an open minute the sum (the tracker over its own count: none when it was not kept).
+    const ltN = last.lt && (last.ltN ?? 0) > 0 ? last.ltN! : 0;
+    const pending: Pending = { t: minute, n: last.n, step: this.steps.get(id)!, bid: new Map(), ask: new Map(), lt: ltN ? Float64Array.from(last.lt!, v => v * ltN) : null, ltN };
     for (let i = 0; i < last.bins.length; i++) { pending.bid.set(last.bins[i]!, last.bid[i]! * last.n); pending.ask.set(last.bins[i]!, last.ask[i]! * last.n); }
     return pending;
   }

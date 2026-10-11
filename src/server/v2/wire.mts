@@ -1,4 +1,5 @@
 import type { Column } from './recorder.mts';
+import { packLt } from '../../shared/columns.ts';
 import type { ValuedBook } from './levels.mts';
 
 /**
@@ -24,17 +25,24 @@ function frame(header: Record<string, unknown>, parts: Part[]): Buffer {
 
 export interface ColumnsRequestResult { step: number; instrumentId: string; columns: Column[] }
 
-/** All instruments' columns in one frame: three typed arrays (bins, bid, ask) per instrument, concatenated across columns. */
+/**
+ * All instruments' columns in one frame: three typed arrays (bins, bid, ask) per instrument, concatenated across columns. The Liquidity
+ * Tracker kept with the columns (`packLt`) follows after every instrument's three, its part's index in the instrument's `lt` field, so a
+ * page that does not know it reads the frame as before.
+ */
 export function encodeColumns(results: ColumnsRequestResult[], from: number, to: number, stepMs: number): Buffer {
-  const parts: Part[] = [];
+  const parts: Part[] = [], trackers: Float32Array[] = [];
   const instruments = results.map(({ instrumentId, step, columns }) => {
     const total = columns.reduce((sum, c) => sum + c.bins.length, 0);
     const bins = new Int32Array(total), bid = new Float32Array(total), ask = new Float32Array(total);
     let at = 0;
     for (const c of columns) { bins.set(c.bins, at); bid.set(c.bid, at); ask.set(c.ask, at); at += c.bins.length; }
     parts.push({ kind: 'i32', data: bins }, { kind: 'f32', data: bid }, { kind: 'f32', data: ask });
-    return { id: instrumentId, step, times: columns.map(c => c.t), counts: columns.map(c => c.bins.length), samples: columns.map(c => c.n) };
+    const lt = packLt(columns), ltPart = lt ? 3 * results.length + trackers.length : undefined;
+    if (lt) trackers.push(lt);
+    return { id: instrumentId, step, times: columns.map(c => c.t), counts: columns.map(c => c.bins.length), samples: columns.map(c => c.n), ...(ltPart !== undefined ? { lt: ltPart } : {}) };
   });
+  for (const lt of trackers) parts.push({ kind: 'f32', data: lt });
   return frame({ type: WIRE_COLUMNS, from, to, stepMs, instruments }, parts);
 }
 

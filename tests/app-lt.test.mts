@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LT_DEFAULTS, ltSeries, ltWeight, type LtParams, type LtStore } from '../src/app/lt.ts';
+import { LT_LENGTH, ltIndex } from '../src/shared/lt-sample.ts';
 
 const MIN = 60_000;
 const near = (actual: ArrayLike<number>, expected: number[], eps = 1e-3) => { assert.equal(actual.length, expected.length); expected.forEach((v, i) => assert.ok(Math.abs(actual[i]! - v) < eps, `index ${i}: ${actual[i]} vs ${v}`)); };
@@ -41,17 +42,41 @@ test('the size filter drops bins outside [min, max] but never moves the touch', 
   assert.ok(Math.abs(capped.ask[0]! - 1) < 1e-6);
 });
 
-test('venues merge into one book: the touch is the best price across stores and cutoffs replace stale columns', () => {
+test('each venue is measured from its own touch and the venues add up; cutoffs replace stale columns', () => {
   const a = store([{ t: 0, rows: [[1000, 100, 0], [1005, 0, 100]] }, { t: MIN, rows: [[1000, 999, 0]] }], { cutoff: MIN });
   const b = store([{ t: 0, rows: [[1001, 200, 0], [1004, 0, 300]] }]);
   const out = ltSeries([a, b], 0, 2 * MIN, MIN, flat());
   assert.deepEqual([...out.times], [0], 'the column at the cutoff is ignored');
   near(out.bid, [300]);
   near(out.ask, [400]);
-  const p0 = 1001.5;
+  // a's best bid is a bin below b's: measured from its own touch it counts in full (from one touch shared by both, it weighed less).
   const tight = ltSeries([a, b], 0, 2 * MIN, MIN, { ...flat(), halfLifeBp: 10 });
-  const expectBid = 200 * 1 + 100 * ltWeight((p0 - 1000.5) / p0 * 1e4, 10);
-  assert.ok(Math.abs(tight.bid[0]! - expectBid) < 1e-3, 'the other venue is measured from the merged touch');
+  near(tight.bid, [300]);
+  near(tight.ask, [400]);
+});
+
+test('two venues priced apart: the one priced off the other is not read as thinner on one side', () => {
+  // The same book shape on two venues, one 20 bp above the other (USDT spot over the perpetuals): each side weighs the same on both.
+  const book = (offset: number) => store([{ t: 0, rows: [[1000 + offset, 100, 0], [999 + offset, 100, 0], [1001 + offset, 0, 100], [1002 + offset, 0, 100]] }]);
+  const out = ltSeries([book(0), book(2)], 0, MIN, MIN, { ...LT_DEFAULTS, halfLifeBp: 10 });
+  assert.ok(Math.abs(out.bid[0]! - out.ask[0]!) / (out.bid[0]! + out.ask[0]!) < 1e-3, `bids ${out.bid[0]} and asks ${out.ask[0]} balance`);
+});
+
+test('a kept tracker is read as it is; a size filter, a column without one, or a half-life not kept work it out from the book', () => {
+  // One venue, two minutes: the first with a kept tracker (its fields for the 10 bp half-life set to recognisable sums), the second without.
+  const lt = new Float32Array(2 * LT_LENGTH).fill(NaN);
+  lt.fill(0, 0, LT_LENGTH);
+  const at = ltIndex(10); lt[at] = 111; lt[at + 1] = 222; lt[at + 2] = 2; lt[at + 3] = 4;
+  const s = store([{ t: 0, rows: [[1000, 100, 0], [1001, 0, 50]] }, { t: MIN, rows: [[1000, 100, 0], [1001, 0, 50]] }], { lt });
+  const out = ltSeries([s], 0, 2 * MIN, MIN, { ...LT_DEFAULTS, halfLifeBp: 10 });
+  near(out.bid, [111, 100]); near(out.ask, [222, 50]);
+  assert.equal(out.estimated, true, 'the second minute was worked out from its average book');
+  near(ltSeries([s], 0, MIN, MIN, { ...LT_DEFAULTS, halfLifeBp: 10, average: true }).bid, [111 / 2], 1e-3);
+  assert.equal(ltSeries([s], 0, MIN, MIN, { ...LT_DEFAULTS, halfLifeBp: 10 }).estimated, false, 'the kept minute alone is not an estimate');
+  const filtered = ltSeries([s], 0, MIN, MIN, { ...LT_DEFAULTS, halfLifeBp: 10, minUsd: 60 });
+  near(filtered.bid, [100]); near(filtered.ask, [0]);
+  assert.equal(filtered.estimated, true, 'the kept tracker is unfiltered, so a filter works from the book');
+  assert.equal(ltSeries([{ ...s, instant: true, lt: undefined }], 0, MIN, MIN, { ...LT_DEFAULTS, halfLifeBp: 10 }).estimated, false, 'one instant (the live book) is exact');
 });
 
 test('output is time-ordered, limited to the requested range, and empty sides read zero', () => {

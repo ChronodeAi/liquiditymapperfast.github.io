@@ -186,7 +186,7 @@ export class Hub {
         const message = event.data;
         if (message.type === 'ready') resolve();
         else if (message.type === 'error') console.error('raster worker:', message.message);
-        else if (message.type === 'lt') { this.#ltWaiters.get(message.id)?.({ times: message.times, bid: message.bid, ask: message.ask }); this.#ltWaiters.delete(message.id); }
+        else if (message.type === 'lt') { this.#ltWaiters.get(message.id)?.({ times: message.times, bid: message.bid, ask: message.ask, estimated: message.estimated }); this.#ltWaiters.delete(message.id); }
         else if (message.type === 'cell') { this.#cellWaiters.get(message.id)?.(message.items); this.#cellWaiters.delete(message.id); }
         else if (message.type === 'depth') { this.#depthWaiters.get(message.id)?.({ bid: message.bid, ask: message.ask }); this.#depthWaiters.delete(message.id); }
         else {
