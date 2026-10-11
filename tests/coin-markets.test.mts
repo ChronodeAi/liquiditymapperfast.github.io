@@ -89,6 +89,22 @@ test('Hyperliquid subscribes and names trades by its own name for the coin, and 
   assert.deepEqual(got.map(t => [t.tradeId, t.price, t.amount, t.notionalUsd]), [['1700000000000:kPEPE:5', 0.004 / 1000, 1_000_000, 4]]);
 });
 
+test('grouped books in the browser: a bid holds its group from its price up, an ask from its price down', () => {
+  // Hyperliquid ETH at three significant figures: $10 groups, a bid named 2,500 holds 2,500 to 2,510, an ask named 2,510 holds 2,500 to 2,510.
+  const hl = new HyperliquidConnector({ coin: 'ETH', symbol: 'ETH', unit: 1 });
+  hl.state = 'connecting';
+  hl.onMessage(msg({ channel: 'l2Book', data: { coin: 'ETH', time: 1_700_000_000_000, levels: [[{ px: '2500', sz: '4', n: 3 }, { px: '2490', sz: '9', n: 5 }], [{ px: '2510', sz: '2', n: 1 }, { px: '2520', sz: '7', n: 4 }]] } }));
+  const book = hl.valued(Date.now())!;
+  assert.deepEqual([[...book.bids.lo], [...book.bids.hi]], [[2500, 2490], [2510, 2500]]);
+  assert.deepEqual([[...book.asks.lo], [...book.asks.hi]], [[2500, 2510], [2510, 2520]]);
+  // Deribit BTC in $10 groups: the same naming.
+  const deribit = new DeribitConnector();
+  deribit.state = 'connecting';
+  deribit.onMessage(msg({ params: { channel: 'book.BTC-PERPETUAL.10.20.100ms', data: { bids: [[82_980, 1000]], asks: [[82_990, 1000]] } } }));
+  const grouped = deribit.valued(Date.now())!;
+  assert.deepEqual([grouped.bids.lo[0], grouped.bids.hi[0], grouped.asks.lo[0], grouped.asks.hi[0]], [82_980, 82_990, 82_980, 82_990]);
+});
+
 test('Deribit: ETH is sized in USD like BTC, the USDC perpetuals in coins, and neither is grouped like BTC', () => {
   const eth = new DeribitConnector({ coin: 'ETH', symbol: 'ETH-PERPETUAL', unit: 1, inverse: true }), ethTrades = trades(eth);
   assert.deepEqual(frames(eth), [{ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: ['book.ETH-PERPETUAL.none.20.100ms', 'trades.ETH-PERPETUAL.100ms'] } }]);

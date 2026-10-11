@@ -1,5 +1,5 @@
 import { baseSizeUsdRate, usdBookLevels } from '../../core/book-valuation.mts';
-import { hyperliquidGroupingBoundsDecimal } from '../../analytics/hyperliquid-bounds.mts';
+import { hyperliquidLevelBounds } from '../../analytics/hyperliquid-bounds.mts';
 import { gridStepFor } from '../../shared/grid.ts';
 import { mergeByDistance } from '../../shared/merge.ts';
 import type { SideLevels, ValuedBook } from '../../shared/levels.ts';
@@ -22,18 +22,21 @@ interface MarketLike { venue?: unknown; [key: string]: unknown }
 
 const empty = (): SideLevels => ({ lo: new Float64Array(0), hi: new Float64Array(0), usd: new Float64Array(0) });
 
-/** Price band [lo, hi) a level covers. Hyperliquid aggregated levels name the lower edge of a grid band. */
-function band(price: number, book: BookLike): { lo: number; hi: number; coarse: boolean } {
+/**
+ * Price band a level covers. A grouped level (Hyperliquid's significant figures, Deribit's grouping) names a bid group by its lower edge and
+ * an ask group by its upper edge, so a bid holds [P, P + step) and an ask (P - step, P] (both measured against the ungrouped book 2026-10-11).
+ */
+function band(price: number, book: BookLike, side: 'bid' | 'ask'): { lo: number; hi: number; coarse: boolean } {
   const sigFigs = Number(book.nSigFigs);
   if (Number.isInteger(sigFigs) && sigFigs >= 2 && sigFigs <= 5) {
     try {
       const mantissa = Number(book.mantissa);
-      const bounds = hyperliquidGroupingBoundsDecimal(price, sigFigs, Number.isInteger(mantissa) ? mantissa : undefined);
+      const bounds = hyperliquidLevelBounds(price, side, sigFigs, Number.isInteger(mantissa) ? mantissa : undefined);
       return { lo: bounds.lower, hi: bounds.upper, coarse: true };
     } catch { /* fall through to a point level */ }
   }
   const grouping = Number(book.sourceGrouping);
-  if (Number.isFinite(grouping) && grouping > 0) return { lo: price - grouping / 2, hi: price + grouping / 2, coarse: true };
+  if (Number.isFinite(grouping) && grouping > 0) return side === 'bid' ? { lo: price, hi: price + grouping, coarse: true } : { lo: price - grouping, hi: price, coarse: true };
   return { lo: price, hi: price, coarse: false };
 }
 
@@ -83,7 +86,7 @@ export function valueBook(instrumentId: string, book: BookLike | null | undefine
   const sides = { bid: { lo: [] as number[], hi: [] as number[], usd: [] as number[] }, ask: { lo: [] as number[], hi: [] as number[], usd: [] as number[] } };
   let coarse = false;
   for (const row of rows) {
-    const b = band(row.price, book);
+    const b = band(row.price, book, row.side);
     coarse ||= b.coarse;
     const side = sides[row.side];
     side.lo.push(b.lo); side.hi.push(b.hi); side.usd.push(row.notionalUsd);

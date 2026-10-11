@@ -53,3 +53,14 @@ export function hyperliquidGroupingBoundsDecimal(price: number, nSigFigs: number
     ...(mantissa == null ? {} : { mantissa }),
   };
 }
+
+/**
+ * The group a level of a grouped Hyperliquid book holds. Bids are named by the group's lower edge, [P, P + step); asks by its upper edge,
+ * (P - step, P]: the finer groups add up to a coarser one exactly that way (BTC and ETH, measured 2026-10-11). An ask named on a power of
+ * ten (100,000) holds the prices just below it, whose step is a tenth of its own.
+ */
+export function hyperliquidLevelBounds(price: number, side: 'bid' | 'ask', nSigFigs: number, mantissa?: number | null): HyperliquidGroupingBounds {
+  if (side === 'bid') return hyperliquidGroupingBoundsDecimal(price, nSigFigs, mantissa);
+  const own = hyperliquidGroupingBoundsDecimal(price, nSigFigs, mantissa);
+  return hyperliquidGroupingBoundsDecimal(price - own.step / 1000, nSigFigs, mantissa);
+}

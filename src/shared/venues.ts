@@ -1,6 +1,6 @@
 import { BinanceDiffDepthConnector, BookConnector, type Market } from './connector.ts';
 import { BTC, EARLIER_BROWSER_VENUES, type Coin, type MarketVenue } from './coins.ts';
-import { hyperliquidGroupingBoundsDecimal } from '../analytics/hyperliquid-bounds.mts';
+import { hyperliquidLevelBounds } from '../analytics/hyperliquid-bounds.mts';
 
 /**
  * The venues the browser connects to itself: public order-book and trade feeds for one coin (BTC unless the page was opened on another).
@@ -342,8 +342,8 @@ export class DeribitConnector extends MarketBook {
   /** $10 bands for BTC, as the server reads it; single levels for the rest. */
   readonly #group = this.market.symbol === 'BTC-PERPETUAL' ? '10' : 'none';
   protected override get coarse() { return this.#group !== 'none'; }
-  /** A grouped level is named by the middle of its $10 band. */
-  protected override band(price: number) { return { lo: price - 5, hi: price + 5 }; }
+  /** A grouped bid is named by the lower edge of its $10 band, a grouped ask by the upper edge (measured against the ungrouped book 2026-10-11). */
+  protected override band(price: number, side: 'bid' | 'ask') { return side === 'bid' ? { lo: price, hi: price + 10 } : { lo: price - 10, hi: price }; }
   protected url() { return 'wss://www.deribit.com/ws/api/v2'; }
   protected open(send: (p: unknown) => void) { send({ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: [`book.${this.symbol}.${this.#group}.20.100ms`, `trades.${this.symbol}.100ms`] } }); }
   protected override usdOf(price: number, size: number) { return this.market.inverse ? size : price * size; }
@@ -387,7 +387,7 @@ export class DeribitConnector extends MarketBook {
 
 // ---- Hyperliquid --------------------------------------------------------------------------------------------------------------------
 
-/** Hyperliquid perpetuals: l2Book at three significant figures (20 aggregated bands a side, about $100 wide for BTC, each named by its lower edge) and trades. */
+/** Hyperliquid perpetuals: l2Book at three significant figures (20 aggregated bands a side, about $100 wide for BTC: a bid named by its band's lower edge, an ask by its upper edge) and trades. */
 /** The server's setting (HL_BOOK_NSIG_FIGS defaults to 3): bands about $100 wide at BTC's price. */
 const HL_SIG_FIGS = 3;
 export class HyperliquidConnector extends MarketBook {
@@ -396,7 +396,7 @@ export class HyperliquidConnector extends MarketBook {
   /** The instrument is named as the server names it (BTC-PERP); the market's own name for the coin is what it subscribes with. */
   override get symbol(): string { return `${this.market.symbol}-PERP`; }
   protected override get coarse() { return true; }
-  protected override band(price: number) { try { const b = hyperliquidGroupingBoundsDecimal(price, HL_SIG_FIGS); return { lo: b.lower, hi: b.upper }; } catch { return { lo: price, hi: price }; } }
+  protected override band(price: number, side: 'bid' | 'ask') { try { const b = hyperliquidLevelBounds(price, side, HL_SIG_FIGS); return { lo: b.lower, hi: b.upper }; } catch { return { lo: price, hi: price }; } }
   protected url() { return 'wss://api.hyperliquid.xyz/ws'; }
   protected open(send: (p: unknown) => void) {
     send({ method: 'subscribe', subscription: { type: 'l2Book', coin: this.market.symbol, nSigFigs: HL_SIG_FIGS } });

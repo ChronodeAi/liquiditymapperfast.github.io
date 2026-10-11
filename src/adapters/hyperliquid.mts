@@ -2,7 +2,7 @@ import type { PriceAmount, OpenInterestSample, HyperliquidMetadataSnapshot, Trad
 import { recordValue, arrayValue, type AdapterOptions, type AdapterTransport, type NormalizedAdapterCandle, type WireRecord } from './common.mts';
 import { AdapterTransportError, epochMs, finiteNumber, intervalMilliseconds, sideLevels, validateCandle } from './common.mts';
 import { bookKey, bookResolutionKey } from '../core/book-key.mts';
-import { hyperliquidGroupingBoundsDecimal } from '../analytics/hyperliquid-bounds.mts';
+import { hyperliquidLevelBounds } from '../analytics/hyperliquid-bounds.mts';
 
 /** Hyperliquid public Info REST endpoint. No request is sent by this module. */
 export const HYPERLIQUID_INFO_URL = 'https://api.hyperliquid.xyz/info';
@@ -31,12 +31,12 @@ export function validateHyperliquidGrouping(nSigFigs: unknown, mantissa: unknown
   if (mant != null && sig !== 5) throw new RangeError('Hyperliquid mantissa is only valid when nSigFigs is 5');
   return { nSigFigs: sig, mantissa: mant };
 }
-/** Recover the per-price lower/upper edges used by Hyperliquid coarse books. */
-export function hyperliquidBucketBounds(price: unknown, nSigFigs: unknown, mantissa?: unknown) {
+/** Recover the lower/upper edges of the group a coarse book's level holds: a bid's group starts at its price, an ask's ends there. */
+export function hyperliquidBucketBounds(price: unknown, nSigFigs: unknown, mantissa?: unknown, side: 'bid' | 'ask' = 'bid') {
   const px = finiteNumber(price, 'price');
   const grouping = validateHyperliquidGrouping(nSigFigs, mantissa);
   if (grouping.nSigFigs == null) return null;
-  return hyperliquidGroupingBoundsDecimal(px, grouping.nSigFigs, grouping.mantissa);
+  return hyperliquidLevelBounds(px, side, grouping.nSigFigs, grouping.mantissa);
 }
 export function hyperliquidBookResolutionKey({ nSigFigs = null, mantissa = null }: AdapterOptions = {}) {
   const grouping = validateHyperliquidGrouping(nSigFigs, mantissa);
@@ -176,12 +176,12 @@ export function normalizeHyperliquidBook(payload: unknown, { instrumentId, nSigF
   const resolutionDigits = responseSig ?? nSigFigs;
   const grouping = validateHyperliquidGrouping(resolutionDigits, responseMantissa ?? mantissa);
   const coarse = grouping.nSigFigs != null || grouping.mantissa != null;
-  const annotate = (rows: PriceAmount[]): HyperliquidPriceAmount[] => coarse ? rows.map((row) => {
+  const annotate = (rows: PriceAmount[], side: 'bid' | 'ask'): HyperliquidPriceAmount[] => coarse ? rows.map((row) => {
     // Coarse grouping validation above requires nSigFigs.
-    const bounds = hyperliquidBucketBounds(row.price, grouping.nSigFigs, grouping.mantissa)!;
+    const bounds = hyperliquidBucketBounds(row.price, grouping.nSigFigs, grouping.mantissa, side)!;
     return { ...row, priceLow: bounds.lower, priceHigh: bounds.upper, sourceGrouping: bounds.step, sourceGroupingBounds: bounds };
   }) : rows;
-  const bids = annotate(sideLevels(levels[0], 'bids')); const asks = annotate(sideLevels(levels[1], 'asks'));
+  const bids = annotate(sideLevels(levels[0], 'bids'), 'bid'); const asks = annotate(sideLevels(levels[1], 'asks'), 'ask');
   const resolvedInstrumentId = instrumentId ?? ('hyperliquid:' + coin + '-PERP');
   const resolvedResolution = coarse ? 'coarse' : 'native';
   const observedResolutionKey = hyperliquidBookResolutionKey(grouping);

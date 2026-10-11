@@ -29,7 +29,10 @@ test('Hyperliquid coarse l2Book carries resolution and conservative coverage', (
   const transition = normalizeHyperliquidBook({ data: { coin: 'BTC', time: 1700000000000, nSigFigs: 2, levels: [[{ px: '99999', sz: '2' }], [{ px: '100000', sz: '1' }]] } }, { receivedAt: 1700000000100 });
   assert.equal(transition.bids[0].sourceGrouping, 1000);
   assert.deepEqual({ low: transition.bids[0].priceLow, high: transition.bids[0].priceHigh }, { low: 99000, high: 100000 });
-  assert.equal(transition.asks[0].sourceGrouping, 10000);
+  // An ask is named by the upper edge of its group: 100,000 holds the asks above 99,000, a group of the step below the power of ten.
+  assert.equal(transition.asks[0].sourceGrouping, 1000);
+  assert.deepEqual({ low: transition.asks[0].priceLow, high: transition.asks[0].priceHigh }, { low: 99000, high: 100000 });
+  assert.deepEqual({ low: hyperliquidBucketBounds(1100, 2, undefined, 'ask')!.lower, high: hyperliquidBucketBounds(1100, 2, undefined, 'ask')!.upper }, { low: 1000, high: 1100 });
   assert.deepEqual(hyperliquidBucketBounds(100000, 2), {
     step: 10000, lower: 100000, upper: 110000, nSigFigs: 2,
     boundaryPrecision: 'estimated', boundarySemantics: 'lower-edge-grid', source: 'official-contract',
