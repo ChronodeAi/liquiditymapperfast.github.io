@@ -71,6 +71,12 @@ export interface AbsorptionStore {
 
 /** The largest credit of a group. */
 export const peakOf = (g: AbsorptionGroup): number => g.steps[0]?.[0] ?? 0;
+/**
+ * The order a minute's groups are kept in, the largest first: by peak, and between equal peaks the earlier first fill, the lower price, then
+ * the buy side. A total order, so the recorder and a page that received the same groups in another order keep the same ones.
+ */
+export const largerFirst = (a: AbsorptionGroup, b: AbsorptionGroup): number =>
+  peakOf(b) - peakOf(a) || a.t0 - b.t0 || a.price - b.price || (a.side === b.side ? 0 : a.side === 'buy' ? -1 : 1);
 
 /** Chan's merge of two (count, mean, squared deviations) summaries. */
 export function mergeMoments(a: { n: number; mean: number; m2: number }, b: { n: number; mean: number; m2: number }): { n: number; mean: number; m2: number } {
@@ -272,7 +278,7 @@ export class AbsorptionRecorder {
     m.groups.push(group);
     if (m.groups.length > this.#perMinute) {
       // Only the largest are kept; the credit of the one left out is the floor under which this minute may be missing groups.
-      m.groups.sort((a, b) => peakOf(b) - peakOf(a));
+      m.groups.sort(largerFirst);
       const left = m.groups.pop()!;
       m.floor = Math.max(m.floor, peakOf(left));
       if (left === group) return;

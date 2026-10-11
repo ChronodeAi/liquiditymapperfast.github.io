@@ -236,6 +236,18 @@ test('a page book keeps what the recorder keeps: of a busy minute the largest, w
   assert.deepEqual(heldBy(live, ['a:BTC', 'b:BTC']), kept);
   const reversed = new AbsorptionBook(); reversed.add([...sent].reverse());
   assert.deepEqual(heldBy(reversed, ['a:BTC', 'b:BTC']), kept, 'in any order');
+  // Equal peaks at the tenth place: ten of $30K, then one of $60K. A page that took two of the ten live before the history answer (which
+  // brings all ten), then the large one live, keeps the nine the recorder keeps: both settle a tie by one order, not by arrival.
+  now = T0 + 10 * MIN; const tied = new AbsorptionRecorder(null, () => now);
+  for (let i = 0; i < 10; i++) { now = T0 + 10 * MIN + i * 1_000 + 300; tied.add('a:BTC', T0 + 10 * MIN + i * 1_000, 100 + i, 30_000, 'buy'); }
+  now = T0 + 10 * MIN + 10_300; tied.add('a:BTC', T0 + 10 * MIN + 10_000, 200, 60_000, 'buy');
+  now = T0 + 13 * MIN; tied.step(true);
+  const tiedSent = tied.takeFresh().groups, at = (price: number): AbsorptionGroup => tiedSent.find(g => g.price === price)!;
+  const tiedKept = (await tied.query(['a:BTC'], [25_000], T0, T0 + 20 * MIN, 100, T0)).groups.map(groupKey).sort();
+  assert.deepEqual([tiedSent.length, tiedKept.length], [11, 10]);
+  const page = new AbsorptionBook();
+  page.add([at(108), at(109)]); page.add(tiedSent.filter(g => g.price < 200)); page.add([at(200)]);
+  assert.deepEqual(heldBy(page, ['a:BTC']), tiedKept, 'a tie at the tenth place is settled as the recorder settles it');
 });
 
 test('a full page book lets go first of what the last answer does not claim, then of what the view no longer reaches, and says when it cut the view', () => {

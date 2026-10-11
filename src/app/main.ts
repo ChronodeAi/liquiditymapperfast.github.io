@@ -148,7 +148,7 @@ async function main(): Promise<void> {
   // A click on the map while placing a VWAP anchor: the anchor, for the coin on the page.
   heat.onAnchor = at => { const s = store.state; store.set({ vwap: withAnchor({ ...s.vwap, on: true }, currentCoin().coin, at, Date.now()), vwapAnchoring: false }); };
   hub.onTraded = () => heat.invalidate();
-  hub.onAbsorptionChanged = () => heat.invalidate();
+  hub.onAbsorptionChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.absorptionInfo = () => heat.absorptionThresholdText();
   // Hovering a theme shows it everywhere without saving it; leaving the menu puts the saved one back.
   toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; applyTheme(name); for (const p of [heat, ladder, depth, oi, delta, lt, bars, cvd]) p.setPalette(name); toolbar.previewTheme(name); };

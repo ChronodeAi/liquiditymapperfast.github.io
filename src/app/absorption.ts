@@ -1,4 +1,4 @@
-import { ABSORPTION_WINDOW_MS, GROUP_FLOOR_USD, GROUPS_PER_MINUTE, autoThreshold, markedPart, peakOf, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute } from '../shared/absorption.ts';
+import { ABSORPTION_WINDOW_MS, GROUP_FLOOR_USD, GROUPS_PER_MINUTE, autoThreshold, largerFirst, markedPart, peakOf, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute } from '../shared/absorption.ts';
 import { clock, price as fmtPrice, usd } from './format.ts';
 import { venueLabel } from './venues.ts';
 import { t, tn } from './i18n.ts';
@@ -99,9 +99,9 @@ export interface AbsorptionCover { from: number; to: number; mins: ReadonlyMap<s
  * The recorded groups and minutes the page holds: what the window on screen was answered with, and what the live stream added since.
  *
  * It holds what the recorder holds. The live stream sends a group when it is found, and the recorder later lets the smallest of a busy
- * minute go (it keeps GROUPS_PER_MINUTE per instrument and minute): the book keeps each instrument's largest of a minute the same way, and
- * those are the recorder's, since each of them was among the largest when it was found, so it was sent. A page open through busy hours
- * otherwise marked more than the recording did.
+ * minute go (it keeps GROUPS_PER_MINUTE per instrument and minute): the book keeps each instrument's largest of a minute the same way, in the
+ * same order (`largerFirst`, which settles equal peaks without regard to arrival), and those are the recorder's, since each of them was among
+ * the largest when it was found, so it was sent. A page open through busy hours otherwise marked more than the recording did.
  *
  * And it lets go only of what can be asked for again. Past `max` groups it frees a tenth of its room: first what the last history answer
  * does not claim (`cover`: a group from outside its window, of an instrument it did not ask about, or under the peak its instrument was
@@ -153,7 +153,7 @@ export class AbsorptionBook {
     }
     for (const slot of crowded) {
       const held = this.#slots.get(slot)!;
-      for (const [key, g] of [...held].sort((a, b) => peakOf(b[1]) - peakOf(a[1])).slice(this.perMinute)) this.#drop(key, g);
+      for (const [key, g] of [...held].sort((a, b) => largerFirst(a[1], b[1])).slice(this.perMinute)) this.#drop(key, g);
     }
     if (this.#groups.size > this.max) this.#evict();
     this.version++;

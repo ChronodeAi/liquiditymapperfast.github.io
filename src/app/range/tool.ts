@@ -184,8 +184,8 @@ export class RangeTool {
   }
 
   /**
-   * Read again what the map holds for the selection on show (its large orders or liquidations arrived after it was made, or their settings
-   * changed), without asking the recording again; at most once a frame.
+   * Read again what the map holds for the selection on show (its absorption groups, large orders or liquidations arrived after it was made,
+   * or their settings changed), without asking the recording again; at most once a frame.
    */
   refreshHeld(): void {
     if (this.#heldFrame || !this.#panel || !this.#input) return;
