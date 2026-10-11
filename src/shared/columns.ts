@@ -13,11 +13,16 @@ export interface ColumnSet {
   lt?: Float32Array;
 }
 
-/** The trackers of `columns` side by side (NaN where a column has none), or undefined when none has one. */
+/**
+ * The trackers of `columns` side by side (NaN where a column has none), or undefined when none has one. Only a tracker over every sample of
+ * its column counts (`ltN` = `n`): a window that joins minutes recorded before the tracker was kept with newer ones holds a mean of the newer
+ * alone, which is not the window's, so the page works that window out from its book instead (and says it is an estimate).
+ */
 export function packLt(columns: readonly Column[]): Float32Array | undefined {
-  if (!columns.some(c => c.lt)) return undefined;
+  const whole = (c: Column): boolean => c.lt !== undefined && c.lt.length === LT_LENGTH && c.ltN === c.n;
+  if (!columns.some(whole)) return undefined;
   const out = new Float32Array(columns.length * LT_LENGTH).fill(NaN);
-  columns.forEach((c, k) => { if (c.lt && c.lt.length === LT_LENGTH) out.set(c.lt, k * LT_LENGTH); });
+  columns.forEach((c, k) => { if (whole(c)) out.set(c.lt!, k * LT_LENGTH); });
   return out;
 }
 export interface ColumnsFrame { from: number; to: number; stepMs: number; instruments: ColumnSet[] }

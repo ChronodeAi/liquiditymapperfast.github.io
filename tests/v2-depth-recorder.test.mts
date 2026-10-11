@@ -9,6 +9,7 @@ import { splitTouch } from '../src/shared/levels.ts';
 import { encodeColumns, encodeLevels } from '../src/server/v2/wire.mts';
 import { decodeColumns, decodeLevels } from '../src/app/wire.ts';
 import { LT_LENGTH, addLtSample, ltIndex } from '../src/shared/lt-sample.ts';
+import { packLt } from '../src/shared/columns.ts';
 import { aggregateCandles, aggregateOi, withLiveOi } from '../src/server/v2/series.mts';
 import { SqliteColumnStore } from '../src/server/v2/store.mts';
 import { FootprintRecorder } from '../src/server/v2/footprint.mts';
@@ -78,9 +79,17 @@ test('the Liquidity Tracker is kept per minute, measured at each sample from tha
   const merged = recorder.query('x:BTC', T0, T0 + 2 * COLUMN_MS, 2 * COLUMN_MS)[0]!;
   assert.equal(merged.ltN, 3);
   assert.ok(Math.abs(merged.lt![at]! - (2 * 1_000_000 + 3_000_000) / 3) < 1);
-  // A window with minutes from before the tracker was kept averages only the minutes that have it.
+  // A window with minutes from before the tracker was kept: its mean is of the newer minutes alone, so it is not sent as the window's.
   assert.equal(mergedWithout().lt, undefined);
   function mergedWithout(): Column { const r = new DepthRecorder({ now: () => T0 }); r.columns.set('y', [{ t: T0, n: 3, bins: Int32Array.of(1), bid: Float32Array.of(5), ask: Float32Array.of(0) }]); return r.query('y', T0, T0 + 2 * COLUMN_MS, 2 * COLUMN_MS)[0]!; }
+  const mixed: Column[] = [
+    { t: T0, n: 2, bins: Int32Array.of(1), bid: Float32Array.of(5), ask: Float32Array.of(0) },
+    { t: T0 + COLUMN_MS, n: 2, bins: Int32Array.of(1), bid: Float32Array.of(5), ask: Float32Array.of(0), lt: new Float32Array(LT_LENGTH).fill(7), ltN: 2 }];
+  const r = new DepthRecorder({ now: () => T0 + 5 * COLUMN_MS }); r.columns.set('z', mixed);
+  const window = r.query('z', T0, T0 + 2 * COLUMN_MS, 2 * COLUMN_MS)[0]!;
+  assert.deepEqual([window.n, window.ltN], [4, 2]);
+  assert.equal(packLt([window]), undefined, 'covers half its samples: left to the page to estimate');
+  assert.equal(packLt(mixed)![LT_LENGTH], 7, 'the newer minute on its own is whole');
 });
 
 test('the kept tracker survives SQLite, a minute reopened after a restart, and the wire; minutes without one stay without', () => {
