@@ -150,6 +150,11 @@ test('a tracked wall stays itself: a bigger wall close by does not take its plac
   for (let t = 14_000; t <= 20_000; t += 2_000) see(t, two([99_900, 12_000_000], null));
   assert.deepEqual([see(22_000, two([99_920, 8_000_000], null)), see(24_000, two([99_920, 4_000_000], null))], [[], []]);
   assert.deepEqual(see(26_000, two([99_920, 3_000_000], null)).map(x => [x.kind, x.usd]), [['pulled', 12_000_000]]);
+  // A remnant that moves is not the wall: it went then, after four seconds, so it was never a pull (and is not called one later).
+  const r = new WallWatch(), saw = (t: number, f: LevelsFrame) => r.update(t, bookBins(f, ids, MARK, 0.01), MARK, 10_000_000);
+  for (let t = 0; t <= 12_000; t += 2_000) saw(t, two(null, null));
+  saw(14_000, two([99_900, 12_000_000], null)); saw(16_000, two([99_900, 4_000_000], null));
+  assert.deepEqual([18_000, 20_000, 22_000].flatMap(t => saw(t, two([99_920, 2_400_000], null))), []);
 });
 
 test('the balance only watches while the book is arriving: a lopsided book found then is not news', () => {

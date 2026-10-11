@@ -154,8 +154,9 @@ export class WallWatch {
             const before = this.#before[side];
             let dest = 0, gain = 0;
             for (let b = bin0 - 3; b <= bin0 + 3; b++) { const g = (map.get(b) ?? 0) - (before.get(b) ?? 0); if (b !== bin0 && g > gain) { dest = b; gain = g; } }
+            // What moved must still be the wall (over 30 % of the size it stood at, as where it stood): one that moved as a remnant went.
             const there = map.get(dest) ?? 0;
-            if (gain > 0 && gain >= stood.seen * 0.6) this.#stood[side] = { price: (dest + 0.5) * bins.bin, seen: there, usd: there >= minUsd ? there : stood.usd, since: stood.since };
+            if (gain > 0 && gain >= stood.seen * 0.6 && there >= stood.usd * 0.3) this.#stood[side] = { price: (dest + 0.5) * bins.bin, seen: there, usd: there >= minUsd ? there : stood.usd, since: stood.since };
             else {
               // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached its bin
               // (within 4 bp, judged on the bin's edges: at a small price a bin's middle can be bp away from a price inside it) or passed
