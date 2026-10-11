@@ -49,13 +49,18 @@ export function bookBins(frame: LevelsFrame | null, ids: ReadonlySet<string>, ma
     if (!ids.has(book.id)) continue;
     for (const [side, map, key] of [[book.bids, out.bid, 'bidTotal'], [book.asks, out.ask, 'askTotal']] as const) {
       const n = Math.min(side.lo.length, side.hi.length, side.usd.length), isBid = map === out.bid;
-      const add = (b: number, usd: number) => { map.set(b, (map.get(b) ?? 0) + usd); out[key] += usd; };
+      // A grouped venue's top group counts in full in its side's total (its bids rest below its price, its asks above), but only its share
+      // on that side of the mark goes into the bins the walls are judged on (see below): for it `add` fills the bins alone.
+      let addsToTotal = true;
+      const add = (b: number, usd: number) => { map.set(b, (map.get(b) ?? 0) + usd); if (addsToTotal) out[key] += usd; };
       for (let i = 0; i < n; i++) {
         const usd = side.usd[i]!;
         // A grouped venue's top groups are spread over their whole span (`ValuedBook.touch`), not the part a split at an estimate of the
         // touch gave them: a split that moves with the trades would otherwise squeeze a group into fewer bins and sound as a wall.
         const whole = inTouch(book.touch, side.lo[i]!, side.hi[i]!), l = whole ? book.touch!.lo : side.lo[i]!, h = whole ? book.touch!.hi : side.hi[i]!;
         if (!(usd > 0)) continue;
+        addsToTotal = !whole;
+        if (whole && side.lo[i]! >= lo && side.hi[i]! <= hi) out[key] += usd;
         if (!(h > l)) {
           // Bids count below the mark and asks above it: a crossed or stale level on the wrong side is not liquidity.
           if (l < lo || l > hi || (isBid ? l > mark : l < mark)) continue;

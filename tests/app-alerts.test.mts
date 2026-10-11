@@ -56,6 +56,10 @@ test("a grouped venue's band is spread over the bins it covers, and counts by th
   const middle = bookBins(split(99_950), new Set(['hl:BTC']), MARK, 0.01), edge = bookBins(split(99_912.5), new Set(['hl:BTC']), MARK, 0.01);
   assert.deepEqual([...edge.bid].sort((x, y) => x[0] - y[0]), [...middle.bid].sort((x, y) => x[0] - y[0]));
   assert.equal(biggest(middle).bid!.usd, 4_000_000, 'the $20M group over its five bins');
+  // The totals count the top groups in full on their own side, wherever the mark sits in the span (here at its top: no ask bins).
+  for (const b of [middle, edge]) assert.deepEqual([b.bidTotal, b.askTotal], [21_000_000, 3_000_000]);
+  const inside = bookBins(split(99_950), new Set(['hl:BTC']), 99_960, 0.01);
+  assert.deepEqual([inside.bidTotal, inside.askTotal], [21_000_000, 3_000_000], 'and with the mark inside the span');
 });
 
 const wall = (usd: number, price = 99_900): LevelsFrame => frame([[price, usd], [99_000, 100_000]], [[100_100, 100_000]]);
