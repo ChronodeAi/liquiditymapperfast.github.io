@@ -62,6 +62,7 @@ export class Alerts {
   readonly #cap = new RateCap(4, 10_000);
   readonly #walls = new WallWatch();
   readonly #balance = new ImbalanceWatch();
+  #balanceStarts = -1;
   #lastBook = 0; #lastBar = 0; #lastOi = 0;
   /** Which market and timeframe the candles (and the open-interest bars) being watched belong to: another one starts from scratch. */
   #barKey = ''; #oiKey = '';
@@ -138,6 +139,8 @@ export class Alerts {
       const word = signal.kind === 'appeared' ? t('wall appeared') : t('wall pulled');
       this.#fire(now, 'book', signal.kind === 'appeared' ? 'wall-appeared' : 'wall-pulled', signal.side, `${signal.side === 'buy' ? t('Bid') : t('Ask')} ${word}: $${usd(signal.usd)}`, `wall:${signal.side}:${signal.kind}`, WALL_COOLDOWN_MS);
     }
+    // The balance starts over with the walls (another set of books or market, a gap), so a book found lopsided before says nothing now.
+    if (this.#walls.starts !== this.#balanceStarts) { this.#balance.reset(); this.#balanceStarts = this.#walls.starts; }
     const tip = this.#balance.update(imbalanceOf(bins), panels.depth.pct, !this.#walls.warming(now));
     if (tip && panels.depth.imbalance) this.#fire(now, 'depth', 'imbalance', tip, tip === 'buy' ? t('Bids outweigh asks within 1% of the price') : t('Asks outweigh bids within 1% of the price'), 'imbalance', IMBALANCE_COOLDOWN_MS);
   }

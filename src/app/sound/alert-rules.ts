@@ -109,7 +109,11 @@ export class WallWatch {
   /** Each side's bins at the look before: a wall that moved is one whose old bin emptied as a bin close by gained about as much. */
   #before: { buy: ReadonlyMap<number, number>; sell: ReadonlyMap<number, number> } = { buy: new Map(), sell: new Map() };
 
-  reset(): void { this.#start = -1; this.#armed = { buy: false, sell: false }; this.#stood = { buy: null, sell: null }; this.#context = ''; this.#bin = 0; this.#last = -1; this.#before = { buy: new Map(), sell: new Map() }; }
+  #starts = 0;
+  /** How many times the watch has started over (another set of books or market, another grid, a gap): a reader that follows its warm-up starts over with it. */
+  get starts(): number { return this.#starts; }
+
+  reset(): void { this.#start = -1; this.#armed = { buy: false, sell: false }; this.#stood = { buy: null, sell: null }; this.#context = ''; this.#bin = 0; this.#last = -1; this.#before = { buy: new Map(), sell: new Map() }; this.#starts++; }
 
   /** Whether the book is still arriving (the first ten seconds, again after a change of what the bins are made of): nothing is news yet. */
   warming(now: number): boolean { return this.#start < 0 || now - this.#start < 10_000; }
@@ -137,7 +141,9 @@ export class WallWatch {
         if (binLo < bins.lo || binHi > bins.hi) this.#stood[side] = null;
         else {
           const here = map.get(bin0) ?? 0;
-          if (here >= stood.usd * 0.3) this.#stood[side] = { ...stood, usd: here }; // still where it stood (whatever else the side holds)
+          // Still where it stood (whatever else the side holds). Its size follows the bin only while it is still a wall: one taken down in
+          // steps keeps the size it stood at, so the steps add up to a pull.
+          if (here >= stood.usd * 0.3) { if (here >= minUsd) this.#stood[side] = { ...stood, usd: here }; }
           else {
             // It left its bin. It moved if a bin within three of it gained about as much since the look before (a wall that was already there,
             // however big, is another wall): the same wall, keeping how long it has stood.
@@ -183,6 +189,8 @@ export const imbalanceOf = (bins: Pick<BookBins, 'bidTotal' | 'askTotal'>): numb
  */
 export class ImbalanceWatch {
   #armed = true;
+  /** Start over (the books it judges changed): what it saw before says nothing about them. */
+  reset(): void { this.#armed = true; }
   update(imbalance: number, pct: number, warm = true): 'buy' | 'sell' | null {
     const limit = pct / 100;
     if (Math.abs(imbalance) < limit * 0.6) this.#armed = true;

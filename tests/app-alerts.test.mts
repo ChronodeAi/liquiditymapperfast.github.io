@@ -132,12 +132,25 @@ test('a tracked wall stays itself: a bigger wall close by does not take its plac
   for (let t = 16_000; t <= 22_000; t += 2_000) look(t, two([99_900, 25_000_000], null));
   assert.deepEqual(look(24_000, two([99_920, 25_000_000], [99_500, 40_000_000])), [], 'it moved a bin while a bigger wall came far away');
   assert.deepEqual(look(26_000, two(null, [99_500, 40_000_000])).map(s => [s.kind, s.price]), [['pulled', 99_930]], 'and its pull, from where it moved to, is heard');
+  // Taken down in steps: once under the threshold it keeps the size it stood at, so the steps add up to a pull.
+  const s = new WallWatch(), step = (t: number, usd: number) => s.update(t, bookBins(two([99_900, usd], null), ids, MARK, 0.01), MARK, 10_000_000);
+  for (let t = 0; t <= 12_000; t += 2_000) step(t, 1_000_000);
+  step(14_000, 30_000_000); step(16_000, 30_000_000); step(18_000, 30_000_000); step(20_000, 30_000_000);
+  assert.deepEqual([9_000_000, 4_000_000].map((usd, k) => step(22_000 + k * 2_000, usd).map(x => [x.kind, x.usd])), [[], [['pulled', 30_000_000]]]);
 });
 
 test('the balance only watches while the book is arriving: a lopsided book found then is not news', () => {
   const w = new ImbalanceWatch();
   assert.deepEqual([0.9, 0.9].map(v => w.update(v, 70, false)), [null, null]);
   assert.deepEqual([0.9, 0.3, 0.8].map(v => w.update(v, 70)), [null, null, 'buy'], 'it has to come back inside the line before it can sound');
+  // It starts over with the walls (the orchestrator resets it when they start over): what it saw of other books says nothing now.
+  const b = new ImbalanceWatch();
+  b.update(0.9, 70, false); b.reset();
+  assert.deepEqual([0.5, 0.5].map(v => b.update(v, 70, false)).concat(b.update(0.8, 70)), [null, null, 'buy']);
+  const walls = new WallWatch(), first = walls.starts;
+  walls.update(0, bookBins(wall(1_000_000), new Set(['a:BTC']), MARK, 0.01), MARK, 10_000_000, 'a|BTC');
+  walls.update(2_000, bookBins(wall(1_000_000), new Set(['a:BTC']), MARK, 0.01), MARK, 10_000_000, 'a|ETH');
+  assert.ok(walls.starts > first + 1, 'another market: the walls started over (and with them the balance)');
 });
 
 test("a grouped venue's top groups count in the totals by their whole span's share inside the range, wherever the split is", () => {
