@@ -11,9 +11,11 @@
  *    family spans about 3.4 times in size; no size test; more clips a minute) finds programs that draw each clip's size at random, as the
  *    ETH spot buyer of 2026-10-10 did ($1-6K about once a second), which no fixed-size test sees. Narrower wide families split such a range
  *    between minutes and lose its cadence (25 %: its gap share hovered at 46-59 %, a candidate in a third of its minutes).
- * A family that is a candidate `sustain` minutes in a row is an episode: the first of those minutes is its onset, the last its alert. It
- * goes on while a family of its side overlapping its sizes stays a candidate with `keepDirection` of its clips on that side, and ends
- * after `inactivity` minutes without one. The same side and clip again within `suppressMin` is a repeat: kept, not announced.
+ * A family that is a candidate for `sustain` minutes is an episode: the first of those minutes is its onset, the last its alert; up to
+ * `pendingSlack` missed minutes in a row on the way do not start it over (allowing none missed an ETH spot seller of 6 ETH
+ * clips that paused two minutes between runs of 14 and 13, 2026-10-07 15:41-16:09). It goes on while a family of its side overlapping its
+ * sizes stays a candidate with `keepDirection` of its clips on that side, and ends after `inactivity` minutes without one. The same side
+ * and clip again within `suppressMin` is a repeat: kept, not announced.
  *
  * The clips are the market orders rebuilt from fills (orders.ts): a child order that took two price levels is one clip, where Binance's
  * aggregate trades split it. Each second keeps at most `perSecond` orders a side, the largest. A minute is judged on the exchange's times
@@ -35,12 +37,14 @@ export interface SlicerOptions {
   match: number;
   /** The share of its family's clips a running episode's side must keep (one still building needs its kind's `minDirection`). */
   keepDirection: number;
+  /** Minutes in a row an episode still building may miss without starting over. */
+  pendingSlack: number;
   kinds: readonly SlicerKind[];
 }
 /** The exact kind's settings, and the wide kind measured beside them. */
 export const SLICER_DEFAULTS: SlicerOptions = {
   windowMin: 10, minClipUsd: 1000, minUsdPerMin: 50_000, minGapShare: 0.5, minGaps: 20, maxStaleS: 90,
-  sustain: 15, inactivity: 5, suppressMin: 360, perSecond: 5, match: 0.025, keepDirection: 0.75,
+  sustain: 15, inactivity: 5, suppressMin: 360, perSecond: 5, match: 0.025, keepDirection: 0.75, pendingSlack: 2,
   kinds: [
     { name: 'exact', bucket: 0.002, minRate: 5, maxGap: 30, maxSpread: 0.002, minDirection: 0.9 },
     { name: 'wide', bucket: 0.5, minRate: 20, maxGap: 5, maxSpread: Infinity, minDirection: 0.9 },
@@ -200,11 +204,17 @@ export class SlicerDetector {
     const candidates = this.#readings(inst, minute).filter(r => r.candidate).sort((a, b) => b.usdPerMin - a.usdPerMin);
     const near = (a: { lo: number; hi: number }, b: { lo: number; hi: number }): boolean => a.lo <= b.hi * (1 + o.match) && b.lo <= a.hi * (1 + o.match);
     const hits = new Map<Track, FamilyReading[]>();
-    for (const r of candidates) {
+    // Exact readings first (a fixed clip names its program most precisely), each to the track nearest its clip that has no exact reading yet
+    // this minute: two fixed programs a few percent apart ($5,000 and $5,100) stay two. A wide reading joins any track it overlaps.
+    const ordered = [...candidates.filter(r => r.kind === 'exact'), ...candidates.filter(r => r.kind !== 'exact')];
+    for (const r of ordered) {
       const directed = r.direction >= kinds.get(r.kind)!.minDirection;
       // One still building needs every minute directed; a running episode goes on with `keepDirection` (keeping it on any direction,
       // which in a busy market let a wide family of unrelated orders hold an episode open long after its program stopped).
-      let track = inst.tracks.find(t => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed));
+      const fits = (t: Track): boolean => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed)
+        && (r.kind !== 'exact' || !hits.get(t)?.some(h => h.kind === 'exact'));
+      const gap = (t: Track): number => Math.abs(Math.log(t.clip / r.clip));
+      let track = inst.tracks.filter(fits).sort((a, b) => gap(a) - gap(b))[0];
       if (!track) {
         if (!directed) continue;
         track = { side: r.side, lo: r.lo, hi: r.hi, clip: r.clip, reading: r, onset: minute, minutes: 0, active: false, inactive: 0, total: 0, against: 0, exact: false, episode: null };
@@ -216,7 +226,8 @@ export class SlicerDetector {
     for (const track of inst.tracks) {
       const seen = hits.get(track);
       if (!seen) {
-        if (track.active && ++track.inactive < o.inactivity) { kept.push(track); continue; }
+        // A running episode waits `inactivity` minutes; one still building rides out `pendingSlack` (not counted towards `sustain`).
+        if (++track.inactive < (track.active ? o.inactivity : o.pendingSlack + 1)) { kept.push(track); continue; }
         if (track.episode) { track.episode.end = track.episode.last + MINUTE; this.#fresh.push({ ...track.episode }); }
         continue;
       }
@@ -234,8 +245,8 @@ export class SlicerDetector {
         const repeat = inst.recent.some(r => r.side === track.side && (r.exact && track.exact ? Math.abs(track.clip / r.clip - 1) <= o.match : near(r, track)));
         if (!repeat) inst.recent.push({ side: track.side, lo: track.lo, hi: track.hi, clip: track.clip, exact: track.exact, at: minute });
         track.episode = {
-          // Two programs can begin the same minute on one side; their clips tell them apart.
-          id: `${id}|${track.side}|${track.onset}|${Math.round(track.clip)}`, instrumentId: id, side: track.side, onset: track.onset, alertAt: minute, last: minute,
+          // Two programs can begin the same minute on one side; their clips tell them apart (to six figures: a small coin's are a few dollars).
+          id: `${id}|${track.side}|${track.onset}|${track.clip.toPrecision(6)}`, instrumentId: id, side: track.side, onset: track.onset, alertAt: minute, last: minute,
           end: null, lo: 0, hi: 0, clip: 0, rate: 0, usdPerMin: 0, gap: 0, gapShare: 0, direction: 0, total: 0, against: 0, exact: false, repeat,
         };
       }

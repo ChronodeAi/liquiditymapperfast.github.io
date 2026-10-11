@@ -84,12 +84,35 @@ test('the same side and clip again within six hours is shown as a repeat; the ot
   assert.deepEqual(episodes.map(e => [e.side, Math.round(e.clip / 1_000), e.repeat]), [['buy', 5, false], ['buy', 5, true], ['sell', 5, false], ['buy', 20, false]]);
 });
 
+test('a program that pauses two minutes while building is still one episode (the 6 ETH seller of 2026-10-07: 14 minutes, a pause, 13)', () => {
+  const rand = rng(8), clip = () => 15_410 + rand() * 40 - 20;
+  // Neither run is fifteen candidate minutes long; the three-minute pause leaves two minutes whose last clip is over 90 s old.
+  const orders = [...noise(rand, T0, T0 + 70 * MIN, 60), ...program(T0 + 10 * MIN, T0 + 22 * MIN, 1_300, 'sell', clip), ...program(T0 + 25 * MIN, T0 + 37 * MIN, 1_300, 'sell', clip)];
+  const episodes = run(orders, T0 + 70 * MIN);
+  assert.equal(episodes.length, 1);
+  assert.ok(episodes[0]!.alertAt - episodes[0]!.onset > (SLICER_DEFAULTS.sustain - 1) * MIN, 'the missed minutes do not count towards the fifteen');
+  assert.equal(run(orders, T0 + 70 * MIN, { pendingSlack: 0 }).length, 0, 'no slack misses it');
+});
+
 test('two programs beginning the same minute on one side are two episodes', () => {
   const rand = rng(7);
   const orders = [...noise(rand, T0, T0 + 60 * MIN, 30), ...program(T0 + 15 * MIN, T0 + 50 * MIN, 3_000, 'sell', () => 5_000), ...program(T0 + 15 * MIN, T0 + 50 * MIN, 4_000, 'sell', () => 40_000)];
   const episodes = run(orders, T0 + 60 * MIN);
   assert.deepEqual(episodes.map(e => Math.round(e.clip / 1_000)).sort((a, b) => a - b), [5, 40]);
   assert.equal(new Set(episodes.map(e => e.id)).size, 2);
+});
+
+test('two fixed programs 2 % apart on one side stay two episodes (each exact family keeps its own)', () => {
+  const rand = rng(9), clips = [...program(T0 + 15 * MIN, T0 + 50 * MIN, 3_000, 'buy', () => 5_000), ...program(T0 + 15 * MIN + 1_500, T0 + 50 * MIN, 3_000, 'buy', () => 5_100)];
+  const orders = [...noise(rand, T0, T0 + 60 * MIN, 30), ...clips];
+  for (const options of [{}, { kinds: SLICER_DEFAULTS.kinds.filter(k => k.name === 'exact') }]) {
+    const episodes = run(orders, T0 + 60 * MIN, options);
+    assert.deepEqual(episodes.map(e => Math.round(e.clip)).sort((a, b) => a - b), [5_000, 5_100]);
+    for (const e of episodes) {
+      const own = clips.filter(c => c.usd === Math.round(e.clip) && c.t >= e.onset && c.t < e.last + MIN).reduce((s, c) => s + c.usd, 0);
+      assert.ok(e.exact && e.total >= own - 1 && e.total <= own + 5 * e.clip, `$${Math.round(e.clip)}: total ${e.total}, its clips ${own}`);
+    }
+  }
 });
 
 test('a running episode does not go on with a family that is no longer one-sided', () => {
