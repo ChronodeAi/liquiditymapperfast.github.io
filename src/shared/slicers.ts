@@ -121,6 +121,8 @@ interface Track {
   total: number; against: number; exact: boolean; episode: SlicerEpisode | null;
   /** The reading of the last minute that counted for it. */
   reading: FamilyReading;
+  /** Its program stopped (only an ended one makes a later one a repeat). */
+  ended: boolean;
 }
 interface Instrument {
   /** Second start → the largest clips of that second, per side. */
@@ -128,8 +130,8 @@ interface Instrument {
   /** The start of the next minute to judge. */
   next: number;
   tracks: Track[];
-  /** Alerts within the suppression time: their side, sizes and minute. */
-  recent: { side: Side; lo: number; hi: number; clip: number; exact: boolean; at: number }[];
+  /** Alerts within the suppression time: their side, sizes, minute and track. */
+  recent: { side: Side; lo: number; hi: number; clip: number; exact: boolean; at: number; track: Track }[];
 }
 
 const keepLargest = (list: number[], usd: number, n: number): void => {
@@ -204,23 +206,24 @@ export class SlicerDetector {
     const candidates = this.#readings(inst, minute).filter(r => r.candidate).sort((a, b) => b.usdPerMin - a.usdPerMin);
     const near = (a: { lo: number; hi: number }, b: { lo: number; hi: number }): boolean => a.lo <= b.hi * (1 + o.match) && b.lo <= a.hi * (1 + o.match);
     const hits = new Map<Track, FamilyReading[]>();
-    // Exact readings first (a fixed clip names its program most precisely), each to the track nearest its clip that has no exact reading yet
-    // this minute: two fixed programs a few percent apart ($5,000 and $5,100) stay two. A wide reading joins any track it overlaps.
-    const ordered = [...candidates.filter(r => r.kind === 'exact'), ...candidates.filter(r => r.kind !== 'exact')];
-    for (const r of ordered) {
-      const directed = r.direction >= kinds.get(r.kind)!.minDirection;
-      // One still building needs every minute directed; a running episode goes on with `keepDirection` (keeping it on any direction,
-      // which in a busy market let a wide family of unrelated orders hold an episode open long after its program stopped).
-      const fits = (t: Track): boolean => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed)
-        && (r.kind !== 'exact' || !hits.get(t)?.some(h => h.kind === 'exact'));
-      const gap = (t: Track): number => Math.abs(Math.log(t.clip / r.clip));
-      let track = inst.tracks.filter(fits).sort((a, b) => gap(a) - gap(b))[0];
-      if (!track) {
-        if (!directed) continue;
-        track = { side: r.side, lo: r.lo, hi: r.hi, clip: r.clip, reading: r, onset: minute, minutes: 0, active: false, inactive: 0, total: 0, against: 0, exact: false, episode: null };
-        inst.tracks.push(track);
-      }
-      const list = hits.get(track); if (list) list.push(r); else hits.set(track, [r]);
+    const join = (t: Track, r: FamilyReading): void => { const list = hits.get(t); if (list) list.push(r); else hits.set(t, [r]); };
+    const directed = (r: FamilyReading): boolean => r.direction >= kinds.get(r.kind)!.minDirection;
+    // One still building needs every minute directed; a running episode goes on with `keepDirection` (keeping it on any direction,
+    // which in a busy market let a wide family of unrelated orders hold an episode open long after its program stopped).
+    const fits = (t: Track, r: FamilyReading): boolean => t.side === r.side && near(t, r) && (t.active ? r.direction >= o.keepDirection : directed(r));
+    const gap = (t: Track, r: FamilyReading): number => Math.abs(Math.log(t.clip / r.clip));
+    // Exact families first, the closest pairs of a track and an exact family before any other, one exact family a track: a program keeps its
+    // own family when a louder one a few percent away appears, and two fixed programs a few percent apart ($5,000 and $5,100) stay two.
+    const exact = candidates.filter(r => r.kind === 'exact'), placed = new Set<FamilyReading>();
+    const pairs = inst.tracks.flatMap(t => exact.filter(r => fits(t, r)).map(r => ({ t, r, d: gap(t, r) }))).sort((a, b) => a.d - b.d);
+    for (const { t, r } of pairs) if (!placed.has(r) && !hits.get(t)?.some(h => h.kind === 'exact')) { join(t, r); placed.add(r); }
+    // An exact family left over starts its own track; a wide one joins the track nearest its clip, or starts one.
+    for (const r of [...exact.filter(r => !placed.has(r)), ...candidates.filter(r => r.kind !== 'exact')]) {
+      const host = r.kind === 'exact' ? undefined : inst.tracks.filter(t => fits(t, r)).sort((a, b) => gap(a, r) - gap(b, r))[0];
+      if (host) { join(host, r); continue; }
+      if (!directed(r)) continue;
+      const track: Track = { side: r.side, lo: r.lo, hi: r.hi, clip: r.clip, reading: r, onset: minute, minutes: 0, active: false, inactive: 0, total: 0, against: 0, exact: false, ended: false, episode: null };
+      inst.tracks.push(track); join(track, r);
     }
     const kept: Track[] = [];
     for (const track of inst.tracks) {
@@ -228,6 +231,7 @@ export class SlicerDetector {
       if (!seen) {
         // A running episode waits `inactivity` minutes; one still building rides out `pendingSlack` (not counted towards `sustain`).
         if (++track.inactive < (track.active ? o.inactivity : o.pendingSlack + 1)) { kept.push(track); continue; }
+        track.ended = true;
         if (track.episode) { track.episode.end = track.episode.last + MINUTE; this.#fresh.push({ ...track.episode }); }
         continue;
       }
@@ -240,10 +244,11 @@ export class SlicerDetector {
       if (exactHit) track.exact = true;
       if (!track.active && track.minutes >= o.sustain) {
         track.active = true;
-        // A repeat is the same side and the same clip: a fixed clip within `match` of the earlier one, a random one's sizes overlapping.
+        // A repeat is a program that ended and came back: the same side and clip (a fixed clip within `match` of the earlier one, a random
+        // one's sizes overlapping) as an episode that is over. One still running beside it is another program.
         inst.recent = inst.recent.filter(r => r.at > minute - o.suppressMin * MINUTE);
-        const repeat = inst.recent.some(r => r.side === track.side && (r.exact && track.exact ? Math.abs(track.clip / r.clip - 1) <= o.match : near(r, track)));
-        if (!repeat) inst.recent.push({ side: track.side, lo: track.lo, hi: track.hi, clip: track.clip, exact: track.exact, at: minute });
+        const repeat = inst.recent.some(r => r.track.ended && r.side === track.side && (r.exact && track.exact ? Math.abs(track.clip / r.clip - 1) <= o.match : near(r, track)));
+        if (!repeat) inst.recent.push({ side: track.side, lo: track.lo, hi: track.hi, clip: track.clip, exact: track.exact, at: minute, track });
         track.episode = {
           // Two programs can begin the same minute on one side; their clips tell them apart (to six figures: a small coin's are a few dollars).
           id: `${id}|${track.side}|${track.onset}|${track.clip.toPrecision(6)}`, instrumentId: id, side: track.side, onset: track.onset, alertAt: minute, last: minute,

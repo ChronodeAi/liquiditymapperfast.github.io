@@ -108,11 +108,22 @@ test('two fixed programs 2 % apart on one side stay two episodes (each exact fam
   for (const options of [{}, { kinds: SLICER_DEFAULTS.kinds.filter(k => k.name === 'exact') }]) {
     const episodes = run(orders, T0 + 60 * MIN, options);
     assert.deepEqual(episodes.map(e => Math.round(e.clip)).sort((a, b) => a - b), [5_000, 5_100]);
+    assert.ok(episodes.every(e => !e.repeat), 'one running beside another is not a repeat of it: both are announced');
     for (const e of episodes) {
       const own = clips.filter(c => c.usd === Math.round(e.clip) && c.t >= e.onset && c.t < e.last + MIN).reduce((s, c) => s + c.usd, 0);
       assert.ok(e.exact && e.total >= own - 1 && e.total <= own + 5 * e.clip, `$${Math.round(e.clip)}: total ${e.total}, its clips ${own}`);
     }
   }
+});
+
+test('a louder burst a few percent away does not take a running program\'s episode', () => {
+  const rand = rng(10);
+  const orders = [...noise(rand, T0, T0 + 80 * MIN, 30), ...program(T0 + 5 * MIN, T0 + 70 * MIN, 3_000, 'buy', () => 5_000),
+    ...program(T0 + 35 * MIN, T0 + 39 * MIN, 250, 'buy', () => 5_100)];
+  // The burst is a candidate for a few minutes only, so it makes no episode of its own; the program keeps its one from start to end.
+  const episodes = run(orders, T0 + 80 * MIN);
+  assert.deepEqual(episodes.map(e => Math.round(e.clip)), [5_000], 'one episode, still the $5,000 program\'s');
+  assert.ok(episodes[0]!.onset < T0 + 35 * MIN && episodes[0]!.end !== null && episodes[0]!.end >= T0 + 70 * MIN);
 });
 
 test('a running episode does not go on with a family that is no longer one-sided', () => {
