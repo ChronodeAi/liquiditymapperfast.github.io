@@ -95,6 +95,57 @@ test('layer snapshots reject unknown source times', () => {
   } finally { history.close(); }
 });
 
+const insertLayerRow = (db: DatabaseSync, revision: string, payload: object): void => {
+  db.prepare('INSERT INTO layer_snapshots (layer, instrument_id, revision, source_timestamp, received_at, complete, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run('takeProfit', 'hyperliquid:BTC-PERP', revision, 3_000, 3_000, 1, JSON.stringify(payload));
+};
+const closedCandle = (start: number) => ({ instrumentId: 'binance:BTCUSDT', interval: '1m', start, end: start + 60_000, open: 100, high: 101, low: 99, close: 100, volume: 1, sourceTimestamp: start + 60_000, closed: true });
+
+test('a mock provider\'s layers are never written; those an earlier version wrote go at start, and the file they left over its budget is compacted so the store writes again', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hlm-mock-layers-')), filePath = path.join(directory, 'history.sqlite');
+  const real = { layer: 'liquidation', instrumentId: 'hyperliquid:BTC-PERP', revision: 'real', sourceTimestamp: 2_000, receivedAt: 2_100, complete: true, coverage: 'provider', levels: [] };
+  const budget = { maxCacheBytes: 400_000, maxMainBytes: 300_000, maxWalBytes: 100_000 };
+  try {
+    const first = new HistoryStore({ filePath });
+    assert.equal(first.recordLayer({ ...real, revision: 'mock-a', coverage: 'mock', mock: true }), false, 'a mock snapshot is not written');
+    assert.equal(first.recordLayer({ ...real, revision: 'mock-b', mock: true }), false);
+    first.recordLayer(real); assert.equal(first.recordCandle(closedCandle(1_700_000_000_000)), true);
+    first.close();
+    // An earlier version wrote mock snapshots until the file passed its budget (on 2026-10-11 they were 206 MiB of 224).
+    const raw = new DatabaseSync(filePath);
+    for (let i = 0; i < 40; i++) insertLayerRow(raw, `mock-${i}`, { coverage: 'mock', mock: true, levels: 'x'.repeat(20_000) });
+    raw.close();
+    assert.ok(fs.statSync(filePath).size > budget.maxMainBytes, 'the file is over the budget');
+    const history = new HistoryStore({ filePath, ...budget });
+    try {
+      const count = (table: string): number => Number(fields(history.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).count);
+      assert.deepEqual([count('layer_snapshots'), count('candle_samples')], [1, 1], 'the mock snapshots went, the real snapshot and the candle stay');
+      assert.ok(fs.statSync(filePath).size <= budget.maxMainBytes, 'compacted under the budget at start');
+      assert.equal(fields(history.enforceStorageBudget()).persistenceSuspended, false, 'so the store is not suspended');
+      assert.equal(history.recordCandle(closedCandle(1_700_000_060_000)), true, 'and writes again');
+    } finally { history.close(); }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('a file the mock snapshots leave mostly empty is compacted at start even under its budget', () => {
+  // A store shut down just under its budget (its last compaction gave back the little room it had) and then rid of the mock snapshots
+  // would otherwise keep a file of free pages, as on 2026-10-11 (224 MiB, 206 of them mock).
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hlm-mock-half-')), filePath = path.join(directory, 'history.sqlite');
+  try {
+    const first = new HistoryStore({ filePath }); assert.equal(first.recordCandle(closedCandle(1_700_000_000_000)), true); first.close();
+    const raw = new DatabaseSync(filePath);
+    for (let i = 0; i < 40; i++) insertLayerRow(raw, `mock-${i}`, { coverage: 'mock', levels: 'x'.repeat(20_000) });
+    raw.close();
+    const before = fs.statSync(filePath).size, history = new HistoryStore({ filePath });
+    try {
+      const after = fs.statSync(filePath).size;
+      assert.ok(after * 4 < before, `the room the mock snapshots took is given back (${before} -> ${after} bytes)`);
+      assert.equal(Number(fields(history.db.prepare('SELECT COUNT(*) AS count FROM candle_samples').get()).count), 1);
+      assert.equal(history.recordCandle(closedCandle(1_700_000_060_000)), true);
+    } finally { history.close(); }
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('busy readers suspend persistence instead of claiming a hard-cap repair', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hlm-budget-busy-'));
   const filePath = path.join(directory, 'history.sqlite');

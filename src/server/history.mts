@@ -268,6 +268,8 @@ const LEGACY_OI_MAX_ROWS_PER_START = 5_000;
 const DEFAULT_OI_BAR_INTERVAL_MS = 60_000;
 const OI_BAR_CORRECTION_BUFFER_CAP = 256;
 const DEFAULT_MAX_PENDING_OI_BARS = 4_096;
+/** A layer snapshot of a mock provider (HyperTracker in mock mode marks its messages both ways). */
+const isMockLayer = (snapshot: HistoryRecord | null): boolean => snapshot?.mock === true || snapshot?.coverage === 'mock';
 
 function validOiValue(value: unknown) {
   if (value == null || value === '') return null;
@@ -758,6 +760,22 @@ export class HistoryStore {
     this.sessionHeatmapLosses = [];
     this.persistenceSuspended = false;
     this.storageStats = { ...this.storageUsage(), evictedRows: 0, checkpointed: false, checkpointBusy: false, compacted: false, overBudget: false, needsCompaction: false, impossibleBudget: false, lastEnforcedAt: null, suspensionReason: null };
+    this.#dropMockLayers();
+  }
+  /**
+   * Mock layer snapshots an earlier version wrote are deleted at start. The file keeps its size until it is compacted, and the store refuses to
+   * write while the file is over its budget (and compacts only at shutdown), so a file they left over the budget, or half empty, is compacted
+   * now, before anything is served: quick, since only the real rows are copied.
+   */
+  #dropMockLayers() {
+    if (this.filePath === ':memory:') return;
+    const mock = "CASE WHEN json_valid(payload_json) THEN json_extract(payload_json, '$.coverage') = 'mock' OR json_extract(payload_json, '$.mock') = 1 ELSE 0 END";
+    const removed = Number(this.prepare(`DELETE FROM layer_snapshots WHERE ${mock}`).run().changes ?? 0);
+    if (!removed) return;
+    const usage = this.storageUsage();
+    if (usage.mainBytes <= this.storageLimits.maxMainBytes && usage.reclaimableBytes * 2 < usage.mainBytes) return;
+    try { this.#checkpoint('TRUNCATE'); this.#vacuum(); } catch { /* a reader held it: the budget check that runs every minute still applies */ }
+    this.enforceStorageBudget();
   }
   #oiSampleFromRawRow(row: HistoryRecord) {
     const observationTimestamp = Number(row?.observationTimestamp);
@@ -1128,6 +1146,12 @@ export class HistoryStore {
     return Number(result?.changes ?? 0);
   }
   /**
+   * VACUUM, then a TRUNCATE checkpoint. In WAL mode the compacted file is written through the log and the main file shrinks only when that
+   * is checkpointed; a small log is not checkpointed by itself, so a compacted store kept its size on disk, and its suspension, until the
+   * next pass.
+   */
+  #vacuum() { this.db.exec('VACUUM'); return this.#checkpoint('TRUNCATE'); }
+  /**
    * Enforce the bounded local cache policy. Eviction is oldest-first and never
    * touches the singleton configuration snapshot or OI quarantine. VACUUM is
    * optional because it is intentionally off the ingestion path.
@@ -1149,7 +1173,7 @@ export class HistoryStore {
       try {
         checkpoint = this.#checkpoint('TRUNCATE');
         checkpointed ||= checkpoint.ok; checkpointBusy ||= checkpoint.busy;
-        if (!checkpointBusy) { this.db.exec('VACUUM'); compacted = true; }
+        if (!checkpointBusy) { checkpoint = this.#vacuum(); compacted = true; checkpointed ||= checkpoint.ok; checkpointBusy ||= checkpoint.busy; }
       } catch { checkpointBusy = true; }
       usage = this.storageUsage();
     }
@@ -1172,7 +1196,7 @@ export class HistoryStore {
       try {
         checkpoint = this.#checkpoint('TRUNCATE');
         checkpointed ||= checkpoint.ok; checkpointBusy ||= checkpoint.busy;
-        if (!checkpointBusy) { this.db.exec('VACUUM'); compacted = true; }
+        if (!checkpointBusy) { checkpoint = this.#vacuum(); compacted = true; checkpointed ||= checkpoint.ok; checkpointBusy ||= checkpoint.busy; }
       } catch { checkpointBusy = true; }
       usage = this.storageUsage();
     }
@@ -1520,6 +1544,9 @@ export class HistoryStore {
     if (this.persistenceSuspended) return false; if (!event?.levelId || !Number.isFinite(Number(event.observedAt)) || !Number.isFinite(Number(event.price))) return; this.insertCrossing.run(String(event.levelId), Number(event.observedAt), event.layer ?? null, Number(event.price), event.direction ?? null, event.provisional === false ? 0 : 1); }
   recordLayer(snapshot: HistoryRecord | null) {
     if (this.persistenceSuspended) return false;
+    // A mock provider's layers are made up, not observed: the page shows them from memory, and they are never written. Written, they filled
+    // the store's whole budget in six days (206 MiB of 224) and it stopped saving candles and open interest (2026-10-11).
+    if (isMockLayer(snapshot)) return false;
     const sourceTimestamp = Number(snapshot?.sourceTimestamp);
     if (!snapshot?.layer || !snapshot.instrumentId || !snapshot.revision || !(sourceTimestamp > 0)) return;
     const receivedAt = Number(snapshot.receivedAt);
