@@ -144,6 +144,12 @@ test('a tracked wall stays itself: a bigger wall close by does not take its plac
   assert.deepEqual(go(22_000, two([99_900, 9_000_000], null)), []);
   assert.deepEqual(go(24_000, two([99_920, 9_000_000], null)), [], 'it moved');
   assert.deepEqual(go(26_000, two([99_920, 1_000_000], null)).map(x => [x.kind, x.usd]), [['pulled', 25_000_000]], 'and when it goes, it is judged against the size it stood at');
+  // Moved under the threshold, then taken down in steps: the move keeps the size it stood at, so the steps still add up to a pull.
+  const k = new WallWatch(), see = (t: number, f: LevelsFrame) => k.update(t, bookBins(f, ids, MARK, 0.01), MARK, 10_000_000);
+  for (let t = 0; t <= 12_000; t += 2_000) see(t, two(null, null));
+  for (let t = 14_000; t <= 20_000; t += 2_000) see(t, two([99_900, 12_000_000], null));
+  assert.deepEqual([see(22_000, two([99_920, 8_000_000], null)), see(24_000, two([99_920, 4_000_000], null))], [[], []]);
+  assert.deepEqual(see(26_000, two([99_920, 3_000_000], null)).map(x => [x.kind, x.usd]), [['pulled', 12_000_000]]);
 });
 
 test('the balance only watches while the book is arriving: a lopsided book found then is not news', () => {
