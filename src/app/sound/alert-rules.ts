@@ -33,8 +33,8 @@ export class RateCap {
 
 // ---- The order book ---------------------------------------------------------------------------------------------------------------
 
-/** Resting liquidity of the books in `ids`, per price bin, on each side of `mark`, out to `pct` (a fraction) from it. */
-export interface BookBins { bin: number; bid: Map<number, number>; ask: Map<number, number>; bidTotal: number; askTotal: number }
+/** Resting liquidity of the books in `ids`, per price bin, on each side of `mark`, out to `pct` (a fraction) from it: the prices `lo` to `hi`. */
+export interface BookBins { bin: number; bid: Map<number, number>; ask: Map<number, number>; bidTotal: number; askTotal: number; lo: number; hi: number }
 
 /**
  * A bin is one step of the 1-2-5 price grid (about 2 bp of the mark, 20 dollars at 100,000). It is a step of that grid and not a fixed
@@ -42,9 +42,9 @@ export interface BookBins { bin: number; bid: Map<number, number>; ask: Map<numb
  * put the same level in a different bin, and what looks like a wall going is the grid moving.
  */
 export function bookBins(frame: LevelsFrame | null, ids: ReadonlySet<string>, mark: number, pct: number): BookBins {
-  const bin = gridStepFor(mark), out: BookBins = { bin, bid: new Map(), ask: new Map(), bidTotal: 0, askTotal: 0 };
-  if (!frame || !(mark > 0)) return out;
   const lo = mark * (1 - pct), hi = mark * (1 + pct);
+  const bin = gridStepFor(mark), out: BookBins = { bin, bid: new Map(), ask: new Map(), bidTotal: 0, askTotal: 0, lo, hi };
+  if (!frame || !(mark > 0)) return out;
   for (const book of frame.books) {
     if (!ids.has(book.id)) continue;
     for (const [side, map, key] of [[book.bids, out.bid, 'bidTotal'], [book.asks, out.ask, 'askTotal']] as const) {
@@ -119,20 +119,31 @@ export class WallWatch {
       // The wall that has been standing is judged where it stood, whatever else the book holds: a bigger one elsewhere does not hide its going.
       // Its going is looked for at every look, so one that went before it had stood five seconds is forgotten then, not called pulled later.
       if (stood) {
-        const here = map.get(Math.floor(stood.price / bins.bin)) ?? 0;
-        if (here < stood.usd * 0.3) {
-          // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached it (within
-          // 4 bp) or passed through it traded it away.
-          const crossed = side === 'buy' ? mark <= stood.price : mark >= stood.price, reached = Math.abs(mark - stood.price) / stood.price <= 0.0004;
-          if (warm && now - stood.since >= 5_000 && !crossed && !reached) out.push({ kind: 'pulled', side, price: stood.price, usd: stood.usd });
-          this.#stood[side] = null;
+        const bin0 = Math.floor(stood.price / bins.bin), binLo = bin0 * bins.bin, binHi = binLo + bins.bin;
+        // Its bin no longer wholly inside the range looked at (the mark moved away): it is not fully seen any more, which is not the same as
+        // gone (a level just past the range's edge is left out of the bins).
+        if (binLo < bins.lo || binHi > bins.hi) this.#stood[side] = null;
+        else {
+          const here = map.get(bin0) ?? 0;
+          // A wall that moved to a bin close by is the same wall (handled below, keeping how long it has stood), not one that went.
+          const moved = wall !== null && wall.usd >= minUsd && Math.abs(wall.price - stood.price) <= bins.bin * 3;
+          if (here < stood.usd * 0.3 && !moved) {
+            // Gone from where it stood. It was pulled only if it had stood and the price did not come to it: a market that reached its bin
+            // (within 4 bp, judged on the bin's edges: at a small price a bin's middle can be bp away from a price inside it) or passed
+            // through it traded it away.
+            const crossed = side === 'buy' ? mark <= binHi : mark >= binLo, reached = mark >= binLo * (1 - 0.0004) && mark <= binHi * (1 + 0.0004);
+            if (warm && now - stood.since >= 5_000 && !crossed && !reached) out.push({ kind: 'pulled', side, price: stood.price, usd: stood.usd });
+            this.#stood[side] = null;
+          }
         }
       }
       const standing = this.#stood[side];
       if (wall && wall.usd >= minUsd) {
-        if (this.#armed[side] && warm) { out.push({ kind: 'appeared', side, price: wall.price, usd: wall.usd }); this.#armed[side] = false; this.#stood[side] = { ...wall, since: now }; }
-        else if (!standing && !this.#armed[side]) this.#stood[side] = { ...wall, since: now };
-        else if (standing && Math.abs(wall.price - standing.price) <= bins.bin * 3) this.#stood[side] = { price: wall.price, usd: wall.usd, since: standing.since };
+        // A wall seen while the book is still arriving is part of the book, not news: taken as standing, never announced later.
+        if (!warm) this.#armed[side] = false;
+        if (this.#armed[side]) { out.push({ kind: 'appeared', side, price: wall.price, usd: wall.usd }); this.#armed[side] = false; this.#stood[side] = { ...wall, since: now }; }
+        else if (!standing) this.#stood[side] = { ...wall, since: now };
+        else if (Math.abs(wall.price - standing.price) <= bins.bin * 3) this.#stood[side] = { price: wall.price, usd: wall.usd, since: standing.since };
         continue;
       }
       if (!wall || wall.usd < minUsd * 0.6) this.#armed[side] = true;

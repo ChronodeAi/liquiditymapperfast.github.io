@@ -95,6 +95,26 @@ test('ask walls sound as sells, and a wall must stand five seconds before pullin
   assert.deepEqual([18_000, 20_000, 22_000].flatMap(t => at(t, ask(100_000))), [], 'and it is not called pulled later either');
 });
 
+test('a wall that moved a bin keeps its standing; one seen during warm-up is not news; one the range left behind is not pulled', () => {
+  const ids = new Set(['a:BTC']), watch = () => { const w = new WallWatch(); return (t: number, f: LevelsFrame, mark = MARK) => w.update(t, bookBins(f, ids, mark, 0.01), mark, 10_000_000); };
+  const at = watch();
+  for (let t = 0; t <= 12_000; t += 2_000) at(t, wall(1_000_000));
+  assert.equal(at(14_000, wall(30_000_000, 99_900)).length, 1, 'appeared');
+  at(16_000, wall(30_000_000, 99_920)); at(18_000, wall(30_000_000, 99_920));
+  assert.deepEqual(at(20_000, wall(500_000, 99_920)).map(s => s.kind), ['pulled'], 'moved one bin at 16 s, it had still stood six seconds');
+  const early = watch();
+  early(0, wall(1_000_000)); early(2_000, wall(1_000_000));
+  assert.deepEqual([4_000, 6_000, 8_000, 10_000, 12_000].flatMap(t => early(t, wall(30_000_000))), [], 'it came while the book was arriving');
+  const left = watch();
+  for (let t = 0; t <= 12_000; t += 2_000) left(t, wall(30_000_000, 99_000));
+  assert.deepEqual(left(14_000, wall(30_000_000, 99_000), 100_011), [], 'the 1 % range moved past it: not seen, not pulled');
+  // A small price: the wall's bin is judged on its edges, so the mark at the wall's own price reached it.
+  const tiny = new WallWatch(), small = (usd: number): LevelsFrame => frame([[0.000001, usd]], [[0.0000011, 1]]);
+  const look = (t: number, usd: number) => tiny.update(t, bookBins(small(usd), ids, 0.000001, 0.01), 0.000001, 100_000);
+  for (let t = 0; t <= 12_000; t += 2_000) look(t, 300_000);
+  assert.deepEqual(look(14_000, 1_000), [], 'the price is at the wall: it was eaten, not pulled');
+});
+
 test('the balance tips once and must come back before it tips again', () => {
   const w = new ImbalanceWatch();
   // 0.72 again after only 0.5 does not sound (0.5 is not back inside 60 % of the line); after 0.3 it does.

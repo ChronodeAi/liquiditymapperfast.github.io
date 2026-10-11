@@ -96,9 +96,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
    * machine's clock (`at`), so an exchange clock a few seconds off does not stop the split from following the trades.
    */
   const touchHints = new Map<string, { price: number; t: number; at: number }>();
-  const noteTouch = (id: string, price: number, t: number, at: number): void => {
+  const noteTouch = (id: string, price: number, t: number, at: number, now: number): void => {
     const held = touchHints.get(id);
-    if (price > 0 && Math.abs(at - t) <= TOUCH_HINT_MS && (!held || t >= held.t)) touchHints.set(id, { price, t, at });
+    if (price > 0 && Math.abs(at - t) <= TOUCH_HINT_MS && now - at <= TOUCH_HINT_MS && (!held || t >= held.t)) touchHints.set(id, { price, t, at });
   };
   const flow = new FlowRecorder(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
   /** How far the recordings reach (read now, before any trade): what a venue sends again after a restart is not counted twice. */
@@ -117,7 +117,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   // The connector venues carry their own trades: the flow column, the footprint and the large-trade bubbles count them like the feed manager's.
   const takeTrade = (trade: import('../../shared/connector.ts').TradeEvent): void => {
     if (trade.t >= (lastPrice.get(trade.instrumentId)?.at ?? -Infinity)) lastPrice.set(trade.instrumentId, { price: trade.price, at: trade.t });
-    noteTouch(trade.instrumentId, trade.price, trade.t, Date.now());
+    const arrived = Date.now(); noteTouch(trade.instrumentId, trade.price, trade.t, arrived, arrived);
     if (recorded.holds(trade.instrumentId, trade.t)) return;
     const row = { instrumentId: trade.instrumentId, tradeId: trade.tradeId, side: trade.side, price: trade.price, notionalUsd: trade.notionalUsd, sourceTimestamp: trade.t };
     footprint.ingest([row]); flow.ingest([row]); detect(orders.add([{ ...row, order: trade.order }]));
@@ -194,8 +194,10 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       if (price > 0 && id && Number.isFinite(at) && at >= (lastPrice.get(id)?.at ?? -Infinity)) lastPrice.set(id, { price, at });
       // Only with its arrival time: the list is handed over whole on every pass, and stamping a trade with now would keep it fresh for ever.
       const received = Number(trade.receivedAt);
-      if (price > 0 && id && Number.isFinite(at) && Number.isFinite(received)) noteTouch(id, price, at, received);
+      if (price > 0 && id && Number.isFinite(at) && Number.isFinite(received)) noteTouch(id, price, at, received, now);
     }
+    // A record past its time says nothing any more: dropped, so instruments that come and go leave nothing behind.
+    for (const [id, hint] of touchHints) if (now - hint.at > TOUCH_HINT_MS) touchHints.delete(id);
     refreshBooks(now);
     if (extra.enabledCount > 0) levelsDirty = true;
     const books = liveBooks(now), members = membersOf(books);
