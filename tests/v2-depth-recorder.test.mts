@@ -120,6 +120,10 @@ test('valueBook converts contracts to USD and gives grouped levels their group: 
   // An ask named on a power of ten holds the prices just below it, a tenth of its own step wide.
   const decade = valueBook('hyperliquid:BTC-PERP', { bids: [[99_800, 1]], asks: [[100_000, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0)!;
   assert.deepEqual([decade.bids.lo[0], decade.bids.hi[0], decade.asks.lo[0], decade.asks.hi[0]], [99_800, 99_900, 99_900, 100_000]);
+  // A whole side has one step, its best level's: SOL's bids at three significant figures run 109 ... 100, 99 ... 90, a dollar apart.
+  const sol = valueBook('hyperliquid:SOL-PERP', { bids: [[109, 1], [100, 1], [99, 1], [90, 1]], asks: [[110, 1], [111, 1]], units: 'base', nSigFigs: 3, sourceTimestamp: T0 }, { venue: 'hyperliquid', quote: 'USD' }, T0, undefined, 109.4)!;
+  assert.deepEqual([...sol.bids.lo].map((lo, i) => [lo, sol.bids.hi[i]]), [[109, 109.4], [100, 101], [99, 100], [90, 91]]);
+  assert.deepEqual([...sol.asks.lo].map((lo, i) => [lo, sol.asks.hi[i]]), [[109.4, 110], [110, 111]]);
   // Deribit's $10 grouping names its groups the same way.
   const deribit = valueBook('deribit:BTC-PERPETUAL', { bids: [[82_980, 1]], asks: [[82_990, 1]], units: 'base', sourceGrouping: 10, sourceTimestamp: T0 }, { venue: 'deribit', quote: 'USD' }, T0, undefined, 82_984)!;
   assert.deepEqual([deribit.bids.lo[0], deribit.bids.hi[0], deribit.asks.lo[0], deribit.asks.hi[0]], [82_980, 82_984, 82_984, 82_990]);

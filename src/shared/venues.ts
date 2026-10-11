@@ -1,6 +1,6 @@
 import { BinanceDiffDepthConnector, BookConnector, type Market } from './connector.ts';
 import { BTC, EARLIER_BROWSER_VENUES, type Coin, type MarketVenue } from './coins.ts';
-import { hyperliquidLevelBounds } from '../analytics/hyperliquid-bounds.mts';
+import { hyperliquidLevelBounds, hyperliquidSideStep } from '../analytics/hyperliquid-bounds.mts';
 
 /**
  * The venues the browser connects to itself: public order-book and trade feeds for one coin (BTC unless the page was opened on another).
@@ -396,7 +396,10 @@ export class HyperliquidConnector extends MarketBook {
   /** The instrument is named as the server names it (BTC-PERP); the market's own name for the coin is what it subscribes with. */
   override get symbol(): string { return `${this.market.symbol}-PERP`; }
   protected override get coarse() { return true; }
-  protected override band(price: number, side: 'bid' | 'ask') { try { const b = hyperliquidLevelBounds(price, side, HL_SIG_FIGS); return { lo: b.lower, hi: b.upper }; } catch { return { lo: price, hi: price }; } }
+  /** One step for a whole side, its best level's (`hyperliquidSideStep`). */
+  protected override band(price: number, side: 'bid' | 'ask', best: number) {
+    try { const b = hyperliquidLevelBounds(price, side, HL_SIG_FIGS, undefined, hyperliquidSideStep(best, side, HL_SIG_FIGS)); return { lo: b.lower, hi: b.upper }; } catch { return { lo: price, hi: price }; }
+  }
   protected url() { return 'wss://api.hyperliquid.xyz/ws'; }
   protected open(send: (p: unknown) => void) {
     send({ method: 'subscribe', subscription: { type: 'l2Book', coin: this.market.symbol, nSigFigs: HL_SIG_FIGS } });

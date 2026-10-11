@@ -92,7 +92,7 @@ exchange feeds ─▶ LiveFeedManager ─▶ reducers (src/server/http.mts) ─�
           /api/v2/columns (binary) ─▶ raster worker + Rust/WASM ─▶ WebGL2 texture ─▶ chart
 ```
 
-- **Valued levels** (`levels.mts`): every venue book is converted to USD (contract face value, quote conversion) with the price band each level represents; Hyperliquid's aggregated levels are lower-edge grid bands.
+- **Valued levels** (`levels.mts`): every venue book is converted to USD (contract face value, quote conversion) with the price band each level represents. Grouped books (Hyperliquid's significant figures, Deribit's grouping) name a bid group by its lower edge and an ask group by its upper edge, Hyperliquid at one step per side (its best level's); the top bid and ask groups, which share an interval, are split at the venue's last trade.
 - **Depth recorder** (`recorder.mts`): every 5 s each fresh book is spread onto a shared 1-2-5 price grid (about 0.02 % of price) and averaged per minute; stale books leave gaps rather than being carried forward. Columns are sparse (only non-empty bins), bid and ask separate, persisted to SQLite and kept for seven days.
 - **Kernels** (`crates/hlm-kernels`): `raster_columns` turns recorded columns into a price-by-time grid (price-conserving, averaged over observed time only); `spread_levels` groups live levels for the profile, ladder and the live edge of the heatmap. The same spreading exists in TypeScript on the server and a test checks the two agree.
 - **Rendering**: the worker rasterises a window 20 % larger than the view; the shader samples it with a view-relative transform, so pan and zoom stay smooth on the old texture until the next raster arrives.

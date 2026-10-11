@@ -110,6 +110,12 @@ test('grouped books in the browser: a bid holds its group from its price up, an 
   stale.onMessage(msg({ channel: 'trades', data: [{ coin: 'ETH', side: 'B', px: '2503.2', sz: '1', time: now - 120_000, tid: 1, hash: '0x1' }] }));
   stale.onMessage(msg({ channel: 'l2Book', data: levels }));
   assert.equal(stale.valued(now)!.bids.hi[0], 2505);
+  // A whole side has one step, its best level's: SOL's bids past 100 stay a dollar apart.
+  const sol = new HyperliquidConnector({ coin: 'SOL', symbol: 'SOL', unit: 1 });
+  sol.state = 'connecting';
+  sol.onMessage(msg({ channel: 'l2Book', data: { coin: 'SOL', time: now, levels: [[{ px: '101', sz: '1', n: 1 }, { px: '100', sz: '1', n: 1 }, { px: '99', sz: '1', n: 1 }], [{ px: '102', sz: '1', n: 1 }, { px: '103', sz: '1', n: 1 }]] } }));
+  const solBook = sol.valued(now)!;
+  assert.deepEqual([solBook.bids.lo[2], solBook.bids.hi[2]], [99, 100]);
   // Deribit BTC in $10 groups: the same naming.
   const deribit = new DeribitConnector();
   deribit.state = 'connecting';

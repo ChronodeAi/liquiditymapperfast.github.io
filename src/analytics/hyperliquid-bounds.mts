@@ -1,6 +1,6 @@
 export interface HyperliquidGroupingBounds {
   step: number; lower: number; upper: number; nSigFigs: number; mantissa?: number;
-  boundaryPrecision: 'estimated'; boundarySemantics: 'lower-edge-grid'; source: 'official-contract';
+  boundaryPrecision: 'estimated'; boundarySemantics: 'lower-edge-grid' | 'upper-edge-grid'; source: 'official-contract';
 }
 
 const MAX_DECIMAL_PRECISION = 15;
@@ -71,15 +71,25 @@ export function hyperliquidGroupingBoundsDecimal(price: number, nSigFigs: number
 }
 
 /**
- * The group a level of a grouped Hyperliquid book holds. Bids are named by the group's lower edge, [P, P + step); asks by its upper edge,
- * (P - step, P]: the finer groups add up to a coarser one exactly that way (BTC and ETH, measured 2026-10-11). An ask named on a power of
- * ten (100,000) holds the prices just below it, whose step is a tenth of its own.
+ * The step of one side of a grouped Hyperliquid book: one step for the whole side, the step at its best level. SOL's bids at three
+ * significant figures run 109, 108, ..., 100, 99, ..., 90, a dollar apart, and at two the bid named 90 holds [90, 100) (measured
+ * 2026-10-11), so a level past a power of ten keeps the step of the best one. A best ask named on a power of ten (100,000) holds the prices
+ * just below it, whose step is a tenth of its own.
  */
-export function hyperliquidLevelBounds(price: number, side: 'bid' | 'ask', nSigFigs: number, mantissa?: number | null): HyperliquidGroupingBounds {
+export function hyperliquidSideStep(best: number, side: 'bid' | 'ask', nSigFigs: number, mantissa?: number | null): number {
+  const own = hyperliquidGroupingBoundsDecimal(best, nSigFigs, mantissa);
+  if (side === 'bid') return own.step;
+  const decade = powerOfTen(Math.round(Math.log10(best))) === best;
+  return decade ? stepOf(Math.floor(Math.log10(best)) - nSigFigs, mantissa) : own.step;
+}
+
+/**
+ * The group a level of a grouped Hyperliquid side holds, given the side's step (`hyperliquidSideStep` of its best level; a level alone is
+ * its own best). Bids are named by the group's lower edge, [P, P + step); asks by its upper edge, (P - step, P]: the finer groups add up to
+ * a coarser one exactly that way (BTC, ETH, SOL, measured 2026-10-11). Counted in whole units of the finest decimal, never by shifting the
+ * price (14.3 - 0.0001 is 14.299900000000001, whose digits overflow the scale).
+ */
+export function hyperliquidLevelBounds(price: number, side: 'bid' | 'ask', nSigFigs: number, mantissa?: number | null, step = hyperliquidSideStep(price, side, nSigFigs, mantissa)): HyperliquidGroupingBounds {
   const own = hyperliquidGroupingBoundsDecimal(price, nSigFigs, mantissa);
-  if (side === 'bid') return own;
-  // Counted down from the price on the grid of the prices just below it (never by shifting the price: 14.3 - 0.0001 is 14.299900000000001,
-  // whose digits overflow the scale). That grid is the price's own except at a power of ten.
-  const decade = powerOfTen(Math.round(Math.log10(price))) === price;
-  return { ...own, ...group(price, stepOf(Math.floor(Math.log10(price)) - nSigFigs + 1 - (decade ? 1 : 0), mantissa), true) };
+  return { ...own, ...group(price, step, side === 'ask'), boundarySemantics: side === 'bid' ? 'lower-edge-grid' : 'upper-edge-grid' };
 }

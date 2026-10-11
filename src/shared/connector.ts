@@ -103,9 +103,12 @@ export abstract class BookConnector {
 
   /** USD value of `size` resting at `price`: base-coin sizes by default; venues that size in contracts or in USD override. */
   protected usdOf(price: number, size: number): number { return price * size; }
-  /** Venues that publish aggregated price bands rather than ticks name the band a level of each side belongs to; those books are never merged. */
+  /**
+   * Venues that publish aggregated price bands rather than ticks name the band a level of each side belongs to (`best`: the side's best
+   * price, for a venue that groups a whole side at one step); those books are never merged.
+   */
   protected get coarse(): boolean { return false; }
-  protected band(_price: number, _side: 'bid' | 'ask'): { lo: number; hi: number } { return { lo: _price, hi: _price }; }
+  protected band(_price: number, _side: 'bid' | 'ask', _best: number): { lo: number; hi: number } { return { lo: _price, hi: _price }; }
   /** Report a trade parsed from this venue's frames (price and amount as listed: they are converted to one coin here). */
   protected emitTrade(trade: Omit<TradeEvent, 'instrumentId'>): void {
     const unit = this.unit;
@@ -202,8 +205,8 @@ export abstract class BookConnector {
     const side = (map: Map<number, number>, descending: boolean): SideLevels => {
       const prices = [...map.keys()].sort((a, b) => descending ? b - a : a - b);
       const lo = new Float64Array(prices.length), hi = this.coarse ? new Float64Array(prices.length) : lo, usd = new Float64Array(prices.length);
-      const unit = this.unit, coarse = this.coarse, which = descending ? 'bid' : 'ask';
-      prices.forEach((p, i) => { const b = coarse ? this.band(p, which) : null; lo[i] = (b ? b.lo : p) / unit; if (b) hi[i] = b.hi / unit; usd[i] = this.usdOf(p, map.get(p)!); });
+      const unit = this.unit, coarse = this.coarse, which = descending ? 'bid' : 'ask', best = prices[0]!;
+      prices.forEach((p, i) => { const b = coarse ? this.band(p, which, best) : null; lo[i] = (b ? b.lo : p) / unit; if (b) hi[i] = b.hi / unit; usd[i] = this.usdOf(p, map.get(p)!); });
       return { lo, hi, usd };
     };
     let bids = side(this.bids, true), asks = side(this.asks, false);
