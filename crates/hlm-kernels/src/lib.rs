@@ -12,7 +12,8 @@ fn overlap(a0: f64, a1: f64, b0: f64, b1: f64) -> f64 {
 /// Spread USD levels over a fixed price grid, one output row of `nbins` bins per instrument.
 ///
 /// A level `[lo, hi)` contributes `usd * overlap / (hi - lo)` to each bin it touches; a point level
-/// (`hi <= lo`) lands wholly in `floor(lo / step)`. Bins outside `[bin0, bin0 + nbins)` are dropped.
+/// (`hi <= lo`) lands wholly in `floor(lo / step)`. Bins outside `[bin0, bin0 + nbins)` are dropped. An overlap under
+/// a billionth of the band is rounding (a band edge on a bin edge at a small price), not overlap, as in `accumulateSide`.
 /// Output is instrument-major: `out[inst * nbins + (bin - bin0)]`.
 #[wasm_bindgen]
 pub fn spread_levels(lo: &[f64], hi: &[f64], usd: &[f64], inst: &[u32], n_inst: u32, step: f64, bin0: i32, nbins: u32) -> Vec<f32> {
@@ -41,7 +42,7 @@ pub fn spread_levels(lo: &[f64], hi: &[f64], usd: &[f64], inst: &[u32], n_inst: 
         let width = h - l;
         for bin in first.max(bin0 as i64)..=last.min(bin0 as i64 + nb as i64 - 1) {
             let o = overlap(l, h, bin as f64 * step, (bin + 1) as f64 * step);
-            if o > 0.0 {
+            if o > width * 1e-9 {
                 row[(bin - bin0 as i64) as usize] += usd[i] * o / width;
             }
         }
@@ -401,6 +402,15 @@ mod tests {
         assert_eq!(&out[0..4], &[20.0, 10.0, 10.0, 0.0]);
         // instrument 1: 20 USD over [105,125): 5, 10, 5
         assert_eq!(&out[4..8], &[5.0, 10.0, 5.0, 0.0]);
+    }
+
+    #[test]
+    fn spread_leaves_no_rounding_speck_outside_a_band() {
+        // 0.0000103 / 2e-9 is 5149.999...: the bin below the band used to get about 1e-8 of its USD.
+        let out = spread_levels(&[0.0000103], &[0.0000104], &[1_000_000.0], &[0], 1, 2e-9, 5148, 54);
+        assert_eq!(out[0..2], [0.0, 0.0]);
+        assert!((out[2] - 20_000.0).abs() < 1.0 && (out[51] - 20_000.0).abs() < 1.0);
+        assert_eq!(out[52..54], [0.0, 0.0]);
     }
 
     #[test]

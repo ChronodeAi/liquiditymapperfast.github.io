@@ -29,7 +29,11 @@ interface Pending { t: number; n: number; step: number; bid: Map<number, number>
 
 export { gridStepFor } from './grid.ts';
 
-/** Spread each level's USD across the grid bins its price band overlaps, proportionally to overlap. */
+/**
+ * Spread each level's USD across the grid bins its price band overlaps, proportionally to overlap. An overlap under a billionth of the band
+ * is rounding, not overlap: a band edge on a bin edge at a small price (0.0000103 / 2e-9 is 5149.999999...) would otherwise leave a speck
+ * in the bin outside it, which the Liquidity Tracker would take for the touch. The kernel (`spread_levels`) does the same.
+ */
 export function accumulateSide(side: SideLevels, step: number, into: Map<number, number>): void {
   for (let i = 0; i < side.usd.length; i++) {
     const lo = side.lo[i]!, hi = side.hi[i]!, usd = side.usd[i]!;
@@ -41,7 +45,7 @@ export function accumulateSide(side: SideLevels, step: number, into: Map<number,
     const width = hi - lo;
     for (let bin = first; bin <= last; bin++) {
       const overlap = Math.min(hi, (bin + 1) * step) - Math.max(lo, bin * step);
-      if (overlap > 0) into.set(bin, (into.get(bin) ?? 0) + usd * overlap / width);
+      if (overlap > width * 1e-9) into.set(bin, (into.get(bin) ?? 0) + usd * overlap / width);
     }
   }
 }

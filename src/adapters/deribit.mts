@@ -73,6 +73,14 @@ export function deribitBookGroups(instrumentName: string): readonly string[] {
   return ['none'];
 }
 
+/**
+ * The price width of a group label. BTC's labels are dollars; ETH's are hundredths of a dollar: its book grouped by 10 is spaced $0.10,
+ * by 25 $0.25 and by 100 $1 (measured 2026-10-11).
+ */
+export function deribitGroupWidth(instrumentName: string, label: number): number {
+  return instrument(instrumentName).startsWith('ETH-') ? label / 100 : label;
+}
+
 /** Use Deribit's public grouped full-book channel for a bounded, no-credential feed (ungrouped where the instrument takes no group). */
 export function buildDeribitSubscription(kind: string, { instrumentName = 'BTC-PERPETUAL', group, depth = DERIBIT_DEFAULT_DEPTH, interval = DERIBIT_DEFAULT_INTERVAL }: AdapterOptions = {}) {
   if (kind !== 'depth') throw new RangeError(`Unsupported Deribit subscription: ${kind}`);
@@ -88,7 +96,7 @@ export function buildDeribitSubscription(kind: string, { instrumentName = 'BTC-P
     instrumentName: native, group: groupValue, depth: depthValue, interval: String(interval),
     // The grouped channel has already coarsened prices at the provider. Keep
     // this explicit so the browser cannot render a finer, invented grid.
-    sourceGrouping: groupValue === 'none' ? null : Number(groupValue), sourceDepth: Number(depthValue), sourceInterval: String(interval),
+    sourceGrouping: groupValue === 'none' ? null : deribitGroupWidth(native, Number(groupValue)), sourceDepth: Number(depthValue), sourceInterval: String(interval),
   };
 }
 
@@ -105,7 +113,7 @@ function channelGrouping(payload: unknown, native: unknown) {
   if (!match || match[1].toUpperCase() !== native) return {};
   const group = match[2].toLowerCase() === 'none' ? null : Number(match[2]);
   const depth = Number(match[3]);
-  return { sourceGrouping: group != null && Number.isFinite(group) && group > 0 ? group : null, sourceDepth: depth != null && depth != null && Number.isInteger(depth) && depth > 0 ? depth : null, sourceInterval: match[4] };
+  return { sourceGrouping: group != null && Number.isFinite(group) && group > 0 ? deribitGroupWidth(match[1], group) : null, sourceDepth: depth != null && depth != null && Number.isInteger(depth) && depth > 0 ? depth : null, sourceInterval: match[4] };
 }
 
 /** Normalize REST depth or grouped WebSocket snapshots. Grouped channel updates are full snapshots. */

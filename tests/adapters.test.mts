@@ -33,12 +33,31 @@ test('Hyperliquid coarse l2Book carries resolution and conservative coverage', (
   assert.equal(transition.asks[0].sourceGrouping, 1000);
   assert.deepEqual({ low: transition.asks[0].priceLow, high: transition.asks[0].priceHigh }, { low: 99000, high: 100000 });
   assert.deepEqual({ low: hyperliquidBucketBounds(1100, 2, undefined, 'ask')!.lower, high: hyperliquidBucketBounds(1100, 2, undefined, 'ask')!.upper }, { low: 1000, high: 1100 });
+  // A decimal ask is counted down on whole units, never by shifting the price (14.3 - 0.0001 is 14.299900000000001, which failed the snapshot).
+  const decimal = normalizeHyperliquidBook({ data: { coin: 'X', time: 1700000000000, nSigFigs: 3, levels: [[{ px: '14.2', sz: '2' }], [{ px: '14.3', sz: '1' }]] } }, { receivedAt: 1700000000100 });
+  assert.deepEqual({ low: decimal.asks[0].priceLow, high: decimal.asks[0].priceHigh, step: decimal.asks[0].sourceGrouping }, { low: 14.2, high: 14.3, step: 0.1 });
+  // At five significant figures a price from 9.007 to 10 used to throw: 10 ** -4 is 0.00009999999999999999, whose digits overflowed the scale.
+  assert.deepEqual({ low: hyperliquidBucketBounds(9.5, 5)!.lower, high: hyperliquidBucketBounds(9.5, 5)!.upper }, { low: 9.5, high: 9.5001 });
   assert.deepEqual(hyperliquidBucketBounds(100000, 2), {
     step: 10000, lower: 100000, upper: 110000, nSigFigs: 2,
     boundaryPrecision: 'estimated', boundarySemantics: 'lower-edge-grid', source: 'official-contract',
   });
   assert.throws(() => normalizeHyperliquidBook({ data: { coin: 'BTC', time: 1, nSigFigs: 3, levels: [[{ px: '1000', sz: '2' }], [{ px: '1100', sz: '1' }]] } }, { nSigFigs: 2 }), /contradicts/);
   assert.throws(() => normalizeHyperliquidBook({ data: { coin: 'BTC', time: 1, nSigFigs: 2, levels: [[{ px: '1000', sz: '2' }], [{ px: '1100', sz: '1' }]] } }, { resolutionKey: 'native' }), /contradicts/);
+});
+
+test('Hyperliquid groups: whatever price a bid group holds, the ask named by its upper edge holds the same group', () => {
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const groupings: [number, number | undefined][] = [[2, undefined], [3, undefined], [4, undefined], [5, undefined], [5, 2], [5, 5]];
+  for (let i = 0; i < 20_000; i++) {
+    const [sig, mantissa] = groupings[i % groupings.length]!;
+    const price = Number((10 ** (rnd() * 12 - 6)).toPrecision(1 + Math.floor(rnd() * 8)));
+    const bid = hyperliquidBucketBounds(price, sig, mantissa)!;
+    assert.ok(bid.lower <= price && price < bid.upper, `${price} at ${sig}/${mantissa}: [${bid.lower}, ${bid.upper})`);
+    const ask = hyperliquidBucketBounds(bid.upper, sig, mantissa, 'ask')!;
+    assert.deepEqual([ask.lower, ask.upper], [bid.lower, bid.upper], `${price} at ${sig}/${mantissa}`);
+  }
 });
 
 test('Hyperliquid l2Book and asset context normalize native units', () => {
@@ -207,6 +226,10 @@ test('Deribit grouped BTC perpetual descriptors normalize USD-denominated snapsh
   assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL' }).topic, 'book.BTC-PERPETUAL.10.20.100ms');
   assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL' }).topic, 'book.SOL_USDC-PERPETUAL.none.20.100ms');
   assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL' }).sourceGrouping, null);
+  // A group label is dollars on BTC and hundredths of a dollar on ETH (ETH grouped by 10 is spaced $0.10, measured 2026-10-11).
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL', group: 10 }).sourceGrouping, 10);
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'ETH-PERPETUAL', group: 10 }).sourceGrouping, 0.1);
+  assert.equal(normalizeDeribitDepth({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.ETH-PERPETUAL.25.20.100ms', data: { timestamp: 1, change_id: 1, bids: [[2499.5, 100]], asks: [[2499.75, 100]] } } }, { instrumentName: 'ETH-PERPETUAL' }).sourceGrouping, 0.25);
   assert.throws(() => buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL', group: 10 }), /group/);
   const metadata = normalizeDeribitInstrumentInfo({ result: { instrument_name: 'BTC-PERPETUAL', base_currency: 'BTC', counter_currency: 'USD', future_type: 'reversed', tick_size: 0.5, min_trade_amount: 10, settlement_currency: 'BTC', is_active: true } }, { receivedAt: 1_700_000_000_100 });
   assert.equal(metadata.assets[0].quantityUnit, 'quote');

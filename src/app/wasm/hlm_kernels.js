@@ -89,7 +89,8 @@ export function raster_columns(steps, col_inst, col_time, col_count, bins, bid, 
  * Spread USD levels over a fixed price grid, one output row of `nbins` bins per instrument.
  *
  * A level `[lo, hi)` contributes `usd * overlap / (hi - lo)` to each bin it touches; a point level
- * (`hi <= lo`) lands wholly in `floor(lo / step)`. Bins outside `[bin0, bin0 + nbins)` are dropped.
+ * (`hi <= lo`) lands wholly in `floor(lo / step)`. Bins outside `[bin0, bin0 + nbins)` are dropped. An overlap under
+ * a billionth of the band is rounding (a band edge on a bin edge at a small price), not overlap, as in `accumulateSide`.
  * Output is instrument-major: `out[inst * nbins + (bin - bin0)]`.
  * @param {Float64Array} lo
  * @param {Float64Array} hi

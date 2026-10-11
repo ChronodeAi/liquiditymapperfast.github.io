@@ -2,7 +2,7 @@ import { baseSizeUsdRate, usdBookLevels } from '../../core/book-valuation.mts';
 import { hyperliquidLevelBounds } from '../../analytics/hyperliquid-bounds.mts';
 import { gridStepFor } from '../../shared/grid.ts';
 import { mergeByDistance } from '../../shared/merge.ts';
-import type { SideLevels, ValuedBook } from '../../shared/levels.ts';
+import { splitTouch, type SideLevels, type ValuedBook } from '../../shared/levels.ts';
 
 export { MAX_CROSSED_BP, crossedByBp, type SideLevels, type ValuedBook } from '../../shared/levels.ts';
 
@@ -70,7 +70,8 @@ function plainSide(rows: readonly unknown[] | null | undefined, rate: number): S
 
 /** Convert a retained venue book to USD-valued levels. Returns null for gapped, incomplete or unvaluable books. */
 /** `step` is the instrument's recorder grid step; merged buckets divide it so they never straddle a recorded bin. */
-export function valueBook(instrumentId: string, book: BookLike | null | undefined, market: MarketLike | null, now: number, step?: number): ValuedBook | null {
+/** `touch` is the instrument's last trade price when fresh: where a grouped book's shared top group is split between bids and asks (`splitTouch`). */
+export function valueBook(instrumentId: string, book: BookLike | null | undefined, market: MarketLike | null, now: number, step?: number, touch?: number): ValuedBook | null {
   if (!book || book.gap === true || book.complete === false) return null;
   // BitMEX's inverse contracts (XBTUSD) are worth exactly 1 USD each but the metadata carries no contract value.
   const sized = market && market.inverse === true && String(market.venue ?? '') === 'bitmex' && !(Number(market.contractValue) > 0) && book.contractValue === undefined
@@ -93,15 +94,16 @@ export function valueBook(instrumentId: string, book: BookLike | null | undefine
   }
   const pack = (side: { lo: number[]; hi: number[]; usd: number[] }): SideLevels =>
     side.usd.length === 0 ? empty() : { lo: Float64Array.from(side.lo), hi: Float64Array.from(side.hi), usd: Float64Array.from(side.usd) };
-  return finish(instrumentId, book, market, now, step, coarse, pack(sides.bid), pack(sides.ask));
+  return finish(instrumentId, book, market, now, step, coarse, pack(sides.bid), pack(sides.ask), touch);
 }
 
-/** Merge far levels (point books only) and stamp the result. */
-function finish(instrumentId: string, book: BookLike, market: MarketLike | null, now: number, step: number | undefined, coarse: boolean, bidSide: SideLevels, askSide: SideLevels): ValuedBook {
+/** Merge far levels (point books only), split a grouped book's shared top group, and stamp the result. */
+function finish(instrumentId: string, book: BookLike, market: MarketLike | null, now: number, step: number | undefined, coarse: boolean, bidSide: SideLevels, askSide: SideLevels, touch?: number): ValuedBook {
   const stamp = Number(book.sourceTimestamp);
   const received = Number(book.receivedAt);
   let bids = bidSide, asks = askSide;
-  if (!coarse && bids.usd.length && asks.usd.length) {
+  if (coarse) ({ bids, asks } = splitTouch(bids, asks, touch));
+  else if (bids.usd.length && asks.usd.length) {
     const mid = (bids.hi[0]! + asks.lo[0]!) / 2;
     if (mid > 0) { const grid = step && step > 0 ? step : gridStepFor(mid); bids = mergeByDistance(bids, mid, grid, true); asks = mergeByDistance(asks, mid, grid, false); }
   }

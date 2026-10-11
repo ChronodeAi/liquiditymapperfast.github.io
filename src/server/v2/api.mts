@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { createLocalServer } from '../http.mts';
 import { MAX_CROSSED_BP, crossedByBp, valueBook, type ValuedBook } from './levels.mts';
+import { TOUCH_HINT_MS } from '../../shared/levels.ts';
 import { COLUMNS_PER_REQUEST } from '../../shared/columns.ts';
 import { DepthRecorder, COLUMN_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
 import { SqliteColumnStore } from './store.mts';
@@ -141,7 +142,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       // A deep book (Coinbase holds tens of thousands of levels) changes on nearly every tick and costs a pass over every level; the
       // recorder samples every 5 s and the map and ladder move slowly, so re-value it at most once a second.
       if (cached && book.bids.length + book.asks.length >= DEEP_BOOK_LEVELS && now - cached.at < DEEP_BOOK_INTERVAL_MS) continue;
-      const value = valueBook(id, book, marketOf(id), now, recorder.steps.get(id)), cross = value ? crossedByBp(value) : 0;
+      const last = lastPrice.get(id), touch = last && Math.abs(now - last.at) <= TOUCH_HINT_MS ? last.price : undefined;
+      const value = valueBook(id, book, marketOf(id), now, recorder.steps.get(id), touch), cross = value ? crossedByBp(value) : 0;
       if (cross > MAX_CROSSED_BP) {
         if (!degraded.has(id)) console.warn(`${id}: book crossed by ${Math.round(cross)} bp, left off the map until it is consistent again`);
         degraded.set(id, `book crossed by ${Math.round(cross)} bp, left off the map`);

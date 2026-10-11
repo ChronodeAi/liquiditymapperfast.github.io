@@ -1,4 +1,4 @@
-import type { ValuedBook, SideLevels } from './levels.ts';
+import { splitTouch, TOUCH_HINT_MS, type ValuedBook, type SideLevels } from './levels.ts';
 import { gridStepFor } from './grid.ts';
 import { mergeByDistance } from './merge.ts';
 import type { LiquidationEvent } from './liquidations.ts';
@@ -74,6 +74,8 @@ export abstract class BookConnector {
   /** Bumped whenever a connection ends or a new one starts, so what an old connection left in flight (a REST snapshot, an open event) can tell it is stale. */
   #generation = 0; #connectAt = 0;
   #version = 0; #cachedVersion = -1; #cached: ValuedBook | null = null; #cachedAt = 0;
+  /** The last trade on this socket (price as listed, and its own time): where a grouped book's shared top group is split (`splitTouch`). */
+  #lastTrade: { price: number; t: number } | null = null;
 
   get instrumentId(): string { return `${this.id}:${this.symbol}`; }
   protected abstract url(): string;
@@ -107,6 +109,7 @@ export abstract class BookConnector {
   /** Report a trade parsed from this venue's frames (price and amount as listed: they are converted to one coin here). */
   protected emitTrade(trade: Omit<TradeEvent, 'instrumentId'>): void {
     const unit = this.unit;
+    if (trade.price > 0 && trade.t >= (this.#lastTrade?.t ?? -Infinity)) this.#lastTrade = { price: trade.price, t: trade.t };
     this.onTrade({ instrumentId: this.instrumentId, ...trade, ...(unit === 1 ? {} : { price: trade.price / unit, amount: trade.amount * unit }) });
   }
 
@@ -206,6 +209,8 @@ export abstract class BookConnector {
     let bids = side(this.bids, true), asks = side(this.asks, false);
     if (this.coarse) {
       if (!bids.usd.length || !asks.usd.length) { this.#cached = null; return null; }
+      const last = this.#lastTrade;
+      ({ bids, asks } = splitTouch(bids, asks, last && Math.abs(now - last.t) <= TOUCH_HINT_MS ? last.price / this.unit : undefined));
       this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: true, bids, asks };
       return this.#cached;
     }
