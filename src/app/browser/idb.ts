@@ -112,7 +112,11 @@ export async function openRecordings(name: string, since: number, canWrite: () =
     save: (instrumentId, column, step) => enqueue(tx => {
       const row = { inst: instrumentId, t: column.t, step, n: column.n, bins: own(column.bins), bid: own(column.bid), ask: own(column.ask),
         ...(column.lt && (column.ltN ?? 0) > 0 ? { lt: own(column.lt), ltN: column.ltN! } : {}) } satisfies ColumnRow;
-      putFuller<ColumnRow>(tx, 'columns', [instrumentId, column.t], row, fullerColumn);
+      // The fuller copy wins; if it has no tracker (a tab on an older page) the other copy's tracker stays with the minute.
+      putFuller<ColumnRow>(tx, 'columns', [instrumentId, column.t], row, (kept, next) => {
+        const fuller = fullerColumn(kept, next), winner = fuller ?? kept!, loser = fuller ? kept : next;
+        return !winner.lt && loser?.lt && (loser.ltN ?? 0) > 0 ? { ...winner, lt: loser.lt, ltN: loser.ltN! } : fuller;
+      });
     }),
     prune: before => enqueue(tx => prune(tx, 'columns', before)),
   };
