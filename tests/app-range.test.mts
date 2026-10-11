@@ -85,12 +85,25 @@ test('absorption marks are added up against what traded there, and resting order
   }));
   assert.deepEqual(line(lines, 'abs-buyers')!.cells, ['Passive buyers took', '$800K of market sells (40% of them)'], 'market sells taken by passive buyers, against the 2M sold');
   assert.deepEqual(line(lines, 'abs-sellers')!.cells, ['Passive sellers took', '$400K of market buys (10% of them)']);
-  assert.deepEqual(line(lines, 'abs-price-81500')!.cells, ['81,500.0', '$800K taken by passive buyers'], 'one price, its marks together');
+  assert.deepEqual(line(lines, 'abs-price-81500-sell')!.cells, ['81,500.0', '$800K taken by passive buyers'], 'one price, its marks together');
   assert.deepEqual(line(lines, 'rest-split')!.cells, ['Bids $3M', 'Asks $1M']);
   assert.ok(line(rangeLines(input({ marks: null })), 'abs-off'), 'Absorption off says so');
   const time = rangeLines(input({ sel: sel({ p0: null, p1: null }), answer: answer([inst('a:BTC', { band: { buy: 1, sell: 1, buyN: 0, sellN: 0 } })]) }));
   assert.equal(line(time, 'h-resting'), undefined, 'a stretch of time has no box to rest in');
   assert.equal(line(time, 'prices')!.cells[0], 'Every price');
+});
+
+test('absorption at one price is told per side, and the marks are counted as the orders are', () => {
+  const mark = (side: 'buy' | 'sell', usd: number, price: number): AbsorptionMark => ({ id: 'binance:BTCUSDT', side, price, t0: T0 + MINUTE, t1: T0 + MINUTE + 5, usd, fills: 3, peak: usd, threshold: 100_000 });
+  // At 84,000 passive sellers took market buys and passive buyers took market sells: two lines, never one figure under one side's name
+  // (the screenshot of 2026-10-11 said "$29.2M taken by passive sellers" for $28.6M of buys and $0.5M of sells).
+  const lines = rangeLines(input({ answer: answer([inst('binance:BTCUSDT', { band: { buy: 40_000_000, sell: 20_000_000, buyN: 0, sellN: 0 } })]),
+    marks: [mark('buy', 28_600_000, 84_000), mark('sell', 500_000, 84_000), mark('buy', 1_000_000, 83_500)] }));
+  assert.deepEqual(line(lines, 'abs-price-84000-buy')!.cells, ['84,000.0', '$28.6M taken by passive sellers']);
+  assert.deepEqual(line(lines, 'abs-price-84000-sell')!.cells, ['84,000.0', '$500K taken by passive buyers']);
+  assert.equal(line(lines, 'abs-price-84000-buy')!.tone, 'sell', 'passive sellers in the sell colour');
+  const many = rangeLines(input({ marks: Array.from({ length: 1_647 }, (_, i) => mark('buy', 100_000, 81_000 + i * 0.5)) }));
+  assert.deepEqual(line(many, 'abs-count')!.cells, ['Marks', '1,647 marks'], 'with the thousands separated, as the orders are');
 });
 
 test('the tag beside a selection being dragged gives its minutes, and a box its height', () => {

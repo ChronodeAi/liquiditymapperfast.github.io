@@ -269,21 +269,23 @@ function absorptionLines(input: RangeInput, s: ReturnType<typeof totals> | null)
   const marks = input.marks;
   if (input.partial) out.push({ key: 'abs-partial', kind: 'note', tone: 'muted', cells: [t('The map shows only part of this selection: its absorption marks and its largest order are counted for that part alone.')] });
   if (!marks.length) { out.push({ key: 'abs-none', kind: 'note', tone: 'muted', cells: [t('No absorption marks in this selection.')] }); return out; }
-  // A mark's side is the side of the market orders: passive buyers took market sells, passive sellers took market buys.
-  const took = { sell: 0, buy: 0 }, byVenue = new Map<string, number>(), byPrice = new Map<number, { usd: number; side: 'buy' | 'sell' }>();
+  // A mark's side is the side of the market orders: passive buyers took market sells, passive sellers took market buys. A price is added up
+  // per side: passive buyers and passive sellers can both have taken orders at one price, and one figure would give the other side's to one.
+  const took = { sell: 0, buy: 0 }, byVenue = new Map<string, number>(), byPrice = new Map<string, { price: number; usd: number; side: 'buy' | 'sell' }>();
   for (const m of marks) {
     took[m.side] += m.usd;
     const key = familyKey(venueOfInstrument(m.id)); byVenue.set(key, (byVenue.get(key) ?? 0) + m.usd);
-    const at = byPrice.get(m.price); if (at) at.usd += m.usd; else byPrice.set(m.price, { usd: m.usd, side: m.side });
+    const where = `${m.price}|${m.side}`, at = byPrice.get(where);
+    if (at) at.usd += m.usd; else byPrice.set(where, { price: m.price, usd: m.usd, side: m.side });
   }
   const share = (part: number, of: number | undefined): string => of && of > 0 ? ` (${t('{share} of them', { share: pct(Math.min(1, part / of)) })})` : '';
   if (took.sell > 0) out.push({ key: 'abs-buyers', kind: 'stat', tone: 'buy', cells: [t('Passive buyers took'), `${money(took.sell)} ${t('of market sells')}${share(took.sell, s?.sell)}`] });
   if (took.buy > 0) out.push({ key: 'abs-sellers', kind: 'stat', tone: 'sell', cells: [t('Passive sellers took'), `${money(took.buy)} ${t('of market buys')}${share(took.buy, s?.buy)}`] });
-  out.push({ key: 'abs-count', kind: 'stat', cells: [t('Marks'), tn(marks.length, '{n} mark', '{n} marks')] });
+  out.push({ key: 'abs-count', kind: 'stat', cells: [t('Marks'), tn(marks.length, '{n} mark', '{n} marks', { n: marks.length.toLocaleString('en-US') })] });
   const venues = [...byVenue].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([key, v]) => `${venueLabel(key)} ${money(v)}`).join(' · ');
   out.push({ key: 'abs-venues', kind: 'stat', cells: [t('Where'), venues] });
-  for (const [price, at] of [...byPrice].sort((a, b) => b[1].usd - a[1].usd).slice(0, 3)) {
-    out.push({ key: `abs-price-${price}`, kind: 'stat', tone: at.side === 'sell' ? 'buy' : 'sell', cells: [fmtPrice(price), at.side === 'sell' ? t('{value} taken by passive buyers', { value: money(at.usd) }) : t('{value} taken by passive sellers', { value: money(at.usd) })] });
+  for (const at of [...byPrice.values()].sort((a, b) => b.usd - a.usd).slice(0, 3)) {
+    out.push({ key: `abs-price-${at.price}-${at.side}`, kind: 'stat', tone: at.side === 'sell' ? 'buy' : 'sell', cells: [fmtPrice(at.price), at.side === 'sell' ? t('{value} taken by passive buyers', { value: money(at.usd) }) : t('{value} taken by passive sellers', { value: money(at.usd) })] });
   }
   out.push({ key: 'abs-note', kind: 'note', tone: 'muted', cells: [t('Only the marks the map draws count: market orders of one side above the absorption threshold at one price within 10 ms.')] });
   return out;

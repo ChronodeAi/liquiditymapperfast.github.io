@@ -206,7 +206,7 @@ export function markLines(marks: readonly AbsorptionMark[], s: AbsorptionSetting
     lines.push({ label: t('Threshold'), text: thresholdText(s, m.threshold) });
   } else {
     const venues = [...new Set(marks.map(m => venueLabel(m.id)))].join(', ');
-    lines.push({ label: t('Marks'), text: tn(marks.length, '{n} mark', '{n} marks'), rule: true }, { label: t('Venue'), text: venues });
+    lines.push({ label: t('Marks'), text: tn(marks.length, '{n} mark', '{n} marks', { n: marks.length.toLocaleString('en-US') }), rule: true }, { label: t('Venue'), text: venues });
     const lo = Math.min(...marks.map(m => m.price)), hi = Math.max(...marks.map(m => m.price));
     lines.push({ label: t('Price'), text: lo === hi ? fmtPrice(lo) : `${fmtPrice(lo)} – ${fmtPrice(hi)}` });
   }
