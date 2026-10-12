@@ -4,4 +4,4 @@ import { lazy } from './lazy.ts';
 
 await loadLanguage();
 // The rest of the page is a file of its own: a page opened before the site was rebuilt asks for one that is gone, and reloads once (see lazy.ts).
-await lazy(() => import('./main.ts'));
+await lazy(() => import('./main.ts'), { reload: true });

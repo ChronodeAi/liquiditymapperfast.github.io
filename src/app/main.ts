@@ -14,7 +14,7 @@ import { StatusBar } from './statusbar.ts';
 import { setTimeZone } from './format.ts';
 import { installTips } from './tip.ts';
 import { installTouchSelects } from './touch-select.ts';
-import { lazy } from './lazy.ts';
+import { lazy, preload } from './lazy.ts';
 import { ScreenWake } from './wake.ts';
 import { HeatPane, gutter } from './panes/heat-pane.ts';
 import { LadderPane } from './panes/ladder-pane.ts';
@@ -157,6 +157,9 @@ async function main(): Promise<void> {
   // An address like #guide/mirror opens the guide there.
   const fromAddress = (): void => { if (/^#guide/.test(location.hash)) void lazy(() => import('./guide/guide.ts')).then(m => m?.openFromAddress()); };
   fromAddress(); window.addEventListener('hashchange', fromAddress);
+
+  // The screenshot tool is fetched a few seconds in, so a deploy while the page is open cannot leave it asking for a file that is gone.
+  window.setTimeout(() => preload(() => import('./screenshot/editor.ts')), 5_000);
 
   // The keyboard shortcuts (shortcuts.ts: the table, and when a key is left alone).
   window.addEventListener('keydown', e => {
