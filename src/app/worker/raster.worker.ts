@@ -5,12 +5,12 @@ import { ltSeries, type LtParams, type LtStore } from '../lt.ts';
 import { shareInCell, type CellShare } from '../cell-sources.ts';
 import { depthSeries } from '../depth-series.ts';
 import { dropAbsent } from './membership.ts';
-
-/** A set of recorded or live columns for one instrument, flat for the raster kernel (`lt`: the tracker kept with recorded columns). */
-interface Store { step: number; times: Float64Array; counts: Uint32Array; bins: Int32Array; bid: Float32Array; ask: Float32Array; lt?: Float32Array }
+import { toStore, withTail, type ColumnStore as Store } from './column-store.ts';
 
 export type WorkerIn =
   | { type: 'columns'; stepMs: number; instruments: ColumnSet[] }
+  /** The columns from `from` on (the start of a window) as the source has them now, replacing those held from there; at the same step. */
+  | { type: 'columnsTail'; stepMs: number; from: number; instruments: ColumnSet[] }
   | { type: 'live'; books: LiveBook[]; now: number }
   | { type: 'raster'; id: number; enabled: string[]; t0: number; t1: number; p0: number; p1: number; w: number; h: number; smooth: boolean }
   | { type: 'depth'; id: number; enabled: string[]; t0: number; t1: number; w: number; range: number }
@@ -37,10 +37,6 @@ let recorded = new Map<string, Store>();
 let recordedStepMs = COLUMN_MS;
 const live = new Map<string, Store & { minute: number }>();
 const steps = new Map<string, number>();
-
-function toStore(set: ColumnSet): Store {
-  return { step: set.step, times: Float64Array.from(set.times), counts: Uint32Array.from(set.counts), bins: set.bins, bid: set.bid, ask: set.ask, ...(set.lt ? { lt: set.lt } : {}) };
-}
 
 /** Convert the current book of one instrument into a single sparse column on the instrument's grid. */
 function liveColumn(book: LiveBook, step: number, now: number): (Store & { minute: number }) | null {
@@ -166,6 +162,13 @@ scope.onmessage = event => {
       recordedStepMs = message.stepMs;
       recorded = new Map(message.instruments.map(set => [set.id, toStore(set)]));
       for (const set of message.instruments) if (set.step > 0) steps.set(set.id, set.step);
+    } else if (message.type === 'columnsTail') {
+      // A tail at another step than the columns held belongs to columns that have since been replaced: nothing to add it to.
+      if (message.stepMs !== recordedStepMs) return;
+      for (const set of message.instruments) {
+        recorded.set(set.id, withTail(recorded.get(set.id), set, message.from));
+        if (set.step > 0) steps.set(set.id, set.step);
+      }
     } else if (message.type === 'live') {
       dropAbsent(live, message.books.map(book => book.id));
       for (const book of message.books) {

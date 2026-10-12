@@ -21,6 +21,13 @@ import type { SumRow } from '../shared/print-sums.ts';
 
 export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
 const MINUTE = 60_000;
+/**
+ * A window of recorded columns is complete once its last minute has ended and the recorder has taken that minute's last sample (seconds
+ * later); this much room also covers a source whose clock is a little off.
+ */
+export const COLUMNS_SETTLE_MS = 2 * MINUTE;
+/** Every window of `stepMs` that ends at or before this time was complete at `now` and stays as it is. */
+export const settledBefore = (now: number, stepMs: number): number => Math.floor((now - COLUMNS_SETTLE_MS) / stepMs) * stepMs;
 
 export interface RasterResult { id: number; w: number; h: number; data: Float32Array; stats: RasterStats; bounds: Bounds }
 
@@ -33,8 +40,14 @@ export class Hub {
   #ready: Promise<void>;
   #rasterId = 0;
   #inflight = new Map<number, Bounds>();
-  #columns: { key: string; from: number; to: number; stepMs: number } | null = null;
+  /**
+   * The recorded columns the worker holds: of these instruments, at this step, covering [from, to) (`to` reaches past now: the window the
+   * view may move into); every window that ends before `settled` was complete when it was asked for, so a refresh asks only from there.
+   */
+  #columns: { key: string; from: number; to: number; stepMs: number; settled: number } | null = null;
   #columnsLoading = false;
+  /** The newest windows may have changed since they were asked for (the clock says so every 30 s): the next load asks for them again. */
+  #columnsStale = false;
   #series = '';
   /** What the candles on screen are of (the context asked for, and the instrument that answered), or null when they are of nothing that can be told. */
   #loaded: { key: string; instrument: string } | null = null;
@@ -510,7 +523,12 @@ export class Hub {
     finally { this.#flowMinutesLoading = false; this.onFlowChanged(); }
   }
 
-  /** Make sure recorded columns cover `view` (with margin) at a resolution suited to `widthPx`. */
+  /**
+   * Make sure recorded columns cover `view` (with margin) at a resolution suited to `widthPx`. While the columns held still cover it, a
+   * refresh (`invalidateColumns`) asks only for the windows that could have changed since they were asked for (from `settled`), and none
+   * at all when the view is wholly in the past: a recorded minute does not change, and asking for the whole window again every 30 s cost
+   * a server seconds for a view over days (Research_Findings.md).
+   */
   async loadColumns(view: Bounds, widthPx: number): Promise<void> {
     const ids = this.store.state.levels?.books.map(book => book.id) ?? [];
     if (!ids.length || this.#columnsLoading) return;
@@ -519,16 +537,21 @@ export class Hub {
     const stepMs = MINUTE * 2 ** Math.max(0, Math.round(Math.log2(span / Math.max(1, widthPx) * 2 / MINUTE)));
     const key = ids.join(',');
     const have = this.#columns;
-    if (have && have.key === key && have.stepMs === stepMs && have.from <= view.t0 && have.to >= view.t1) return;
+    const covers = have !== null && have.key === key && have.stepMs === stepMs && have.from <= view.t0 && have.to >= view.t1;
+    if (covers && !this.#columnsStale) return;
+    // What is asked from here on answers every refresh mark made so far; one made while it is under way is answered by the next.
+    this.#columnsStale = false;
+    const now = Date.now(), settled = settledBefore(now, stepMs), end = Math.min(now + MINUTE, covers ? have.to : view.t1 + span * 0.5);
+    if (covers && have.settled >= end) return;
     this.#columnsLoading = true;
     try {
-      const from = view.t0 - span * 0.5, to = Math.min(Date.now() + MINUTE, view.t1 + span * 0.5);
-      const frame = await this.source.columns(ids, from, to, stepMs);
-      this.#columns = { key, from, to: view.t1 + span * 0.5, stepMs };
+      const from = covers ? have.settled : view.t0 - span * 0.5;
+      const frame = await this.source.columns(ids, from, end, stepMs);
+      this.#columns = covers ? { ...have, settled: Math.max(have.settled, settled) } : { key, from, to: view.t1 + span * 0.5, stepMs, settled };
       // The instruments are views onto a few fetch buffers that nothing on this thread reads again: hand the buffers over instead of copying tens of MB.
       const buffers = new Set<ArrayBuffer>();
       for (const set of frame.instruments) for (const array of [set.bins, set.bid, set.ask]) if (array.buffer instanceof ArrayBuffer) buffers.add(array.buffer);
-      this.#post({ type: 'columns', stepMs: frame.stepMs, instruments: frame.instruments }, [...buffers]);
+      this.#post(covers ? { type: 'columnsTail', stepMs: frame.stepMs, from, instruments: frame.instruments } : { type: 'columns', stepMs: frame.stepMs, instruments: frame.instruments }, [...buffers]);
       this.columnStepMs = frame.stepMs; this.columnsVersion++;
       this.onColumns();
     } finally { this.#columnsLoading = false; }
@@ -556,8 +579,8 @@ export class Hub {
     return new Promise(resolve => { this.#ltWaiters.set(id, resolve); this.#post({ type: 'lt', id, enabled, t0, t1, params }); });
   }
 
-  /** Force the next loadColumns to refetch (new minutes were recorded). */
-  invalidateColumns(): void { this.#columns = null; }
+  /** New minutes may have been recorded: the next `loadColumns` asks again for the windows that could have changed. */
+  invalidateColumns(): void { this.#columnsStale = true; }
 
   /** Ask the worker for a grid covering `bounds`. Returns false when too many requests are already running. */
   raster(enabled: string[], bounds: Bounds, w: number, h: number, smooth: boolean): boolean {
