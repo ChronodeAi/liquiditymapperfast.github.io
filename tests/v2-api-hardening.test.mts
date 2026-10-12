@@ -40,6 +40,8 @@ test('an impossible window or an inherited timeframe name is a 400, never an exc
       '/api/v2/candles?inst=x:BTC&tf=1m&from=9&to=3',
       '/api/v2/footprint?inst=x:BTC&tf=hasOwnProperty',
       '/api/v2/footprint?inst=x:BTC&tf=1m&from=x',
+      '/api/v2/columns?inst=x:BTC&from=3.999999999999993e23&to=4e23',  // an hour added to such a time leaves it as it was
+      '/api/v2/columns?inst=x:BTC&from=0&to=1e300&stepMs=60000',
     ]) {
       const { status, body } = await get(base, route);
       assert.equal(status, 400, route);

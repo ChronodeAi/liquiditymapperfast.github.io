@@ -20,7 +20,7 @@ const rnd = (): number => { seed = (seed * 1_103_515_245 + 12_345) & 0x7fffffff;
 /** A column store in memory that reads back, and counts how often it was asked. */
 class MemoryColumnStore implements ColumnStore {
   readonly rows = new Map<string, { id: string; column: Column; step: number }>();
-  reads = 0; rowsRead = 0; failing = false;
+  reads = 0; rowsRead = 0; failing = false; failingExtent = false;
   load(since: number) { return [...this.rows.values()].filter(r => r.column.t >= since).sort((a, b) => a.id.localeCompare(b.id) || a.column.t - b.column.t).map(r => ({ instrumentId: r.id, column: r.column, step: r.step })); }
   save(id: string, column: Column, step: number): void { if (this.failing) throw new Error('disk full'); this.rows.set(`${id}|${column.t}`, { id, column, step }); }
   prune(before: number): void { for (const [key, r] of this.rows) if (r.column.t < before) this.rows.delete(key); }
@@ -30,6 +30,7 @@ class MemoryColumnStore implements ColumnStore {
     this.rowsRead += out.length; return out;
   }
   extent(since: number) {
+    if (this.failingExtent) throw new Error('read failed');
     const out = new Map<string, { first: number; last: number; step: number }>();
     for (const r of [...this.rows.values()].sort((a, b) => a.column.t - b.column.t)) {
       if (r.column.t < since) continue;
@@ -50,7 +51,7 @@ const columnAt = (t: number, base: number): Column => {
   return column;
 };
 
-test('reading depth back gives every answer that holding the week gave, across the edge of what memory holds and with a minute open, and asked again reads only the hour that reaches into memory', () => {
+test('reading depth back gives every answer that holding the week gave, across the edge of what memory holds and with a minute open, and asked again reads at most an hour of columns a question', () => {
   seed = 7;
   const NOW = T0 + 3 * DAY + 17 * MIN, store = new MemoryColumnStore();
   // Two instruments over three days, the second sparse (a minute in five), and a gap of an hour in the first.
@@ -156,6 +157,59 @@ test('a minute reopened after a restart, the only one in memory, is not read fro
   for (const step of [MIN, 4 * MIN, 64 * MIN]) assert.deepEqual(back.query('x:BTC', T0, now + MIN, step), all.query('x:BTC', T0, now + MIN, step), `at ${step / MIN} min`);
   const open = back.query('x:BTC', T0 + 5 * HOUR, T0 + 5 * HOUR + MIN);
   assert.deepEqual([open.length, open[0]!.n, open[0]!.bid[0]], [1, 2, 100], 'one column: two samples, the mean of 50 and 150');
+});
+
+test('memory holds whole minutes: a restart within a minute reopens it even when memoryMs is shorter than a minute', () => {
+  const store = new MemoryColumnStore(), M = T0 + 3 * HOUR;
+  // A restart 45 s into the minute, with 30 s held: memory begins at the minute's start, so its column is loaded and reopened.
+  let now = M + 10_000;
+  const first = new DepthRecorder({ store, now: () => now, retentionMs: 7 * DAY, memoryMs: 30_000 });
+  first.sample([book(now, 50)], now); first.flush();
+  now = M + 45_000;
+  const again = new DepthRecorder({ store, now: () => now, retentionMs: 7 * DAY, memoryMs: 30_000 });
+  now = M + 50_000; again.sample([book(now, 150)], now);
+  const open = again.query('x:BTC', M, M + MIN);
+  assert.deepEqual([open.length, open[0]!.n, open[0]!.bid[0]], [1, 2, 100], 'two samples, the mean of 50 and 150');
+  // Without a restart: a flush within the minute, then a prune 45 s into it, then the next sample.
+  const store2 = new MemoryColumnStore(), M2 = M + HOUR;
+  now = M2 + 10_000;
+  const live = new DepthRecorder({ store: store2, now: () => now, retentionMs: 7 * DAY, memoryMs: 30_000 });
+  live.sample([book(now, 50)], now); live.flush();
+  now = M2 + 45_000; live.prune(now);
+  now = M2 + 50_000; live.sample([book(now, 150)], now);
+  const kept = live.query('x:BTC', M2, M2 + MIN);
+  assert.deepEqual([kept.length, kept[0]!.n, kept[0]!.bid[0]], [1, 2, 100]);
+});
+
+test('a prune whose store fails to say what it holds leaves the recorder as it was: coverage and answers agree', () => {
+  const store = new MemoryColumnStore();
+  for (let t = T0; t < T0 + DAY; t += MIN) store.save('a:BTC', columnAt(t, 4_000), 20);
+  let now = T0 + DAY;
+  const back = new DepthRecorder({ store, now: () => now, retentionMs: 2 * DAY, memoryMs: 6 * HOUR });
+  now = T0 + 2 * DAY + 3 * HOUR; store.failingExtent = true;
+  assert.throws(() => back.prune(now), /read failed/);
+  const first = back.query('a:BTC', T0, T0 + DAY, MIN)[0]?.t;
+  assert.equal(back.coverage()['a:BTC']!.first, first, 'the first minute it covers is the first it answers');
+  store.failingExtent = false; back.prune(now);
+  assert.equal(back.coverage()['a:BTC']!.first, T0 + 3 * HOUR);
+  assert.equal(back.query('a:BTC', T0, T0 + DAY, MIN)[0]!.t, T0 + 3 * HOUR);
+});
+
+test('only what the store holds is read back: nothing for an instrument it never recorded, nothing for a time far past the recording', () => {
+  const store = new MemoryColumnStore();
+  for (let t = T0; t < T0 + DAY; t += MIN) store.save('a:BTC', columnAt(t, 4_000), 20);
+  // b's last minute is long before what memory holds, so memory holds none of it.
+  for (let t = T0; t < T0 + 6 * HOUR; t += MIN) store.save('b:BTC', columnAt(t, 4_000), 20);
+  const now = T0 + DAY + HOUR, back = new DepthRecorder({ store, now: () => now, retentionMs: 7 * DAY, memoryMs: 6 * HOUR });
+  const reads = store.reads;
+  for (let i = 0; i < 50; i++) assert.deepEqual(back.query(`never:${i}`, T0, now, MIN), []);
+  assert.equal(store.reads, reads, 'the store is not asked about instruments it never held');
+  assert.equal(back.cacheStats().coldHours, 0, 'and no empty hour is kept for them');
+  // Near 4e23 ms an hour added to a time leaves it as it was: this returns at once rather than never.
+  for (const id of ['a:BTC', 'b:BTC', 'never:0']) assert.deepEqual(back.query(id, 3.999999999999993e23, 4e23, MIN), []);
+  // The hours after an instrument's last minute are neither read nor kept.
+  assert.equal(back.query('b:BTC', T0 + 5 * HOUR, now, MIN).length, 60);
+  assert.equal(back.cacheStats().coldHours, 1, 'its last hour alone');
 });
 
 test('an hour read back is answered whole after memory has let go of more of it', () => {
@@ -268,6 +322,18 @@ test('a late trade or order into a minute only the store holds is written with a
   assert.ok(Math.abs(traded() - volume(after)) < 1e-6);
 });
 
+test('a Range box over prices no minute traded at reads no rows back, and answers as holding the week did', () => {
+  const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  const ids = ['a:BTC', 'b:BTC'], now = () => NOW;
+  const back = new FootprintRecorder(store, now, 7 * DAY, 1, 6 * HOUR), all = new FootprintRecorder(holdingRows(store), now, 7 * DAY);
+  const reads = store.reads, box = { p0: 90_000, p1: 90_500 };
+  const answer = back.range(ids, T0 + 3 * HOUR, T0 + 30 * HOUR, box, 5);
+  assert.equal(store.reads, reads, 'nothing read back');
+  assert.deepEqual(answer, all.range(ids, T0 + 3 * HOUR, T0 + 30 * HOUR, box, 5));
+  assert.ok(answer.instruments.every(i => i.minutes > 0 && i.band.buy === 0), 'minutes counted, nothing in the band');
+});
+
 test('an order alone into a minute only the store holds is written with all of that minute', () => {
   const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
   recordTrades(store, NOW);
@@ -303,6 +369,25 @@ test('a store that fails to read a minute back leaves the fill and the order to 
   const after = store.rows.get(`a:BTC|${minute}`)!;
   assert.ok(Math.abs(volume(after) - volume(before) - 30_000) < 1e-6, 'the fill once');
   assert.equal(after.stats!.sellN, before.stats!.sellN + 1, 'the order once');
+});
+
+test('a batch of orders whose cold minute cannot be read is counted not at all, so counted again it is counted once', () => {
+  const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  const back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
+  // A: a minute in memory (the last hour); B: one only the store holds.
+  const hot = NOW - HOUR + MIN, cold = T0 + 8 * HOUR + MIN, buys = (t: number) => back.sizes(['a:BTC'], [Math.ceil((NOW - t) / MIN) + 1]).windows[0]!.buyN;
+  const statsOf = (t: number) => store.rows.get(`a:BTC|${t}`)!.stats!;
+  const hotBefore = buys(hot), coldBefore = statsOf(cold).buyN;
+  const batch = [{ instrumentId: 'a:BTC', side: 'buy' as const, t: hot + 1_000, usd: 40_000, price: 84_100 }, { instrumentId: 'a:BTC', side: 'buy' as const, t: cold + 1_000, usd: 40_000, price: 84_100 }];
+  store.failingReads = true;
+  assert.throws(() => back.countOrders(batch), /read failed/);
+  assert.equal(buys(hot), hotBefore, 'A not counted either');
+  store.failingReads = false;
+  back.countOrders(batch);
+  back.flush(true);
+  assert.equal(buys(hot), hotBefore + 1, 'A once');
+  assert.equal(statsOf(cold).buyN, coldBefore + 1, 'B once');
 });
 
 test('minutes past the retention are not read back when the store fails to write and so keeps them', () => {

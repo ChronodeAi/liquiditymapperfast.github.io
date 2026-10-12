@@ -452,11 +452,13 @@ export class FootprintRecorder {
    * statistics (restored from before they counted orders) stays without, and one that does not count by price gets no counts in its rows.
    */
   countOrders(orders: Iterable<{ instrumentId: string; side: 'buy' | 'sell'; t: number; usd: number; lo?: number; hi?: number; price?: number }>): void {
-    for (const order of orders) {
-      const id = order.instrumentId, minute = Math.floor(order.t / MINUTE) * MINUTE, stats = this.#stats.get(id)?.get(minute);
-      if (!stats || !(order.usd > 0)) continue;
-      // Read back first when it has to be written whole again with its statistics (an older minute held only in the store): a store that
-      // fails here leaves the order uncounted, not counted in the statistics and missing from the rows.
+    const list = [...orders], counts = (order: (typeof list)[number]): boolean => order.usd > 0 && this.#stats.get(order.instrumentId)?.has(Math.floor(order.t / MINUTE) * MINUTE) === true;
+    // Every older minute they change that only the store holds is read back first (it is written whole again with its statistics): a store
+    // that fails leaves the whole batch uncounted, so it can be counted again, each order once, and none is half counted.
+    for (const order of list) if (counts(order)) this.#rowsToChange(order.instrumentId, Math.floor(order.t / MINUTE) * MINUTE);
+    for (const order of list) {
+      if (!counts(order)) continue;
+      const id = order.instrumentId, minute = Math.floor(order.t / MINUTE) * MINUTE, stats = this.#stats.get(id)!.get(minute)!;
       const bins = this.#rowsToChange(id, minute);
       const bucket = sizeBucket(order.usd / this.sizeScale);
       if (order.side === 'buy') { stats.buyN++; stats.buy[bucket]! += order.usd; } else { stats.sellN++; stats.sell[bucket]! += order.usd; }
@@ -598,13 +600,17 @@ export class FootprintRecorder {
       for (let t = first - span; t < first; t += MINUTE) { const s = sums.get(t); if (s) { out.before.buy += s.buy; out.before.sell += s.sell; out.before.minutes++; } }
       // The band's first and last rows (a row is inside when its low price is).
       const lo = band ? Math.ceil(band.p0 / fine * (1 - 1e-12)) : -Infinity, hi = band ? Math.ceil(band.p1 / fine * (1 - 1e-12)) : Infinity;
-      const held = this.#rowsIn(id, first, to);
+      // The rows are read only when a minute traded inside the band (its sums say where it traded): a box over prices no minute reached
+      // reads nothing back. Every minute with sums has its rows, in memory or in the store, so the sums alone count the minutes then.
+      let crosses = false;
+      for (let t = first; t < to && !crosses; t += MINUTE) { const s = sums.get(t); if (s && !(s.hi < lo || s.lo >= hi)) crosses = true; }
+      const held = crosses ? this.#rowsIn(id, first, to) : null;
       for (let t = first; t < to; t += MINUTE) {
-        const s = sums.get(t), bins = held.get(t);
-        if (!s || !bins) continue;
+        const s = sums.get(t), bins = held?.get(t);
+        if (!s || (held && !bins)) continue;
         out.minutes++; out.all.buy += s.buy; out.all.sell += s.sell;
         if (s.counted) { out.counted++; if (out.countedFrom === null) out.countedFrom = t; }
-        if (s.hi < lo || s.lo >= hi) continue;
+        if (!bins || s.hi < lo || s.lo >= hi) continue;
         const whole = s.lo >= lo && s.hi < hi;
         for (const [bin, cell] of bins) {
           if (!whole && (bin < lo || bin >= hi)) continue;

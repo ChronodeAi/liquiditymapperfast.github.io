@@ -257,6 +257,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const to = num(url.searchParams.get('to'), Date.now() + COLUMN_MS);
     const from = Math.max(num(url.searchParams.get('from'), to - 6 * 3_600_000), to - MAX_COLUMN_SPAN_MS);
     const stepMs = Math.max(COLUMN_MS, Math.round(num(url.searchParams.get('stepMs'), COLUMN_MS) / COLUMN_MS) * COLUMN_MS);
+    // Times no clock reaches are refused: past 2^53 ms a step added to a time can leave it as it was.
+    if (![from, to, stepMs].every(v => Math.abs(v) <= Number.MAX_SAFE_INTEGER)) return sendJson(res, { error: BAD_WINDOW }, 400);
     // An instrument at a time, the live loop running between them: days older than memory holds are read back from the store, which for a
     // zoomed-out week took seconds (an instrument's share of it is well under one).
     void (async () => {

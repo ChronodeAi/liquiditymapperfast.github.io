@@ -266,9 +266,9 @@ export class DepthRecorder {
       if (this.#readsBack) {
         this.#extent = store.extent!(this.#cutoff);
         for (const [id, { step }] of this.#extent) if (!this.steps.has(id)) this.steps.set(id, step);
-        this.#heldFrom = start - this.#memoryMs;
+        this.#heldFrom = this.#heldAt(start);
       }
-      for (const { instrumentId, column, step } of store.load(start - this.#memoryMs)) {
+      for (const { instrumentId, column, step } of store.load(this.#heldAt(start))) {
         this.#list(instrumentId).push(column);
         if (!this.steps.has(instrumentId)) this.steps.set(instrumentId, step);
       }
@@ -277,6 +277,12 @@ export class DepthRecorder {
   }
 
   #list(id: string): Column[] { let list = this.columns.get(id); if (!list) { list = []; this.columns.set(id, list); } return list; }
+
+  /**
+   * Where memory begins at `now`: `memoryMs` back, and, reading back, at the start of that minute, so memory holds whole minutes (the one
+   * under way among them, which a restart within it reopens) whatever `memoryMs` is.
+   */
+  #heldAt(now: number): number { const held = now - this.#memoryMs; return this.#readsBack ? Math.floor(held / COLUMN_MS) * COLUMN_MS : held; }
 
   /** Record one sample of every valued book. Stale or missing books leave the minute unobserved. */
   sample(books: Iterable<ValuedBook>, now = this.#now()): void {
@@ -372,7 +378,10 @@ export class DepthRecorder {
    * gap).
    */
   prune(now = this.#now()): void {
-    const cutoff = now - this.#retentionMs, held = now - this.#memoryMs;
+    const cutoff = now - this.#retentionMs, held = this.#heldAt(now);
+    // What the store holds from the cutoff on is read first: a store that fails here leaves the recorder as it was, and one that then fails
+    // to let go of what is older does not leave expired minutes in `coverage`.
+    const extent = this.#readsBack ? this.#store!.extent!(cutoff) : null;
     this.#cutoff = cutoff;
     const unsaved = new Set(this.#unsaved.map(item => `${item.id}|${item.column.t}`));
     for (const [id, lost] of this.#lost) {
@@ -388,22 +397,24 @@ export class DepthRecorder {
     // A kept window or hour that began before the cutoff has lost minutes since it was merged or read.
     this.#merged.deleteWhere((_, column) => column.t < cutoff);
     this.#coldHours.deleteWhere(key => hourOf(key) < cutoff);
-    // What the store holds from the cutoff on is read before it lets go of what is older, so a store that fails to prune does not leave
-    // expired minutes in `coverage`.
-    if (this.#readsBack) { this.#extent = this.#store!.extent!(cutoff); this.#heldFrom = Math.max(this.#heldFrom, held); }
+    if (extent) { this.#extent = extent; this.#heldFrom = Math.max(this.#heldFrom, held); }
     this.#store?.prune(cutoff);
   }
 
   /**
    * One instrument's columns in [from, to): read back from the store before the first minute held in memory, then from memory. The open
-   * minute counts as held: one reopened (`#reopen`) has an older copy in the store, which must not be read beside it.
+   * minute counts as held: one reopened (`#reopen`) has an older copy in the store, which must not be read beside it. Only the stretch
+   * between the first and the last minute the store holds is read: nothing for an instrument it never recorded (a question may name any),
+   * and nothing for a time far outside the recording (near 4e23 ms an hour added to a time leaves it as it was, and the hours never end).
+   * The store's extent is read again at every prune, before memory lets go of anything, so it holds every minute that memory does not.
    */
   #columnsIn(instrumentId: string, from: number, to: number): Column[] {
     const list = this.columns.get(instrumentId) ?? [], held = Math.min(list[0]?.t ?? Infinity, this.#pending.get(instrumentId)?.t ?? Infinity);
     const inMemory = list.slice(firstFrom(list, from), firstFrom(list, to));
-    if (!this.#readsBack || from >= held) return inMemory;
-    const stored = this.#readBack(instrumentId, Math.max(from, this.#cutoff), Math.min(to, held), held);
-    return stored.length ? [...stored, ...inMemory] : inMemory;
+    const stored = this.#readsBack ? this.#extent.get(instrumentId) : undefined;
+    if (!stored || from >= held) return inMemory;
+    const back = this.#readBack(instrumentId, Math.max(from, this.#cutoff, stored.first), Math.min(to, held, stored.last + COLUMN_MS), held);
+    return back.length ? [...back, ...inMemory] : inMemory;
   }
 
   /**
