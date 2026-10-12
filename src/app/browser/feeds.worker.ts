@@ -1,5 +1,6 @@
 import { BROWSER_RETENTION_MS, Engine } from '../../shared/engine.ts';
 import { browserVenues, restoreSelection } from '../../shared/venues.ts';
+import { setPageShown } from '../../shared/far-book.ts';
 import type { Coin } from '../../shared/coins.ts';
 import type { ValuedBook } from '../../shared/levels.ts';
 import type { Print } from '../../shared/prints.ts';
@@ -113,6 +114,7 @@ async function answer(call: RpcCall, run: Engine): Promise<{ result: unknown; tr
 
 scope.onmessage = event => {
   const message = event.data;
+  if (message.type === 'visible') { setPageShown(message.shown); return; }
   if (message.type === 'init') { init(message.selected, message.known, message.persist, message.coin, message.tier, message.database, message.lock).catch(error => post({ type: 'failed', error: error instanceof Error ? error.message : String(error) })); return; }
   if (!engine) { if (message.type === 'rpc') post({ type: 'rpc', id: message.id, error: 'the engine has not started' }); return; }
   if (message.type === 'select') engine.select(message.selected);

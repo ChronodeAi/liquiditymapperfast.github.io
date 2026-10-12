@@ -348,10 +348,18 @@ export class DeribitConnector extends MarketBook {
   protected url() { return 'wss://www.deribit.com/ws/api/v2'; }
   protected open(send: (p: unknown) => void) { send({ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: [`book.${this.symbol}.100ms`, `trades.${this.symbol}.100ms`] } }); }
   protected override usdOf(price: number, size: number) { return this.market.inverse ? size : price * size; }
-  /** A full-book row as [price, amount]: a deleted level is 0, which takes it away. */
+  /**
+   * A full-book side as [price, amount] rows: a deleted level is 0, which takes it away. A row that cannot be read throws (the frame is
+   * then a bad one and the book is taken again): skipping it would leave a level that was changed or deleted standing, and the changes
+   * after it would still chain.
+   */
   #levels(rows: unknown): [number, number][] {
-    if (!Array.isArray(rows)) return [];
-    return rows.flatMap(row => Array.isArray(row) && row.length >= 3 ? [[num(row[1]), row[0] === 'delete' ? 0 : num(row[2])] as [number, number]] : []).filter(([p, q]) => p > 0 && q >= 0);
+    if (!Array.isArray(rows)) throw new TypeError('Deribit book side is not a list');
+    return rows.map(row => {
+      const action = Array.isArray(row) ? row[0] : null, price = Array.isArray(row) ? num(row[1]) : NaN, amount = action === 'delete' ? 0 : Array.isArray(row) ? num(row[2]) : NaN;
+      if ((action !== 'new' && action !== 'change' && action !== 'delete') || !(price > 0) || !Number.isFinite(price) || !(amount >= 0) || !Number.isFinite(amount)) throw new TypeError('malformed Deribit book row');
+      return [price, amount];
+    });
   }
   protected override reset() { super.reset(); this.#changeId = -1; }
   onMessage(text: string) {
@@ -360,10 +368,14 @@ export class DeribitConnector extends MarketBook {
     const channel = String(params.channel ?? '');
     if (channel === `book.${this.symbol}.100ms`) {
       const d = this.record(params.data); if (!d) return;
-      if (d.type === 'snapshot') { this.replace(this.bids, this.#levels(d.bids)); this.replace(this.asks, this.#levels(d.asks)); this.#changeId = num(d.change_id); this.touch(); return; }
-      if (this.#changeId < 0) return; // changes before the first snapshot
+      // Every row is read before anything is applied, so a bad frame changes neither the book nor the change it is at.
+      const changeId = num(d.change_id);
+      if (!Number.isInteger(changeId)) throw new TypeError('Deribit book frame without a change id');
+      if (d.type === 'snapshot') { const bids = this.#levels(d.bids), asks = this.#levels(d.asks); this.replace(this.bids, bids); this.replace(this.asks, asks); this.#changeId = changeId; this.touch(); return; }
+      if (d.type !== 'change' || this.#changeId < 0) return; // changes before the first snapshot
       if (num(d.prev_change_id) !== this.#changeId) { this.fail(`sequence gap ${this.#changeId} -> ${String(d.prev_change_id)}`); return; }
-      this.#changeId = num(d.change_id); this.apply(this.bids, this.#levels(d.bids)); this.apply(this.asks, this.#levels(d.asks)); this.touch(); return;
+      const bids = this.#levels(d.bids), asks = this.#levels(d.asks);
+      this.#changeId = changeId; this.apply(this.bids, bids); this.apply(this.asks, asks); this.touch(); return;
     }
     if (channel.startsWith(`trades.${this.symbol}.`)) {
       /** The forced fills of this frame, one entry per forced order (its fills share a time and a side). */

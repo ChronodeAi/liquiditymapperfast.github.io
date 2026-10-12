@@ -58,6 +58,17 @@ export function beyond(rows: readonly [number, number][], edge: number, side: 'b
   return side === 'bid' ? rows.filter(([p]) => p < edge) : rows.filter(([p]) => p > edge);
 }
 
+/**
+ * Whether the page is shown. Where the connectors run beside the page, its own document says; in the feeds worker (no document) the page
+ * tells it (`setPageShown`, from browser-source.ts). A hidden page's books are not drawn, so its far books are not read.
+ */
+let shownFlag = true;
+export function setPageShown(shown: boolean): void { shownFlag = shown; }
+export function pageShown(): boolean {
+  const doc = (globalThis as { document?: { visibilityState?: string } }).document;
+  return doc ? doc.visibilityState !== 'hidden' : shownFlag;
+}
+
 /** The far book when it may be used: read within `FAR_STALE_MS` of `now`. */
 export const freshFar = (far: FarBook | null, now: number): FarBook | null => far && now - far.at <= FAR_STALE_MS ? far : null;
 

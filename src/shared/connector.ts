@@ -2,7 +2,7 @@ import { MAX_CROSSED_BP, crossedByBp, splitTouch, TOUCH_HINT_MS, type ValuedBook
 import { gridStepFor } from './grid.ts';
 import { mergeByDistance } from './merge.ts';
 import type { LiquidationEvent } from './liquidations.ts';
-import { FarPoller, beyond, freshFar, type FarBook, type FarSource } from './far-book.ts';
+import { FarPoller, beyond, freshFar, pageShown, type FarBook, type FarSource } from './far-book.ts';
 
 export type ConnectorState = 'stopped' | 'connecting' | 'live' | 'error';
 /**
@@ -149,8 +149,7 @@ export abstract class BookConnector {
     // Read while the book is live and, in a browser, while the page is shown (a hidden tab's book is not drawn): about 220 KB a read for OKX.
     const source = this.farBook();
     if (source) {
-      const shown = () => (globalThis as { document?: { visibilityState?: string } }).document?.visibilityState !== 'hidden';
-      this.#far ??= new FarPoller(source, () => this.bookRead && this.state === 'live' && shown(), () => { this.#version++; });
+      this.#far ??= new FarPoller(source, () => this.bookRead && this.state === 'live' && pageShown(), () => { this.#version++; });
       this.#far.start();
     }
   }

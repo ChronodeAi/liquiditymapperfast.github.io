@@ -40,6 +40,8 @@ export type FeedsIn =
   | { type: 'select'; selected: string[] }
   /** The page is going away: write what has not been saved. */
   | { type: 'flush' }
+  /** Whether the page is shown (the worker has no document): a hidden page's far books are not read (shared/far-book.ts). */
+  | { type: 'visible'; shown: boolean }
   | ({ type: 'rpc'; id: number } & RpcCall);
 
 export type FeedsOut =

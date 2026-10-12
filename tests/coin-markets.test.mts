@@ -154,6 +154,19 @@ test('Deribit takes its whole book: a snapshot, the changes chained on it, and a
   assert.equal(book(), null);
 });
 
+test('Deribit: a book row that cannot be read is a bad frame, never skipped (a level it changed would stay standing)', () => {
+  const deribit = new DeribitConnector();
+  deribit.state = 'connecting';
+  const frame = (data: Record<string, unknown>) => msg({ params: { channel: 'book.BTC-PERPETUAL.100ms', data } });
+  deribit.receive(frame({ type: 'snapshot', change_id: 10, bids: [['new', 82_980, 1000]], asks: [['new', 82_980.5, 3000]] }));
+  assert.equal(deribit.state, 'live');
+  // A delete with no price: the whole frame is refused and the book taken again, rather than the bid left at 1 000.
+  deribit.receive(frame({ type: 'change', change_id: 11, prev_change_id: 10, bids: [['delete']], asks: [] }));
+  assert.equal(deribit.state, 'error');
+  assert.match(String(deribit.lastError), /malformed Deribit book row/);
+  deribit.stop();
+});
+
 test('Deribit: ETH is sized in USD like BTC, the USDC perpetuals in coins, and every book is whole and ungrouped', () => {
   const eth = new DeribitConnector({ coin: 'ETH', symbol: 'ETH-PERPETUAL', unit: 1, inverse: true }), ethTrades = trades(eth);
   assert.deepEqual(frames(eth), [{ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: ['book.ETH-PERPETUAL.100ms', 'trades.ETH-PERPETUAL.100ms'] } }]);

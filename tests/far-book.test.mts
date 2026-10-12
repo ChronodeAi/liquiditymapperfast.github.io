@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { WebSocket as WsClient } from 'ws';
-import { FAR_EVERY_MS, FAR_STALE_MS, FarPoller, beyond, farSource, freshFar, type FarSource } from '../src/shared/far-book.ts';
+import { FAR_EVERY_MS, FAR_STALE_MS, FarPoller, beyond, farSource, freshFar, pageShown, setPageShown, type FarSource } from '../src/shared/far-book.ts';
 import { OkxConnector, OkxSpotConnector, BinancePerpConnector } from '../src/shared/venues.ts';
 import { valueBook, withFar } from '../src/server/v2/levels.mts';
 import { createLocalServer } from '../src/server/http.mts';
@@ -176,4 +176,22 @@ test('server: a connector run for its trades alone reads no far book (its book i
     await swap.far!.poll();
     assert.deepEqual(asked, []);
   } finally { sources.close(); globalThis.WebSocket = realSocket; globalThis.fetch = realFetch; }
+});
+
+test('far book: with no document (the feeds worker) the page says whether it is shown, and a hidden page reads none', async () => {
+  const realSocket = globalThis.WebSocket, realFetch = globalThis.fetch, asked: string[] = [];
+  globalThis.WebSocket = QuietSocket as unknown as typeof WebSocket;
+  globalThis.fetch = ((url: string) => { asked.push(String(url)); return answer(okxBody([[1, 1]], [[2, 1]])); }) as unknown as typeof fetch;
+  const spot = new OkxSpotConnector();
+  try {
+    assert.equal(pageShown(), true);
+    spot.start();
+    spot.onMessage(JSON.stringify({ arg: { channel: 'books', instId: 'BTC-USDT' }, action: 'snapshot', data: [{ bids: [['100', '1']], asks: [['101', '1']], seqId: 1, prevSeqId: -1 }] }));
+    setPageShown(false);
+    await spot.far!.poll();
+    assert.deepEqual(asked, []);
+    setPageShown(true);
+    await spot.far!.poll();
+    assert.equal(asked.length, 1);
+  } finally { setPageShown(true); spot.stop(); globalThis.WebSocket = realSocket; globalThis.fetch = realFetch; }
 });

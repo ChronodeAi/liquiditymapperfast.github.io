@@ -71,3 +71,15 @@ test('the source says what becomes of the recordings of this tab: not known yet,
   say(memory.worker, { type: 'ready', persisted: false });
   assert.equal(memory.source.saving(later), 'memory', 'nothing is kept: saving is off or the browser does not allow it');
 });
+
+test('the worker is told whether the page is shown, at the start and on every change (it has no document; a hidden page reads no far books)', () => {
+  let state = 'hidden', listener: (() => void) | null = null;
+  (globalThis as { document?: unknown }).document = { get visibilityState() { return state; }, addEventListener: (_: string, fn: () => void) => { listener = fn; } };
+  try {
+    const { worker } = make();
+    const shown = () => worker.posted.filter(m => m.type === 'visible').map(m => (m as unknown as { shown: boolean }).shown);
+    assert.deepEqual(shown(), [false]);
+    state = 'visible'; listener!();
+    assert.deepEqual(shown(), [false, true]);
+  } finally { delete (globalThis as { document?: unknown }).document; }
+});

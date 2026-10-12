@@ -137,6 +137,11 @@ export class BrowserSource implements DataSource, VenueControl {
     this.#post({ type: 'init', selected: savedSelection(), known: savedKnown(), persist, coin, tier, database: recordingsName(coin.coin), lock: recorderLockName(coin.coin) });
     // Recordings still queued are written as the page goes away.
     addEventListener('pagehide', () => this.#post({ type: 'flush' }));
+    // The worker has no document: it is told whether the page is shown, so a hidden tab reads no far books (about 220 KB per OKX book every 15 s).
+    if (typeof document !== 'undefined') {
+      const visible = () => this.#post({ type: 'visible', shown: document.visibilityState !== 'hidden' });
+      visible(); document.addEventListener('visibilitychange', visible);
+    }
   }
 
   /**
