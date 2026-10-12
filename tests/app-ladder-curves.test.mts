@@ -45,6 +45,8 @@ test('venue lines: the ranking is held a minute while the same books are on, and
   assert.equal(held.apply(CURVE_HOLD_MS, ['a', 'b'], 5, make)[0]!.id, 'x2', 'a minute later');
   assert.equal(held.apply(CURVE_HOLD_MS + 1, ['a', 'b', 'c'], 5, make)[0]!.id, 'x3', 'a book switched on');
   assert.equal(held.apply(CURVE_HOLD_MS + 2, ['a', 'b', 'c'], 3, make)[0]!.id, 'x4', 'another count');
+  assert.equal(held.apply(CURVE_HOLD_MS + 3, ['a', 'b', 'c'], 3, make, '1h')[0]!.id, 'x5', 'another ranking window');
+  assert.equal(held.apply(CURVE_HOLD_MS + 4, ['a', 'b', 'c'], 3, make, '1h')[0]!.id, 'x5');
 });
 
 test('venue lines: eight colours on every theme, all different, none near its buy or sell colour, each 3:1 clear of the panel', () => {

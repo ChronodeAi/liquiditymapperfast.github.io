@@ -112,6 +112,7 @@ main { --side-w: 420px; --flow-w: 300px; display: grid; grid-template-columns: v
 .pane-head .readout b.bid { color: var(--bid); }
 .pane-head .readout b.ask { color: var(--ask); }
 .ctl { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.ctl[hidden] { display: none; }
 .ctl select, .pane-head button { padding: 1px 6px; font-size: 11px; }
 .pane-head .ctl:last-of-type, .pane-head > button:last-child { margin-left: auto; }
 .ctl-group { gap: 12px; flex-wrap: wrap; }

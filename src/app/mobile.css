@@ -256,6 +256,7 @@ html[data-layout^="phone"] .pane-head .ctl .size-ctl .size-menu { width: 30px; p
 html[data-layout^="phone"] .pane.ladder .pane-head { flex-wrap: nowrap; padding-left: 8px; gap: 6px; }
 html[data-layout^="phone"] .pane.ladder .pane-head strong, html[data-layout^="phone"] .pane.ladder .recenter-btn { display: none; }
 html[data-layout^="phone"] .pane.ladder .pane-head .ctl { flex: 1 1 auto; min-width: 0; margin-left: 0; }
+html[data-layout^="phone"] .pane-head .ctl[hidden] { display: none; }
 html[data-layout^="phone"] .pane.ladder .pane-head .ctl select { width: 100%; min-width: 0; text-overflow: ellipsis; padding: 0 2px 0 8px; }
 /* Narrow ladder (a portrait phone, or the half of a landscape one): the three choices get the room the help mark would take, and a size down. */
 html[data-layout^="phone"] .pane.ladder { container: ladder / inline-size; }

@@ -69,14 +69,15 @@ export function rankCurveVenues(ids: readonly string[], volume: (id: string) => 
 }
 
 /**
- * Holds the ranking for `CURVE_HOLD_MS` while the same books are on and the count is the same; asked again after that, or at once when they
- * change. The volumes on a held ranking are those of when it was made.
+ * Holds the ranking for `CURVE_HOLD_MS` while the same books are on and the count and the ranking window are the same; asked again after
+ * that, or at once when any of them changes (a held ranking's volumes would otherwise be named with another window). The volumes on a held
+ * ranking are those of when it was made.
  */
 export class CurveRanking {
   #key = ''; #at = -Infinity; #venues: CurveVenue[] = [];
   /** `make` is called only when the ranking is due: it ranks the venues now. */
-  apply(now: number, ids: readonly string[], n: number, make: () => CurveVenue[]): CurveVenue[] {
-    const key = `${n}|${[...ids].sort().join(',')}`;
+  apply(now: number, ids: readonly string[], n: number, make: () => CurveVenue[], window = ''): CurveVenue[] {
+    const key = `${n}|${window}|${[...ids].sort().join(',')}`;
     if (key !== this.#key || now - this.#at >= CURVE_HOLD_MS || (!this.#venues.length && n > 0)) { this.#key = key; this.#at = now; this.#venues = make(); }
     return this.#venues;
   }

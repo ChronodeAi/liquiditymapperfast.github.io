@@ -399,7 +399,7 @@ export class LadderPane {
         return sum;
       };
       return rankCurveVenues(g.ids, volume, liquidity, n);
-    });
+    }, state.cvd.rank);
     const colors = curveColors(this.#palette, venues.length);
     return venues.flatMap((venue, k) => {
       const index = g.ids.indexOf(venue.id); if (index < 0) return [];
@@ -618,7 +618,8 @@ export class LadderPane {
       for (const up of [true, false]) {
         ctx.beginPath(); let started = false;
         for (let bin = up ? Math.max(askFrom, bottom) : Math.min(bidFrom, top); up ? bin <= top : bin >= bottom; bin += up ? 1 : -1) {
-          const x = xAt(c, bin); if (x === null) break;
+          // Rows its book does not reach before the line starts are passed over (a shallow book can begin above or below the mark); once drawn, it ends where the reach ends.
+          const x = xAt(c, bin); if (x === null) { if (started) break; continue; }
           const y = yOf(bin), near = up ? y + ROW_H : y, far = up ? y : y + ROW_H;
           // From the axis at the mark; from its own place when the mark is scrolled out of view.
           if (!started) { ctx.moveTo(bin === (up ? askFrom : bidFrom) ? barX : x, near); started = true; }
