@@ -3,6 +3,19 @@ import type { Column, ColumnStore } from './recorder.mts';
 import { LT_LENGTH } from '../../shared/lt-sample.ts';
 
 /**
+ * A stored row as a column, as `load` reads it: the blob is bins | bid | ask (one that is not whole is left out), and a tracker of another
+ * length (another layout) or with no samples is left out.
+ */
+function columnOf(t: number, n: number, bytes: Uint8Array, tracker: { n: number; data: Uint8Array } | null): Column | null {
+  const count = bytes.byteLength / 12;
+  if (!Number.isInteger(count)) return null;
+  const copy = bytes.slice().buffer;
+  const column: Column = { t, n, bins: new Int32Array(copy, 0, count), bid: new Float32Array(copy, count * 4, count), ask: new Float32Array(copy, count * 8, count) };
+  if (tracker && tracker.data.byteLength === LT_LENGTH * 4 && tracker.n > 0) { column.lt = new Float32Array(tracker.data.slice().buffer); column.ltN = tracker.n; }
+  return column;
+}
+
+/**
  * SQLite persistence for minute columns: one row per instrument-minute, blob = bins | bid | ask. The Liquidity Tracker kept with a minute
  * (`Column.lt`, its mean over `ltN` samples) is a row of its own table, so the depth rows and their reader stay as they were (their
  * blob's length says how many bins it holds) and a minute recorded before the tracker was kept simply has none.
@@ -11,6 +24,7 @@ export class SqliteColumnStore implements ColumnStore {
   readonly #db: DatabaseSync;
   readonly #insert;
   readonly #insertLt;
+  readonly #range;
   constructor(path: string) {
     this.#db = new DatabaseSync(path);
     this.#db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
@@ -18,6 +32,26 @@ export class SqliteColumnStore implements ColumnStore {
       CREATE TABLE IF NOT EXISTS depth_lt (inst TEXT NOT NULL, t INTEGER NOT NULL, n INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (inst, t));`);
     this.#insert = this.#db.prepare('INSERT OR REPLACE INTO depth_columns (inst, t, n, step, data) VALUES (?, ?, ?, ?, ?)');
     this.#insertLt = this.#db.prepare('INSERT OR REPLACE INTO depth_lt (inst, t, n, data) VALUES (?, ?, ?, ?)');
+    this.#range = this.#db.prepare(`SELECT c.t, c.n, c.data, l.n AS ltN, l.data AS lt FROM depth_columns c LEFT JOIN depth_lt l ON l.inst = c.inst AND l.t = c.t
+      WHERE c.inst = ? AND c.t >= ? AND c.t < ? ORDER BY c.t`);
+  }
+  /** One instrument's columns in [fromMs, toMs), oldest first, each with its tracker when one was kept. */
+  range(instrumentId: string, fromMs: number, toMs: number): Column[] {
+    if (!(toMs > fromMs)) return [];
+    const out: Column[] = [];
+    for (const row of this.#range.all(instrumentId, Math.floor(fromMs), Math.ceil(toMs)) as Iterable<{ t: number; n: number; data: Uint8Array; ltN: number | null; lt: Uint8Array | null }>) {
+      const column = columnOf(row.t, row.n, row.data, row.lt && row.ltN ? { n: row.ltN, data: row.lt } : null);
+      if (column) out.push(column);
+    }
+    return out;
+  }
+  /** Per instrument, its first and last minute from `sinceMs` and the step its first was recorded on (the step the recorder keeps). */
+  extent(sinceMs: number): Map<string, { first: number; last: number; step: number }> {
+    const out = new Map<string, { first: number; last: number; step: number }>();
+    const rows = this.#db.prepare(`SELECT inst, MIN(t) AS first, MAX(t) AS last, (SELECT step FROM depth_columns s WHERE s.inst = c.inst AND s.t >= ? ORDER BY s.t LIMIT 1) AS step
+      FROM depth_columns c WHERE t >= ? GROUP BY inst`).all(sinceMs, sinceMs) as { inst: string; first: number; last: number; step: number }[];
+    for (const row of rows) out.set(row.inst, { first: row.first, last: row.last, step: row.step });
+    return out;
   }
   *load(sinceMs: number): Iterable<{ instrumentId: string; column: Column; step: number }> {
     // The tracker rows of the same minutes, by instrument and minute (a row of another length is from another layout: left out).

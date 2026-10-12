@@ -6,7 +6,7 @@ import type { createLocalServer } from '../http.mts';
 import { MAX_CROSSED_BP, crossedByBp, valueBook, type ValuedBook } from './levels.mts';
 import { TOUCH_HINT_MS } from '../../shared/levels.ts';
 import { COLUMNS_PER_REQUEST } from '../../shared/columns.ts';
-import { DepthRecorder, COLUMN_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
+import { DepthRecorder, COLUMN_MS, HOT_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
 import { SqliteColumnStore } from './store.mts';
 import { encodeColumns, encodeLevels } from './wire.mts';
 import { FootprintRecorder } from './footprint.mts';
@@ -78,7 +78,8 @@ const BAD_SERIES = 'inst and a supported tf are required';
 export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, heartbeatMs = HEARTBEAT_MS }: V2Options): V2Handle {
   let store: SqliteColumnStore | null = null;
   if (persist) { fs.mkdirSync(dataDir, { recursive: true }); store = new SqliteColumnStore(path.join(dataDir, 'depth-v2.sqlite')); }
-  const recorder = new DepthRecorder({ store });
+  // A day of columns in memory; older ones are read back from the store when a question reaches them.
+  const recorder = new DepthRecorder({ store, memoryMs: HOT_MS });
   const defaults = process.env.HLM_DEFAULT_VENUES;
   // The coin list for the page's coin picker, rebuilt here daily (the server itself records BTC only).
   const coins = persist ? new CoinList(path.join(dataDir, 'coins.json'), path.join(process.cwd(), 'dist', 'coins.json')) : null;
@@ -256,8 +257,17 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const to = num(url.searchParams.get('to'), Date.now() + COLUMN_MS);
     const from = Math.max(num(url.searchParams.get('from'), to - 6 * 3_600_000), to - MAX_COLUMN_SPAN_MS);
     const stepMs = Math.max(COLUMN_MS, Math.round(num(url.searchParams.get('stepMs'), COLUMN_MS) / COLUMN_MS) * COLUMN_MS);
-    const results = ids.map(id => ({ instrumentId: id, step: recorder.steps.get(id) ?? 0, columns: recorder.query(id, from, to, stepMs) }));
-    sendBinary(res, encodeColumns(results, from, to, stepMs));
+    // An instrument at a time, the live loop running between them: days older than memory holds are read back from the store, which for a
+    // zoomed-out week took seconds (an instrument's share of it is well under one).
+    void (async () => {
+      const results: { instrumentId: string; step: number; columns: ReturnType<typeof recorder.query> }[] = [];
+      for (const id of ids) {
+        if (closed || res.destroyed) return;
+        results.push({ instrumentId: id, step: recorder.steps.get(id) ?? 0, columns: recorder.query(id, from, to, stepMs) });
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+      if (!res.destroyed) sendBinary(res, encodeColumns(results, from, to, stepMs));
+    })().catch(error => { console.error('v2 /api/v2/columns failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); else res.end(); });
   };
   const candles = (url: URL, res: ServerResponse) => {
     const id = url.searchParams.get('inst') ?? ''; const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);

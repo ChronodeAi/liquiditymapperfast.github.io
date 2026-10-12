@@ -1,8 +1,14 @@
 import { gridStepFor } from './grid.ts';
 import { levelsOf } from './profile.ts';
+import { KeptCache } from './kept-cache.ts';
 
-const MINUTE = 60_000;
+const MINUTE = 60_000, HOUR = 3_600_000;
 const RETENTION_MS = 7 * 24 * 3_600_000;
+/**
+ * How many minutes of rows read back from the store a server keeps for the next question: about a day of its BTC markets. The page asks
+ * again for what it shows (the Range panel every few seconds, the profile every minute), and parsing a stored minute costs some 45 µs.
+ */
+export const COLD_CACHE_MINUTES = 20_000;
 /** Footprint rows are recorded at 1/40 of the depth grid step (0.5 USD for BTC) and merged dyadically at query time. */
 const FINE_DIV = 40;
 
@@ -276,9 +282,26 @@ export interface FootprintStore {
   load(since: number): Iterable<FootprintMinuteRow>;
   save(rows: FootprintMinuteRow[], expireBefore: number): void;
   close(): void;
+  /**
+   * A store that reads back on demand (the server's; the browser's holds its day in memory): one instrument's minutes in [from, to), oldest
+   * first. Their statistics may be left out (null): the recorder holds every minute's statistics in memory.
+   */
+  range?(inst: string, from: number, to: number): FootprintMinuteRow[];
 }
 
-/** Per-instrument, per-minute taker buy/sell USD by price row. */
+/** A stored minute's rows as held: five numbers a row in a minute that counts orders by price, else three (the counts then zero). */
+function binsOfRow(row: FootprintMinuteRow): { bins: Bins; counted: boolean } {
+  const counted = row.bins.length > 0 && row.bins.every(b => b.length === 5);
+  return { bins: new Map(row.bins.map(b => [b[0], [b[1], b[2], counted ? b[3]! : 0, counted ? b[4]! : 0] as Cell])), counted };
+}
+
+/**
+ * Per-instrument, per-minute taker buy/sell USD by price row.
+ *
+ * Each minute's sums and statistics are held for the whole retention; its rows for `memoryMs` (all of it by default). With a store that reads
+ * back, older rows are read from it when a question reaches them, and a minute that a late trade or order changes is read back into memory
+ * first, so it is never written over with a part of itself. A minute leaves memory only once the store has it.
+ */
 export class FootprintRecorder {
   readonly #minutes = new Map<string, Map<number, Bins>>();
   readonly #stats = new Map<string, Map<number, TradeStats>>();
@@ -290,33 +313,100 @@ export class FootprintRecorder {
   readonly #dirty = new Set<string>();
 
   readonly #retentionMs: number;
+  readonly #memoryMs: number;
+  /** Older rows are read back from the store (it can, and memory holds less than the retention). */
+  readonly #cold: boolean;
+  /** Every minute from here on has its rows in memory (before it, only the ones read back to be changed). */
+  #hotFrom = -Infinity;
+  /** Where the retention began at the last flush (or at start): nothing older is read back. */
+  #cutoff: number;
+  /** Hours of rows read back, by instrument and hour (only hours before `#hotFrom`), weighed in minutes. */
+  readonly #coldHours: KeptCache<Map<number, Bins>>;
   /** The size buckets' edges are SIZE_EDGES times this (1 for BTC; smaller for a coin that trades less). */
   readonly sizeScale: number;
 
-  constructor(store: FootprintStore | null = null, protected now: () => number = Date.now, retentionMs: number = RETENTION_MS, sizeScale = 1) {
-    this.#store = store; this.#retentionMs = retentionMs; this.sizeScale = sizeScale;
+  constructor(store: FootprintStore | null = null, protected now: () => number = Date.now, retentionMs: number = RETENTION_MS, sizeScale = 1, memoryMs: number = retentionMs, coldCacheMinutes = COLD_CACHE_MINUTES) {
+    this.#store = store; this.#retentionMs = retentionMs; this.sizeScale = sizeScale; this.#coldHours = new KeptCache(coldCacheMinutes, now);
+    this.#cold = store !== null && typeof store.range === 'function' && memoryMs < retentionMs;
+    this.#memoryMs = this.#cold ? memoryMs : retentionMs;
+    const start = now();
+    this.#cutoff = start - retentionMs;
+    if (this.#cold) this.#hotFrom = Math.floor((start - memoryMs) / MINUTE) * MINUTE;
     if (store) {
-      for (const row of store.load(now() - retentionMs)) {
+      for (const row of store.load(this.#cutoff)) {
         this.#steps.set(row.inst, row.step);
         // Statistics of an older version counted fills, not orders: such a minute is kept as one recorded without statistics.
         const stats = current(row.stats);
         if (stats) this.#minuteStats(row.inst).set(row.t, stats);
-        const counted = row.bins.length > 0 && row.bins.every(b => b.length === 5);
-        const bins: Bins = new Map(row.bins.map(b => [b[0], [b[1], b[2], counted ? b[3]! : 0, counted ? b[4]! : 0] as Cell]));
-        this.#minute(row.inst).set(row.t, bins);
+        const { bins, counted } = binsOfRow(row);
+        if (row.t >= this.#hotFrom) this.#minute(row.inst).set(row.t, bins);
         this.#minuteSums(row.inst).set(row.t, sumOf(bins, counted));
       }
     }
   }
+
+  /**
+   * A minute's rows to change: in memory, or (an older minute, recorded) read back into memory from the store, so what is written for it
+   * next holds all of it. Undefined when the minute has none.
+   */
+  #rowsToChange(id: string, minute: number): Bins | undefined {
+    const held = this.#minutes.get(id)?.get(minute);
+    if (held || !this.#cold || minute >= this.#hotFrom || !this.#sums.get(id)?.has(minute)) return held;
+    const row = this.#store!.range!(id, minute, minute + MINUTE).find(r => r.t === minute);
+    if (!row) return undefined;
+    const { bins } = binsOfRow(row);
+    // While it is in memory it is answered from memory; when it leaves, its kept hour goes too (`flush`).
+    this.#minute(id).set(minute, bins);
+    return bins;
+  }
+
+  /**
+   * One instrument's minutes in [from, to) with their rows, oldest first: read back before the minutes held in memory, then from memory (a
+   * minute read back to be changed is newer in memory than anywhere else).
+   */
+  #rowsIn(id: string, from: number, to: number): Map<number, Bins> {
+    const out = new Map<number, Bins>(), minutes = this.#minutes.get(id);
+    if (this.#cold) this.#readBack(id, Math.max(from, this.#cutoff), Math.min(to, this.#hotFrom), out);
+    if (minutes) for (const [t, bins] of [...minutes].sort((a, b) => a[0] - b[0])) if (t >= from && t < to) out.set(t, bins);
+    return out;
+  }
+
+  /**
+   * The minutes of [lo, hi) from the store, into `out` oldest first, by the hour: a kept hour as it is, a run of the others read in one pass
+   * and kept hour by hour (only hours wholly before what memory holds, and inside the retention).
+   */
+  #readBack(id: string, lo: number, hi: number, out: Map<number, Bins>): void {
+    if (!(hi > lo)) return;
+    for (let h = Math.floor(lo / HOUR) * HOUR; h < hi;) {
+      const kept = this.#coldHours.get(`${id}|${h}`);
+      if (kept) {
+        for (const [t, bins] of kept) if (t >= lo && t < hi) out.set(t, bins);
+        h += HOUR; continue;
+      }
+      let end = h + HOUR;
+      while (end < hi && !this.#coldHours.has(`${id}|${end}`)) end += HOUR;
+      const read = this.#store!.range!(id, Math.max(h, this.#cutoff), Math.min(end, this.#hotFrom));
+      for (let hour = h, at = 0; hour < end; hour += HOUR) {
+        const minutes = new Map<number, Bins>();
+        for (; at < read.length && read[at]!.t < hour + HOUR; at++) minutes.set(read[at]!.t, binsOfRow(read[at]!).bins);
+        if (hour >= this.#cutoff && hour + HOUR <= this.#hotFrom) this.#coldHours.set(`${id}|${hour}`, minutes, Math.max(1, minutes.size));
+        for (const [t, bins] of minutes) if (t >= lo && t < hi) out.set(t, bins);
+      }
+      h = end;
+    }
+  }
+
+  /** Let go of the kept hour that holds `minute` of `id` (it is about to change, or has). */
+  #forgetHour(id: string, minute: number): void { this.#coldHours.delete(`${id}|${Math.floor(minute / HOUR) * HOUR}`); }
 
   #minuteStats(id: string): Map<number, TradeStats> { let m = this.#stats.get(id); if (!m) { m = new Map(); this.#stats.set(id, m); } return m; }
   #minute(id: string): Map<number, Bins> { let m = this.#minutes.get(id); if (!m) { m = new Map(); this.#minutes.set(id, m); } return m; }
   #minuteSums(id: string): Map<number, MinuteSum> { let m = this.#sums.get(id); if (!m) { m = new Map(); this.#sums.set(id, m); } return m; }
   step(id: string): number | undefined { return this.#steps.get(id); }
   /** Instruments with a recorded minute. */
-  get instruments(): string[] { return [...this.#minutes.keys()]; }
+  get instruments(): string[] { return [...this.#sums.keys()]; }
   /** The start (ms) of the newest minute recorded for `id`, or 0. */
-  lastMinute(id: string): number { let newest = 0; for (const t of this.#minutes.get(id)?.keys() ?? []) if (t > newest) newest = t; return newest; }
+  lastMinute(id: string): number { let newest = 0; for (const t of this.#sums.get(id)?.keys() ?? []) if (t > newest) newest = t; return newest; }
 
   /** Add every fill not seen before to its price row. Returns the number accepted. Orders are counted separately (`countOrders`). */
   ingest(trades: Iterable<TradeLike>): number {
@@ -335,7 +425,7 @@ export class FootprintRecorder {
       if (!step) { step = gridStepFor(price) / FINE_DIV; this.#steps.set(id, step); }
       const minute = Math.floor(t / MINUTE) * MINUTE;
       const minutes = this.#minute(id);
-      let bins = minutes.get(minute); const restored = bins !== undefined;
+      let bins = this.#rowsToChange(id, minute); const restored = bins !== undefined;
       const bin = binOf(price, step);
       let sum = this.#minuteSums(id).get(minute);
       if (!bins) { bins = new Map(); minutes.set(minute, bins); }
@@ -369,7 +459,8 @@ export class FootprintRecorder {
       // From the second bucket up the order itself is kept too (a minute without a list, restored from before they were kept, stays without).
       if (bucket >= 1 && stats.big) { if (stats.big === NO_BIG) stats.big = []; stats.big.push(order.side === 'buy' ? order.usd : -order.usd); }
       const step = this.#steps.get(id), start = order.side === 'buy' ? order.lo ?? order.price : order.hi ?? order.price;
-      const bins = this.#minutes.get(id)?.get(minute);
+      // Read back too when it has to be written whole again with its statistics (an older minute held only in the store).
+      const bins = this.#rowsToChange(id, minute);
       if (step && bins && start !== undefined && start > 0 && this.#sums.get(id)?.get(minute)?.counted) {
         const cell = nearestCell(bins, binOf(start, step));
         if (cell) cell[order.side === 'buy' ? 2 : 3]++;
@@ -401,6 +492,15 @@ export class FootprintRecorder {
     }
     store?.save(rows, cutoff);
     for (const key of settled) this.#dirty.delete(key);
+    // Reading back, the rows of minutes past `memoryMs` that the store now has leave memory (their sums and statistics stay); one still to
+    // be written stays until it is. A kept hour that held one read back to be changed is read again (it has the minute as it was).
+    if (this.#cold) {
+      this.#cutoff = cutoff;
+      this.#coldHours.deleteWhere(key => Number(key.slice(key.lastIndexOf('|') + 1)) < cutoff);
+      const from = Math.floor((this.now() - this.#memoryMs) / MINUTE) * MINUTE;
+      for (const [id, minutes] of this.#minutes) for (const t of minutes.keys()) if (t < from && !this.#dirty.has(`${id}|${t}`)) { minutes.delete(t); if (t < this.#hotFrom) this.#forgetHour(id, t); }
+      if (from > this.#hotFrom) this.#hotFrom = from;
+    }
   }
   close(): void { this.flush(true); this.#store?.close(); }
 
@@ -409,7 +509,8 @@ export class FootprintRecorder {
    * with the orders from each of the `cuts` size lines (USD, from the second bucket's edge; see `parseCuts`).
    */
   sizes(ids: readonly string[], windows: readonly number[], cuts: readonly number[] = []): SizesAnswer {
-    return sizesOf({ minutes: id => this.#minutes.get(id), stats: id => this.#stats.get(id) }, ids, windows, this.now(), cuts);
+    // A minute recorded is one with sums: held for the whole retention, rows in memory or not.
+    return sizesOf({ minutes: id => this.#sums.get(id), stats: id => this.#stats.get(id) }, ids, windows, this.now(), cuts);
   }
 
   /** The smallest size a line can be drawn at: the second bucket's edge for this coin (what the lists hold). */
@@ -457,15 +558,18 @@ export class FootprintRecorder {
   profile(ids: readonly string[], from: number, to: number, rowStep: number): ProfileAnswer {
     const instruments: ProfileInstrument[] = [];
     for (const id of ids) {
-      const fine = this.#steps.get(id), minutes = this.#minutes.get(id);
-      if (!fine || !minutes || !minutes.size) { instruments.push({ id, step: 0, rows: [], minutes: 0, first: null, earliest: null }); continue; }
-      const factor = Math.max(1, Math.round(rowStep / fine)), step = fine * factor, rows = new Map<number, [number, number, number, number]>(), sums = this.#sums.get(id);
+      const fine = this.#steps.get(id), sums = this.#sums.get(id);
+      if (!fine || !sums || !sums.size) { instruments.push({ id, step: 0, rows: [], minutes: 0, first: null, earliest: null }); continue; }
+      const factor = Math.max(1, Math.round(rowStep / fine)), step = fine * factor, rows = new Map<number, [number, number, number, number]>();
       let count = 0, counted = 0, first: number | null = null, earliest: number | null = null;
-      for (const [t, bins] of minutes) {
+      // Every recorded minute has its sums held; the rows of those in the window are read where they are held.
+      for (const [t, sum] of sums) {
         if (earliest === null || t < earliest) earliest = t;
         if (t < from || t >= to) continue;
         count++; if (first === null || t < first) first = t;
-        if (sums?.get(t)?.counted) counted++;
+        if (sum.counted) counted++;
+      }
+      if (count) for (const bins of this.#rowsIn(id, from, to).values()) {
         for (const [bin, [buy, sell, buyN, sellN]] of bins) { const row = Math.floor(bin / factor), cell = rows.get(row) ?? [0, 0, 0, 0]; cell[0] += buy; cell[1] += sell; cell[2] += buyN; cell[3] += sellN; rows.set(row, cell); }
       }
       const sorted = [...rows].sort((a, b) => a[0] - b[0]);
@@ -482,15 +586,16 @@ export class FootprintRecorder {
     const first = Math.ceil(from / MINUTE) * MINUTE, span = Math.max(0, to - first);
     const merged = new Map<number, RangeRow>(), instruments: RangeInstrument[] = [];
     for (const id of ids) {
-      const fine = this.#steps.get(id), minutes = this.#minutes.get(id), sums = this.#sums.get(id);
+      const fine = this.#steps.get(id), sums = this.#sums.get(id);
       const out: RangeInstrument = { id, band: { buy: 0, sell: 0, buyN: 0, sellN: 0 }, minutes: 0, counted: 0, countedFrom: null, countedUsd: { buy: 0, sell: 0 }, all: { buy: 0, sell: 0 }, before: { buy: 0, sell: 0, minutes: 0 } };
       instruments.push(out);
-      if (!fine || !minutes || !sums) continue;
+      if (!fine || !sums) continue;
       for (let t = first - span; t < first; t += MINUTE) { const s = sums.get(t); if (s) { out.before.buy += s.buy; out.before.sell += s.sell; out.before.minutes++; } }
       // The band's first and last rows (a row is inside when its low price is).
       const lo = band ? Math.ceil(band.p0 / fine * (1 - 1e-12)) : -Infinity, hi = band ? Math.ceil(band.p1 / fine * (1 - 1e-12)) : Infinity;
+      const held = this.#rowsIn(id, first, to);
       for (let t = first; t < to; t += MINUTE) {
-        const s = sums.get(t), bins = minutes.get(t);
+        const s = sums.get(t), bins = held.get(t);
         if (!s || !bins) continue;
         out.minutes++; out.all.buy += s.buy; out.all.sell += s.sell;
         if (s.counted) { out.counted++; if (out.countedFrom === null) out.countedFrom = t; }
@@ -530,8 +635,9 @@ export class FootprintRecorder {
       const rows = new Map<number, number>(), first = Math.ceil(w.from / MINUTE) * MINUTE;
       let minutes = 0, total = 0;
       for (const id of ids) {
-        const fine = this.#steps.get(id), held = this.#minutes.get(id);
-        if (!fine || !held) continue;
+        const fine = this.#steps.get(id);
+        if (!fine) continue;
+        const held = this.#rowsIn(id, first, w.to);
         let seen = 0;
         for (let t = first; t < w.to; t += MINUTE) {
           const bins = held.get(t); if (!bins) continue;
@@ -555,8 +661,7 @@ export class FootprintRecorder {
     if (!fine) return { step: 0, fine: 0, bars: [] };
     const factor = Math.max(1, Math.round(rowStep / fine)), step = fine * factor;
     const bars = new Map<number, Map<number, [number, number]>>(), barStats = new Map<number, { stats: TradeStats; withStats: number; minutes: number; over: number[]; known: boolean }>();
-    for (const [t, bins] of this.#minutes.get(id) ?? []) {
-      if (t < from || t >= to) continue;
+    for (const [t, bins] of this.#rowsIn(id, from, to)) {
       const key = Math.floor(t / tfMs) * tfMs;
       let rows = bars.get(key); if (!rows) { rows = new Map(); bars.set(key, rows); }
       let acc = barStats.get(key); if (!acc) { acc = { stats: emptyStats(), withStats: 0, minutes: 0, over: new Array<number>(2 * cuts.length).fill(0), known: true }; barStats.set(key, acc); }
