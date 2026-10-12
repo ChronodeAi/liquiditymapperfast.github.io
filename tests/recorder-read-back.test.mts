@@ -451,6 +451,8 @@ test('what waits is taken at close when the store has recovered; a waiting fill 
   store.failingReads = false;
   now = early + 7 * DAY + MIN; old.flush();
   assert.equal(old.ingest([]), 0);
+  // Nor does a copy handed over again bring it back: it counts as seen, as it would had it been taken before the minute expired.
+  assert.equal(old.ingest([{ instrumentId: 'b:BTC', tradeId: 'expired', side: 'buy', price: 84_100, notionalUsd: 5_000, sourceTimestamp: early + 1_000 }]), 0);
   assert.deepEqual(old.range(['b:BTC'], early, early + MIN, null, 20).instruments[0]!.minutes, 0, 'the expired minute stays gone');
 });
 

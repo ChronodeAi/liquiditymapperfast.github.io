@@ -12,8 +12,10 @@ export const COLD_CACHE_MINUTES = 20_000;
 /** Market orders kept for another try while the store cannot read back a minute they change; past this, no more are kept. */
 const UNCOUNTED_MAX = 50_000;
 /**
- * The same for fills, fewer: taking them marks them seen, and the fills seen per instrument are trimmed to the last 10,000 past 30,000, so
- * a larger backlog taken at once could push out a fill taken meanwhile, whose copy the feed hands over again would then count twice.
+ * The same for fills, fewer: taking them marks them seen, and the fills seen per instrument are trimmed to the last 10,000 past 30,000. A
+ * fill is handed over again only while it is among the feed's last 5,000 trades (`state.trades` in server/http.mts), so at most 4,999
+ * newer fills and this backlog are marked seen after it while a copy can still come: 9,999, inside the 10,000 kept. Keep the two
+ * numbers adding up to no more than that.
  */
 const UNTAKEN_MAX = 5_000;
 /** A market order as `countOrders` counts it (its fills went to `ingest`): `lo`/`hi`, or `price`, is where it started. */
@@ -431,7 +433,15 @@ export class FootprintRecorder {
   ingest(trades: Iterable<TradeLike>): number {
     let accepted = 0;
     const cutoff = this.now() - this.#retentionMs, kept = new Set<string>();
-    const was = this.#untaken.filter(trade => Math.floor(Number(trade.sourceTimestamp ?? trade.receivedAt) / MINUTE) * MINUTE >= cutoff);
+    // A waiting fill whose minute the retention has passed goes, counted as seen, as it would have been had it been taken (a copy handed
+    // over again does not bring the minute back).
+    const was = this.#untaken.filter(trade => {
+      if (Math.floor(Number(trade.sourceTimestamp ?? trade.receivedAt) / MINUTE) * MINUTE >= cutoff) return true;
+      const id = String(trade.instrumentId);
+      let seen = this.#seen.get(id); if (!seen) { seen = new Set(); this.#seen.set(id, seen); }
+      seen.add(String(trade.tradeId));
+      return false;
+    });
     this.#untaken = [];
     for (const trade of was.length ? [...was, ...trades] : trades) {
       const id = String(trade.instrumentId ?? ''), key = String(trade.tradeId ?? '');
