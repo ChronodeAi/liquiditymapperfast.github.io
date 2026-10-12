@@ -103,8 +103,10 @@ class ColumnSource {
   hold: Promise<void> | null = null;
   /** The price grid every market is answered on. */
   grid = 10;
+  /** The source's clock at bootstrap (0: it does not say). */
+  clock = 0;
   async bootstrap(): Promise<BootstrapState> {
-    return { asOf: 0, now: 0, dataMode: 'server', markPrice: 100, markInstrumentId: 'a:BTC', markets: [{ instrumentId: 'a:BTC' }], layers: {}, steps: {}, recorded: {}, columnMs: MIN, timeframes: [], oiReferences: [] };
+    return { asOf: 0, now: this.clock, dataMode: 'server', markPrice: 100, markInstrumentId: 'a:BTC', markets: [{ instrumentId: 'a:BTC' }], layers: {}, steps: {}, recorded: {}, columnMs: MIN, timeframes: [], oiReferences: [] };
   }
   connect(): { close(): void } { return { close() {} }; }
   async candles() { return []; }
@@ -169,6 +171,31 @@ test('the hub asks for the whole window once, then on each refresh only from whe
     assert.equal(worker.posted.at(-1)!.type, 'columns');
     now += 30_000; hub.invalidateColumns(); await hub.loadColumns(live(), 180);
     assert.equal(worker.posted.at(-1)!.type, 'columnsTail', 'and refreshes go on from there on the new grid');
+  } finally { Date.now = realNow; }
+});
+
+test('windows settle by the source clock, and the whole window is asked for again every hour', async () => {
+  const realNow = Date.now;
+  let now = T0;
+  Date.now = () => now;
+  try {
+    // The page's clock runs four minutes ahead of the server's.
+    const store = new Store(initialState()), source = new ColumnSource();
+    source.clock = T0 - 4 * MIN;
+    const hub = new Hub(store, source as unknown as DataSource), worker = hub.worker as unknown as FakeWorker;
+    worker.onmessage!({ data: { type: 'ready' } });
+    await hub.start();
+    store.set({ levels: { asOf: now, books: [{ id: 'a:BTC' }] } as never });
+    const live = () => ({ t0: now - 6 * HOUR, t1: now + 10 * MIN, p0: 0, p1: 1 }), step = 4 * MIN;
+    await hub.loadColumns(live(), 180);
+    assert.equal(source.asked[0]!.to, T0 - 4 * MIN + MIN, 'up to the source now');
+    now += 30_000; hub.invalidateColumns(); await hub.loadColumns(live(), 180);
+    assert.equal(source.asked.at(-1)!.from, settledBefore(T0 - 4 * MIN, step), 'settled by the source clock, not the page clock');
+    // Refreshes go on as tails for an hour from the whole window, then it is asked for whole again.
+    for (; now < T0 + HOUR - 30_000;) { now += 30_000; hub.invalidateColumns(); await hub.loadColumns(live(), 180); }
+    assert.equal(worker.posted.at(-1)!.type, 'columnsTail');
+    now += 30_000; hub.invalidateColumns(); await hub.loadColumns(live(), 180);
+    assert.equal(worker.posted.at(-1)!.type, 'columns', 'an hour on, the whole window');
   } finally { Date.now = realNow; }
 });
 

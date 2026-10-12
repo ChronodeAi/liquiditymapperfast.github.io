@@ -26,8 +26,13 @@ const MINUTE = 60_000;
  * later); this much room also covers a source whose clock is a little off.
  */
 export const COLUMNS_SETTLE_MS = 2 * MINUTE;
-/** Every window of `stepMs` that ends at or before this time was complete at `now` and stays as it is. */
+/** Every window of `stepMs` that ends at or before this time was complete at `now` (the source's clock) and stays as it is. */
 export const settledBefore = (now: number, stepMs: number): number => Math.floor((now - COLUMNS_SETTLE_MS) / stepMs) * stepMs;
+/**
+ * The whole window is asked for again at least this often, refreshes or not: a source lets go of what passes its retention (the browser
+ * keeps a day), and columns held from before that would otherwise pile up behind a wide view for days.
+ */
+export const COLUMNS_FULL_EVERY_MS = 3_600_000;
 
 export interface RasterResult { id: number; w: number; h: number; data: Float32Array; stats: RasterStats; bounds: Bounds }
 
@@ -43,9 +48,11 @@ export class Hub {
   /**
    * The recorded columns the worker holds: of these instruments, at this step, covering [from, to) (`to` reaches past now: the window the
    * view may move into); every window that ends before `settled` was complete when it was asked for, so a refresh asks only from there.
-   * `steps`: each market's price grid, as the columns held were recorded on.
+   * `steps`: each market's price grid, as the columns held were recorded on; `whole`: when the whole window was last asked for.
    */
-  #columns: { key: string; from: number; to: number; stepMs: number; settled: number; steps: Map<string, number> } | null = null;
+  #columns: { key: string; from: number; to: number; stepMs: number; settled: number; steps: Map<string, number>; whole: number } | null = null;
+  /** How far the page's clock is ahead of the source's (the bootstrap says the source's): windows settle by the source's clock. */
+  #sourceSkew = 0;
   #columnsLoading = false;
   /** The newest windows may have changed since they were asked for (the clock says so every 30 s): the next load asks for them again. */
   #columnsStale = false;
@@ -218,6 +225,7 @@ export class Hub {
 
   async start(): Promise<void> {
     const boot = await this.source.bootstrap();
+    if (Number.isFinite(boot.now) && boot.now > 0) this.#sourceSkew = Date.now() - boot.now;
     const marketId = this.store.state.marketId || boot.markInstrumentId || boot.markets[0]?.instrumentId || '';
     this.#noteRecorded(boot.recorded);
     this.#reference = boot.markInstrumentId; this.#oiReferences = boot.oiReferences ?? [];
@@ -537,12 +545,13 @@ export class Hub {
     // About two pixels a column, in minutes that double from one level to the next: zooming moves between a few steps the server has merged before.
     const stepMs = MINUTE * 2 ** Math.max(0, Math.round(Math.log2(span / Math.max(1, widthPx) * 2 / MINUTE)));
     const key = ids.join(',');
-    const have = this.#columns;
-    const covers = have !== null && have.key === key && have.stepMs === stepMs && have.from <= view.t0 && have.to >= view.t1;
+    const have = this.#columns, clock = Date.now();
+    const covers = have !== null && have.key === key && have.stepMs === stepMs && have.from <= view.t0 && have.to >= view.t1 && clock - have.whole < COLUMNS_FULL_EVERY_MS;
     if (covers && !this.#columnsStale) return;
     // What is asked from here on answers every refresh mark made so far; one made while it is under way is answered by the next.
     this.#columnsStale = false;
-    const now = Date.now(), settled = settledBefore(now, stepMs);
+    // The source's clock: a page whose clock runs ahead would otherwise count the source's open minutes as settled and never ask for them again.
+    const now = clock - this.#sourceSkew, settled = settledBefore(now, stepMs);
     // Whole windows at both ends: a window cut by the question would be kept as the part of it that was asked for.
     const reach = { from: Math.floor((view.t0 - span * 0.5) / stepMs) * stepMs, to: Math.ceil((view.t1 + span * 0.5) / stepMs) * stepMs };
     const end = Math.min(now + MINUTE, covers ? have.to : reach.to);
@@ -556,11 +565,11 @@ export class Hub {
       const held = tail;
       if (held && frame.instruments.some(set => set.step > 0 && (held.steps.get(set.id) ?? set.step) !== set.step)) {
         tail = null; from = reach.from;
-        frame = await this.source.columns(ids, from, Math.min(Date.now() + MINUTE, reach.to), stepMs);
+        frame = await this.source.columns(ids, from, Math.min(Date.now() - this.#sourceSkew + MINUTE, reach.to), stepMs);
       }
       const steps = new Map(tail ? tail.steps : []);
       for (const set of frame.instruments) if (set.step > 0) steps.set(set.id, set.step);
-      this.#columns = tail ? { ...tail, settled: Math.max(tail.settled, settled), steps } : { key, from, to: reach.to, stepMs, settled, steps };
+      this.#columns = tail ? { ...tail, settled: Math.max(tail.settled, settled), steps } : { key, from, to: reach.to, stepMs, settled, steps, whole: clock };
       // The instruments are views onto a few fetch buffers that nothing on this thread reads again: hand the buffers over instead of copying tens of MB.
       const buffers = new Set<ArrayBuffer>();
       for (const set of frame.instruments) for (const array of [set.bins, set.bid, set.ask]) if (array.buffer instanceof ArrayBuffer) buffers.add(array.buffer);
