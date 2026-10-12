@@ -1242,5 +1242,14 @@
   "few": "Що стояло всередині прямокутника в середньому за його час, у {n} увімкнених стаканах (і в тих, де угоди не записуються).",
   "many": "Що стояло всередині прямокутника в середньому за його час, у {n} увімкнених стаканах (і в тих, де угоди не записуються).",
   "other": "Що стояло всередині прямокутника в середньому за його час, у {n} увімкнених стаканах (і в тих, де угоди не записуються)."
- }
+ },
+ "Venue lines": "Лінії бірж",
+ "top {n}": "топ {n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "Компактний: лінія накопиченого обсягу для кожної з найбільших бірж, за торговим обсягом у вікні рейтингу колонки потоку. Наведіть на лінію, щоб побачити її саму.",
+ "Share of all venues": "Частка від усіх бірж",
+ "At this price": "На цій ціні",
+ "Traded, last {window}": "Проторговано, останні {window}",
+ "No trades held for this book: placed by its liquidity in view.": "Угод за цим стаканом немає: місце за видимою ліквідністю.",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "У компактному режимі «Лінії бірж» малюють накопичений обсяг кожної з найбільших бірж окремо, поверх накопиченого обсягу всього стакана і в тому ж масштабі: лінія показує, яка частина глибини до цієї ціни припадає на цю біржу. Біржі впорядковано за торговим обсягом у вікні рейтингу колонки потоку (стакан без угод — за видимою ліквідністю) і тримаються хвилину; значок біля кожного кольору в заголовку називає біржу. Лінія обривається там, куди стакан її біржі вже не сягає. Наведіть курсор біля лінії або її пункту в заголовку, щоб побачити її саму з цифрами.",
+ "Lines, full width (log scale)": "Лінії, уся ширина (лог. шкала)"
 }

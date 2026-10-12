@@ -1225,5 +1225,14 @@
   "one": "O que ficou em espera dentro da caixa em média ao longo do seu tempo, no {n} livro de ofertas ligado (também sem negócios registrados).",
   "many": "O que ficou em espera dentro da caixa em média ao longo do seu tempo, nos {n} livros de ofertas ligados (também os sem negócios registrados).",
   "other": "O que ficou em espera dentro da caixa em média ao longo do seu tempo, nos {n} livros de ofertas ligados (também os sem negócios registrados)."
- }
+ },
+ "Venue lines": "Linhas por corretora",
+ "top {n}": "top {n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "Compacto: uma linha do acumulado para cada uma das maiores corretoras, ordenadas pelo volume negociado na janela de ranking da coluna de fluxo. Passe sobre uma linha para vê-la sozinha.",
+ "Share of all venues": "Parte de todas as corretoras",
+ "At this price": "Neste preço",
+ "Traded, last {window}": "Negociado, últimas {window}",
+ "No trades held for this book: placed by its liquidity in view.": "Não há negócios deste livro: ordenado pela sua liquidez visível.",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "No Compacto, Linhas por corretora desenha o acumulado de cada uma das maiores corretoras separadamente, sobre o do livro inteiro e na mesma escala, então uma linha mostra quanto da profundidade até aquele preço é daquela corretora. Elas são ordenadas pelo volume negociado na janela de ranking da coluna de fluxo (um livro sem negócios, pela sua liquidez visível) e mantidas por um minuto; a marca ao lado de cada cor no cabeçalho a identifica. Uma linha para onde o livro da sua corretora deixa de alcançar. Passe perto de uma linha, ou da sua entrada no cabeçalho, para vê-la sozinha com seus números.",
+ "Lines, full width (log scale)": "Linhas, largura total (escala log.)"
 }

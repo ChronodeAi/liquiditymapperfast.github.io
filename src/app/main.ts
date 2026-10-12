@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   const delta = new DeltaPane(chart, store, heat.view, hub);
   heat.divergences = () => delta.divergences; delta.onDivergences = () => heat.invalidate();
   const lt = new LtPane(chart, store, heat.view, hub);
-  const ladder = new LadderPane(side, store, kernels);
+  const ladder = new LadderPane(side, store, kernels, hub);
   const cvd = new CvdPane(flowCol, store, hub, heat.view);
   const arrange = new Layout(main, chart, side, [
     { id: 'heat', root: heat.root, min: 240 },

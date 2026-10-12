@@ -1177,5 +1177,14 @@
  "Passive buyers held at": "패시브 매수자가 버틴 가격",
  "Passive sellers held at": "패시브 매도자가 버틴 가격",
  "A mark is market orders of one side meeting resting orders at one price within 10 ms, more than the exchange's threshold: only the marks the map draws count. Passive buyers take market sells, passive sellers take market buys.": "표시는 한쪽 시장가 주문이 10ms 안에 한 가격에서 거래소 임계값을 넘게 대기 주문과 만난 것입니다. 지도에 그려진 표시만 셉니다. 패시브 매수자는 시장가 매도를, 패시브 매도자는 시장가 매수를 흡수합니다.",
- "What rested inside the box on average over its time, on the {n} order books switched on (those without recorded trades too).": "기간 동안 사각형 안에 평균적으로 대기한 주문, 켜진 오더북 {n}개 기준(체결 기록이 없는 오더북 포함)."
+ "What rested inside the box on average over its time, on the {n} order books switched on (those without recorded trades too).": "기간 동안 사각형 안에 평균적으로 대기한 주문, 켜진 오더북 {n}개 기준(체결 기록이 없는 오더북 포함).",
+ "Venue lines": "거래소 선",
+ "top {n}": "상위 {n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "컴팩트: 가장 큰 거래소마다 누적 선을 그립니다. 흐름 열의 순위 기간 동안의 거래량으로 순위를 매깁니다. 선 위에 올리면 그 선만 보입니다.",
+ "Share of all venues": "전체 거래소 중 비중",
+ "At this price": "이 가격",
+ "Traded, last {window}": "거래액, 최근 {window}",
+ "No trades held for this book: placed by its liquidity in view.": "이 호가창의 거래 기록이 없습니다: 보이는 유동성으로 순위를 매겼습니다.",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "컴팩트에서 거래소 선은 가장 큰 거래소 각각의 누적을 전체 호가창의 누적 위에 같은 척도로 따로 그립니다. 선은 그 가격까지의 깊이 중 얼마가 그 거래소의 것인지 보여 줍니다. 거래소는 흐름 열의 순위 기간 동안의 거래량으로 순위를 매기며(거래 기록이 없는 호가창은 보이는 유동성으로) 1분 동안 유지됩니다. 헤더에서 각 색 옆의 마크가 거래소를 알려 줍니다. 선은 그 거래소의 호가창이 닿지 않는 곳에서 끝납니다. 선이나 헤더의 항목 가까이에 올리면 그 선만 수치와 함께 보입니다.",
+ "Lines, full width (log scale)": "선, 전체 너비 (로그 척도)"
 }

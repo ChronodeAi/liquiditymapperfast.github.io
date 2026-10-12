@@ -27,14 +27,14 @@ test('a layout keeps what the chart shows, without the VWAP anchors or the profi
 });
 
 test('a file can come from anywhere: every field is checked, anything else gets its default', () => {
-  const junk = readSettings({ timeframe: '2h', layer: 'gamma', show: { depth: 'yes', oi: false, evil: true }, ladderMode: 'tiles', ladderShow: 7, grouping: -5,
+  const junk = readSettings({ timeframe: '2h', layer: 'gamma', show: { depth: 'yes', oi: false, evil: true }, ladderMode: 'tiles', ladderCurves: 4, ladderShow: 7, grouping: -5,
     heat: { style: 'neon', contrast: 999, smooth: 'sometimes', auto: 'no' }, lt: { halfLifeBp: 'x', view: 'radar' }, barStats: ['vol', 3, null], barStatOptions: { imbRatio: Infinity, extra: 1 }, scope: 'futures', pullStack: 30 } as never);
   assert.equal(junk.timeframe, '1h');
   assert.equal(junk.layer, 'liquidity');
   assert.equal(junk.show.depth, defaults.show.depth);
   assert.equal(junk.show.oi, false, 'a valid field of a partly broken object is kept');
   assert.ok(!('evil' in junk.show));
-  assert.deepEqual([junk.ladderMode, junk.ladderShow, junk.grouping, junk.scope, junk.pullStack], ['aggregated', 'both', 'auto', 'all', 0]);
+  assert.deepEqual([junk.ladderMode, junk.ladderCurves, junk.ladderShow, junk.grouping, junk.scope, junk.pullStack], ['compact', 5, 'both', 'auto', 'all', 0]);
   assert.deepEqual(junk.heat, { style: 'size', auto: true, contrast: 100, smooth: 'auto' });
   assert.equal(junk.lt.view, 'lines');
   assert.equal(junk.lt.halfLifeBp, defaults.lt.halfLifeBp);
@@ -91,6 +91,6 @@ test('pane order: the saved one, a pane added since after it; sizes within reaso
 test('applying a layout sets only what differs, so the same timeframe does not reload the chart', () => {
   const now = state({ timeframe: '15m' });
   assert.deepEqual(changedSettings(settingsToApply(settingsOf(now), now), now), {});
-  const next = settingsToApply(settingsOf(state({ timeframe: '15m', ladderMode: 'compact' })), now);
+  const next = settingsToApply(settingsOf(state({ timeframe: '15m', ladderMode: 'single' })), now);
   assert.deepEqual(Object.keys(changedSettings(next, now)), ['ladderMode']);
 });

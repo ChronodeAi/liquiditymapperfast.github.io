@@ -1225,5 +1225,14 @@
   "one": "Lo que reposó dentro del recuadro en promedio durante su tiempo, en el {n} libro de órdenes encendido (también si no tiene operaciones registradas).",
   "many": "Lo que reposó dentro del recuadro en promedio durante su tiempo, en los {n} libros de órdenes encendidos (también los que no tienen operaciones registradas).",
   "other": "Lo que reposó dentro del recuadro en promedio durante su tiempo, en los {n} libros de órdenes encendidos (también los que no tienen operaciones registradas)."
- }
+ },
+ "Venue lines": "Líneas por exchange",
+ "top {n}": "top {n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "Compacto: una línea del acumulado para cada uno de los exchanges más grandes, ordenados por volumen negociado en la ventana de ranking de la columna de flujo. Pasa sobre una línea para verla sola.",
+ "Share of all venues": "Parte de todos los exchanges",
+ "At this price": "En este precio",
+ "Traded, last {window}": "Negociado, últimas {window}",
+ "No trades held for this book: placed by its liquidity in view.": "No hay operaciones de este libro: ordenado por su liquidez visible.",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "En Compacto, Líneas por exchange dibuja el acumulado de cada uno de los exchanges más grandes por separado, sobre el del libro entero y en su misma escala, así que una línea muestra cuánto de la profundidad hasta ese precio es de ese exchange. Se ordenan por volumen negociado en la ventana de ranking de la columna de flujo (un libro sin operaciones, por su liquidez visible) y se mantienen un minuto; la marca junto a cada color en la cabecera lo nombra. Una línea se detiene donde el libro de su exchange deja de llegar. Pasa cerca de una línea, o de su entrada en la cabecera, para verla sola con sus cifras.",
+ "Lines, full width (log scale)": "Líneas, ancho completo (escala log.)"
 }

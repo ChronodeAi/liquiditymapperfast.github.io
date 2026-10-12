@@ -1225,5 +1225,14 @@
   "one": "Ce qui était en attente dans le cadre en moyenne sur sa durée, sur le {n} carnet d'ordres activé (même sans transactions enregistrées).",
   "many": "Ce qui était en attente dans le cadre en moyenne sur sa durée, sur les {n} carnets d'ordres activés (y compris ceux sans transactions enregistrées).",
   "other": "Ce qui était en attente dans le cadre en moyenne sur sa durée, sur les {n} carnets d'ordres activés (y compris ceux sans transactions enregistrées)."
- }
+ },
+ "Venue lines": "Lignes par plateforme",
+ "top {n}": "top {n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "Compact : une ligne du cumul pour chacune des plus grandes plateformes, classées par volume échangé sur la fenêtre de classement de la colonne de flux. Survolez une ligne pour la voir seule.",
+ "Share of all venues": "Part de toutes les plateformes",
+ "At this price": "À ce prix",
+ "Traded, last {window}": "Échangé, dernières {window}",
+ "No trades held for this book: placed by its liquidity in view.": "Aucun échange connu pour ce carnet : classé par sa liquidité visible.",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "En mode Compact, Lignes par plateforme trace le cumul de chacune des plus grandes plateformes à part, par-dessus celui du carnet entier et à la même échelle : une ligne montre quelle part de la profondeur jusqu’à ce prix revient à cette plateforme. Elles sont classées par volume échangé sur la fenêtre de classement de la colonne de flux (un carnet sans échanges connus, par sa liquidité visible) et gardées une minute ; la marque à côté de chaque couleur dans l’en-tête la nomme. Une ligne s’arrête là où le carnet de sa plateforme cesse de porter. Survolez une ligne, ou son entrée dans l’en-tête, pour la voir seule avec ses chiffres.",
+ "Lines, full width (log scale)": "Lignes, pleine largeur (échelle log.)"
 }

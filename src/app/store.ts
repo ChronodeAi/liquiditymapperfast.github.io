@@ -109,6 +109,8 @@ export interface AppState {
   grouping: 'auto' | number;
   ladderMode: LadderMode;
   ladderShow: LadderShow;
+  /** How many venue lines the Compact book draws over its running total (0: none; panes/ladder-curves.ts). */
+  ladderCurves: LadderCurves;
   /** Replay (replay/clock.ts): what its controls show, null when live. Not saved: a page always opens live. */
   replay: ReplayView | null;
   /** The order book's pull/stack window in seconds (0: off). */
@@ -136,14 +138,18 @@ export interface AppState {
 
 type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 
-const PERSISTED: (keyof AppState)[] = ['keepAwake', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'pullStack', 'ladderVenue', 'ladderVenues', 'theme', 'traded'];
+const PERSISTED: (keyof AppState)[] = ['keepAwake', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderVenue', 'ladderVenues', 'theme', 'traded'];
 function readSaved(): Partial<AppState> {
   try { const raw = window.localStorage.getItem('hlm-app-v2'); return raw ? JSON.parse(raw) as Partial<AppState> : {}; } catch { return {}; }
 }
 
+/** How many venue lines the Compact book may draw. */
+export const LADDER_CURVES = [0, 3, 5, 8] as const;
+export type LadderCurves = (typeof LADDER_CURVES)[number];
+
 /** The settings a saved layout holds: what the chart shows and how, never the coin, the venues, the theme, the time zone or the sounds. */
 export const LAYOUT_KEYS = ['timeframe', 'layer', 'show', 'cvd', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta',
-  'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'pullStack', 'traded'] as const satisfies readonly (keyof AppState)[];
+  'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'traded'] as const satisfies readonly (keyof AppState)[];
 export type Settings = Pick<AppState, (typeof LAYOUT_KEYS)[number]>;
 
 /** The timeframes (hub.ts TIMEFRAMES; a test keeps the two the same). */
@@ -182,7 +188,9 @@ export function readSettings(saved: Partial<Record<keyof AppState, unknown>>): S
     barStats: Array.isArray(saved.barStats) ? saved.barStats.filter((id): id is string => typeof id === 'string').slice(0, 24) : [...DEFAULT_BAR_STATS],
     barStatOptions: readStatOptions(saved.barStatOptions),
     grouping: saved.grouping === 'auto' || (typeof saved.grouping === 'number' && Number.isFinite(saved.grouping) && saved.grouping > 0) ? saved.grouping : 'auto',
-    ladderMode: saved.ladderMode === 'single' || saved.ladderMode === 'compact' ? saved.ladderMode : 'aggregated',
+    // Compact is the default since 2026-10-12 (Aggregated before): a page that saved Aggregated keeps it, since a choice and the old default look the same.
+    ladderMode: saved.ladderMode === 'single' || saved.ladderMode === 'aggregated' ? saved.ladderMode : 'compact',
+    ladderCurves: LADDER_CURVES.includes(saved.ladderCurves as LadderCurves) ? saved.ladderCurves as LadderCurves : 5,
     ladderShow: saved.ladderShow === 'levels' || saved.ladderShow === 'cumulative' ? saved.ladderShow : 'both',
   };
 }

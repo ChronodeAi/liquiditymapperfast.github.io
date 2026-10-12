@@ -1237,5 +1237,14 @@
   "few": "Что стояло внутри прямоугольника в среднем за его время, в {n} включённых стаканах (и в тех, где сделки не записываются).",
   "many": "Что стояло внутри прямоугольника в среднем за его время, в {n} включённых стаканах (и в тех, где сделки не записываются).",
   "other": "Что стояло внутри прямоугольника в среднем за его время, в {n} включённых стаканах (и в тех, где сделки не записываются)."
- }
+ },
+ "Venue lines": "Линии бирж",
+ "top {n}": "топ {n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "Компактный: линия накопленного объёма для каждой из крупнейших бирж, по торговому объёму за окно рейтинга колонки потока. Наведите на линию, чтобы увидеть её одну.",
+ "Share of all venues": "Доля от всех бирж",
+ "At this price": "На этой цене",
+ "Traded, last {window}": "Наторговано, последние {window}",
+ "No trades held for this book: placed by its liquidity in view.": "Сделок по этому стакану нет: место по видимой ликвидности.",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "В компактном режиме «Линии бирж» рисуют накопленный объём каждой из крупнейших бирж отдельно, поверх накопленного объёма всего стакана и в том же масштабе: линия показывает, какая часть глубины до этой цены приходится на эту биржу. Биржи упорядочены по торговому объёму за окно рейтинга колонки потока (стакан без сделок — по видимой ликвидности) и держатся минуту; значок рядом с каждым цветом в заголовке называет биржу. Линия обрывается там, куда стакан её биржи уже не доходит. Наведите курсор рядом с линией или её пунктом в заголовке, чтобы увидеть её одну с цифрами.",
+ "Lines, full width (log scale)": "Линии, вся ширина (лог. шкала)"
 }

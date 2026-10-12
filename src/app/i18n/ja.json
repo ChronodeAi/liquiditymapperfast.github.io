@@ -1177,5 +1177,14 @@
  "Passive buyers held at": "パッシブな買い手が支えた価格",
  "Passive sellers held at": "パッシブな売り手が支えた価格",
  "A mark is market orders of one side meeting resting orders at one price within 10 ms, more than the exchange's threshold: only the marks the map draws count. Passive buyers take market sells, passive sellers take market buys.": "マークとは、片側の成行注文が 10 ms 以内に一つの価格で板の注文に取引所のしきい値を超えて当たったものです。マップが描くマークだけを数えます。パッシブな買い手は成行の売りを、パッシブな売り手は成行の買いを吸収します。",
- "What rested inside the box on average over its time, on the {n} order books switched on (those without recorded trades too).": "期間中に四角形の中で平均して板にあった注文。オンの板 {n} 件(約定の記録がない板も含む)。"
+ "What rested inside the box on average over its time, on the {n} order books switched on (those without recorded trades too).": "期間中に四角形の中で平均して板にあった注文。オンの板 {n} 件(約定の記録がない板も含む)。",
+ "Venue lines": "取引所ライン",
+ "top {n}": "上位{n}",
+ "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "コンパクト：大きい取引所ごとに累計のラインを描きます。フロー列のランキング期間の約定額で順位付けします。ラインにカーソルを合わせると、そのラインだけを表示します。",
+ "Share of all venues": "全取引所に占める割合",
+ "At this price": "この価格",
+ "Traded, last {window}": "約定額（直近{window}）",
+ "No trades held for this book: placed by its liquidity in view.": "この板の約定データがありません：表示範囲の流動性で順位付けしています。",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's and on its scale, so a line shows how much of the depth out to that price is that venue's. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "コンパクトでは、取引所ラインが大きい取引所それぞれの累計を、板全体の累計の上に同じスケールで個別に描きます。ラインは、その価格までの厚みのうちどれだけがその取引所のものかを示します。順位はフロー列のランキング期間の約定額で決まり（約定データのない板は表示範囲の流動性で）、1分間保持されます。ヘッダーの各色の横のマークが取引所を示します。ラインは、その取引所の板が届かなくなる所で終わります。ラインやヘッダーの項目の近くにカーソルを置くと、そのラインだけを数値とともに表示します。",
+ "Lines, full width (log scale)": "ライン、全幅（対数目盛）"
 }
