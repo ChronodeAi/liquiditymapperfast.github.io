@@ -172,16 +172,22 @@ function applyRawRows(target: Map<string, KrakenRawLevel>, rows: KrakenRawLevel[
   }
 }
 
-function pruneMap(target: Map<string, KrakenRawLevel>, descending: boolean, depth: number) {
-  const retained = [...target.values()]
-    .sort((a, b) => descending ? b.numericPrice - a.numericPrice : a.numericPrice - b.numericPrice)
-    .slice(0, depth);
-  const keep = new Set(retained.map((row) => canonicalDecimal(row.price, 'price')));
-  for (const key of target.keys()) if (!keep.has(key)) target.delete(key);
+/**
+ * One side, best first, cut to `depth`: the levels past it leave the map. Sorted once per message and used for the prune, the checksum and the
+ * book sent on. At depth 1 000 the three sorts this used to take (and the decimal text of every kept level parsed again) cost 2.7 ms an
+ * update, more than Kraken's update rate leaves: the server fell behind for good (2026-10-12).
+ */
+function keptSide(target: Map<string, KrakenRawLevel>, descending: boolean, depth: number): KrakenRawLevel[] {
+  const entries = [...target.entries()].sort(([, a], [, b]) => descending ? b.numericPrice - a.numericPrice : a.numericPrice - b.numericPrice);
+  for (let i = depth; i < entries.length; i++) target.delete(entries[i]![0]);
+  return (entries.length > depth ? entries.slice(0, depth) : entries).map(([, row]) => row);
 }
 
-function sortedOutput(map: Map<string, KrakenRawLevel>, descending: boolean, depth: number) {
-  return [...map.values()].sort((a, b) => descending ? b.numericPrice - a.numericPrice : a.numericPrice - b.numericPrice).slice(0, depth).map((row) => ({ price: row.numericPrice, amount: row.numericQty }));
+/** The levels Kraken's checksum covers: the first ten with a quantity, of a side already best first. */
+function checksumRows(rows: readonly KrakenRawLevel[]): KrakenRawLevel[] {
+  const out: KrakenRawLevel[] = [];
+  for (const row of rows) { if (row.numericQty > 0) out.push(row); if (out.length === 10) break; }
+  return out;
 }
 
 function invalidated(session: KrakenDepthSession, reason: string): DepthSessionResult<KrakenDepthSession> {
@@ -205,12 +211,12 @@ export function applyKrakenDepthSessionMessage(session: KrakenDepthSession, { to
   if (isUpdate && (!session.book || session.status !== 'live' || session.invalidated)) return { session, accepted: false, ignored: true, reason: 'fresh-snapshot-required' };
   const bids = isSnapshot ? levelMap(levels.bids) : new Map(session.bids); const asks = isSnapshot ? levelMap(levels.asks) : new Map(session.asks);
   if (isUpdate) { applyRawRows(bids, levels.bids); applyRawRows(asks, levels.asks); }
-  pruneMap(bids, true, session.depth); pruneMap(asks, false, session.depth);
-  const calculated = krakenBookChecksum({ bids: [...bids.values()], asks: [...asks.values()] });
+  const keptBids = keptSide(bids, true, session.depth), keptAsks = keptSide(asks, false, session.depth);
+  const calculated = krakenBookChecksum({ bids: checksumRows(keptBids), asks: checksumRows(keptAsks) });
   if (calculated !== update.checksum) return invalidated(session, `Kraken checksum mismatch: expected ${calculated}, received ${update.checksum}`);
   // The session's whole book goes downstream, so it is labelled a snapshot even when an update produced it: the runtime state replaces a
   // snapshot but merges a delta, and merging a full book never removes a level that has left it (the book grew and crossed within minutes).
-  const nextBook = { ...update, kind: 'depthSnapshot' as const, coverage: 'partial' as const, checksum: calculated, checksumVerified: true, checksumLevels: undefined, sequence: undefined, complete: true, gap: false, invalidated: false, resyncRequired: false, continuity: 'checksum-verified', status: 'live', bids: sortedOutput(bids, true, session.depth), asks: sortedOutput(asks, false, session.depth) };
+  const nextBook = { ...update, kind: 'depthSnapshot' as const, coverage: 'partial' as const, checksum: calculated, checksumVerified: true, checksumLevels: undefined, sequence: undefined, complete: true, gap: false, invalidated: false, resyncRequired: false, continuity: 'checksum-verified', status: 'live', bids: keptBids.map(row => ({ price: row.numericPrice, amount: row.numericQty })), asks: keptAsks.map(row => ({ price: row.numericPrice, amount: row.numericQty })) };
   return { session: { ...session, bids, asks, book: nextBook, status: 'live', invalidated: false }, accepted: true, ignored: false, reason: null };
 }
 

@@ -856,7 +856,10 @@ export class LiveFeedManager {
       specs.push(['coinbase-depth', { venue: 'coinbase', channel: request.channel, symbol: request.productId, marketType: 'spot', topic: request.topic, instrumentId: `coinbase:${String(request.productId).toUpperCase()}`, request, decode: raw => this.#decodeCoinbaseDepth(raw, coinbaseSymbol), publicDepth: true }]);
     }
     if (krakenEnabled && krakenSymbol) {
-      const request = buildKrakenSubscription('depth', { symbol: krakenSymbol, depth: 1_000, snapshot: true });
+      // Depth 100, not the 1 000 Kraken offers: it sends about 250 book messages a second, and at 1 000 levels the depth session and the
+      // book handed on per message kept a core busy until the server stopped answering (2026-10-12). A deeper Kraken book needs the book
+      // built for the map less often than every message first.
+      const request = buildKrakenSubscription('depth', { symbol: krakenSymbol, depth: 100, snapshot: true });
       specs.push(['kraken-depth', { venue: 'kraken', channel: request.channel, symbol: request.symbol, marketType: 'spot', topic: request.topic, instrumentId: `kraken:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeKrakenDepth(raw, String(request.symbol)), publicDepth: true }]);
     }
     if (kucoinEnabled && kucoinSymbol) {

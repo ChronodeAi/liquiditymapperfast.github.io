@@ -68,7 +68,7 @@ function frame(type: string, current = levels(), symbol = 'XBT/USD') {
 }
 
 function subscriptionAck(symbol = 'XBT/USD') {
-  return { method: 'subscribe', result: { channel: 'book', symbol, depth: 1000, snapshot: true }, success: true };
+  return { method: 'subscribe', result: { channel: 'book', symbol, depth: 100, snapshot: true }, success: true };
 }
 
 test('Kraken descriptors, metadata, and the documented CRC32 example are exact', () => {
@@ -133,13 +133,13 @@ test('Kraken manager requires matching ACK, routes checksum-verified data, and f
   await manager.start({ selectedOrderbookVenues: ['kraken'], krakenEnabled: true, krakenSymbol: 'XBT/USD' });
   const socket = defined(fake.sockets.find(item => item.spec.id === 'kraken-depth'));
   assert.equal(socket.spec.request.url, 'wss://ws.kraken.com/v2');
-  assert.deepEqual(JSON.parse(defined(socket.sent.at(-1))), { method: 'subscribe', params: { channel: 'book', symbol: ['BTC/USD'], depth: 1000, snapshot: true } });
+  assert.deepEqual(JSON.parse(defined(socket.sent.at(-1))), { method: 'subscribe', params: { channel: 'book', symbol: ['BTC/USD'], depth: 100, snapshot: true } });
   assert.equal(manager.status()['kraken-metadata'].state, 'snapshot');
-  socket.emit({ method: 'subscribe', result: { channel: 'book', symbol: 'ETH/USD', depth: 1000, snapshot: true }, success: true });
+  socket.emit({ method: 'subscribe', result: { channel: 'book', symbol: 'ETH/USD', depth: 100, snapshot: true }, success: true });
   socket.emit(v2frame('snapshot', levels(), 'ETH/USD'));
   assert.equal(manager.status()['kraken-depth'].subscriptionAcked, false);
   assert.equal(messages.some(item => item.id === 'kraken-depth'), false);
-  socket.emit({ method: 'subscribe', result: { channel: 'book', symbol: 'BTC/USD', depth: 1000, snapshot: false }, success: true });
+  socket.emit({ method: 'subscribe', result: { channel: 'book', symbol: 'BTC/USD', depth: 100, snapshot: false }, success: true });
   assert.equal(manager.status()['kraken-depth'].subscriptionAcked, false);
   socket.emit(subscriptionAck('BTC/USD'));
   socket.emit(v2frame('snapshot'));
