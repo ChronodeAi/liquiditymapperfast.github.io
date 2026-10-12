@@ -2,6 +2,7 @@ import { MAX_CROSSED_BP, crossedByBp, splitTouch, TOUCH_HINT_MS, type ValuedBook
 import { gridStepFor } from './grid.ts';
 import { mergeByDistance } from './merge.ts';
 import type { LiquidationEvent } from './liquidations.ts';
+import { FarPoller, beyond, freshFar, type FarBook, type FarSource } from './far-book.ts';
 
 export type ConnectorState = 'stopped' | 'connecting' | 'live' | 'error';
 /**
@@ -60,6 +61,8 @@ export abstract class BookConnector {
   /** Delivered data at least once since start, and connections lost since it last did. */
   everLive = false;
   failures = 0;
+  /** False for a connector run for its trades alone (the server's FlowSources): its book is never read, so no far book is read for it. */
+  bookRead = true;
   /** Receives every trade the venue sends on this socket; set by whoever records them. */
   onTrade: (trade: TradeEvent) => void = () => {};
   /** Receives every liquidation the venue reports on this socket (the venues that publish them: shared/liquidations.ts). */
@@ -82,8 +85,12 @@ export abstract class BookConnector {
    */
   #lastTrade: { price: number; t: number; at: number } | null = null;
   #cachedHint: number | undefined = undefined;
+  /** The far book read from REST beyond what the WebSocket sends (shared/far-book.ts), for a venue that has one; and the one last valued with. */
+  #far: FarPoller | null = null; #cachedFar: FarBook | null = null;
 
   get instrumentId(): string { return `${this.id}:${this.symbol}`; }
+  /** The reader of this book's far levels, once started (null for a venue without one): for status and tests. */
+  get far(): FarPoller | null { return this.#far; }
   protected abstract url(): string;
   /** Send subscription frames once the socket is open. */
   protected abstract open(send: (payload: unknown) => void): void;
@@ -102,6 +109,8 @@ export abstract class BookConnector {
   protected startupMs(): number { return STARTUP_MS; }
   /** The connection this is (a counter that changes whenever one ends or begins): work started for an older one must not touch this one. */
   protected get generation(): number { return this.#generation; }
+  /** Where this book's far levels are read beyond the WebSocket's (shared/far-book.ts), or null for a venue whose WebSocket reaches far enough. */
+  protected farBook(): FarSource | null { return null; }
   /** Venues that resend the whole book many times a second only need the newest frame handled once per interval (0 = handle every frame). */
   protected coalesceMs(): number { return 0; }
   /** Application-level keepalive for venues that close idle sockets (WebSocket ping frames are answered by the runtime). */
@@ -137,6 +146,13 @@ export abstract class BookConnector {
     this.#connect();
     this.#watchdog = setInterval(() => this.check(), 5_000);
     this.#watchdog.unref?.();
+    // Read while the book is live and, in a browser, while the page is shown (a hidden tab's book is not drawn): about 220 KB a read for OKX.
+    const source = this.farBook();
+    if (source) {
+      const shown = () => (globalThis as { document?: { visibilityState?: string } }).document?.visibilityState !== 'hidden';
+      this.#far ??= new FarPoller(source, () => this.bookRead && this.state === 'live' && shown(), () => { this.#version++; });
+      this.#far.start();
+    }
   }
   /**
    * One look at the feed: a live one that has gone quiet, or a new one that has not delivered its first data in time (an open socket whose
@@ -150,6 +166,7 @@ export abstract class BookConnector {
     this.state = 'stopped'; this.#generation++; this.reset(); this.#stopPing(); this.#dropPending();
     if (this.#retry) clearTimeout(this.#retry); this.#retry = null;
     if (this.#watchdog) clearInterval(this.#watchdog); this.#watchdog = null;
+    this.#far?.stop();
     const socket = this.#socket; this.#socket = null; try { socket?.close(); } catch { /* already closed */ }
   }
   /** Drop the book and reconnect (sequence gap, bad frame, silence). */
@@ -207,18 +224,24 @@ export abstract class BookConnector {
   valued(now: number, gridStep?: number): ValuedBook | null {
     if (this.state !== 'live' || now - this.lastUpdate > this.silenceMs() + 10_000) return null;
     const last = this.coarse ? this.#lastTrade : null, hint = last && Math.abs(now - last.at) <= TOUCH_HINT_MS ? last.price / this.unit : undefined;
-    if (this.#cachedVersion === this.#version && this.#cachedHint === hint) return this.#cached;
+    // The far book only while fresh: one ageing out values the book again without it.
+    const far = this.coarse || !this.#far ? null : freshFar(this.#far.latest, now);
+    if (this.#cachedVersion === this.#version && this.#cachedHint === hint && this.#cachedFar === far) return this.#cached;
     // A deep book changes on nearly every tick and costs a pass over every level; the map and ladder move slowly, so it is re-valued at most once a second.
-    if (this.#cached && this.bids.size + this.asks.size >= DEEP_BOOK_LEVELS && now - this.#cachedAt < DEEP_BOOK_INTERVAL_MS) return this.#cached;
-    this.#cachedVersion = this.#version; this.#cachedAt = now; this.#cachedHint = hint;
+    const levels = this.bids.size + this.asks.size + (far ? far.bids.length + far.asks.length : 0);
+    if (this.#cached && levels >= DEEP_BOOK_LEVELS && now - this.#cachedAt < DEEP_BOOK_INTERVAL_MS) return this.#cached;
+    this.#cachedVersion = this.#version; this.#cachedAt = now; this.#cachedHint = hint; this.#cachedFar = far;
     // A grouped book's bands depend on its touch (one step for the whole book, the best bid's): found once, before either side.
     const touch = { bid: -Infinity, ask: Infinity };
     if (this.coarse) { for (const p of this.bids.keys()) if (p > touch.bid) touch.bid = p; for (const p of this.asks.keys()) if (p < touch.ask) touch.ask = p; }
     const side = (map: Map<number, number>, descending: boolean): SideLevels => {
-      const prices = [...map.keys()].sort((a, b) => descending ? b - a : a - b);
-      const lo = new Float64Array(prices.length), hi = this.coarse ? new Float64Array(prices.length) : lo, usd = new Float64Array(prices.length);
-      const unit = this.unit, coarse = this.coarse, which = descending ? 'bid' : 'ask';
+      const prices = [...map.keys()].sort((a, b) => descending ? b - a : a - b), which = descending ? 'bid' : 'ask';
+      // The far book's levels past the WebSocket book's deepest one, after it (the WebSocket book is the authority wherever it reaches).
+      const extra = far ? beyond(descending ? far.bids : far.asks, prices[prices.length - 1] ?? NaN, which) : [], n = prices.length + extra.length;
+      const lo = new Float64Array(n), hi = this.coarse ? new Float64Array(n) : lo, usd = new Float64Array(n);
+      const unit = this.unit, coarse = this.coarse;
       prices.forEach((p, i) => { const b = coarse ? this.band(p, which, touch) : null; lo[i] = (b ? b.lo : p) / unit; if (b) hi[i] = b.hi / unit; usd[i] = this.usdOf(p, map.get(p)!); });
+      extra.forEach(([p, size], k) => { const i = prices.length + k; lo[i] = p / unit; usd[i] = this.usdOf(p, size); });
       return { lo, hi, usd };
     };
     let bids = side(this.bids, true), asks = side(this.asks, false);

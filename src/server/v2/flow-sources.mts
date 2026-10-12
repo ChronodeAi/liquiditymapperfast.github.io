@@ -45,7 +45,8 @@ export class FlowSources {
       const instrument = made.book.instrumentId;
       if (!connectors.length || !wanted.has(instrument)) continue;
       this.#spare.delete(venue.id);
-      for (const connector of connectors) { connector.onTrade = this.onTrade; connector.onLiquidation = this.onLiquidation; connector.start(); }
+      // Their books are not read here (the feed manager has the depth), so they read no far book either.
+      for (const connector of connectors) { connector.onTrade = this.onTrade; connector.onLiquidation = this.onLiquidation; connector.bookRead = false; connector.start(); }
       this.#running.set(venue.id, { connectors, instrument, unwantedSince: 0 });
     }
   }

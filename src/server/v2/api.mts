@@ -3,7 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { createLocalServer } from '../http.mts';
-import { MAX_CROSSED_BP, crossedByBp, valueBook, type ValuedBook } from './levels.mts';
+import { MAX_CROSSED_BP, crossedByBp, valueBook, withFar, type ValuedBook } from './levels.mts';
+import { FarPoller, farSource, freshFar, type FarBook } from '../../shared/far-book.ts';
 import { TOUCH_HINT_MS } from '../../shared/levels.ts';
 import { COLUMNS_PER_REQUEST } from '../../shared/columns.ts';
 import { DepthRecorder, COLUMN_MS, HOT_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
@@ -133,7 +134,21 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
    * Each venue's book as last valued, by the book object it was valued from (an update replaces the object, so an unchanged object is an
    * unchanged book) and, for a grouped book, the trade its shared top group was split at (`splitTouch`): a newer trade re-values it.
    */
-  const valued = new Map<string, { source: unknown; touch: number | undefined; book: ValuedBook | null; at: number }>();
+  const valued = new Map<string, { source: unknown; touch: number | undefined; far: FarBook | null; book: ValuedBook | null; at: number }>();
+  /**
+   * The far books read from REST beyond what a feed's WebSocket sends (shared/far-book.ts: OKX's `books-full`, Aster's depth 1 000), one
+   * reader for each such book the feed manager holds, started and stopped with it on the sources' 5 s round.
+   */
+  const farBooks = new Map<string, FarPoller>();
+  const syncFar = (ids: readonly string[]): void => {
+    const wanted = new Set<string>();
+    for (const id of ids) {
+      const source = farSource(id); if (!source) continue;
+      wanted.add(id);
+      if (!farBooks.has(id)) { const poller = new FarPoller(source, () => app.state.books?.[id] != null); farBooks.set(id, poller); poller.start(); }
+    }
+    for (const [id, poller] of farBooks) if (!wanted.has(id)) { poller.stop(); farBooks.delete(id); }
+  };
   /** Instruments whose book is crossed (a feed fault), so they are valued as nothing rather than drawn as false walls. */
   const degraded = new Map<string, string>();
   let levelsDirty = true;
@@ -157,16 +172,18 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       // Only a grouped book is split at the last trade (`splitTouch`), so only its valuation depends on the trades as well as the book.
       const grouped = Number(book.nSigFigs) > 0 || Number(book.sourceGrouping) > 0, last = grouped ? touchHints.get(id) : undefined;
       const touch = last && now - last.at <= TOUCH_HINT_MS ? last.price : undefined;
-      if (cached?.source === book && cached.touch === touch) continue;
+      // A new far book values the book again, and so does one ageing out (it is then left off).
+      const far = freshFar(farBooks.get(id)?.latest ?? null, now);
+      if (cached?.source === book && cached.touch === touch && cached.far === far) continue;
       // A deep book (Coinbase holds tens of thousands of levels) changes on nearly every tick and costs a pass over every level; the
       // recorder samples every 5 s and the map and ladder move slowly, so re-value it at most once a second.
-      if (cached && book.bids.length + book.asks.length >= DEEP_BOOK_LEVELS && now - cached.at < DEEP_BOOK_INTERVAL_MS) continue;
-      const value = valueBook(id, book, marketOf(id), now, recorder.steps.get(id), touch), cross = value ? crossedByBp(value) : 0;
+      if (cached && book.bids.length + book.asks.length + (far ? far.bids.length + far.asks.length : 0) >= DEEP_BOOK_LEVELS && now - cached.at < DEEP_BOOK_INTERVAL_MS) continue;
+      const value = valueBook(id, far ? withFar(book, far) : book, marketOf(id), now, recorder.steps.get(id), touch), cross = value ? crossedByBp(value) : 0;
       if (cross > MAX_CROSSED_BP) {
         if (!degraded.has(id)) console.warn(`${id}: book crossed by ${Math.round(cross)} bp, left off the map until it is consistent again`);
         degraded.set(id, `book crossed by ${Math.round(cross)} bp, left off the map`);
       } else if (value && degraded.delete(id)) console.warn(`${id}: book is consistent again`); // a gapped book (null) says nothing about whether it still crosses
-      valued.set(id, { source: book, touch, book: cross > MAX_CROSSED_BP ? null : value, at: now });
+      valued.set(id, { source: book, touch, far, book: cross > MAX_CROSSED_BP ? null : value, at: now });
       levelsDirty = true;
     }
     for (const id of [...valued.keys()]) if (!live.has(id)) { valued.delete(id); degraded.delete(id); levelsDirty = true; }
@@ -214,7 +231,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     detect(orders.add(trades));
     takeOrders(false);
     absorption.step();
-    if (now - lastSources >= 5_000) { lastSources = now; flowSources.sync(new Set([...Object.keys(app.state.books ?? {}), ...extra.enabledInstrumentIds])); }
+    if (now - lastSources >= 5_000) { lastSources = now; flowSources.sync(new Set([...Object.keys(app.state.books ?? {}), ...extra.enabledInstrumentIds])); syncFar(Object.keys(app.state.books ?? {})); }
     // Each store on its own: one that cannot write (a full disk) keeps its rows for the next round and does not stop the others or the rest of this pass.
     if (now - lastFlush >= 30_000) { lastFlush = now; for (const store of [footprint, prints, liquidations, flow, absorption]) { try { store.flush(); } catch (error) { fault('recordings could not be saved; will try again:', error); } } }
     if (now - lastPrune >= 3_600_000) { lastPrune = now; recorder.prune(now); }
@@ -501,7 +518,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     },
     close() {
       closed = true;
-      clearInterval(loop); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
+      clearInterval(loop); syncFar([]); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
       for (const client of wss.clients) client.terminate();
       // Each part gets its turn even when one of them fails, so what can still be written is (the open minutes and the open orders are written here).
       for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => footprint.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {

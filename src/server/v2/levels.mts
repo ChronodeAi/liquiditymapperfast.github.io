@@ -3,6 +3,7 @@ import { hyperliquidBookStep, hyperliquidLevelBounds } from '../../analytics/hyp
 import { gridStepFor } from '../../shared/grid.ts';
 import { mergeByDistance } from '../../shared/merge.ts';
 import { splitTouch, type SideLevels, type ValuedBook } from '../../shared/levels.ts';
+import { beyond, type FarBook } from '../../shared/far-book.ts';
 
 export { MAX_CROSSED_BP, crossedByBp, type SideLevels, type ValuedBook } from '../../shared/levels.ts';
 
@@ -67,6 +68,21 @@ function plainSide(rows: readonly unknown[] | null | undefined, rate: number): S
     lo[n] = price; usd[n] = value; n++;
   }
   return n === list.length ? { lo, hi: lo, usd } : { lo: lo.slice(0, n), hi: lo.slice(0, n), usd: usd.slice(0, n) };
+}
+
+/**
+ * A book with its far levels (shared/far-book.ts) after its own on each side: only those strictly past its deepest level, so the WebSocket
+ * book stays the authority wherever it reaches. Everything else (stamps, units, completeness) is the book's own. A side the book does
+ * not hold, or a grouped book, takes none.
+ */
+export function withFar<B extends BookLike>(book: B, far: FarBook): B {
+  const bids = book.bids ?? [], asks = book.asks ?? [];
+  if (!bids.length || !asks.length || Number(book.nSigFigs) > 0 || Number(book.sourceGrouping) > 0) return book;
+  let lowestBid = Infinity, highestAsk = -Infinity;
+  for (const row of bids) { const p = Array.isArray(row) ? Number(row[0]) : NaN; if (p > 0 && p < lowestBid) lowestBid = p; }
+  for (const row of asks) { const p = Array.isArray(row) ? Number(row[0]) : NaN; if (p > highestAsk) highestAsk = p; }
+  const farBids = beyond(far.bids, lowestBid, 'bid'), farAsks = beyond(far.asks, highestAsk, 'ask');
+  return farBids.length || farAsks.length ? { ...book, bids: [...bids, ...farBids], asks: [...asks, ...farAsks] } : book;
 }
 
 /** Convert a retained venue book to USD-valued levels. Returns null for gapped, incomplete or unvaluable books. */

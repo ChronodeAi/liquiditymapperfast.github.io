@@ -1,5 +1,6 @@
 import { BinanceDiffDepthConnector, BookConnector, type Market } from './connector.ts';
 import { BTC, EARLIER_BROWSER_VENUES, type Coin, type MarketVenue } from './coins.ts';
+import { farSource } from './far-book.ts';
 import { hyperliquidBookStep, hyperliquidLevelBounds } from '../analytics/hyperliquid-bounds.mts';
 
 /**
@@ -190,6 +191,8 @@ abstract class OkxBook extends MarketBook {
   protected open(send: (p: unknown) => void) { send({ op: 'subscribe', args: [{ channel: 'books', instId: this.symbol }, { channel: 'trades', instId: this.symbol }] }); }
   override keepalive() { return { everyMs: 20_000, frame: () => 'ping' }; }
   protected override usdOf(price: number, size: number) { return price * size * this.contract; }
+  /** The books channel stops at 400 levels (7 bp on the BTC swap); `books-full` gives 5 000 beyond them. */
+  protected override farBook() { return farSource(this.instrumentId); }
   onMessage(text: string) {
     if (text === 'pong') return;
     const m = this.record(JSON.parse(text)); if (!m) return;
