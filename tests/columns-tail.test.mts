@@ -101,6 +101,8 @@ class ColumnSource {
   readonly venues = { catalog: async () => ({ venues: [], limit: null, recommendedKnown: true }), apply: async () => {} };
   asked: { from: number; to: number; stepMs: number }[] = [];
   hold: Promise<void> | null = null;
+  /** The price grid every market is answered on. */
+  grid = 10;
   async bootstrap(): Promise<BootstrapState> {
     return { asOf: 0, now: 0, dataMode: 'server', markPrice: 100, markInstrumentId: 'a:BTC', markets: [{ instrumentId: 'a:BTC' }], layers: {}, steps: {}, recorded: {}, columnMs: MIN, timeframes: [], oiReferences: [] };
   }
@@ -110,10 +112,10 @@ class ColumnSource {
   async prints() { return []; }
   async flow() { return { from: 0, to: 0, instruments: [] }; }
   async footprint() { return { step: 0, fine: 0, bars: [] }; }
-  async columns(_ids: string[], from: number, to: number, stepMs: number): Promise<ColumnsFrame> {
+  async columns(ids: string[], from: number, to: number, stepMs: number): Promise<ColumnsFrame> {
     this.asked.push({ from, to, stepMs });
     if (this.hold) await this.hold;
-    return { from, to, stepMs, instruments: [] };
+    return { from, to, stepMs, instruments: ids.map(id => ({ id, step: this.grid, times: [], counts: [], samples: [], bins: new Int32Array(0), bid: new Float32Array(0), ask: new Float32Array(0) })) };
   }
 }
 
@@ -131,7 +133,7 @@ test('the hub asks for the whole window once, then on each refresh only from whe
     // Six hours on 180 px: columns of four minutes.
     const live = () => ({ t0: now - 6 * HOUR, t1: now + 10 * MIN, p0: 0, p1: 1 }), step = 4 * MIN;
     await hub.loadColumns(live(), 180);
-    assert.deepEqual(source.asked, [{ from: T0 - 9 * HOUR - 5 * MIN, to: T0 + MIN, stepMs: step }], 'the window and half of it each side, up to now');
+    assert.deepEqual(source.asked, [{ from: Math.floor((T0 - 9 * HOUR - 5 * MIN) / step) * step, to: T0 + MIN, stepMs: step }], 'the window and half of it each side, in whole windows, up to now');
     await hub.loadColumns(live(), 180);
     assert.equal(source.asked.length, 1, 'nothing new without a refresh');
     for (let k = 1; k <= 2; k++) {
@@ -157,5 +159,21 @@ test('the hub asks for the whole window once, then on each refresh only from whe
     await hub.loadColumns(live(), 180);
     assert.equal(source.asked.length, before + 1, 'the refresh marked meanwhile asks again');
     assert.equal(worker.posted.at(-1)!.type, 'columnsTail');
+    // A market answered on another price grid than its columns held (the server started again): the whole window is asked for again.
+    source.grid = 20;
+    now += 30_000; hub.invalidateColumns();
+    const asked = source.asked.length;
+    await hub.loadColumns(live(), 180);
+    assert.equal(source.asked.length, asked + 2, 'the tail, and then the whole window');
+    assert.equal(source.asked.at(-1)!.from, Math.floor((live().t0 - 3 * HOUR - 5 * MIN) / step) * step);
+    assert.equal(worker.posted.at(-1)!.type, 'columns');
+    now += 30_000; hub.invalidateColumns(); await hub.loadColumns(live(), 180);
+    assert.equal(worker.posted.at(-1)!.type, 'columnsTail', 'and refreshes go on from there on the new grid');
   } finally { Date.now = realNow; }
+});
+
+test('a tail on another price grid replaces the columns held rather than joining them', () => {
+  const held = toStore(set('a', [{ t: 0, bins: [1, 2] }, { t: 60, bins: [3] }], false));
+  const other = { ...set('a', [{ t: 60, bins: [7] }], false), step: 20 };
+  sameStore(withTail(held, other, 60), toStore(other), 'another grid');
 });

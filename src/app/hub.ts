@@ -43,8 +43,9 @@ export class Hub {
   /**
    * The recorded columns the worker holds: of these instruments, at this step, covering [from, to) (`to` reaches past now: the window the
    * view may move into); every window that ends before `settled` was complete when it was asked for, so a refresh asks only from there.
+   * `steps`: each market's price grid, as the columns held were recorded on.
    */
-  #columns: { key: string; from: number; to: number; stepMs: number; settled: number } | null = null;
+  #columns: { key: string; from: number; to: number; stepMs: number; settled: number; steps: Map<string, number> } | null = null;
   #columnsLoading = false;
   /** The newest windows may have changed since they were asked for (the clock says so every 30 s): the next load asks for them again. */
   #columnsStale = false;
@@ -541,17 +542,29 @@ export class Hub {
     if (covers && !this.#columnsStale) return;
     // What is asked from here on answers every refresh mark made so far; one made while it is under way is answered by the next.
     this.#columnsStale = false;
-    const now = Date.now(), settled = settledBefore(now, stepMs), end = Math.min(now + MINUTE, covers ? have.to : view.t1 + span * 0.5);
+    const now = Date.now(), settled = settledBefore(now, stepMs);
+    // Whole windows at both ends: a window cut by the question would be kept as the part of it that was asked for.
+    const reach = { from: Math.floor((view.t0 - span * 0.5) / stepMs) * stepMs, to: Math.ceil((view.t1 + span * 0.5) / stepMs) * stepMs };
+    const end = Math.min(now + MINUTE, covers ? have.to : reach.to);
     if (covers && have.settled >= end) return;
     this.#columnsLoading = true;
     try {
-      const from = covers ? have.settled : view.t0 - span * 0.5;
-      const frame = await this.source.columns(ids, from, end, stepMs);
-      this.#columns = covers ? { ...have, settled: Math.max(have.settled, settled) } : { key, from, to: view.t1 + span * 0.5, stepMs, settled };
+      let tail = covers ? have : null, from = tail ? tail.settled : reach.from;
+      let frame = await this.source.columns(ids, from, end, stepMs);
+      // A market whose price grid is not the one its columns held were recorded on (a server started again and chose another): their bins
+      // mean other prices, so the whole window is asked for again.
+      const held = tail;
+      if (held && frame.instruments.some(set => set.step > 0 && (held.steps.get(set.id) ?? set.step) !== set.step)) {
+        tail = null; from = reach.from;
+        frame = await this.source.columns(ids, from, Math.min(Date.now() + MINUTE, reach.to), stepMs);
+      }
+      const steps = new Map(tail ? tail.steps : []);
+      for (const set of frame.instruments) if (set.step > 0) steps.set(set.id, set.step);
+      this.#columns = tail ? { ...tail, settled: Math.max(tail.settled, settled), steps } : { key, from, to: reach.to, stepMs, settled, steps };
       // The instruments are views onto a few fetch buffers that nothing on this thread reads again: hand the buffers over instead of copying tens of MB.
       const buffers = new Set<ArrayBuffer>();
       for (const set of frame.instruments) for (const array of [set.bins, set.bid, set.ask]) if (array.buffer instanceof ArrayBuffer) buffers.add(array.buffer);
-      this.#post(covers ? { type: 'columnsTail', stepMs: frame.stepMs, from, instruments: frame.instruments } : { type: 'columns', stepMs: frame.stepMs, instruments: frame.instruments }, [...buffers]);
+      this.#post(tail ? { type: 'columnsTail', stepMs: frame.stepMs, from, instruments: frame.instruments } : { type: 'columns', stepMs: frame.stepMs, instruments: frame.instruments }, [...buffers]);
       this.columnStepMs = frame.stepMs; this.columnsVersion++;
       this.onColumns();
     } finally { this.#columnsLoading = false; }

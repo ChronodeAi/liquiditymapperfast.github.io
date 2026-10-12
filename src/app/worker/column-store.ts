@@ -18,7 +18,9 @@ export function toStore(set: ColumnSet): ColumnStore {
  * `from` must be the start of a window. Without `held`, the store is `set`'s alone.
  */
 export function withTail(held: ColumnStore | undefined, set: ColumnSet, from: number): ColumnStore {
-  if (!held) return toStore(set);
+  // Columns on another price grid are not joined to these (their bins mean other prices): the tail alone (the hub asks for the whole
+  // window again when it sees one).
+  if (!held || (set.step > 0 && held.step > 0 && set.step !== held.step)) return toStore(set);
   let keep = 0, keepBins = 0;
   while (keep < held.times.length && held.times[keep]! < from) keepBins += held.counts[keep++]!;
   const n = keep + set.times.length, nBins = keepBins + set.bins.length;
