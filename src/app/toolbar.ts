@@ -179,7 +179,6 @@ export class Toolbar {
   #heatctl = el('span', { class: 'heatctl' });
   /** The colour ramp and the contrast slider under it: one unit, so the Settings sheet can give it a row of its own. */
   #heatScale = el('span', { class: 'scale' });
-  #heatHelp = helpButton('heatmap');
   #spacer = el('span', { class: 'spacer' });
   /** Phone only: the button that opens Settings, where every control that does not fit the top bar lives. */
   #more = el('button', { type: 'button', class: 'more-btn', ariaLabel: t('Settings'), tip: t('Settings: panels, heatmap colouring, venues, sound, theme and the guide.') });
@@ -293,7 +292,7 @@ export class Toolbar {
    * or a window resize.
    */
   /** The heatmap colour controls as the desktop toolbar has them, in one group. */
-  #fillHeatControls(): void { this.#heatctl.replaceChildren(this.#heatHelp, this.#heat.style, this.#heatScale, this.#heat.auto, this.#heat.smooth); }
+  #fillHeatControls(): void { this.#heatctl.replaceChildren(this.#heat.style, this.#heatScale, this.#heat.auto, this.#heat.smooth); }
 
   /** The desktop status bar takes the language and theme buttons (and the connection text) from the top bar. */
   /** Remember the lamp panel just opened (or none) and how to redraw it. */
