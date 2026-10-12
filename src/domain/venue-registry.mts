@@ -94,7 +94,7 @@ export const VENUE_REGISTRY: readonly VenueRegistryEntry[] = Object.freeze([
   }, 'src/adapters/mexc.mts'),
   entry('htx', 'HTX', 'supported', ['perpetual'], {
     products: capability('unsupported', 'adapter currently uses configured contracts; product discovery is not wired', ['perpetual']),
-    trades: unsupportedPublic(), l2: capability('supported', 'HTX USDT swap WebSocket depth.step6 provides bounded complete snapshots with provider version tokens', ['perpetual'], ['native']),
+    trades: unsupportedPublic(), l2: capability('supported', 'HTX USDT swap WebSocket depth.step0 provides bounded complete snapshots (150 unaggregated levels a side) with provider version tokens', ['perpetual'], ['native']),
     candles: unsupportedPublic(), openInterest: unsupportedPublic(), executedLiquidations: unsupportedPublic(), futureLevels: capability('externallyBlocked', blockedReason, ['perpetual']),
   }, 'src/adapters/htx.mts'),
   entry('bitfinex', 'Bitfinex', 'supported', ['spot'], {

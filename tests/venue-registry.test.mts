@@ -67,7 +67,7 @@ test('HL, Binance, Bybit, OKX, Bitget, Gate.io, Deribit, Coinbase, Kraken, KuCoi
   assert.deepEqual(requireVenue('htx').marketTypes, ['perpetual']);
   assert.equal(requireVenue('htx').capabilities.l2.state, 'supported');
   assert.deepEqual(requireVenue('htx').capabilities.l2.marketTypes, ['perpetual']);
-  assert.match((requireVenue('htx').capabilities.l2.reason)!, /depth\.step6/);
+  assert.match((requireVenue('htx').capabilities.l2.reason)!, /depth\.step0/);
   assert.equal(requireVenue('bitfinex').status, 'supported');
   assert.deepEqual(requireVenue('bitfinex').marketTypes, ['spot']);
   assert.equal(requireVenue('bitfinex').capabilities.l2.state, 'supported');

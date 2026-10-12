@@ -58,7 +58,7 @@ function checksumFrame(rows = initial, channelId = 42) {
   const bids = rows.filter(row => row[2] > 0); const asks = rows.filter(row => row[2] < 0);
   return [channelId, 'cs', bitfinexBookChecksum({ bids, asks })];
 }
-function ack() { return { event: 'subscribed', channel: 'book', chanId: 42, symbol: 'tBTCUSD', prec: 'P0', freq: 'F0', len: '25', subId: 'bitfinex-BTCUSD', pair: 'BTCUSD' }; }
+function ack() { return { event: 'subscribed', channel: 'book', chanId: 42, symbol: 'tBTCUSD', prec: 'P0', freq: 'F0', len: '250', subId: 'bitfinex-BTCUSD', pair: 'BTCUSD' }; }
 
 test('Bitfinex descriptors, metadata, and checksum configuration match the public v2 contract', () => {
   assert.equal(buildBitfinexRequest('symbolsDetails').url, 'https://api.bitfinex.com/v1/symbols_details');
@@ -110,9 +110,9 @@ test('Bitfinex manager requires exact ACK, sends checksum config, routes heartbe
   await manager.start({ selectedOrderbookVenues: ['bitfinex'], bitfinexEnabled: true, bitfinexSymbol: 'BTCUSD' });
   const socket = defined(fake.sockets.find(item => item.spec.id === 'bitfinex-depth'));
   assert.equal(socket.spec.request.url, 'wss://api-pub.bitfinex.com/ws/2');
-  assert.deepEqual(socket.sent.slice(-2).map(value => JSON.parse(value)), [{ event: 'conf', flags: 131072 }, { event: 'subscribe', channel: 'book', symbol: 'tBTCUSD', prec: 'P0', freq: 'F0', len: '25', subId: 'bitfinex-BTCUSD' }]);
+  assert.deepEqual(socket.sent.slice(-2).map(value => JSON.parse(value)), [{ event: 'conf', flags: 131072 }, { event: 'subscribe', channel: 'book', symbol: 'tBTCUSD', prec: 'P0', freq: 'F0', len: '250', subId: 'bitfinex-BTCUSD' }]);
   socket.emit({ event: 'info', version: 2 });
-  socket.emit({ event: 'subscribed', channel: 'book', chanId: 42, symbol: 'tETHUSD', prec: 'P0', freq: 'F0', len: '25', subId: 'bitfinex-BTCUSD' });
+  socket.emit({ event: 'subscribed', channel: 'book', chanId: 42, symbol: 'tETHUSD', prec: 'P0', freq: 'F0', len: '250', subId: 'bitfinex-BTCUSD' });
   socket.emit(frame());
   assert.equal(manager.status()['bitfinex-depth'].subscriptionAcked, false);
   assert.equal(messages.some(item => item.id === 'bitfinex-depth'), false);

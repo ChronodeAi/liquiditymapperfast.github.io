@@ -856,7 +856,7 @@ export class LiveFeedManager {
       specs.push(['coinbase-depth', { venue: 'coinbase', channel: request.channel, symbol: request.productId, marketType: 'spot', topic: request.topic, instrumentId: `coinbase:${String(request.productId).toUpperCase()}`, request, decode: raw => this.#decodeCoinbaseDepth(raw, coinbaseSymbol), publicDepth: true }]);
     }
     if (krakenEnabled && krakenSymbol) {
-      const request = buildKrakenSubscription('depth', { symbol: krakenSymbol, depth: 100, snapshot: true });
+      const request = buildKrakenSubscription('depth', { symbol: krakenSymbol, depth: 1_000, snapshot: true });
       specs.push(['kraken-depth', { venue: 'kraken', channel: request.channel, symbol: request.symbol, marketType: 'spot', topic: request.topic, instrumentId: `kraken:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeKrakenDepth(raw, String(request.symbol)), publicDepth: true }]);
     }
     if (kucoinEnabled && kucoinSymbol) {
@@ -868,11 +868,11 @@ export class LiveFeedManager {
       specs.push(['mexc-depth', { venue: 'mexc', channel: request.channel, symbol: request.symbol, marketType: 'perpetual', topic: request.topic, instrumentId: `mexc:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeMexcDepth(raw, mexcSymbol, this.specs.get('mexc-depth')?.request ?? request), publicDepth: true }]);
     }
     if (htxEnabled && htxSymbol) {
-      const request = buildHtxSubscription('depth', { symbol: htxSymbol, type: 'step6', id: '1' });
+      const request = buildHtxSubscription('depth', { symbol: htxSymbol, type: 'step0', id: '1' });
       specs.push(['htx-depth', { venue: 'htx', channel: request.channel, symbol: request.symbol, marketType: 'perpetual', topic: request.topic, instrumentId: `htx:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeHtxDepth(raw, htxSymbol, this.specs.get('htx-depth')?.request ?? request), publicDepth: true }]);
     }
     if (bitfinexEnabled && bitfinexSymbol) {
-      const request = buildBitfinexSubscription('depth', { symbol: bitfinexSymbol, precision: 'P0', frequency: 'F0', len: 25 });
+      const request = buildBitfinexSubscription('depth', { symbol: bitfinexSymbol, precision: 'P0', frequency: 'F0', len: 250 });
       specs.push(['bitfinex-depth', { venue: 'bitfinex', channel: request.channel, symbol: request.symbol, marketType: 'spot', topic: request.topic, instrumentId: `bitfinex:${String(request.symbol).replace(/^t/i, '').toUpperCase()}`, request, decode: raw => this.#decodeBitfinexDepth(raw, bitfinexSymbol), publicDepth: true }]);
     }
     if (bitmexEnabled && bitmexSymbol) {
