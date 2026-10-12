@@ -419,13 +419,14 @@ export class FootprintRecorder {
       if (!id || !key || !(price > 0) || !(usd > 0) || !Number.isFinite(t) || (side !== 'buy' && side !== 'sell')) continue;
       let seen = this.#seen.get(id); if (!seen) { seen = new Set(); this.#seen.set(id, seen); }
       if (seen.has(key)) continue;
+      const minute = Math.floor(t / MINUTE) * MINUTE;
+      // Read back first: a store that fails here leaves the fill unseen and nothing changed, so it is taken whole when it comes again.
+      let bins = this.#rowsToChange(id, minute); const restored = bins !== undefined;
       seen.add(key);
       if (seen.size > 30_000) { const keep = [...seen].slice(-10_000); seen.clear(); for (const k of keep) seen.add(k); }
       let step = this.#steps.get(id);
       if (!step) { step = gridStepFor(price) / FINE_DIV; this.#steps.set(id, step); }
-      const minute = Math.floor(t / MINUTE) * MINUTE;
       const minutes = this.#minute(id);
-      let bins = this.#rowsToChange(id, minute); const restored = bins !== undefined;
       const bin = binOf(price, step);
       let sum = this.#minuteSums(id).get(minute);
       if (!bins) { bins = new Map(); minutes.set(minute, bins); }
@@ -454,13 +455,14 @@ export class FootprintRecorder {
     for (const order of orders) {
       const id = order.instrumentId, minute = Math.floor(order.t / MINUTE) * MINUTE, stats = this.#stats.get(id)?.get(minute);
       if (!stats || !(order.usd > 0)) continue;
+      // Read back first when it has to be written whole again with its statistics (an older minute held only in the store): a store that
+      // fails here leaves the order uncounted, not counted in the statistics and missing from the rows.
+      const bins = this.#rowsToChange(id, minute);
       const bucket = sizeBucket(order.usd / this.sizeScale);
       if (order.side === 'buy') { stats.buyN++; stats.buy[bucket]! += order.usd; } else { stats.sellN++; stats.sell[bucket]! += order.usd; }
       // From the second bucket up the order itself is kept too (a minute without a list, restored from before they were kept, stays without).
       if (bucket >= 1 && stats.big) { if (stats.big === NO_BIG) stats.big = []; stats.big.push(order.side === 'buy' ? order.usd : -order.usd); }
       const step = this.#steps.get(id), start = order.side === 'buy' ? order.lo ?? order.price : order.hi ?? order.price;
-      // Read back too when it has to be written whole again with its statistics (an older minute held only in the store).
-      const bins = this.#rowsToChange(id, minute);
       if (step && bins && start !== undefined && start > 0 && this.#sums.get(id)?.get(minute)?.counted) {
         const cell = nearestCell(bins, binOf(start, step));
         if (cell) cell[order.side === 'buy' ? 2 : 3]++;
@@ -479,6 +481,11 @@ export class FootprintRecorder {
     for (const minutes of this.#minutes.values()) for (const t of minutes.keys()) if (t < cutoff) minutes.delete(t);
     for (const minutes of this.#stats.values()) for (const t of minutes.keys()) if (t < cutoff) minutes.delete(t);
     for (const minutes of this.#sums.values()) for (const t of minutes.keys()) if (t < cutoff) minutes.delete(t);
+    // Nothing older is read back from here on, whether or not the store takes what follows (one that fails keeps its expired rows).
+    if (this.#cold) {
+      this.#cutoff = cutoff;
+      this.#coldHours.deleteWhere(key => Number(key.slice(key.lastIndexOf('|') + 1)) < cutoff);
+    }
     const store = this.#store, rows: FootprintMinuteRow[] = [], settled: string[] = [];
     for (const key of [...this.#dirty]) {
       const at = key.lastIndexOf('|'), id = key.slice(0, at), t = Number(key.slice(at + 1));
@@ -495,8 +502,6 @@ export class FootprintRecorder {
     // Reading back, the rows of minutes past `memoryMs` that the store now has leave memory (their sums and statistics stay); one still to
     // be written stays until it is. A kept hour that held one read back to be changed is read again (it has the minute as it was).
     if (this.#cold) {
-      this.#cutoff = cutoff;
-      this.#coldHours.deleteWhere(key => Number(key.slice(key.lastIndexOf('|') + 1)) < cutoff);
       const from = Math.floor((this.now() - this.#memoryMs) / MINUTE) * MINUTE;
       for (const [id, minutes] of this.#minutes) for (const t of minutes.keys()) if (t < from && !this.#dirty.has(`${id}|${t}`)) { minutes.delete(t); if (t < this.#hotFrom) this.#forgetHour(id, t); }
       if (from > this.#hotFrom) this.#hotFrom = from;

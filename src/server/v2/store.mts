@@ -45,7 +45,11 @@ export class SqliteColumnStore implements ColumnStore {
     }
     return out;
   }
-  /** Per instrument, its first and last minute from `sinceMs` and the step its first was recorded on (the step the recorder keeps). */
+  /**
+   * Per instrument, its first and last minute from `sinceMs` and the step its first was recorded on (the step the recorder keeps). It reads
+   * the (inst, t) index alone, so a row whose blob is not whole (which `load` and `range` leave out, and `save` never writes) still counts
+   * here: asking SQLite to look at the blobs takes it to the table and costs 2 to 11 s instead of some 70 ms (a week, 2026-10-12).
+   */
   extent(sinceMs: number): Map<string, { first: number; last: number; step: number }> {
     const out = new Map<string, { first: number; last: number; step: number }>();
     const rows = this.#db.prepare(`SELECT inst, MIN(t) AS first, MAX(t) AS last, (SELECT step FROM depth_columns s WHERE s.inst = c.inst AND s.t >= ? ORDER BY s.t LIMIT 1) AS step

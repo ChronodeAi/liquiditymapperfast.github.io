@@ -229,6 +229,11 @@ export class DepthRecorder {
   readonly #pending = new Map<string, Pending>();
   /** Columns the store did not take, oldest first; they are offered again with the next one. */
   #unsaved: { id: string; column: Column; step: number }[] = [];
+  /**
+   * Reading back: minutes of columns the store never took and the queue let go of (past UNSAVED_MAX), per instrument, oldest first. Only
+   * memory has them, so they stay there (and the ones after them) until the retention passes them.
+   */
+  readonly #lost = new Map<string, number[]>();
   /** How many times the store has refused a column, and why the last time (for a status line; the recorder itself goes on). */
   saveFailures = 0; lastSaveError = '';
   readonly #store: ColumnStore | null;
@@ -341,7 +346,11 @@ export class DepthRecorder {
     }
     this.#unsaved = this.#unsaved.slice(done);
     if (this.#unsaved.length === 0) this.lastSaveError = '';
-    else if (this.#unsaved.length > UNSAVED_MAX) this.#unsaved = this.#unsaved.slice(-UNSAVED_MAX);
+    else if (this.#unsaved.length > UNSAVED_MAX) {
+      const gone = this.#unsaved.length - UNSAVED_MAX;
+      if (this.#readsBack) for (const { id, column } of this.#unsaved.slice(0, gone)) { let lost = this.#lost.get(id); if (!lost) this.#lost.set(id, lost = []); lost.push(column.t); }
+      this.#unsaved = this.#unsaved.slice(gone);
+    }
   }
 
   /** First and last recorded minute per instrument, including the open minute and what only the store holds. */
@@ -359,27 +368,38 @@ export class DepthRecorder {
 
   /**
    * Let go of minutes past the retention, in memory and in the store, and, reading back, of the columns in memory older than `memoryMs`
-   * that the store has (one it has not taken stays, and so do the ones after it, so memory and store still join without a gap).
+   * that the store has (one it has not taken, or never will, stays, and so do the ones after it, so memory and store still join without a
+   * gap).
    */
   prune(now = this.#now()): void {
     const cutoff = now - this.#retentionMs, held = now - this.#memoryMs;
     this.#cutoff = cutoff;
     const unsaved = new Set(this.#unsaved.map(item => `${item.id}|${item.column.t}`));
+    for (const [id, lost] of this.#lost) {
+      let gone = 0; while (gone < lost.length && lost[gone]! < cutoff) gone++;
+      if (gone === lost.length) this.#lost.delete(id); else if (gone) lost.splice(0, gone);
+    }
     for (const [id, list] of this.columns) {
+      const keepFrom = Math.min(held, this.#lost.get(id)?.[0] ?? Infinity);
       let drop = 0;
-      while (drop < list.length && (list[drop]!.t < cutoff || (list[drop]!.t < held && !unsaved.has(`${id}|${list[drop]!.t}`)))) drop++;
+      while (drop < list.length && (list[drop]!.t < cutoff || (list[drop]!.t < keepFrom && !unsaved.has(`${id}|${list[drop]!.t}`)))) drop++;
       if (drop) list.splice(0, drop);
     }
     // A kept window or hour that began before the cutoff has lost minutes since it was merged or read.
     this.#merged.deleteWhere((_, column) => column.t < cutoff);
     this.#coldHours.deleteWhere(key => hourOf(key) < cutoff);
-    this.#store?.prune(cutoff);
+    // What the store holds from the cutoff on is read before it lets go of what is older, so a store that fails to prune does not leave
+    // expired minutes in `coverage`.
     if (this.#readsBack) { this.#extent = this.#store!.extent!(cutoff); this.#heldFrom = Math.max(this.#heldFrom, held); }
+    this.#store?.prune(cutoff);
   }
 
-  /** One instrument's columns in [from, to): read back from the store before the first minute held in memory, then from memory. */
+  /**
+   * One instrument's columns in [from, to): read back from the store before the first minute held in memory, then from memory. The open
+   * minute counts as held: one reopened (`#reopen`) has an older copy in the store, which must not be read beside it.
+   */
   #columnsIn(instrumentId: string, from: number, to: number): Column[] {
-    const list = this.columns.get(instrumentId) ?? [], held = list.length ? list[0]!.t : Infinity;
+    const list = this.columns.get(instrumentId) ?? [], held = Math.min(list[0]?.t ?? Infinity, this.#pending.get(instrumentId)?.t ?? Infinity);
     const inMemory = list.slice(firstFrom(list, from), firstFrom(list, to));
     if (!this.#readsBack || from >= held) return inMemory;
     const stored = this.#readBack(instrumentId, Math.max(from, this.#cutoff), Math.min(to, held), held);

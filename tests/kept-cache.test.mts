@@ -64,7 +64,7 @@ test('replacing an entry, deleting and letting go by a test keep the weight righ
   const none = new KeptCache<string>(0, () => now); none.set('a', 'a', 1); assert.equal(none.size, 0);
 });
 
-test('a recorder whose windows do not all fit answers the same twice and merges only what it could not keep', () => {
+test('a recorder whose windows do not all fit answers the same twice, with the windows it kept as they were', () => {
   const T0 = Date.UTC(2026, 9, 1), now = T0 + 120 * COLUMN_MS;
   let seed = 5;
   const rnd = (): number => { seed = (seed * 1_103_515_245 + 12_345) & 0x7fffffff; return seed / 0x7fffffff; };
