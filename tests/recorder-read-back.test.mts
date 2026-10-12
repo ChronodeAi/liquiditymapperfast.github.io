@@ -409,6 +409,51 @@ test('fills kept while the store cannot read are kept once each: the feed handin
   assert.ok(Math.abs(volume(oneMinute) - oneBefore - 30_000) < 1e-6);
 });
 
+test('an order waits while a fill waits, so it is counted in the row of its own price', () => {
+  const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  const back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
+  const minute = T0 + 7 * HOUR + 4 * MIN, price = 86_000;
+  const fill = { instrumentId: 'a:BTC', tradeId: 'new-price', side: 'buy', price, notionalUsd: 20_000, sourceTimestamp: minute + 1_000 };
+  store.failingReads = true;
+  assert.equal(back.ingest([fill]), 0);
+  store.failingReads = false;
+  // The order arrives before the fill is taken (the store has recovered, but no fill has come since): it waits.
+  back.countOrders([{ instrumentId: 'a:BTC', side: 'buy', t: minute + 1_000, usd: 20_000, price }]);
+  assert.equal(back.ingest([]), 1);
+  back.countOrders([]);
+  back.flush();
+  const row = store.rows.get(`a:BTC|${minute}`)!, step = row.step;
+  const at = row.bins.find(b => Math.abs(b[0]! * step - price) < step)!;
+  assert.ok(at, 'the new price has its row');
+  assert.equal(at[3], 1, 'and the order is counted in it');
+});
+
+test('what waits is taken at close when the store has recovered; a waiting fill whose minute the retention passed is let go', () => {
+  const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  let now = NOW;
+  const back = new FootprintRecorder(store, () => now, 7 * DAY, 1, 6 * HOUR);
+  const minute = T0 + 7 * HOUR + 10 * MIN, before = structuredClone(store.rows.get(`a:BTC|${minute}`)!);
+  const volume = (row: FootprintMinuteRow) => row.bins.reduce((s, b) => s + b[1]! + b[2]!, 0);
+  store.failingReads = true;
+  back.ingest([{ instrumentId: 'a:BTC', tradeId: 'at-close', side: 'sell', price: 84_100, notionalUsd: 10_000, sourceTimestamp: minute + 1_000 }]);
+  back.countOrders([{ instrumentId: 'a:BTC', side: 'sell', t: minute + 1_000, usd: 10_000, price: 84_100 }]);
+  store.failingReads = false;
+  back.close();
+  const after = store.rows.get(`a:BTC|${minute}`)!;
+  assert.ok(Math.abs(volume(after) - volume(before) - 10_000) < 1e-6, 'the fill');
+  assert.equal(after.stats!.sellN, before.stats!.sellN + 1, 'and the order');
+  // A fill that waits until the retention has passed its minute is let go with the minute.
+  const old = new FootprintRecorder(store, () => now, 7 * DAY, 1, 6 * HOUR), early = T0 + 3 * MIN;
+  store.failingReads = true;
+  assert.equal(old.ingest([{ instrumentId: 'b:BTC', tradeId: 'expired', side: 'buy', price: 84_100, notionalUsd: 5_000, sourceTimestamp: early + 1_000 }]), 0);
+  store.failingReads = false;
+  now = early + 7 * DAY + MIN; old.flush();
+  assert.equal(old.ingest([]), 0);
+  assert.deepEqual(old.range(['b:BTC'], early, early + MIN, null, 20).instruments[0]!.minutes, 0, 'the expired minute stays gone');
+});
+
 test('a batch of orders whose cold minute cannot be read is kept whole and counted with the next orders, each once', () => {
   const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
   recordTrades(store, NOW);

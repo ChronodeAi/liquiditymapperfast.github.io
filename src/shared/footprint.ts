@@ -9,8 +9,13 @@ const RETENTION_MS = 7 * 24 * 3_600_000;
  * again for what it shows (the Range panel every few seconds, the profile every minute), and parsing a stored minute costs some 45 µs.
  */
 export const COLD_CACHE_MINUTES = 20_000;
-/** Market orders (and fills) kept for another try while the store cannot read back a minute they change; past this, no more are kept. */
+/** Market orders kept for another try while the store cannot read back a minute they change; past this, no more are kept. */
 const UNCOUNTED_MAX = 50_000;
+/**
+ * The same for fills, fewer: taking them marks them seen, and the fills seen per instrument are trimmed to the last 10,000 past 30,000, so
+ * a larger backlog taken at once could push out a fill taken meanwhile, whose copy the feed hands over again would then count twice.
+ */
+const UNTAKEN_MAX = 5_000;
 /** A market order as `countOrders` counts it (its fills went to `ingest`): `lo`/`hi`, or `price`, is where it started. */
 type OrderLike = { instrumentId: string; side: 'buy' | 'sell'; t: number; usd: number; lo?: number; hi?: number; price?: number };
 /** Footprint rows are recorded at 1/40 of the depth grid step (0.5 USD for BTC) and merged dyadically at query time. */
@@ -419,12 +424,14 @@ export class FootprintRecorder {
    * Add every fill not seen before to its price row. Returns the number accepted. Orders are counted separately (`countOrders`).
    *
    * A fill for an older minute that only the store holds reads that minute back first; when the store fails to, the fill is not taken (nor
-   * marked seen) but kept, and taken first with the next fills (at most UNCOUNTED_MAX): a connector's trade comes once, and one handed over
-   * again (the feed's recent trades come on every pass) is then seen and taken once.
+   * marked seen) but kept, and taken first with the next fills (at most UNTAKEN_MAX; one whose minute the retention has passed meanwhile is
+   * let go, as that minute was): a connector's trade comes once, and one handed over again (the feed's recent trades come on every pass)
+   * is then seen and taken once. Only a fill more than `memoryMs` late reads the store at all.
    */
   ingest(trades: Iterable<TradeLike>): number {
     let accepted = 0;
-    const was = this.#untaken, kept = new Set<string>();
+    const cutoff = this.now() - this.#retentionMs, kept = new Set<string>();
+    const was = this.#untaken.filter(trade => Math.floor(Number(trade.sourceTimestamp ?? trade.receivedAt) / MINUTE) * MINUTE >= cutoff);
     this.#untaken = [];
     for (const trade of was.length ? [...was, ...trades] : trades) {
       const id = String(trade.instrumentId ?? ''), key = String(trade.tradeId ?? '');
@@ -441,7 +448,7 @@ export class FootprintRecorder {
       catch (error) {
         if (!was.length && !this.#untaken.length) console.warn('trades could not be taken yet (a recorded minute could not be read back); kept for the next try:', error);
         // Once each: the feed hands its recent trades over again on every pass, and copies would fill the room a connector's trade needs.
-        if (!kept.has(`${id}|${key}`) && this.#untaken.length < UNCOUNTED_MAX) { kept.add(`${id}|${key}`); this.#untaken.push(trade); }
+        if (!kept.has(`${id}|${key}`) && this.#untaken.length < UNTAKEN_MAX) { kept.add(`${id}|${key}`); this.#untaken.push(trade); }
         continue;
       }
       const restored = bins !== undefined;
@@ -482,12 +489,15 @@ export class FootprintRecorder {
   countOrders(orders: Iterable<OrderLike>): void {
     const was = this.#uncounted.length, list = was ? [...this.#uncounted, ...orders] : [...orders];
     const counts = (order: OrderLike): boolean => order.usd > 0 && this.#stats.get(order.instrumentId)?.has(Math.floor(order.t / MINUTE) * MINUTE) === true;
-    try { for (const order of list) if (counts(order)) this.#rowsToChange(order.instrumentId, Math.floor(order.t / MINUTE) * MINUTE); }
-    catch (error) {
+    const wait = (error: unknown): void => {
       this.#uncounted = list.length > UNCOUNTED_MAX ? list.slice(0, UNCOUNTED_MAX) : list;
-      if (!was) console.warn('market orders could not be counted yet (a recorded minute could not be read back); kept for the next try:', error);
-      return;
-    }
+      if (!was && error) console.warn('market orders could not be counted yet (a recorded minute could not be read back); kept for the next try:', error);
+    };
+    // While fills wait (`ingest` could not read their minute), the orders wait too: an order is counted in the row of its first fill's
+    // price, which may be a fill still waiting.
+    if (this.#untaken.length) { wait(null); return; }
+    try { for (const order of list) if (counts(order)) this.#rowsToChange(order.instrumentId, Math.floor(order.t / MINUTE) * MINUTE); }
+    catch (error) { wait(error); return; }
     this.#uncounted = [];
     for (const order of list) {
       if (!counts(order)) continue;
@@ -542,7 +552,12 @@ export class FootprintRecorder {
       if (from > this.#hotFrom) this.#hotFrom = from;
     }
   }
-  close(): void { this.flush(true); this.#store?.close(); }
+  close(): void {
+    // Fills and orders waiting for a read that failed are tried once more, so a store that has recovered still gets them.
+    try { if (this.#untaken.length) this.ingest([]); if (this.#uncounted.length) this.countOrders([]); }
+    catch (error) { console.error('footprint: what was waiting could not be taken at close:', error); }
+    this.flush(true); this.#store?.close();
+  }
 
   /**
    * The trades of these instruments added together over each of the last `windows` minutes (see `SizesAnswer`), by this recorder's own clock,

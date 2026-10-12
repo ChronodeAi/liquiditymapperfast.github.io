@@ -112,8 +112,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   const detect = (taken: readonly TakenFill[]): void => { for (const f of taken) absorption.add(f.instrumentId, f.t, f.price, f.usd, f.side); };
   const takeOrders = (all: boolean): void => {
     const done = orders.drain(all);
-    if (!done.length) return;
-    prints.ingest(done.map(orderRow)); footprint.countOrders(done);
+    if (done.length) prints.ingest(done.map(orderRow));
+    // Every pass, none drained or not: the footprint counts first any orders it had to keep (a minute it could not read back).
+    footprint.countOrders(done);
   };
   // The connector venues carry their own trades: the flow column, the footprint and the large-trade bubbles count them like the feed manager's.
   const takeTrade = (trade: import('../../shared/connector.ts').TradeEvent): void => {
