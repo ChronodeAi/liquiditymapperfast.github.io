@@ -820,20 +820,9 @@
   "many": "{n} autres"
  },
  "Spot · perpetual": "Spot · perpétuel",
- "Where they were filled": "Où ils ont été exécutés",
- "Every market order fills resting orders on its own exchange: these are the prices where the most of them were absorbed, in rows of {step}.": "Chaque ordre au marché remplit des ordres en attente sur sa propre plateforme : voici les prix où il en a été absorbé le plus, par lignes de {step}.",
  "Absorption marks": "Marques d'absorption",
  "Absorption is off: switch it on to count its marks here.": "L'absorption est désactivée : activez-la pour compter ses marques ici.",
  "No absorption marks in this selection.": "Aucune marque d'absorption dans cette sélection.",
- "{share} of them": "{share} d'entre elles",
- "Passive buyers took": "Les acheteurs passifs ont absorbé",
- "of market sells": "de ventes au marché",
- "Passive sellers took": "Les vendeurs passifs ont absorbé",
- "of market buys": "d'achats au marché",
- "Where": "Où",
- "{value} taken by passive buyers": "{value} absorbés par des acheteurs passifs",
- "{value} taken by passive sellers": "{value} absorbés par des vendeurs passifs",
- "Only the marks the map draws count: market orders of one side above the absorption threshold at one price within 10 ms.": "Seules comptent les marques que dessine la carte : des ordres au marché d'un côté au-dessus du seuil d'absorption à un prix en 10 ms.",
  "Resting orders in the box": "Ordres en attente dans le cadre",
  "No resting orders were recorded inside this box.": "Aucun ordre en attente n'a été enregistré dans ce cadre.",
  "Bids {value}": "Bids {value}",
@@ -1200,5 +1189,41 @@
  "The replay caught up with now: live again.": "La relecture a rattrapé le présent : de nouveau en direct.",
  "That is still to come: there is nothing to replay yet.": "C’est encore à venir : il n’y a rien à relire.",
  "Replay from here": "Relire d’ici",
- "Play what was recorded back from this moment, as if it were live": "Rejouer ce qui a été enregistré depuis ce moment, comme en direct"
+ "Play what was recorded back from this moment, as if it were live": "Rejouer ce qui a été enregistré depuis ce moment, comme en direct",
+ "Open → close": "Ouverture → clôture",
+ "High · low": "Plus haut · plus bas",
+ "The price of {market}, from its {tf} candles.": "Le prix de {market}, d'après ses bougies {tf}.",
+ "{venue} spot": "{venue} spot",
+ "Counts {n} markets.": {
+  "one": "Compte {n} marché.",
+  "many": "Compte {n} marchés.",
+  "other": "Compte {n} marchés."
+ },
+ "No trades are recorded for {list}: their books are on the map, not in these figures.": "Aucune transaction n'est enregistrée pour {list} : leurs carnets sont sur la carte, pas dans ces chiffres.",
+ "Switched off or outside the Spot / Perp filter: {list}.": "Désactivés ou hors du filtre Spot / Perp : {list}.",
+ "{value} · {share} of the volume": "{value} · {share} du volume",
+ "bought at {buy} · sold at {sell}": "acheté à {buy} · vendu à {sell}",
+ "Volume by price": "Volume par prix",
+ "Most traded": "Le plus échangé",
+ "{n} orders": {
+  "one": "{n} ordre",
+  "many": "{n} ordres",
+  "other": "{n} ordres"
+ },
+ "What the market orders traded at each price, buys in the bid colour and sells in the ask colour, in bars of {step}.": "Ce que les ordres au marché ont échangé à chaque prix, les achats dans la couleur bid et les ventes dans la couleur ask, en barres de {step}.",
+ "Absorbed": "Absorbé",
+ "Passive buyers {value} · {share}": "Acheteurs passifs {value} · {share}",
+ "Passive sellers {value} · {share}": "Vendeurs passifs {value} · {share}",
+ "Of all market orders": "De tous les ordres au marché",
+ "{sells} of the {sold} sold · {buys} of the {bought} bought": "{sells} des {sold} vendus · {buys} des {bought} achetés",
+ "Buyers took": "Acheteurs ont absorbé",
+ "Sellers took": "Vendeurs ont absorbé",
+ "Passive buyers held at": "Les acheteurs passifs ont tenu à",
+ "Passive sellers held at": "Les vendeurs passifs ont tenu à",
+ "A mark is market orders of one side meeting resting orders at one price within 10 ms, more than the exchange's threshold: only the marks the map draws count. Passive buyers take market sells, passive sellers take market buys.": "Une marque, ce sont des ordres au marché d'un côté qui rencontrent des ordres en attente à un prix en 10 ms, au-delà du seuil de la plateforme : seules les marques que la carte dessine comptent. Les acheteurs passifs absorbent les ventes au marché, les vendeurs passifs les achats au marché.",
+ "What rested inside the box on average over its time, on the {n} order books switched on (those without recorded trades too).": {
+  "one": "Ce qui était en attente dans le cadre en moyenne sur sa durée, sur le {n} carnet d'ordres activé (même sans transactions enregistrées).",
+  "many": "Ce qui était en attente dans le cadre en moyenne sur sa durée, sur les {n} carnets d'ordres activés (y compris ceux sans transactions enregistrées).",
+  "other": "Ce qui était en attente dans le cadre en moyenne sur sa durée, sur les {n} carnets d'ordres activés (y compris ceux sans transactions enregistrées)."
+ }
 }

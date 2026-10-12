@@ -1,4 +1,5 @@
-import type { Store } from '../store.ts';
+import type { Store, CandleRow } from '../store.ts';
+import { venueLabel } from '../venues.ts';
 import type { Hub } from '../hub.ts';
 import { el } from '../dom.ts';
 import { openPanel, openedPanel, type Panel } from '../ui.ts';
@@ -25,7 +26,7 @@ export class LineList {
   update(lines: readonly RangeLine[]): void {
     const next: HTMLElement[] = [], keep = new Set<string>();
     for (const line of lines) {
-      const sig = JSON.stringify([line.kind, line.cells, line.share, line.bars, line.tone, line.mark]);
+      const sig = JSON.stringify([line.kind, line.cells, line.share, line.bars, line.tone, line.mark, line.profile, line.stack]);
       let held = this.#nodes.get(line.key);
       if (!held || held.sig !== sig) { held = { node: lineNode(line), sig }; this.#nodes.set(line.key, held); }
       keep.add(line.key); next.push(held.node);
@@ -42,7 +43,7 @@ function lineNode(line: RangeLine): HTMLElement {
     case 'title': return el('div', { class: 'range-title', textContent: line.cells[0] ?? '' });
     case 'heading': return el('h4', { textContent: line.cells[0] ?? '' });
     case 'note': return el('p', { class: `panel-note range-note${tone}`, textContent: line.cells[0] ?? '' });
-    case 'stat': return el('div', { class: `range-stat${tone}` }, el('span', { class: 'label', textContent: line.cells[0] ?? '' }), el('span', { class: 'value', textContent: line.cells[1] ?? '' }));
+    case 'stat': return el('div', { class: `range-stat${tone}${line.stack ? ' stack' : ''}` }, el('span', { class: 'label', textContent: line.cells[0] ?? '' }), el('span', { class: 'value', textContent: line.cells[1] ?? '' }));
     case 'split': {
       const bar = el('div', { class: 'range-split-bar' }, el('i', { class: 'buy' }), el('i', { class: 'sell' }));
       bar.style.setProperty('--share', `${((line.share ?? 0.5) * 100).toFixed(1)}%`);
@@ -57,7 +58,27 @@ function lineNode(line: RangeLine): HTMLElement {
       }
       return row;
     }
+    case 'profile': {
+      const box = el('div', { class: 'range-profile' });
+      for (const bar of line.profile ?? []) {
+        const bars = el('span', { class: 'bars' }, el('i', { class: 'buy' }), el('i', { class: 'sell' }));
+        bars.style.setProperty('--b', `${(bar.buy * 100).toFixed(1)}%`); bars.style.setProperty('--s', `${(bar.sell * 100).toFixed(1)}%`);
+        box.append(el('div', { class: `range-prof-row${bar.top ? ' top' : ''}` }, el('span', { class: 'price', textContent: bar.label }), bars, el('span', { class: 'total', textContent: bar.total })));
+      }
+      return box;
+    }
   }
+}
+
+/** The candles the price line can be read from, finest first, and the most it asks for. */
+const PRICE_TIMEFRAMES: readonly (readonly [string, number])[] = [['1m', 60_000], ['5m', 300_000], ['15m', 900_000], ['30m', 1_800_000], ['1h', 3_600_000], ['4h', 14_400_000], ['1d', 86_400_000]];
+const MAX_PRICE_BARS = 400;
+
+/** Open, close, high and low of the candles that start in [from, to), or null when there are none. Rows are [start, open, high, low, close, …]. */
+export function priceOf(rows: readonly CandleRow[], from: number, to: number, market: string, tf: string): RangeInput['price'] {
+  const inside = rows.filter(r => r[0] >= from && r[0] < to && r[1] > 0 && r[4] > 0).sort((a, b) => a[0] - b[0]);
+  if (!inside.length) return null;
+  return { market, tf, open: inside[0]![1], close: inside[inside.length - 1]![4], high: Math.max(...inside.map(r => r[2])), low: Math.min(...inside.map(r => r[3])) };
 }
 
 /** A point of a drag: a time, and on the map a price. */
@@ -168,7 +189,7 @@ export class RangeTool {
    * and the large orders are loaded for the map's window: a selection reaching outside it (across the flow column on a longer span) has them
    * only for its part on the map.
    */
-  #held(sel: RangeSelection): Pick<RangeInput, 'marks' | 'marksCut' | 'prints' | 'liquidations' | 'liquidationMin' | 'kind' | 'partial'> {
+  #held(sel: RangeSelection): Pick<RangeInput, 'marks' | 'marksCut' | 'prints' | 'liquidations' | 'liquidationMin' | 'kind' | 'partial' | 'books'> {
     const state = this.store.state, ids = flowIds(state, this.hub.flow.ids), idSet = new Set(ids);
     const band = sel.p0 !== null && sel.p1 !== null ? { p0: sel.p0, p1: sel.p1 } : null;
     const inside = (time: number, price: number): boolean => time >= sel.t0 && time < sel.t1 && (!band || (price >= band.p0 && price < band.p1));
@@ -180,7 +201,9 @@ export class RangeTool {
     const liquidations = state.liquidations.on ? this.hub.liquidations.items.filter(l => idSet.has(l.id) && inside(l.t, l.price)) : null;
     const kind = (id: string) => kindOf(state.markets, id);
     const map = this.mapWindow(), partial = map !== null && (sel.t0 < map.t0 || (!sel.live && sel.t1 > map.t1));
-    return { marks, marksCut, prints, liquidations, liquidationMin: scaledUsd(state.liquidations.minUsd), kind, partial };
+    // The order books on the map, and which are counted: what the coverage lines name.
+    const on = new Set(activeIds(state)), books = state.levels ? state.levels.books.map(b => ({ id: b.id, on: on.has(b.id) })) : undefined;
+    return { marks, marksCut, prints, liquidations, liquidationMin: scaledUsd(state.liquidations.minUsd), kind, partial, ...(books ? { books } : {}) };
   }
 
   /**
@@ -207,8 +230,19 @@ export class RangeTool {
     const state = this.store.state, ids = flowIds(state, this.hub.flow.ids);
     const band = sel.p0 !== null && sel.p1 !== null ? { p0: sel.p0, p1: sel.p1 } : null;
     const kept = !fresh && this.#input ? this.#input : null;
-    this.#input = { sel, answer: kept?.answer ?? null, error: null, resting: kept?.resting ?? null, oi: kept && kept.oi !== undefined ? kept.oi : 'asking', ...this.#held(sel) };
+    this.#input = { sel, answer: kept?.answer ?? null, error: null, resting: kept?.resting ?? null, oi: kept && kept.oi !== undefined ? kept.oi : 'asking', price: kept && kept.price !== undefined ? kept.price : 'asking', ...this.#held(sel) };
     this.#render();
+    // The chart market's price across the selection, from its finest candles that fit in one question; it fills in when it comes.
+    const priceInst = state.seriesInstrument || state.marketId;
+    if (!priceInst) this.#input = { ...this.#input, price: null };
+    else {
+      const [tf, tfMs] = PRICE_TIMEFRAMES.find(([, ms]) => (sel.t1 - sel.t0) / ms <= MAX_PRICE_BARS) ?? PRICE_TIMEFRAMES[PRICE_TIMEFRAMES.length - 1]!;
+      const first = Math.floor(sel.t0 / tfMs) * tfMs, market = `${venueLabel(priceInst)} ${priceInst.split(':').slice(1).join(':')}`;
+      void this.hub.source.candles(priceInst, tf, first, sel.t1).then(rows => priceOf(rows, first, sel.t1, market, tf), () => null).then(price => {
+        if (asked !== this.#asked || !this.#input) return;
+        this.#input = { ...this.#input, price }; this.#render();
+      });
+    }
     const started = performance.now(), mark = state.mark.price > 0 ? state.mark.price : band ? (band.p0 + band.p1) / 2 : 0;
     const step = rowStep(sel, gridStepFor(mark > 0 ? mark : 1));
     const answer = this.hub.source.range(ids, sel.t0, sel.t1, band, step).then(a => ({ a, e: null }), (e: unknown) => ({ a: null, e: e instanceof Error ? e.message : String(e) }));

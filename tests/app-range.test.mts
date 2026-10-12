@@ -50,7 +50,9 @@ test('the panel adds up the market orders of one set of instruments, the orders 
     inst('okx:BTC-USDT-SWAP', { band: { buy: 0, sell: 0, buyN: 0, sellN: 0 } }),
   ], [[81_500, 3_000_000, 1_000_000, 120, 40], [81_600, 500_000, 200_000, 10, 5]]) }));
   assert.equal(line(lines, 'split')!.share, 0.7, 'bought 7M of 10M');
-  assert.deepEqual(line(lines, 'delta')!.cells, ['Delta', '+$4M']);
+  assert.deepEqual(line(lines, 'delta')!.cells, ['Delta', '+$4M · +40% of the volume']);
+  // The average price of each side: each row's middle (rows of 10) weighted by what traded there.
+  assert.deepEqual(line(lines, 'avg-price')!.cells, ['Average price', 'bought at 81,519.3 · sold at 81,521.7']);
   assert.deepEqual(line(lines, 'orders')!.cells, ['Orders', '350 buys · 150 sells']);
   assert.deepEqual(line(lines, 'average')!.cells, ['Average order', '$20K buy · $20K sell']);
   assert.equal(line(lines, 'orders-from'), undefined, 'every minute counted: no note');
@@ -60,8 +62,39 @@ test('the panel adds up the market orders of one set of instruments, the orders 
   assert.deepEqual(line(lines, 'who-binance')!.cells, ['Binance', '$7M', '$3M', '100%']);
   assert.equal(line(lines, 'who-okx'), undefined);
   assert.deepEqual(line(lines, 'lanes')!.cells, ['Spot · perpetual', '20% · 80%']);
-  // Where they were filled: the busiest price first in price order, with the orders that began there.
-  assert.deepEqual(line(lines, 'filled-81500')!.cells, ['81,500', '$3M', '$1M', '160']);
+  // The volume profile: every price from the lowest traded to the highest, the highest first, an empty bar where nothing traded.
+  const profile = line(lines, 'profile')!.profile!;
+  assert.deepEqual(profile.map(b => [b.label, b.total, b.top]), [['81,600', '$700K', false], ['81,590', '', false], ['81,580', '', false], ['81,570', '', false], ['81,560', '', false],
+    ['81,550', '', false], ['81,540', '', false], ['81,530', '', false], ['81,520', '', false], ['81,510', '', false], ['81,500', '$4M', true]]);
+  assert.deepEqual([profile.at(-1)!.buy, profile.at(-1)!.sell], [0.75, 0.25]);
+  assert.deepEqual(line(lines, 'profile-top')!.cells, ['Most traded', '81,500 · $4M · 40% · 160 orders']);
+});
+
+test('a profile over more prices than it has bars joins whole rows, and names the busiest bar by its prices', () => {
+  const rows: RangeAnswer['rows'] = Array.from({ length: 100 }, (_, i) => [81_000 + i * 10, i === 42 ? 5_000_000 : 100_000, 50_000, 0, 0]);
+  const lines = rangeLines(input({ answer: answer([inst('a:BTC', { band: { buy: 14_900_000, sell: 5_000_000, buyN: 0, sellN: 0 }, counted: 0, countedFrom: null })], rows) }));
+  const profile = line(lines, 'profile')!.profile!;
+  assert.equal(profile.length, 20, 'a hundred rows in bars of five');
+  assert.equal(profile.filter(b => b.top).length, 1);
+  assert.deepEqual(line(lines, 'profile-top')!.cells, ['Most traded', '81,400 – 81,450 · $5.7M · 28%']);
+  assert.match(line(lines, 'profile-note')!.cells[0]!, /in bars of 50$|in bars of 50\.$/);
+});
+
+test('the coverage line names the markets counted and those on the map that are not', () => {
+  const kind = (id: string): 'spot' | 'perp' => id.includes(':spot') || id.startsWith('binancespot') || id.startsWith('kraken') ? 'spot' : 'perp';
+  const lines = rangeLines(input({ kind,
+    answer: answer([inst('binance:BTCUSDT', { band: { buy: 1, sell: 1, buyN: 0, sellN: 0 } }), inst('binancespot:BTCUSDT', { band: { buy: 1, sell: 1, buyN: 0, sellN: 0 } }), inst('okx:BTC-USDT-SWAP', { minutes: 0 })]),
+    books: [{ id: 'binance:BTCUSDT', on: true }, { id: 'binance:BTCUSDT:spot', on: true }, { id: 'kraken:BTC/USD', on: true }, { id: 'htx:BTC-USDT', on: true }, { id: 'okx:BTC-USDT-SWAP', on: false }] }));
+  // Binance's spot book and its spot trades are one market; Kraken and HTX have books and no trades; OKX is off.
+  assert.equal(line(lines, 'market-coverage')!.cells[0], 'Counts 2 markets. No trades are recorded for HTX, Kraken: their books are on the map, not in these figures. Switched off or outside the Spot / Perp filter: OKX.');
+});
+
+test('the price line gives open to close and the high and low of the chart market', () => {
+  const lines = rangeLines(input({ price: { market: 'Binance BTCUSDT', tf: '1m', open: 82_000, close: 81_590, high: 82_100, low: 81_500 } }));
+  assert.deepEqual(line(lines, 'price-move')!.cells, ['Open → close', '82,000.0 → 81,590.0 · −0.50%']);
+  assert.equal(line(lines, 'price-move')!.tone, 'sell');
+  assert.deepEqual(line(lines, 'price-range')!.cells, ['High · low', '82,100.0 · 81,500.0 · 0.74%']);
+  assert.equal(line(rangeLines(input({ price: null })), 'price-move'), undefined);
 });
 
 test('order counts that cover part of the selection say since when, none say so, and an older server says to restart it', () => {
@@ -83,9 +116,15 @@ test('absorption marks are added up against what traded there, and resting order
     marks: [mark('sell', 500_000, 81_500), mark('sell', 300_000, 81_500), mark('buy', 400_000, 81_700, 'bybit:BTCUSDT')],
     resting: [{ id: 'binance:BTCUSDT', bid: 3_000_000, ask: 1_000_000 }],
   }));
-  assert.deepEqual(line(lines, 'abs-buyers')!.cells, ['Passive buyers took', '$800K of market sells (40% of them)'], 'market sells taken by passive buyers, against the 2M sold');
-  assert.deepEqual(line(lines, 'abs-sellers')!.cells, ['Passive sellers took', '$400K of market buys (10% of them)']);
-  assert.deepEqual(line(lines, 'abs-price-81500-sell')!.cells, ['81,500.0', '$800K taken by passive buyers'], 'one price, its marks together');
+  // What was absorbed adds up to 100 %: passive buyers took 800K of sells, passive sellers 400K of buys.
+  assert.deepEqual(line(lines, 'abs-total')!.cells, ['Absorbed', '$1.2M · 3 marks']);
+  assert.deepEqual([line(lines, 'abs-split')!.share, ...line(lines, 'abs-split')!.cells], [800_000 / 1_200_000, 'Passive buyers $800K · 67%', 'Passive sellers $400K · 33%']);
+  // Each side against the market orders it could take, the totals written out.
+  assert.deepEqual(line(lines, 'abs-of')!.cells, ['Of all market orders', '40% of the $2M sold · 10% of the $4M bought']);
+  // By exchange, with the threshold its marks were judged at.
+  assert.deepEqual(line(lines, 'abs-v-binance')!.cells, ['Binance', '$800K', '$0', '$100K']);
+  assert.deepEqual(line(lines, 'abs-v-bybit')!.cells, ['Bybit', '$0', '$400K', '$100K']);
+  assert.deepEqual(line(lines, 'abs-at-buyers')!.cells, ['Passive buyers held at', '81,500 $800K'], 'one price, its marks together');
   assert.deepEqual(line(lines, 'rest-split')!.cells, ['Bids $3M', 'Asks $1M']);
   assert.ok(line(rangeLines(input({ marks: null })), 'abs-off'), 'Absorption off says so');
   const time = rangeLines(input({ sel: sel({ p0: null, p1: null }), answer: answer([inst('a:BTC', { band: { buy: 1, sell: 1, buyN: 0, sellN: 0 } })]) }));
@@ -99,15 +138,22 @@ test('absorption at one price is told per side, and the marks are counted as the
   // (the screenshot of 2026-10-11 said "$29.2M taken by passive sellers" for $28.6M of buys and $0.5M of sells).
   const lines = rangeLines(input({ answer: answer([inst('binance:BTCUSDT', { band: { buy: 40_000_000, sell: 20_000_000, buyN: 0, sellN: 0 } })]),
     marks: [mark('buy', 28_600_000, 84_000), mark('sell', 500_000, 84_000), mark('buy', 1_000_000, 83_500)] }));
-  assert.deepEqual(line(lines, 'abs-price-84000-buy')!.cells, ['84,000.0', '$28.6M taken by passive sellers']);
-  assert.deepEqual(line(lines, 'abs-price-84000-sell')!.cells, ['84,000.0', '$500K taken by passive buyers']);
-  assert.equal(line(lines, 'abs-price-84000-buy')!.tone, 'sell', 'passive sellers in the sell colour');
+  assert.deepEqual(line(lines, 'abs-at-sellers')!.cells, ['Passive sellers held at', '84,000 $28.6M · 83,500 $1M']);
+  assert.deepEqual(line(lines, 'abs-at-buyers')!.cells, ['Passive buyers held at', '84,000 $500K']);
+  assert.equal(line(lines, 'abs-at-sellers')!.tone, 'sell', 'passive sellers in the sell colour');
   const many = rangeLines(input({ marks: Array.from({ length: 1_647 }, (_, i) => mark('buy', 100_000, 81_000 + i * 0.5)) }));
-  assert.deepEqual(line(many, 'abs-count')!.cells, ['Marks', '1,647 marks'], 'with the thousands separated, as the orders are');
+  assert.deepEqual(line(many, 'abs-total')!.cells, ['Absorbed', '$164.7M · 1,647 marks'], 'with the thousands separated, as the orders are');
   // Marks the page could not hold all of (an answer cut at its limit, or more than it holds) are said to be incomplete, as on the map.
   const cut = rangeLines(input({ marks: [mark('buy', 1_000_000, 84_000)], marksCut: ['bybit:BTCUSDT', 'binance:BTCUSDT', 'bybit:BTCUSDT'] }));
   assert.match(line(cut, 'abs-cut')!.cells[0]!, /^Only the largest marks of (Bybit, Binance|Binance, Bybit) are held for these minutes, so their smaller ones are not counted\.$/);
   assert.equal(line(rangeLines(input({ marks: [], marksCut: [] })), 'abs-cut'), undefined);
+});
+
+test('an exchange whose marks were judged at several thresholds (Auto moved, spot and perpetual) gives the middle one, as about', () => {
+  const mark = (id: string, threshold: number): AbsorptionMark => ({ id, side: 'buy', price: 81_000, t0: T0 + MINUTE, t1: T0 + MINUTE + 5, usd: 1_000_000, fills: 3, peak: 1_000_000, threshold });
+  const lines = rangeLines(input({ marks: [mark('binance:BTCUSDT', 400_000), mark('binance:BTCUSDT', 450_000), mark('binancespot:BTCUSDT', 70_000), mark('okx:BTC-USDT-SWAP', 300_000)] }));
+  assert.equal(line(lines, 'abs-v-binance')!.cells[3], '≈$400K', 'the middle of 70K, 400K and 450K');
+  assert.equal(line(lines, 'abs-v-okx')!.cells[3], '$300K');
 });
 
 test('the tag beside a selection being dragged gives its minutes, and a box its height', () => {

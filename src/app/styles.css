@@ -332,6 +332,8 @@ ol.steps { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 8px; line
 .range-stat .value { text-align: right; font-variant-numeric: tabular-nums; }
 .range-stat.buy .value { color: var(--bid); }
 .range-stat.sell .value { color: var(--ask); }
+.range-stat.stack { flex-direction: column; align-items: stretch; gap: 0; }
+.range-stat.stack .value { text-align: left; }
 .range-split { margin: 4px 0 2px; }
 .range-split-bar { display: flex; height: 8px; border: 1px solid var(--line); }
 .range-split-bar .buy { flex: 0 0 var(--share); background: var(--bid); }
@@ -344,6 +346,13 @@ ol.steps { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 8px; line
 .range-row.muted { color: var(--muted); font-size: 10.5px; }
 .range-row .bar.buy { background: linear-gradient(to left, color-mix(in srgb, var(--bid) 24%, transparent) var(--w), transparent var(--w)); }
 .range-row .bar.sell { background: linear-gradient(to left, color-mix(in srgb, var(--ask) 24%, transparent) var(--w), transparent var(--w)); }
+.range-profile { display: flex; flex-direction: column; gap: 1px; margin: 3px 0 4px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.range-prof-row { display: grid; grid-template-columns: 70px 1fr 52px; gap: 6px; align-items: center; line-height: 12px; color: var(--muted); }
+.range-prof-row .price, .range-prof-row .total { text-align: right; }
+.range-prof-row.top { color: var(--text); font-weight: 650; }
+.range-prof-row .bars { display: flex; height: 8px; }
+.range-prof-row .bars .buy { flex: 0 0 var(--b); background: var(--bid); }
+.range-prof-row .bars .sell { flex: 0 0 var(--s); background: var(--ask); }
 .panel .name { font-weight: 600; color: var(--text); }
 .panel .desc { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .panel .opt { display: grid; grid-template-columns: 18px 1fr; column-gap: 9px; align-items: start; padding: 6px 8px; margin: 0 -8px; border-radius: var(--radius); cursor: pointer; }

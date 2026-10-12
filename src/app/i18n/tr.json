@@ -814,20 +814,9 @@
   "other": "{n} diğer"
  },
  "Spot · perpetual": "Spot · süresiz vadeli",
- "Where they were filled": "Nerede gerçekleştiler",
- "Every market order fills resting orders on its own exchange: these are the prices where the most of them were absorbed, in rows of {step}.": "Her piyasa emri kendi borsasındaki bekleyen emirleri doldurur: bunlar en çok emildikleri fiyatlardır, {step} aralıklı satırlarla.",
  "Absorption marks": "Emilim işaretleri",
  "Absorption is off: switch it on to count its marks here.": "Emilim kapalı: işaretlerini burada saymak için açın.",
  "No absorption marks in this selection.": "Bu seçimde emilim işareti yok.",
- "{share} of them": "bunların {share} kadarı",
- "Passive buyers took": "Pasif alıcılar emdi",
- "of market sells": "piyasa satışı",
- "Passive sellers took": "Pasif satıcılar emdi",
- "of market buys": "piyasa alımı",
- "Where": "Nerede",
- "{value} taken by passive buyers": "{value} pasif alıcılarca emildi",
- "{value} taken by passive sellers": "{value} pasif satıcılarca emildi",
- "Only the marks the map draws count: market orders of one side above the absorption threshold at one price within 10 ms.": "Yalnızca haritanın çizdiği işaretler sayılır: tek taraflı piyasa emirlerinin 10 ms içinde bir fiyatta emilim eşiğini aşması.",
  "Resting orders in the box": "Kutudaki bekleyen emirler",
  "No resting orders were recorded inside this box.": "Bu kutunun içinde bekleyen emir kaydedilmedi.",
  "Bids {value}": "Alış {value}",
@@ -1191,5 +1180,38 @@
  "The replay caught up with now: live again.": "Tekrar oynatma şimdiye yetişti: yeniden canlı.",
  "That is still to come: there is nothing to replay yet.": "Bu henüz gelmedi: tekrar oynatılacak bir şey yok.",
  "Replay from here": "Buradan tekrar oynat",
- "Play what was recorded back from this moment, as if it were live": "Kaydedileni bu andan itibaren canlıymış gibi oynat"
+ "Play what was recorded back from this moment, as if it were live": "Kaydedileni bu andan itibaren canlıymış gibi oynat",
+ "Open → close": "Açılış → kapanış",
+ "High · low": "Yüksek · düşük",
+ "The price of {market}, from its {tf} candles.": "{market} fiyatı, {tf} mumlarından.",
+ "{venue} spot": "{venue} spot",
+ "Counts {n} markets.": {
+  "one": "{n} piyasa sayılır.",
+  "other": "{n} piyasa sayılır."
+ },
+ "No trades are recorded for {list}: their books are on the map, not in these figures.": "{list} için işlem kaydedilmiyor: emir defterleri haritada, bu rakamlarda değil.",
+ "Switched off or outside the Spot / Perp filter: {list}.": "Kapalı veya Spot / Perp filtresinin dışında: {list}.",
+ "{value} · {share} of the volume": "{value} · hacmin {share} kadarı",
+ "bought at {buy} · sold at {sell}": "alış {buy} · satış {sell}",
+ "Volume by price": "Fiyata göre hacim",
+ "Most traded": "En çok işlem gören",
+ "{n} orders": {
+  "one": "{n} emir",
+  "other": "{n} emir"
+ },
+ "What the market orders traded at each price, buys in the bid colour and sells in the ask colour, in bars of {step}.": "Piyasa emirlerinin her fiyatta işlem gördüğü tutar; alışlar alış renginde, satışlar satış renginde, {step} genişliğinde çubuklarla.",
+ "Absorbed": "Emilen",
+ "Passive buyers {value} · {share}": "Pasif alıcılar {value} · {share}",
+ "Passive sellers {value} · {share}": "Pasif satıcılar {value} · {share}",
+ "Of all market orders": "Tüm piyasa emirlerinden",
+ "{sells} of the {sold} sold · {buys} of the {bought} bought": "satılan {sold} tutarın {sells} kadarı · alınan {bought} tutarın {buys} kadarı",
+ "Buyers took": "Alıcılar emdi",
+ "Sellers took": "Satıcılar emdi",
+ "Passive buyers held at": "Pasif alıcıların tuttuğu fiyatlar",
+ "Passive sellers held at": "Pasif satıcıların tuttuğu fiyatlar",
+ "A mark is market orders of one side meeting resting orders at one price within 10 ms, more than the exchange's threshold: only the marks the map draws count. Passive buyers take market sells, passive sellers take market buys.": "Bir işaret, bir taraftaki piyasa emirlerinin 10 ms içinde tek bir fiyatta bekleyen emirlerle borsanın eşiğinden fazla buluşmasıdır: yalnızca haritanın çizdiği işaretler sayılır. Pasif alıcılar piyasa satışlarını, pasif satıcılar piyasa alışlarını emer.",
+ "What rested inside the box on average over its time, on the {n} order books switched on (those without recorded trades too).": {
+  "one": "Kutuda süresi boyunca ortalama bekleyen emirler, açık olan {n} emir defterinde (işlem kaydı olmayan dahil).",
+  "other": "Kutuda süresi boyunca ortalama bekleyen emirler, açık olan {n} emir defterinde (işlem kaydı olmayanlar dahil)."
+ }
 }
