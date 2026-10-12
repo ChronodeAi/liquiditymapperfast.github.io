@@ -350,7 +350,7 @@ test('an order alone into a minute only the store holds is written with all of t
   assert.equal(after.stats!.buyN, before.stats!.buyN + 1);
 });
 
-test('a store that fails to read a minute back leaves the fill and the order to come again, not half counted', () => {
+test('a store that fails to read a minute back leaves the fill to come again and keeps the order for the next count, neither half counted', () => {
   const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
   recordTrades(store, NOW);
   const back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
@@ -360,18 +360,19 @@ test('a store that fails to read a minute back leaves the fill and the order to 
   const order = { instrumentId: 'a:BTC', side: 'sell' as const, t: minute + 1_000, usd: 30_000, price: 84_100 };
   store.failingReads = true;
   assert.throws(() => back.ingest([trade]), /read failed/);
-  assert.throws(() => back.countOrders([order]), /read failed/);
-  store.failingReads = false;
-  // Both come again (a feed resends after an error): each is taken once.
-  assert.equal(back.ingest([trade]), 1);
   back.countOrders([order]);
+  store.failingReads = false;
+  // The fill comes again (the feed hands its recent trades over on every pass) and is taken once; the order, which the server's builder
+  // gives once, was kept and is counted with the next orders.
+  assert.equal(back.ingest([trade]), 1);
+  back.countOrders([]);
   back.flush();
   const after = store.rows.get(`a:BTC|${minute}`)!;
   assert.ok(Math.abs(volume(after) - volume(before) - 30_000) < 1e-6, 'the fill once');
   assert.equal(after.stats!.sellN, before.stats!.sellN + 1, 'the order once');
 });
 
-test('a batch of orders whose cold minute cannot be read is counted not at all, so counted again it is counted once', () => {
+test('a batch of orders whose cold minute cannot be read is kept whole and counted with the next orders, each once', () => {
   const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
   recordTrades(store, NOW);
   const back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
@@ -381,10 +382,12 @@ test('a batch of orders whose cold minute cannot be read is counted not at all, 
   const hotBefore = buys(hot), coldBefore = statsOf(cold).buyN;
   const batch = [{ instrumentId: 'a:BTC', side: 'buy' as const, t: hot + 1_000, usd: 40_000, price: 84_100 }, { instrumentId: 'a:BTC', side: 'buy' as const, t: cold + 1_000, usd: 40_000, price: 84_100 }];
   store.failingReads = true;
-  assert.throws(() => back.countOrders(batch), /read failed/);
-  assert.equal(buys(hot), hotBefore, 'A not counted either');
-  store.failingReads = false;
   back.countOrders(batch);
+  assert.equal(buys(hot), hotBefore, 'A not counted yet either');
+  back.countOrders([]);
+  assert.equal(buys(hot), hotBefore, 'nor while the store still fails');
+  store.failingReads = false;
+  back.countOrders([]);
   back.flush(true);
   assert.equal(buys(hot), hotBefore + 1, 'A once');
   assert.equal(statsOf(cold).buyN, coldBefore + 1, 'B once');

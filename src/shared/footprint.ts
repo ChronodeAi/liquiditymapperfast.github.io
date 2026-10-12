@@ -9,6 +9,10 @@ const RETENTION_MS = 7 * 24 * 3_600_000;
  * again for what it shows (the Range panel every few seconds, the profile every minute), and parsing a stored minute costs some 45 µs.
  */
 export const COLD_CACHE_MINUTES = 20_000;
+/** Market orders kept for another try while the store cannot read back a minute they change; past this, the oldest go. */
+const UNCOUNTED_MAX = 50_000;
+/** A market order as `countOrders` counts it (its fills went to `ingest`): `lo`/`hi`, or `price`, is where it started. */
+type OrderLike = { instrumentId: string; side: 'buy' | 'sell'; t: number; usd: number; lo?: number; hi?: number; price?: number };
 /** Footprint rows are recorded at 1/40 of the depth grid step (0.5 USD for BTC) and merged dyadically at query time. */
 const FINE_DIV = 40;
 
@@ -322,6 +326,8 @@ export class FootprintRecorder {
   #cutoff: number;
   /** Hours of rows read back, by instrument and hour (only hours before `#hotFrom`), weighed in minutes. */
   readonly #coldHours: KeptCache<Map<number, Bins>>;
+  /** Market orders not counted yet because a minute they change could not be read back (`countOrders`). */
+  #uncounted: OrderLike[] = [];
   /** The size buckets' edges are SIZE_EDGES times this (1 for BTC; smaller for a coin that trades less). */
   readonly sizeScale: number;
 
@@ -450,12 +456,22 @@ export class FootprintRecorder {
    * Count market orders (their fills went to `ingest` first) in the statistics of the minute of each one's first fill, and in the row of the
    * price it started at: the best price it took, where it met the resting orders (a buy's lowest fill, a sell's highest). A minute without
    * statistics (restored from before they counted orders) stays without, and one that does not count by price gets no counts in its rows.
+   *
+   * The orders are the recorder's once given: the server takes them from the order builder, which will not give them again. Every older
+   * minute they change that only the store holds is read back first (it is written whole again with its statistics); when the store fails
+   * to read one, none of them is counted yet, and they are counted first with the next orders (at most UNCOUNTED_MAX, the newest kept), so
+   * none is lost or counted twice for it.
    */
-  countOrders(orders: Iterable<{ instrumentId: string; side: 'buy' | 'sell'; t: number; usd: number; lo?: number; hi?: number; price?: number }>): void {
-    const list = [...orders], counts = (order: (typeof list)[number]): boolean => order.usd > 0 && this.#stats.get(order.instrumentId)?.has(Math.floor(order.t / MINUTE) * MINUTE) === true;
-    // Every older minute they change that only the store holds is read back first (it is written whole again with its statistics): a store
-    // that fails leaves the whole batch uncounted, so it can be counted again, each order once, and none is half counted.
-    for (const order of list) if (counts(order)) this.#rowsToChange(order.instrumentId, Math.floor(order.t / MINUTE) * MINUTE);
+  countOrders(orders: Iterable<OrderLike>): void {
+    const was = this.#uncounted.length, list = was ? [...this.#uncounted, ...orders] : [...orders];
+    const counts = (order: OrderLike): boolean => order.usd > 0 && this.#stats.get(order.instrumentId)?.has(Math.floor(order.t / MINUTE) * MINUTE) === true;
+    try { for (const order of list) if (counts(order)) this.#rowsToChange(order.instrumentId, Math.floor(order.t / MINUTE) * MINUTE); }
+    catch (error) {
+      this.#uncounted = list.length > UNCOUNTED_MAX ? list.slice(-UNCOUNTED_MAX) : list;
+      if (!was) console.warn('market orders could not be counted yet (a recorded minute could not be read back); kept for the next try:', error);
+      return;
+    }
+    this.#uncounted = [];
     for (const order of list) {
       if (!counts(order)) continue;
       const id = order.instrumentId, minute = Math.floor(order.t / MINUTE) * MINUTE, stats = this.#stats.get(id)!.get(minute)!;
