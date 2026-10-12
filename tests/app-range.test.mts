@@ -91,15 +91,23 @@ test('the coverage line names the markets counted and those on the map that are 
 
 test('the price line asks for candles that lie inside the selection: minutes at its edges, coarser candles between', () => {
   const day = Date.UTC(2026, 9, 12), at = (h: number, m: number) => day + h * 3_600_000 + m * MINUTE;
-  assert.deepEqual(pricePieces(at(0, 2), at(6, 2)), [{ tf: '1m', from: at(0, 2), to: at(6, 2) }], '360 minutes: minutes alone');
+  assert.deepEqual(pricePieces(at(0, 2), at(6, 2)), [{ tf: '1m', ms: MINUTE, from: at(0, 2), to: at(6, 2) }], '360 minutes: minutes alone');
   // 00:02 to 06:43 (401 minutes): five-minute candles from 00:05 to 06:40, minutes before and after.
-  assert.deepEqual(pricePieces(at(0, 2), at(6, 43)), [{ tf: '1m', from: at(0, 2), to: at(0, 5) }, { tf: '5m', from: at(0, 5), to: at(6, 40) }, { tf: '1m', from: at(6, 40), to: at(6, 43) }]);
-  assert.deepEqual(pricePieces(at(0, 0), at(7, 0)), [{ tf: '5m', from: at(0, 0), to: at(7, 0) }], 'edges on the candles: nothing more');
+  assert.deepEqual(pricePieces(at(0, 2), at(6, 43)), [{ tf: '1m', ms: MINUTE, from: at(0, 2), to: at(0, 5) }, { tf: '5m', ms: 5 * MINUTE, from: at(0, 5), to: at(6, 40) }, { tf: '1m', ms: MINUTE, from: at(6, 40), to: at(6, 43) }]);
+  assert.deepEqual(pricePieces(at(0, 0), at(7, 0)), [{ tf: '5m', ms: 5 * MINUTE, from: at(0, 0), to: at(7, 0) }], 'edges on the candles: nothing more');
   assert.equal(pricePieces(day, day + 20 * 86_400_000), null, 'longer than 400 hours: none');
   // A candle that starts before a piece, or after it, is left out; the open is the first inside, the close the last.
   const pieces = pricePieces(at(0, 2), at(6, 43))!;
   const price = priceOf(pieces, [[[at(0, 1), 1, 99, 1, 1, 0], [at(0, 2), 10, 12, 9, 11, 0], [at(0, 4), 11, 13, 10, 12, 0]], [[at(0, 0), 2, 98, 2, 2, 0], [at(0, 5), 12, 20, 8, 15, 0]], [[at(6, 42), 15, 16, 14, 14.5, 0], [at(6, 43), 3, 97, 3, 3, 0]]], 'X');
   assert.deepEqual(price, { market: 'X', tf: '5m', open: 10, close: 14.5, high: 20, low: 8 });
+  // In a replay at 06:42:30 the minute under way holds prices it has not reached: left out.
+  assert.deepEqual(priceOf(pieces, [[], [[at(0, 5), 12, 20, 8, 15, 0]], [[at(6, 41), 15, 16, 14, 14.8, 0], [at(6, 42), 15, 99, 1, 50, 0]]], 'X', at(6, 42) + 30_000), { market: 'X', tf: '5m', open: 12, close: 14.8, high: 20, low: 8 });
+});
+
+test('the two sides of what was absorbed always say 100 % between them', () => {
+  const mark = (side: 'buy' | 'sell', usd: number): AbsorptionMark => ({ id: 'binance:BTCUSDT', side, price: 81_000, t0: T0 + MINUTE, t1: T0 + MINUTE + 5, usd, fills: 3, peak: usd, threshold: 100_000 });
+  const split = line(rangeLines(input({ marks: [mark('sell', 1_010_000), mark('buy', 990_000)] })), 'abs-split')!;
+  assert.deepEqual(split.cells, ['Passive buyers $1M · 51%', 'Passive sellers $990K · 49%'], 'not 51 % and 50 %');
 });
 
 test('the average price of a side is its dollars over its coins', () => {

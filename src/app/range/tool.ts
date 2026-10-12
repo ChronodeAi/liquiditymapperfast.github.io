@@ -233,7 +233,7 @@ export class RangeTool {
       if (!pieces) this.#input = { ...this.#input, price: null };
       else {
         this.#priceBusy = priceFor;
-        void Promise.all(pieces.map(piece => this.hub.source.candles(priceInst, piece.tf, piece.from, piece.to))).then(answers => priceOf(pieces, answers, market), () => null).then(price => {
+        void Promise.all(pieces.map(piece => this.hub.source.candles(priceInst, piece.tf, piece.from, piece.to))).then(answers => priceOf(pieces, answers, market, replaying() ? pageNow() : Infinity), () => null).then(price => {
           if (this.#priceBusy === priceFor) this.#priceBusy = -1;
           if (priceFor !== this.#priceFor || !this.#input) return;
           this.#input = { ...this.#input, price }; this.#render();

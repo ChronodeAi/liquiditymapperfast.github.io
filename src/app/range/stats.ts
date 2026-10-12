@@ -118,8 +118,8 @@ function priceLines(price: RangeInput['price']): RangeLine[] {
 const PRICE_TIMEFRAMES: readonly (readonly [string, number])[] = [['1m', 60_000], ['5m', 300_000], ['15m', 900_000], ['30m', 1_800_000], ['1h', 3_600_000]];
 const MAX_PRICE_BARS = 400;
 
-/** One candle question of the price line: candles of `tf` that start in [from, to). */
-export interface PricePiece { tf: string; from: number; to: number }
+/** One candle question of the price line: candles of `tf` (`ms` long) that start in [from, to). */
+export interface PricePiece { tf: string; ms: number; from: number; to: number }
 
 /**
  * The candle questions that cover the minutes [t0, t1) exactly: one of minutes when they fit, else the finest timeframe that fits for the
@@ -130,20 +130,21 @@ export function pricePieces(t0: number, t1: number): PricePiece[] | null {
   const found = PRICE_TIMEFRAMES.find(([, ms]) => (t1 - t0) / ms <= MAX_PRICE_BARS);
   if (!found) return null;
   const [tf, ms] = found;
-  if (ms === MINUTE) return [{ tf, from: t0, to: t1 }];
+  if (ms === MINUTE) return [{ tf, ms, from: t0, to: t1 }];
   const from = Math.ceil(t0 / ms) * ms, to = Math.floor(t1 / ms) * ms, out: PricePiece[] = [];
-  if (t0 < from) out.push({ tf: '1m', from: t0, to: from });
-  if (from < to) out.push({ tf, from, to });
-  if (Math.max(from, to) < t1) out.push({ tf: '1m', from: Math.max(from, to), to: t1 });
+  if (t0 < from) out.push({ tf: '1m', ms: MINUTE, from: t0, to: from });
+  if (from < to) out.push({ tf, ms, from, to });
+  if (Math.max(from, to) < t1) out.push({ tf: '1m', ms: MINUTE, from: Math.max(from, to), to: t1 });
   return out;
 }
 
 /**
  * Open, close, high and low over the candles of each piece that start inside it, in time order, or null when there are none. Rows are
- * [start, open, high, low, close, …]; `tf` is the coarsest piece's.
+ * [start, open, high, low, close, …]; `tf` is the coarsest piece's. `until` (a replay's moment): a candle that ends after it is left out,
+ * since it holds prices the replay has not reached.
  */
-export function priceOf(pieces: readonly PricePiece[], answers: readonly (readonly CandleRow[])[], market: string): RangeInput['price'] {
-  const inside = pieces.flatMap((piece, i) => (answers[i] ?? []).filter(r => r[0] >= piece.from && r[0] < piece.to && r[1] > 0 && r[4] > 0)).sort((a, b) => a[0] - b[0]);
+export function priceOf(pieces: readonly PricePiece[], answers: readonly (readonly CandleRow[])[], market: string, until = Infinity): RangeInput['price'] {
+  const inside = pieces.flatMap((piece, i) => (answers[i] ?? []).filter(r => r[0] >= piece.from && r[0] < piece.to && r[0] + piece.ms <= until && r[1] > 0 && r[4] > 0)).sort((a, b) => a[0] - b[0]);
   if (!inside.length) return null;
   const tf = pieces.find(piece => piece.tf !== '1m')?.tf ?? '1m';
   return { market, tf, open: inside[0]![1], close: inside[inside.length - 1]![4], high: Math.max(...inside.map(r => r[2])), low: Math.min(...inside.map(r => r[3])) };
@@ -410,7 +411,11 @@ function absorptionLines(input: RangeInput, s: ReturnType<typeof totals> | null)
   // What was absorbed, split into the two sides so they add up to all of it.
   const absorbed = took.sell + took.buy;
   out.push({ key: 'abs-total', kind: 'stat', cells: [t('Absorbed'), `${money(absorbed)} · ${tn(marks.length, '{n} mark', '{n} marks', { n: marks.length.toLocaleString('en-US') })}`] });
-  if (absorbed > 0) out.push({ key: 'abs-split', kind: 'split', share: took.sell / absorbed, cells: [t('Passive buyers {value} · {share}', { value: money(took.sell), share: pct(took.sell / absorbed) }), t('Passive sellers {value} · {share}', { value: money(took.buy), share: pct(took.buy / absorbed) })] });
+  if (absorbed > 0) {
+    // One share rounded and the other its complement, so the two always say 100 %.
+    const buyers = Math.round(took.sell / absorbed * 100);
+    out.push({ key: 'abs-split', kind: 'split', share: took.sell / absorbed, cells: [t('Passive buyers {value} · {share}', { value: money(took.sell), share: `${buyers}%` }), t('Passive sellers {value} · {share}', { value: money(took.buy), share: `${100 - buyers}%` })] });
+  }
   // Each side against all the market orders it could have taken: passive buyers take sells, passive sellers take buys.
   if (s && (s.sell > 0 || s.buy > 0)) {
     const of = (part: number, all: number): string => all > 0 ? pct(Math.min(1, part / all)) : '–';
