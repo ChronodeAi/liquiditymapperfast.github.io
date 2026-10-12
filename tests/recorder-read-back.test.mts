@@ -389,6 +389,26 @@ test('a store that fails to read a minute back keeps the fill and the order for 
   assert.equal(after.stats!.sellN, before.stats!.sellN + 1, 'the order once');
 });
 
+test('fills kept while the store cannot read are kept once each: the feed handing them over again does not crowd out a connector trade', () => {
+  const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  const back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
+  const feedMinute = T0 + 9 * HOUR + 4 * MIN, oneMinute = T0 + 9 * HOUR + 10 * MIN;
+  const volume = (t: number) => store.rows.get(`a:BTC|${t}`)!.bins.reduce((s, b) => s + b[1]! + b[2]!, 0);
+  const feedBefore = volume(feedMinute), oneBefore = volume(oneMinute);
+  const feed = Array.from({ length: 1_000 }, (_, i) => ({ instrumentId: 'a:BTC', tradeId: `feed-${i}`, side: 'buy', price: 84_100, notionalUsd: 1, sourceTimestamp: feedMinute + i }));
+  const one = { instrumentId: 'a:BTC', tradeId: 'connector', side: 'sell', price: 84_100, notionalUsd: 30_000, sourceTimestamp: oneMinute + 1_000 };
+  store.failingReads = true;
+  // 51 passes of the same 1,000 recent trades: more copies than the 50,000 kept, were each copy kept.
+  for (let pass = 0; pass < 51; pass++) back.ingest(feed);
+  back.ingest([one]);
+  store.failingReads = false;
+  assert.equal(back.ingest(feed), 1_001, 'the 1,000 and the connector trade, once each');
+  back.flush();
+  assert.ok(Math.abs(volume(feedMinute) - feedBefore - 1_000) < 1e-6);
+  assert.ok(Math.abs(volume(oneMinute) - oneBefore - 30_000) < 1e-6);
+});
+
 test('a batch of orders whose cold minute cannot be read is kept whole and counted with the next orders, each once', () => {
   const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
   recordTrades(store, NOW);

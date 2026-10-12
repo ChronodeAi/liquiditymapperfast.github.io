@@ -424,7 +424,7 @@ export class FootprintRecorder {
    */
   ingest(trades: Iterable<TradeLike>): number {
     let accepted = 0;
-    const was = this.#untaken;
+    const was = this.#untaken, kept = new Set<string>();
     this.#untaken = [];
     for (const trade of was.length ? [...was, ...trades] : trades) {
       const id = String(trade.instrumentId ?? ''), key = String(trade.tradeId ?? '');
@@ -440,7 +440,8 @@ export class FootprintRecorder {
       try { bins = this.#rowsToChange(id, minute); }
       catch (error) {
         if (!was.length && !this.#untaken.length) console.warn('trades could not be taken yet (a recorded minute could not be read back); kept for the next try:', error);
-        if (this.#untaken.length < UNCOUNTED_MAX) this.#untaken.push(trade);
+        // Once each: the feed hands its recent trades over again on every pass, and copies would fill the room a connector's trade needs.
+        if (!kept.has(`${id}|${key}`) && this.#untaken.length < UNCOUNTED_MAX) { kept.add(`${id}|${key}`); this.#untaken.push(trade); }
         continue;
       }
       const restored = bins !== undefined;
