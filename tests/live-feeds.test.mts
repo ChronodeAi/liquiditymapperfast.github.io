@@ -1016,15 +1016,15 @@ test('Hyperliquid coarse grouping is forwarded and preserved by the live decoder
   manager.stop();
 });
 
-test('Deribit grouped source resolution survives live normalization', async () => {
+test('Deribit whole book keeps native resolution through live normalization', async () => {
   const fake = makeFakeTransport(); const messages: LiveFeedEvent[] = [];
   const manager = new LiveFeedManager({ networkEnabled: true, transportFactory: fake.factory, oiPollMs: 0, onMessage: message => messages.push(message) });
   await manager.start({ deribitEnabled: true, deribitSymbol: 'BTC-PERPETUAL' });
   const socket = fake.sockets.find(item => item.spec.venue === 'deribit');
-  defined(socket).emit({ jsonrpc: '2.0', id: 1, result: ['book.BTC-PERPETUAL.10.20.100ms'] });
-  defined(socket).emit({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.BTC-PERPETUAL.10.20.100ms', data: { instrument_name: 'BTC-PERPETUAL', timestamp: 1_700_000_000_000, change_id: 42, bids: [[77_000, 125_000]], asks: [[77_001, 80_000]] } } });
+  defined(socket).emit({ jsonrpc: '2.0', id: 1, result: ['book.BTC-PERPETUAL.100ms'] });
+  defined(socket).emit({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.BTC-PERPETUAL.100ms', data: { type: 'snapshot', instrument_name: 'BTC-PERPETUAL', timestamp: 1_700_000_000_000, change_id: 42, bids: [[77_000, 125_000]], asks: [[77_001, 80_000]] } } });
   const book = messages.find(item => item.message?.venue === 'deribit' && item.message.kind === 'depthSnapshot')?.message;
-  assert.equal(defined(book).resolution, 'coarse'); assert.equal(defined(book).sourceGrouping, 10); assert.equal(defined(book).sourceDepth, 20);
+  assert.equal(defined(book).resolution, 'native'); assert.equal(defined(book).sourceGrouping, undefined); assert.equal(defined(book).sourceDepth, undefined);
   manager.stop();
 });
 

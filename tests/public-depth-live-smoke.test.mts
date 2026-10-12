@@ -38,9 +38,9 @@ function fakeTransportFactory() {
               return;
             }
             if (venue === 'deribit') {
-              emit(JSON.stringify({ jsonrpc: '2.0', id: 1, result: ['book.BTC-PERPETUAL.10.20.100ms'] }));
-              emit(JSON.stringify({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.BTC-PERPETUAL.10.20.100ms', data: { timestamp: 1700000000000, change_id: 99, bids: [[100, 3]], asks: [[101, 2]] } } }));
-              emit(JSON.stringify({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.BTC-PERPETUAL.10.20.100ms', data: { instrument_name: 'BTC-PERPETUAL', timestamp: 1700000000000, change_id: 100 + index, bids: [[100, 3]], asks: [[101, 2]] } } }));
+              emit(JSON.stringify({ jsonrpc: '2.0', id: 1, result: ['book.BTC-PERPETUAL.100ms'] }));
+              emit(JSON.stringify({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.BTC-PERPETUAL.100ms', data: { timestamp: 1700000000000, change_id: 99, bids: [[100, 3]], asks: [[101, 2]] } } }));
+              emit(JSON.stringify({ jsonrpc: '2.0', method: 'subscription', params: { channel: 'book.BTC-PERPETUAL.100ms', data: { type: 'snapshot', instrument_name: 'BTC-PERPETUAL', timestamp: 1700000000000, change_id: 100 + index, bids: [['new', 100, 3]], asks: [['new', 101, 2]] } } }));
               return;
             }
             emit(JSON.stringify({ event: 'subscribe', arg: { instType: 'usdt-futures', topic: 'books', symbol: 'BTCUSDT' } }));
@@ -83,7 +83,7 @@ test('public depth live smoke records both providers without raw payloads', asyn
   assert.doesNotMatch(text, /"asks"\s*:/, 'raw ask arrays must not be written to smoke evidence');
 });
 
-test('public depth live smoke records Deribit grouped full snapshots without requiring deltas', async () => {
+test('public depth live smoke records Deribit whole-book snapshots without requiring deltas', async () => {
   const fake = fakeTransportFactory();
   const artifact = await runPublicDepthLiveSmoke({ providers: ['deribit'], transportFactory: fake.factory, timeoutMs: 100, reconnectTimeoutMs: 100, now: () => '2026-09-13T00:00:00.000Z' });
   assert.equal(artifact.status, 'read-only-live-observation');

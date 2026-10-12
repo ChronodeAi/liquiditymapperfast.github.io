@@ -236,10 +236,14 @@ test('Deribit grouped BTC perpetual descriptors normalize USD-denominated snapsh
   const subscription = buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL', group: 10, depth: 20, interval: '100ms' });
   assert.equal(subscription.topic, 'book.BTC-PERPETUAL.10.20.100ms');
   assert.throws(() => buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL', group: 3 }), /group/);
-  // The USDC-margined coins take only an ungrouped book: Deribit answers any other group with no channel, and the feed never goes live.
-  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL' }).topic, 'book.BTC-PERPETUAL.10.20.100ms');
-  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL' }).topic, 'book.SOL_USDC-PERPETUAL.none.20.100ms');
-  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL' }).sourceGrouping, null);
+  // By default the whole book, ungrouped, for every instrument: a snapshot and then the changes chained on it.
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL' }).topic, 'book.BTC-PERPETUAL.100ms');
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL' }).sourceGrouping, null);
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL' }).sourceDepth, null);
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL' }).topic, 'book.SOL_USDC-PERPETUAL.100ms');
+  // The grouped channel, asked for: the USDC-margined coins take only an ungrouped one (Deribit answers any other group with no channel).
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL', group: 'none' }).topic, 'book.SOL_USDC-PERPETUAL.none.20.100ms');
+  assert.equal(buildDeribitSubscription('depth', { instrumentName: 'SOL_USDC-PERPETUAL', group: 'none' }).sourceGrouping, null);
   // A group label is dollars on BTC and hundredths of a dollar on ETH (ETH grouped by 10 is spaced $0.10, measured 2026-10-11).
   assert.equal(buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL', group: 10 }).sourceGrouping, 10);
   assert.equal(buildDeribitSubscription('depth', { instrumentName: 'ETH-PERPETUAL', group: 10 }).sourceGrouping, 0.1);
@@ -249,8 +253,16 @@ test('Deribit grouped BTC perpetual descriptors normalize USD-denominated snapsh
   const metadata = normalizeDeribitInstrumentInfo({ result: { instrument_name: 'BTC-PERPETUAL', base_currency: 'BTC', counter_currency: 'USD', future_type: 'reversed', tick_size: 0.5, min_trade_amount: 10, settlement_currency: 'BTC', is_active: true } }, { receivedAt: 1_700_000_000_100 });
   assert.equal(metadata.assets[0].quantityUnit, 'quote');
   const book = normalizeDeribitDepth({ params: { channel: 'book.BTC-PERPETUAL.10.20.100ms', data: { instrument_name: 'BTC-PERPETUAL', timestamp: 1_700_000_000_000, change_id: 42, bids: [[77_000, 125_000]], asks: [[77_001, 80_000]] } } }, { receivedAt: 1_700_000_000_100 });
-  assert.equal(book.instrumentId, 'deribit:BTC-PERPETUAL'); assert.equal(book.units, 'quote'); assert.equal(book.sequence, 42); assert.equal(book.coverage, 'partial'); assert.equal(book.resolution, 'coarse'); assert.equal(book.resolutionKey, 'group:10'); assert.ok('sourceGrouping' in book); assert.equal(book.sourceGrouping, 10); assert.equal(book.sourceDepth, 20); assert.equal(book.sourceInterval, '100ms');
+  assert.equal(book.instrumentId, 'deribit:BTC-PERPETUAL'); assert.equal(book.units, 'quote'); assert.equal(book.sequence, 42); assert.equal(book.kind === 'depthSnapshot' ? book.coverage : null, 'partial'); assert.equal(book.resolution, 'coarse'); assert.equal(book.resolutionKey, 'group:10'); assert.ok('sourceGrouping' in book); assert.equal(book.sourceGrouping, 10); assert.equal(book.sourceDepth, 20); assert.equal(book.sourceInterval, '100ms');
   assert.deepEqual(book.bids, [{ price: 77_000, amount: 125_000 }]);
+  // The whole book: its rows say what happened to each level, a change follows the change before it, and a deleted level is 0.
+  const full = normalizeDeribitDepth({ params: { channel: 'book.BTC-PERPETUAL.100ms', data: { type: 'snapshot', instrument_name: 'BTC-PERPETUAL', timestamp: 1, change_id: 50, bids: [['new', 77_000, 125_000]], asks: [['new', 77_000.5, 10]] } } });
+  assert.deepEqual([full.kind, full.sequence, full.resolution, full.resolutionKey, full.sourceInterval], ['depthSnapshot', 50, 'native', 'native', '100ms']);
+  assert.deepEqual(full.bids, [{ price: 77_000, amount: 125_000 }]);
+  const changed = normalizeDeribitDepth({ params: { channel: 'book.BTC-PERPETUAL.100ms', data: { type: 'change', instrument_name: 'BTC-PERPETUAL', timestamp: 2, change_id: 51, prev_change_id: 50, bids: [['delete', 77_000, 0], ['change', 76_999.5, 40]], asks: [] } } });
+  assert.deepEqual([changed.kind, changed.sequence, changed.kind === 'depthDelta' ? changed.previousSequence : null], ['depthDelta', 51, 50]);
+  assert.deepEqual(changed.bids, [{ price: 77_000, amount: 0 }, { price: 76_999.5, amount: 40 }]);
+  assert.throws(() => normalizeDeribitDepth({ params: { channel: 'book.BTC-PERPETUAL.100ms', data: { type: 'change', instrument_name: 'BTC-PERPETUAL', timestamp: 2, change_id: 52, prev_change_id: 51, bids: [['grow', 1, 1]], asks: [] } } }), /action/);
   // A USDC-margined coin is linear: its amounts are coins, not USD, and its base is the coin, not SOL_USDC.
   const sol = normalizeDeribitDepth({ params: { channel: 'book.SOL_USDC-PERPETUAL.none.20.100ms', data: { instrument_name: 'SOL_USDC-PERPETUAL', timestamp: 1_700_000_000_000, change_id: 7, bids: [[110, 40]], asks: [[110.01, 30]] } } }, { receivedAt: 1_700_000_000_100 });
   assert.equal(sol.units, 'base'); assert.equal(sol.market.base, 'SOL'); assert.equal(sol.market.quote, 'USDC');

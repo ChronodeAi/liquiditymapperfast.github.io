@@ -43,8 +43,11 @@ function sequence(value: unknown, field: string) {
 function deribitRows(values: unknown, field: string) {
   if (!Array.isArray(values)) throw new TypeError(`Invalid Deribit ${field}: expected array`);
   return values.map((row: unknown, index) => {
-    const price = Array.isArray(row) ? row[0] : recordValue(row)?.price;
-    const amount = Array.isArray(row) ? row[1] : recordValue(row)?.amount;
+    // The full book's rows say what happened to the level first: ['new' | 'change' | 'delete', price, amount]; a deleted level is 0.
+    const action = Array.isArray(row) && typeof row[0] === 'string' ? row[0] : null;
+    if (action !== null && !['new', 'change', 'delete'].includes(action)) throw new TypeError(`Invalid Deribit ${field}[${index}] action`);
+    const price = Array.isArray(row) ? row[action === null ? 0 : 1] : recordValue(row)?.price;
+    const amount = action === 'delete' ? 0 : Array.isArray(row) ? row[action === null ? 1 : 2] : recordValue(row)?.amount;
     if (price == null || amount == null) throw new TypeError(`Invalid Deribit ${field}[${index}]`);
     const normalizedPrice = finiteNumber(price, `${field}[${index}].price`);
     const normalizedAmount = finiteNumber(amount, `${field}[${index}].amount`);
@@ -81,10 +84,20 @@ export function deribitGroupWidth(instrumentName: string, label: number): number
   return instrument(instrumentName).startsWith('ETH-') ? label / 100 : label;
 }
 
-/** Use Deribit's public grouped full-book channel for a bounded, no-credential feed (ungrouped where the instrument takes no group). */
-export function buildDeribitSubscription(kind: string, { instrumentName = 'BTC-PERPETUAL', group, depth = DERIBIT_DEFAULT_DEPTH, interval = DERIBIT_DEFAULT_INTERVAL }: AdapterOptions = {}) {
+/**
+ * Deribit's public book channels. By default (`group` 'full') the whole book, ungrouped: `book.<instrument>.100ms` sends a snapshot and
+ * then every change, each chained on the one before (`prev_change_id`). Measured 2026-10-12 on BTC-PERPETUAL: about 1 200 levels a side,
+ * the whole book, where the grouped channel ($10 bands, the best 20 a side) reached about 25 bp. A group label (or 'none') asks for the
+ * grouped channel instead, which sends a bounded book whole every interval.
+ */
+export function buildDeribitSubscription(kind: string, { instrumentName = 'BTC-PERPETUAL', group = 'full', depth = DERIBIT_DEFAULT_DEPTH, interval = DERIBIT_DEFAULT_INTERVAL }: AdapterOptions = {}) {
   if (kind !== 'depth') throw new RangeError(`Unsupported Deribit subscription: ${kind}`);
   const native = instrument(instrumentName);
+  if (group === 'full') {
+    if (String(interval) !== '100ms') throw new RangeError(`Unsupported Deribit full-book interval: ${interval}`);
+    const channel = `book.${native}.100ms`;
+    return { url: DERIBIT_PUBLIC_WS_URL, method: 'subscribe', args: [channel], topic: channel, channel, instrumentName: native, group: 'full', depth: null, interval: '100ms', sourceGrouping: null, sourceDepth: null, sourceInterval: '100ms' };
+  }
   const allowedGroups = deribitBookGroups(native);
   const fallback = allowedGroups.includes(String(DERIBIT_DEFAULT_GROUP)) ? String(DERIBIT_DEFAULT_GROUP) : 'none';
   const groupValue = group == null ? fallback : String(group); if (!allowedGroups.includes(groupValue)) throw new RangeError(`Unsupported Deribit ${native} group: ${group}`);
@@ -109,6 +122,8 @@ export function normalizeDeribitInstrumentInfo(payload: unknown, { receivedAt = 
 
 function channelGrouping(payload: unknown, native: unknown) {
   const channel = String(recordValue(recordValue(payload)?.params)?.channel ?? '');
+  const full = channel.match(/^book\.([^\.]+)\.([^\.]+)$/i);
+  if (full && full[1].toUpperCase() === native) return { sourceGrouping: null, sourceDepth: null, sourceInterval: full[2] };
   const match = channel.match(/^book\.([^\.]+)\.([^\.]+)\.([^\.]+)\.([^\.]+)$/i);
   if (!match || match[1].toUpperCase() !== native) return {};
   const group = match[2].toLowerCase() === 'none' ? null : Number(match[2]);
@@ -116,7 +131,10 @@ function channelGrouping(payload: unknown, native: unknown) {
   return { sourceGrouping: group != null && Number.isFinite(group) && group > 0 ? deribitGroupWidth(match[1], group) : null, sourceDepth: depth != null && depth != null && Number.isInteger(depth) && depth > 0 ? depth : null, sourceInterval: match[4] };
 }
 
-/** Normalize REST depth or grouped WebSocket snapshots. Grouped channel updates are full snapshots. */
+/**
+ * Normalize REST depth, grouped WebSocket snapshots (each one whole), and the full book's frames: its `snapshot` and then each `change`,
+ * a delta chained on the one before (`prev_change_id`), whose rows are `[action, price, amount]` (a `delete` takes the level away).
+ */
 export function normalizeDeribitDepth(payload: unknown, { instrumentName, sourceGrouping = undefined, sourceDepth = undefined, sourceInterval = undefined, receivedAt = Date.now() }: AdapterOptions = {}) {
   const envelope = assertDeribit(payload);
   const row = resultOf(envelope);
@@ -131,13 +149,16 @@ export function normalizeDeribitDepth(payload: unknown, { instrumentName, source
   const depth = sourceDepth === undefined ? channel.sourceDepth : sourceDepth == null ? null : Math.trunc(finiteNumber(sourceDepth, 'sourceDepth'));
   const interval = sourceInterval === undefined ? channel.sourceInterval : sourceInterval == null ? null : String(sourceInterval);
   const grouped = grouping != null && Number.isFinite(grouping) && grouping > 0;
-  return {
-    kind: 'depthSnapshot' as const, venue: 'deribit', instrumentId: deribitInstrumentId(native), nativeSymbol: market.nativeSymbol, market, units: market.quantityUnit,
-    sourceTimestamp, receivedAt, sequence: sequence(id, 'snapshot change_id'), complete: true, coverage: 'partial' as const,
+  const common = {
+    venue: 'deribit', instrumentId: deribitInstrumentId(native), nativeSymbol: market.nativeSymbol, market, units: market.quantityUnit, sourceTimestamp, receivedAt,
     ...(grouped ? { resolution: 'coarse' as const, resolutionKey: `group:${grouping}`, sourceGrouping: grouping } : { resolution: 'native' as const, resolutionKey: 'native' }),
     ...(depth != null && Number.isInteger(depth) && depth > 0 ? { sourceDepth: depth } : {}), ...(interval ? { sourceInterval: interval } : {}),
-    bids: deribitRows(bids, 'bids'), asks: deribitRows(asks, 'asks'),
   };
+  // A change of the full book: only the levels it names, after the one it says came before.
+  if (String(recordValue(row)?.type ?? '') === 'change') {
+    return { kind: 'depthDelta' as const, ...common, sequence: sequence(id, 'change_id'), previousSequence: sequence(recordValue(row)?.prev_change_id, 'prev_change_id'), bids: deribitRows(bids, 'bids'), asks: deribitRows(asks, 'asks') };
+  }
+  return { kind: 'depthSnapshot' as const, ...common, sequence: sequence(id, 'snapshot change_id'), complete: true, coverage: 'partial' as const, bids: deribitRows(bids, 'bids'), asks: deribitRows(asks, 'asks') };
 }
 
 export class DeribitConnector {

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { LiveFeedManager } from '../src/server/live-feeds.mts';
 import { getVenue } from '../src/domain/venue-registry.mts';
 
-const TOPIC = 'book.BTC-PERPETUAL.10.20.100ms';
+const TOPIC = 'book.BTC-PERPETUAL.100ms';
 
 class FakeSocket {
   declare spec:LiveFeedTransportOptions; declare sent:string[]; declare closed:boolean; declare opened?:boolean;
@@ -62,8 +62,8 @@ test('Deribit manager requires an exact JSON-RPC subscription result and answers
   assert.deepEqual(JSON.parse(socket.sent[0]), { jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: [TOPIC] } });
   assert.equal(manager.status()['deribit-depth'].subscriptionAcked, false);
   socket.emit(JSON.stringify(ack({ id: 99 })));
-  socket.emit(JSON.stringify(ack({ result: ['book.ETH-PERPETUAL.10.20.100ms'] })));
-  socket.emit(JSON.stringify(ack({ result: [TOPIC, 'book.ETH-PERPETUAL.10.20.100ms'] })));
+  socket.emit(JSON.stringify(ack({ result: ['book.ETH-PERPETUAL.100ms'] })));
+  socket.emit(JSON.stringify(ack({ result: [TOPIC, 'book.ETH-PERPETUAL.100ms'] })));
   socket.emit(JSON.stringify({ jsonrpc: '2.0', id: 0, result: {} }));
   assert.equal(manager.status()['deribit-depth'].subscriptionAcked, false);
   socket.emit(Buffer.from(JSON.stringify(ack())));
@@ -79,7 +79,7 @@ test('Deribit manager requires an exact JSON-RPC subscription result and answers
   manager.stop();
 });
 
-test('Deribit manager preserves grouped quote units, ignores foreign frames, and fences retired snapshots', async () => {
+test('Deribit manager takes the whole book in quote units, ignores foreign frames, and fences retired snapshots', async () => {
   const fake = transport(); const timers:{fn:()=>unknown;delay:number}[] = []; const messages:LiveFeedEvent[] = [];
   const manager = new LiveFeedManager({
     networkEnabled: true,
@@ -95,9 +95,9 @@ test('Deribit manager preserves grouped quote units, ignores foreign frames, and
   await manager.start({ selectedOrderbookVenues: ['deribit'], deribitEnabled: true, deribitSymbol: 'BTC-PERPETUAL' });
   const first = defined(fake.sockets.find(item => item.spec.venue === 'deribit'));
   first.emit(Buffer.from(JSON.stringify(ack())));
-  first.emit(snapshot(1, { channel: 'book.BTC-PERPETUAL.10.20.100ms' }));
-  first.emit(snapshot(2, { channel: 'book.BTC-PERPETUAL.10.20.100ms', instrument: 'ETH-PERPETUAL' }));
-  first.emit(snapshot(3, { channel: 'book.ETH-PERPETUAL.10.20.100ms' }));
+  first.emit(snapshot(1, { channel: TOPIC }));
+  first.emit(snapshot(2, { channel: TOPIC, instrument: 'ETH-PERPETUAL' }));
+  first.emit(snapshot(3, { channel: 'book.ETH-PERPETUAL.100ms' }));
   const missingInstrument = snapshot(4);
   Reflect.deleteProperty(missingInstrument.params.data, 'instrument_name');
   first.emit(missingInstrument);
@@ -105,10 +105,11 @@ test('Deribit manager preserves grouped quote units, ignores foreign frames, and
   const books = () => messages.filter(item => item.venue === 'deribit' && item.message?.kind === 'depthSnapshot');
   assert.equal(books().length, 2);
   assert.equal(books()[0].message.units, 'quote');
-  assert.equal(books()[0].message.resolution, 'coarse');
-  assert.equal(books()[0].message.resolutionKey, 'group:10');
-  assert.equal(books()[0].message.sourceGrouping, 10);
-  assert.equal(books()[0].message.sourceDepth, 20);
+  // The whole book, ungrouped: no $10 bands and no depth cap.
+  assert.equal(books()[0].message.resolution, 'native');
+  assert.equal(books()[0].message.resolutionKey, 'native');
+  assert.equal(books()[0].message.sourceGrouping, undefined);
+  assert.equal(books()[0].message.sourceDepth, undefined);
   assert.equal(defined(books()[0].message.bids)[0].amount, 125_000);
   assert.equal(defined(messages.find(item => item.venue === 'deribit' && item.message?.kind === 'metadata')?.message.assets)[0].quantityUnit, 'quote');
   assert.equal(defined(getVenue('deribit')).capabilities.l2.state, 'supported');

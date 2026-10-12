@@ -109,20 +109,21 @@ const DEFINITIONS: Readonly<Record<string, PublicSmokeDefinition>> = Object.free
     venue: 'deribit',
     symbol: 'BTC-PERPETUAL',
     url: DERIBIT_PUBLIC_WS_URL,
-    build: () => buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL', group: 10, depth: 20, interval: '100ms' }),
+    build: () => buildDeribitSubscription('depth', { instrumentName: 'BTC-PERPETUAL' }),
     instrumentId: 'deribit:BTC-PERPETUAL',
-    topic: 'book.BTC-PERPETUAL.10.20.100ms',
+    topic: 'book.BTC-PERPETUAL.100ms',
     normalize: (payload: unknown, receivedAt: number) => normalizeDeribitDepth(payload, { instrumentName: 'BTC-PERPETUAL', receivedAt }),
     matches: (payload: unknown) => {
       const channel = smokeRecord(smokeRecord(payload).params).channel;
       const instrument = smokeRecord(smokeRecord(smokeRecord(payload).params).data).instrument_name;
-      return String(channel ?? '') === 'book.BTC-PERPETUAL.10.20.100ms' && instrument != null && String(instrument).toUpperCase() === 'BTC-PERPETUAL';
+      return String(channel ?? '') === 'book.BTC-PERPETUAL.100ms' && instrument != null && String(instrument).toUpperCase() === 'BTC-PERPETUAL';
     },
     // Deribit documents a string-array subscription result. Keep the smoke
     // aligned with the manager's exact id/channel acknowledgement contract.
-    isAck: (payload: unknown) => smokeRecord(payload).jsonrpc === '2.0' && smokeRecord(payload).id === 1 && Array.isArray(smokeRecord(payload).result) && smokeArray(smokeRecord(payload).result).includes('book.BTC-PERPETUAL.10.20.100ms') && smokeRecord(payload).params == null,
-    isSnapshot: (payload: unknown) => Boolean(smokeRecord(smokeRecord(smokeRecord(payload).params).data).bids || smokeRecord(smokeRecord(smokeRecord(payload).params).data).asks),
-    isDelta: () => false,
+    isAck: (payload: unknown) => smokeRecord(payload).jsonrpc === '2.0' && smokeRecord(payload).id === 1 && Array.isArray(smokeRecord(payload).result) && smokeArray(smokeRecord(payload).result).includes('book.BTC-PERPETUAL.100ms') && smokeRecord(payload).params == null,
+    // The whole book: a snapshot, then changes chained on it every 100 ms.
+    isSnapshot: (payload: unknown) => smokeRecord(smokeRecord(smokeRecord(payload).params).data).type === 'snapshot',
+    isDelta: (payload: unknown) => smokeRecord(smokeRecord(smokeRecord(payload).params).data).type === 'change',
     requiresDelta: false,
     subscribe: (request: LiveFeedRequest) => ({ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: request.args } }),
   }),

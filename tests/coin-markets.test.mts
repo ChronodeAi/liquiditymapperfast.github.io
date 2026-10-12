@@ -39,7 +39,7 @@ test('BTC is read exactly as before: the same instruments, addresses and subscri
   assert.deepEqual(made.flatMap(m => m.liquidations ?? []).map(c => inside(c).url()), ['wss://fstream.binance.com/market/stream?streams=btcusdt@forceOrder/btcusdt@markPrice@1s'], 'Binance liquidations on a socket of their own');
   assert.deepEqual(sent.bitget, [{ op: 'subscribe', args: [{ instType: 'USDT-FUTURES', channel: 'books', instId: 'BTCUSDT' }, { instType: 'USDT-FUTURES', channel: 'trade', instId: 'BTCUSDT' }] }]);
   assert.deepEqual(sent.hyperliquid, [{ method: 'subscribe', subscription: { type: 'l2Book', coin: 'BTC', nSigFigs: 3 } }, { method: 'subscribe', subscription: { type: 'trades', coin: 'BTC' } }]);
-  assert.deepEqual(sent.deribit, [{ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: ['book.BTC-PERPETUAL.10.20.100ms', 'trades.BTC-PERPETUAL.100ms'] } }]);
+  assert.deepEqual(sent.deribit, [{ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: ['book.BTC-PERPETUAL.100ms', 'trades.BTC-PERPETUAL.100ms'] } }]);
   assert.deepEqual(sent.coinbase, [{ type: 'subscribe', product_ids: ['BTC-USD'], channels: ['level2_batch', 'matches'] }]);
   assert.deepEqual(sent.okxspot, [{ op: 'subscribe', args: [{ channel: 'books', instId: 'BTC-USDT' }, { channel: 'trades', instId: 'BTC-USDT' }] }]);
   assert.equal((made[2]!.book as OkxConnector).contract, 0.01);
@@ -129,17 +129,34 @@ test('grouped books in the browser: a bid holds its group from its price up, an 
   sol.onMessage(msg({ channel: 'l2Book', data: { coin: 'SOL', time: now, levels: [[{ px: '101', sz: '1', n: 1 }, { px: '100', sz: '1', n: 1 }, { px: '99', sz: '1', n: 1 }], [{ px: '102', sz: '1', n: 1 }, { px: '103', sz: '1', n: 1 }]] } }));
   const solBook = sol.valued(now)!;
   assert.deepEqual([solBook.bids.lo[2], solBook.bids.hi[2]], [99, 100]);
-  // Deribit BTC in $10 groups: the same naming.
-  const deribit = new DeribitConnector();
-  deribit.state = 'connecting';
-  deribit.onMessage(msg({ params: { channel: 'book.BTC-PERPETUAL.10.20.100ms', data: { bids: [[82_980, 1000]], asks: [[82_990, 1000]] } } }));
-  const grouped = deribit.valued(Date.now())!;
-  assert.deepEqual([grouped.bids.lo[0], grouped.bids.hi[0], grouped.asks.lo[0], grouped.asks.hi[0]], [82_980, 82_985, 82_985, 82_990]);
 });
 
-test('Deribit: ETH is sized in USD like BTC, the USDC perpetuals in coins, and neither is grouped like BTC', () => {
+test('Deribit takes its whole book: a snapshot, the changes chained on it, and a gap gives the book up', () => {
+  const deribit = new DeribitConnector(), book = () => deribit.valued(Date.now());
+  deribit.state = 'connecting';
+  const frame = (data: Record<string, unknown>) => msg({ params: { channel: 'book.BTC-PERPETUAL.100ms', data } });
+  // A change before any snapshot is not applied.
+  deribit.onMessage(frame({ type: 'change', change_id: 9, prev_change_id: 8, bids: [['new', 82_000, 1000]], asks: [] }));
+  assert.equal(book(), null);
+  deribit.onMessage(frame({ type: 'snapshot', change_id: 10, bids: [['new', 82_980, 1000], ['new', 82_979.5, 2000]], asks: [['new', 82_980.5, 3000]] }));
+  const first = book()!;
+  assert.equal(first.coarse, false, 'single levels, not $10 bands');
+  assert.deepEqual([...first.bids.lo], [82_980, 82_979.5]);
+  assert.deepEqual([...first.bids.usd], [1000, 2000], 'USD amounts');
+  // A change on it: the best bid gone, another one deeper, the ask resized.
+  deribit.onMessage(frame({ type: 'change', change_id: 11, prev_change_id: 10, bids: [['delete', 82_980, 0], ['new', 82_000, 500]], asks: [['change', 82_980.5, 3500]] }));
+  const second = book()!;
+  assert.deepEqual([...second.bids.lo], [82_979.5, 82_000]);
+  assert.deepEqual([...second.asks.usd], [3500]);
+  // A change that does not follow the last one applied: the book is given up for a fresh snapshot.
+  deribit.onMessage(frame({ type: 'change', change_id: 14, prev_change_id: 13, bids: [['new', 81_000, 1]], asks: [] }));
+  assert.equal(deribit.state, 'error');
+  assert.equal(book(), null);
+});
+
+test('Deribit: ETH is sized in USD like BTC, the USDC perpetuals in coins, and every book is whole and ungrouped', () => {
   const eth = new DeribitConnector({ coin: 'ETH', symbol: 'ETH-PERPETUAL', unit: 1, inverse: true }), ethTrades = trades(eth);
-  assert.deepEqual(frames(eth), [{ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: ['book.ETH-PERPETUAL.none.20.100ms', 'trades.ETH-PERPETUAL.100ms'] } }]);
+  assert.deepEqual(frames(eth), [{ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: ['book.ETH-PERPETUAL.100ms', 'trades.ETH-PERPETUAL.100ms'] } }]);
   assert.equal(inside(eth).usdOf(2500, 1000), 1000);
   eth.onMessage(msg({ params: { channel: 'trades.ETH-PERPETUAL.100ms', data: [{ trade_id: 'e1', price: 2500, amount: 5000, timestamp: 1_700_000_000_000, direction: 'buy' }] } }));
   assert.deepEqual(ethTrades.map(t => [t.amount, t.notionalUsd]), [[2, 5000]]);
@@ -148,7 +165,7 @@ test('Deribit: ETH is sized in USD like BTC, the USDC perpetuals in coins, and n
   doge.onMessage(msg({ params: { channel: 'trades.DOGE_USDC-PERPETUAL.100ms', data: [{ trade_id: 'd1', price: 0.1, amount: 3000, timestamp: 1_700_000_000_000, direction: 'sell' }] } }));
   assert.deepEqual(dogeTrades.map(t => [t.side, t.amount, t.notionalUsd]), [['sell', 3000, 300]]);
   doge.state = 'connecting';
-  doge.onMessage(msg({ params: { channel: 'book.DOGE_USDC-PERPETUAL.none.20.100ms', data: { bids: [[0.0999, 100]], asks: [[0.1001, 100]] } } }));
+  doge.onMessage(msg({ params: { channel: 'book.DOGE_USDC-PERPETUAL.100ms', data: { type: 'snapshot', change_id: 1, bids: [['new', 0.0999, 100]], asks: [['new', 0.1001, 100]] } } }));
   const book = doge.valued(Date.now())!;
   assert.equal(book.coarse, false, 'ungrouped levels are exact');
 });

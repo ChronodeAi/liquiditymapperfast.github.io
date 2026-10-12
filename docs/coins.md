@@ -23,7 +23,7 @@ A coin enters the list on nine markets and leaves it below eight, so one at the 
 | Binance, Bybit, Bitget (perpetuals) | `PEPEUSDT`, or `1000PEPEUSDT` / `1000000MOGUSDT` in thousands or millions; Bybit also writes `SHIB1000USDT` | price divided by the unit, sizes multiplied |
 | Hyperliquid | `PEPE`, or `kPEPE` in thousands | the same; the instrument is named `kPEPE-PERP` |
 | OKX swaps | contracts of `ctVal` coins (0.01 BTC, 10,000,000 PEPE) | listed only with a contract value in its own coin, from the instrument list |
-| Deribit | `BTC-PERPETUAL`, `ETH-PERPETUAL` sized in USD; everything else `X_USDC-PERPETUAL` sized in coins (`1000PEPE_USDC-PERPETUAL` in thousands) | BTC keeps its $10 grouped book; the others are read ungrouped (Deribit accepts different groupings per instrument; `book.ETH-PERPETUAL.1.20.100ms` was refused), the best 20 levels a side |
+| Deribit | `BTC-PERPETUAL`, `ETH-PERPETUAL` sized in USD; everything else `X_USDC-PERPETUAL` sized in coins (`1000PEPE_USDC-PERPETUAL` in thousands) | Every instrument's whole book, ungrouped (`book.<instrument>.100ms`: a snapshot, then changes chained by `prev_change_id`; about 1 200 levels a side on BTC). BTC took $10 groups, the best 20 a side (about 25 bp), until 2026-10-12 |
 | Spot markets, Coinbase | one coin per unit | nothing |
 
 Candles, open interest and the open-interest samples are converted the same way (`src/shared/history.ts`), so a heatmap, a candle and an open-interest figure for PEPE are all in single PEPE.

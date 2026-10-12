@@ -330,30 +330,37 @@ export class CoinbaseConnector extends MarketBook {
 // ---- Deribit ------------------------------------------------------------------------------------------------------------------------
 
 /**
- * Deribit perpetuals. BTC-PERPETUAL: amounts are USD (10 per contract), and the book arrives whole every 100 ms as 20 bands a side grouped
- * by $10 (the server's setting). ETH-PERPETUAL is sized in USD too; the other coins trade as USDC perpetuals sized in coins. Their books
- * come ungrouped (the groupings Deribit accepts differ per instrument): the best 20 levels a side, whole every 100 ms.
+ * Deribit perpetuals. BTC-PERPETUAL: amounts are USD (10 per contract); ETH-PERPETUAL is sized in USD too; the other coins trade as USDC
+ * perpetuals sized in coins. The book is the whole of it, ungrouped (`book.<instrument>.100ms`, as the server reads it): a snapshot, then
+ * each change chained on the one before (`prev_change_id`), its rows `[new | change | delete, price, amount]`. Measured 2026-10-12 on
+ * BTC: about 1 200 levels a side, where the $10 bands it used to take (the best 20 a side) reached about 25 bp.
  */
 export class DeribitConnector extends MarketBook {
   readonly id = 'deribit'; readonly name = 'Deribit'; readonly quote = 'USD'; readonly marketType = 'perpetual' as const;
   constructor(market: Market = btc('deribit')) { super(market); }
   /** The trade ids of forced fills already counted: a fill seen again (a replay after a reconnect) must not add to a liquidation twice. */
   readonly #forcedSeen = new Set<string>();
-  /** $10 bands for BTC, as the server reads it; single levels for the rest. */
-  readonly #group = this.market.symbol === 'BTC-PERPETUAL' ? '10' : 'none';
-  protected override get coarse() { return this.#group !== 'none'; }
-  /** A grouped bid is named by the lower edge of its $10 band, a grouped ask by the upper edge (measured against the ungrouped book 2026-10-11). */
-  protected override band(price: number, side: 'bid' | 'ask') { return side === 'bid' ? { lo: price, hi: price + 10 } : { lo: price - 10, hi: price }; }
+  /** The last change applied to the book (-1: no snapshot yet). */
+  #changeId = -1;
   protected url() { return 'wss://www.deribit.com/ws/api/v2'; }
-  protected open(send: (p: unknown) => void) { send({ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: [`book.${this.symbol}.${this.#group}.20.100ms`, `trades.${this.symbol}.100ms`] } }); }
+  protected open(send: (p: unknown) => void) { send({ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: [`book.${this.symbol}.100ms`, `trades.${this.symbol}.100ms`] } }); }
   protected override usdOf(price: number, size: number) { return this.market.inverse ? size : price * size; }
+  /** A full-book row as [price, amount]: a deleted level is 0, which takes it away. */
+  #levels(rows: unknown): [number, number][] {
+    if (!Array.isArray(rows)) return [];
+    return rows.flatMap(row => Array.isArray(row) && row.length >= 3 ? [[num(row[1]), row[0] === 'delete' ? 0 : num(row[2])] as [number, number]] : []).filter(([p, q]) => p > 0 && q >= 0);
+  }
+  protected override reset() { super.reset(); this.#changeId = -1; }
   onMessage(text: string) {
     const m = this.record(JSON.parse(text)); const params = this.record(m?.params); if (!params) return;
     // Only this instrument's channels: another one's book or trades would put its prices here.
     const channel = String(params.channel ?? '');
-    if (channel.startsWith(`book.${this.symbol}.`)) {
+    if (channel === `book.${this.symbol}.100ms`) {
       const d = this.record(params.data); if (!d) return;
-      this.replace(this.bids, this.rows(d.bids)); this.replace(this.asks, this.rows(d.asks)); this.touch(); return;
+      if (d.type === 'snapshot') { this.replace(this.bids, this.#levels(d.bids)); this.replace(this.asks, this.#levels(d.asks)); this.#changeId = num(d.change_id); this.touch(); return; }
+      if (this.#changeId < 0) return; // changes before the first snapshot
+      if (num(d.prev_change_id) !== this.#changeId) { this.fail(`sequence gap ${this.#changeId} -> ${String(d.prev_change_id)}`); return; }
+      this.#changeId = num(d.change_id); this.apply(this.bids, this.#levels(d.bids)); this.apply(this.asks, this.#levels(d.asks)); this.touch(); return;
     }
     if (channel.startsWith(`trades.${this.symbol}.`)) {
       /** The forced fills of this frame, one entry per forced order (its fills share a time and a side). */
