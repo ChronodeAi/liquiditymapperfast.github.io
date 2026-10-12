@@ -9,7 +9,7 @@ const RETENTION_MS = 7 * 24 * 3_600_000;
  * again for what it shows (the Range panel every few seconds, the profile every minute), and parsing a stored minute costs some 45 µs.
  */
 export const COLD_CACHE_MINUTES = 20_000;
-/** Market orders kept for another try while the store cannot read back a minute they change; past this, the oldest go. */
+/** Market orders (and fills) kept for another try while the store cannot read back a minute they change; past this, no more are kept. */
 const UNCOUNTED_MAX = 50_000;
 /** A market order as `countOrders` counts it (its fills went to `ingest`): `lo`/`hi`, or `price`, is where it started. */
 type OrderLike = { instrumentId: string; side: 'buy' | 'sell'; t: number; usd: number; lo?: number; hi?: number; price?: number };
@@ -326,8 +326,9 @@ export class FootprintRecorder {
   #cutoff: number;
   /** Hours of rows read back, by instrument and hour (only hours before `#hotFrom`), weighed in minutes. */
   readonly #coldHours: KeptCache<Map<number, Bins>>;
-  /** Market orders not counted yet because a minute they change could not be read back (`countOrders`). */
+  /** Market orders not counted yet because a minute they change could not be read back (`countOrders`); fills not taken yet (`ingest`). */
   #uncounted: OrderLike[] = [];
+  #untaken: TradeLike[] = [];
   /** The size buckets' edges are SIZE_EDGES times this (1 for BTC; smaller for a coin that trades less). */
   readonly sizeScale: number;
 
@@ -414,10 +415,18 @@ export class FootprintRecorder {
   /** The start (ms) of the newest minute recorded for `id`, or 0. */
   lastMinute(id: string): number { let newest = 0; for (const t of this.#sums.get(id)?.keys() ?? []) if (t > newest) newest = t; return newest; }
 
-  /** Add every fill not seen before to its price row. Returns the number accepted. Orders are counted separately (`countOrders`). */
+  /**
+   * Add every fill not seen before to its price row. Returns the number accepted. Orders are counted separately (`countOrders`).
+   *
+   * A fill for an older minute that only the store holds reads that minute back first; when the store fails to, the fill is not taken (nor
+   * marked seen) but kept, and taken first with the next fills (at most UNCOUNTED_MAX): a connector's trade comes once, and one handed over
+   * again (the feed's recent trades come on every pass) is then seen and taken once.
+   */
   ingest(trades: Iterable<TradeLike>): number {
     let accepted = 0;
-    for (const trade of trades) {
+    const was = this.#untaken;
+    this.#untaken = [];
+    for (const trade of was.length ? [...was, ...trades] : trades) {
       const id = String(trade.instrumentId ?? ''), key = String(trade.tradeId ?? '');
       const price = Number(trade.price), usd = Number(trade.notionalUsd ?? Number(trade.amount) * price);
       const t = Number(trade.sourceTimestamp ?? trade.receivedAt);
@@ -426,8 +435,15 @@ export class FootprintRecorder {
       let seen = this.#seen.get(id); if (!seen) { seen = new Set(); this.#seen.set(id, seen); }
       if (seen.has(key)) continue;
       const minute = Math.floor(t / MINUTE) * MINUTE;
-      // Read back first: a store that fails here leaves the fill unseen and nothing changed, so it is taken whole when it comes again.
-      let bins = this.#rowsToChange(id, minute); const restored = bins !== undefined;
+      // Read back first: a store that fails here leaves the fill unseen and nothing changed.
+      let bins: Bins | undefined;
+      try { bins = this.#rowsToChange(id, minute); }
+      catch (error) {
+        if (!was.length && !this.#untaken.length) console.warn('trades could not be taken yet (a recorded minute could not be read back); kept for the next try:', error);
+        if (this.#untaken.length < UNCOUNTED_MAX) this.#untaken.push(trade);
+        continue;
+      }
+      const restored = bins !== undefined;
       seen.add(key);
       if (seen.size > 30_000) { const keep = [...seen].slice(-10_000); seen.clear(); for (const k of keep) seen.add(k); }
       let step = this.#steps.get(id);
@@ -459,15 +475,15 @@ export class FootprintRecorder {
    *
    * The orders are the recorder's once given: the server takes them from the order builder, which will not give them again. Every older
    * minute they change that only the store holds is read back first (it is written whole again with its statistics); when the store fails
-   * to read one, none of them is counted yet, and they are counted first with the next orders (at most UNCOUNTED_MAX, the newest kept), so
-   * none is lost or counted twice for it.
+   * to read one, none of them is counted yet, and they are counted first with the next orders (at most UNCOUNTED_MAX are kept), so none is
+   * lost or counted twice for it.
    */
   countOrders(orders: Iterable<OrderLike>): void {
     const was = this.#uncounted.length, list = was ? [...this.#uncounted, ...orders] : [...orders];
     const counts = (order: OrderLike): boolean => order.usd > 0 && this.#stats.get(order.instrumentId)?.has(Math.floor(order.t / MINUTE) * MINUTE) === true;
     try { for (const order of list) if (counts(order)) this.#rowsToChange(order.instrumentId, Math.floor(order.t / MINUTE) * MINUTE); }
     catch (error) {
-      this.#uncounted = list.length > UNCOUNTED_MAX ? list.slice(-UNCOUNTED_MAX) : list;
+      this.#uncounted = list.length > UNCOUNTED_MAX ? list.slice(0, UNCOUNTED_MAX) : list;
       if (!was) console.warn('market orders could not be counted yet (a recorded minute could not be read back); kept for the next try:', error);
       return;
     }

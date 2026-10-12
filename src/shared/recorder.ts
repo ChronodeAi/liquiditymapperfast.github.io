@@ -268,7 +268,7 @@ export class DepthRecorder {
         for (const [id, { step }] of this.#extent) if (!this.steps.has(id)) this.steps.set(id, step);
         this.#heldFrom = this.#heldAt(start);
       }
-      for (const { instrumentId, column, step } of store.load(this.#heldAt(start))) {
+      for (const { instrumentId, column, step } of store.load(Math.max(this.#cutoff, this.#heldAt(start)))) {
         this.#list(instrumentId).push(column);
         if (!this.steps.has(instrumentId)) this.steps.set(instrumentId, step);
       }

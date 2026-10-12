@@ -51,7 +51,7 @@ const columnAt = (t: number, base: number): Column => {
   return column;
 };
 
-test('reading depth back gives every answer that holding the week gave, across the edge of what memory holds and with a minute open, and asked again reads at most an hour of columns a question', () => {
+test('reading depth back gives every answer that holding the week gave, across the edge of what memory holds and with a minute open, and asked again all the questions together read back at most two hours of columns each', () => {
   seed = 7;
   const NOW = T0 + 3 * DAY + 17 * MIN, store = new MemoryColumnStore();
   // Two instruments over three days, the second sparse (a minute in five), and a gap of an hour in the first.
@@ -179,6 +179,18 @@ test('memory holds whole minutes: a restart within a minute reopens it even when
   now = M2 + 50_000; live.sample([book(now, 150)], now);
   const kept = live.query('x:BTC', M2, M2 + MIN);
   assert.deepEqual([kept.length, kept[0]!.n, kept[0]!.bid[0]], [1, 2, 100]);
+});
+
+test('memory begun at a whole minute never reaches before the retention', () => {
+  // Memory within a minute of the retention: rounding its start down to the minute must not load a column the retention has passed.
+  const store = new MemoryColumnStore();
+  for (let t = T0; t < T0 + 10 * MIN; t += MIN) store.save('a:BTC', columnAt(t, 4_000), 20);
+  const now = T0 + 7 * DAY + 45_000;
+  const back = new DepthRecorder({ store, now: () => now, retentionMs: 7 * DAY, memoryMs: 7 * DAY - 1_000 });
+  const all = new DepthRecorder({ store: holdingOnly(store), now: () => now, retentionMs: 7 * DAY });
+  assert.deepEqual(back.coverage(), all.coverage());
+  assert.deepEqual(back.query('a:BTC', T0 - HOUR, T0 + HOUR, MIN), all.query('a:BTC', T0 - HOUR, T0 + HOUR, MIN));
+  assert.equal(back.query('a:BTC', T0 - HOUR, T0 + HOUR, MIN)[0]!.t, T0 + MIN);
 });
 
 test('a prune whose store fails to say what it holds leaves the recorder as it was: coverage and answers agree', () => {
@@ -350,7 +362,7 @@ test('an order alone into a minute only the store holds is written with all of t
   assert.equal(after.stats!.buyN, before.stats!.buyN + 1);
 });
 
-test('a store that fails to read a minute back leaves the fill to come again and keeps the order for the next count, neither half counted', () => {
+test('a store that fails to read a minute back keeps the fill and the order for the next time, each taken once, neither half counted', () => {
   const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
   recordTrades(store, NOW);
   const back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
@@ -358,17 +370,22 @@ test('a store that fails to read a minute back leaves the fill to come again and
   const volume = (row: FootprintMinuteRow) => row.bins.reduce((s, b) => s + b[1]! + b[2]!, 0);
   const trade = { instrumentId: 'a:BTC', tradeId: 'retry', side: 'sell', price: 84_100, notionalUsd: 30_000, sourceTimestamp: minute + 1_000 };
   const order = { instrumentId: 'a:BTC', side: 'sell' as const, t: minute + 1_000, usd: 30_000, price: 84_100 };
+  // A connector's fill, which comes once, into another cold minute.
+  const once = { ...trade, tradeId: 'once', sourceTimestamp: minute - 3 * MIN + 2_000 }, other = minute - 3 * MIN, otherBefore = structuredClone(store.rows.get(`a:BTC|${other}`)!);
   store.failingReads = true;
-  assert.throws(() => back.ingest([trade]), /read failed/);
+  assert.equal(back.ingest([trade, once]), 0, 'neither taken yet');
+  assert.equal(back.ingest([trade]), 0, 'nor while the store still fails');
   back.countOrders([order]);
   store.failingReads = false;
-  // The fill comes again (the feed hands its recent trades over on every pass) and is taken once; the order, which the server's builder
-  // gives once, was kept and is counted with the next orders.
-  assert.equal(back.ingest([trade]), 1);
+  // The feed hands its recent trades over again on every pass: the fill kept is taken first and its copy is seen. The connector's comes
+  // with the next ones. The order, which the server's builder gives once, was kept and is counted with the next orders.
+  assert.equal(back.ingest([trade]), 2);
+  assert.equal(back.ingest([trade, once]), 0);
   back.countOrders([]);
   back.flush();
   const after = store.rows.get(`a:BTC|${minute}`)!;
   assert.ok(Math.abs(volume(after) - volume(before) - 30_000) < 1e-6, 'the fill once');
+  assert.ok(Math.abs(volume(store.rows.get(`a:BTC|${other}`)!) - volume(otherBefore) - 30_000) < 1e-6, "the connector's fill once");
   assert.equal(after.stats!.sellN, before.stats!.sellN + 1, 'the order once');
 });
 
