@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MINUTE, draftOf, follow, refreshMs, rowStep, selects, snap, type RangeSelection } from '../src/app/range/selection.ts';
-import { draftLabel, rangeLines, type RangeInput, type RangeLine } from '../src/app/range/stats.ts';
+import { draftLabel, priceOf, pricePieces, rangeLines, type RangeInput, type RangeLine } from '../src/app/range/stats.ts';
 import type { RangeAnswer, RangeInstrument } from '../src/shared/footprint.ts';
 import type { AbsorptionMark } from '../src/app/absorption.ts';
 
@@ -52,7 +52,7 @@ test('the panel adds up the market orders of one set of instruments, the orders 
   assert.equal(line(lines, 'split')!.share, 0.7, 'bought 7M of 10M');
   assert.deepEqual(line(lines, 'delta')!.cells, ['Delta', '+$4M · +40% of the volume']);
   // The average price of each side: each row's middle (rows of 10) weighted by what traded there.
-  assert.deepEqual(line(lines, 'avg-price')!.cells, ['Average price', 'bought at 81,519.3 · sold at 81,521.7']);
+  assert.deepEqual(line(lines, 'avg-price')!.cells, ['Average price', 'bought at 81,519.3 · sold at 81,521.6']);
   assert.deepEqual(line(lines, 'orders')!.cells, ['Orders', '350 buys · 150 sells']);
   assert.deepEqual(line(lines, 'average')!.cells, ['Average order', '$20K buy · $20K sell']);
   assert.equal(line(lines, 'orders-from'), undefined, 'every minute counted: no note');
@@ -87,6 +87,25 @@ test('the coverage line names the markets counted and those on the map that are 
     books: [{ id: 'binance:BTCUSDT', on: true }, { id: 'binance:BTCUSDT:spot', on: true }, { id: 'kraken:BTC/USD', on: true }, { id: 'htx:BTC-USDT', on: true }, { id: 'okx:BTC-USDT-SWAP', on: false }] }));
   // Binance's spot book and its spot trades are one market; Kraken and HTX have books and no trades; OKX is off.
   assert.equal(line(lines, 'market-coverage')!.cells[0], 'Counts 2 markets. No trades are recorded for HTX, Kraken: their books are on the map, not in these figures. Switched off or outside the Spot / Perp filter: OKX.');
+});
+
+test('the price line asks for candles that lie inside the selection: minutes at its edges, coarser candles between', () => {
+  const day = Date.UTC(2026, 9, 12), at = (h: number, m: number) => day + h * 3_600_000 + m * MINUTE;
+  assert.deepEqual(pricePieces(at(0, 2), at(6, 2)), [{ tf: '1m', from: at(0, 2), to: at(6, 2) }], '360 minutes: minutes alone');
+  // 00:02 to 06:43 (401 minutes): five-minute candles from 00:05 to 06:40, minutes before and after.
+  assert.deepEqual(pricePieces(at(0, 2), at(6, 43)), [{ tf: '1m', from: at(0, 2), to: at(0, 5) }, { tf: '5m', from: at(0, 5), to: at(6, 40) }, { tf: '1m', from: at(6, 40), to: at(6, 43) }]);
+  assert.deepEqual(pricePieces(at(0, 0), at(7, 0)), [{ tf: '5m', from: at(0, 0), to: at(7, 0) }], 'edges on the candles: nothing more');
+  assert.equal(pricePieces(day, day + 20 * 86_400_000), null, 'longer than 400 hours: none');
+  // A candle that starts before a piece, or after it, is left out; the open is the first inside, the close the last.
+  const pieces = pricePieces(at(0, 2), at(6, 43))!;
+  const price = priceOf(pieces, [[[at(0, 1), 1, 99, 1, 1, 0], [at(0, 2), 10, 12, 9, 11, 0], [at(0, 4), 11, 13, 10, 12, 0]], [[at(0, 0), 2, 98, 2, 2, 0], [at(0, 5), 12, 20, 8, 15, 0]], [[at(6, 42), 15, 16, 14, 14.5, 0], [at(6, 43), 3, 97, 3, 3, 0]]], 'X');
+  assert.deepEqual(price, { market: 'X', tf: '5m', open: 10, close: 14.5, high: 20, low: 8 });
+});
+
+test('the average price of a side is its dollars over its coins', () => {
+  // Ten coins bought at 10 and five at 20: $200 for 15 coins, 13.33 a coin (not the 15 a dollar-weighted mean gives).
+  const lines = rangeLines(input({ answer: { ...answer([inst('a:BTC', { band: { buy: 200, sell: 0, buyN: 0, sellN: 0 } })], [[9.5, 100, 0, 0, 0], [19.5, 100, 0, 0, 0]]), step: 1 } }));
+  assert.deepEqual(line(lines, 'avg-price')!.cells, ['Average price', 'bought at 13.33 · sold at –']);
 });
 
 test('the price line gives open to close and the high and low of the chart market', () => {

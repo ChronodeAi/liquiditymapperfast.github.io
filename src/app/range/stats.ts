@@ -8,7 +8,7 @@ import { venueLabel } from '../venues.ts';
 import { clock, price as fmtPrice, usd } from '../format.ts';
 import { t, tn } from '../i18n.ts';
 import { MINUTE, type RangeSelection } from './selection.ts';
-import type { OiBar } from '../store.ts';
+import type { CandleRow, OiBar } from '../store.ts';
 
 /**
  * What the Range panel says about a selection, worked out from what was gathered for it: every number and word here, the panel only lays the
@@ -112,6 +112,41 @@ function priceLines(price: RangeInput['price']): RangeLine[] {
     { key: 'price-range', kind: 'stat', cells: [t('High · low'), `${fmtPrice(price.high)} · ${fmtPrice(price.low)} · ${(price.low > 0 ? (price.high - price.low) / price.low * 100 : 0).toFixed(2)}%`] },
     { key: 'price-of', kind: 'note', tone: 'muted', cells: [t('The price of {market}, from its {tf} candles.', { market: price.market, tf: price.tf })] },
   ];
+}
+
+/** The candles the price line can be read from, finest first, and the most one question asks for. */
+const PRICE_TIMEFRAMES: readonly (readonly [string, number])[] = [['1m', 60_000], ['5m', 300_000], ['15m', 900_000], ['30m', 1_800_000], ['1h', 3_600_000]];
+const MAX_PRICE_BARS = 400;
+
+/** One candle question of the price line: candles of `tf` that start in [from, to). */
+export interface PricePiece { tf: string; from: number; to: number }
+
+/**
+ * The candle questions that cover the minutes [t0, t1) exactly: one of minutes when they fit, else the finest timeframe that fits for the
+ * candles wholly inside, and minutes for the part before the first of them and after the last (a coarser candle there would hold prices
+ * from outside the selection). Null when even hours do not fit (longer than a recording is kept).
+ */
+export function pricePieces(t0: number, t1: number): PricePiece[] | null {
+  const found = PRICE_TIMEFRAMES.find(([, ms]) => (t1 - t0) / ms <= MAX_PRICE_BARS);
+  if (!found) return null;
+  const [tf, ms] = found;
+  if (ms === MINUTE) return [{ tf, from: t0, to: t1 }];
+  const from = Math.ceil(t0 / ms) * ms, to = Math.floor(t1 / ms) * ms, out: PricePiece[] = [];
+  if (t0 < from) out.push({ tf: '1m', from: t0, to: from });
+  if (from < to) out.push({ tf, from, to });
+  if (Math.max(from, to) < t1) out.push({ tf: '1m', from: Math.max(from, to), to: t1 });
+  return out;
+}
+
+/**
+ * Open, close, high and low over the candles of each piece that start inside it, in time order, or null when there are none. Rows are
+ * [start, open, high, low, close, …]; `tf` is the coarsest piece's.
+ */
+export function priceOf(pieces: readonly PricePiece[], answers: readonly (readonly CandleRow[])[], market: string): RangeInput['price'] {
+  const inside = pieces.flatMap((piece, i) => (answers[i] ?? []).filter(r => r[0] >= piece.from && r[0] < piece.to && r[1] > 0 && r[4] > 0)).sort((a, b) => a[0] - b[0]);
+  if (!inside.length) return null;
+  const tf = pieces.find(piece => piece.tf !== '1m')?.tf ?? '1m';
+  return { market, tf, open: inside[0]![1], close: inside[inside.length - 1]![4], high: Math.max(...inside.map(r => r[2])), low: Math.min(...inside.map(r => r[3])) };
 }
 
 /** A market as the coverage line names it: its exchange, and "spot" when the exchange has a perpetual on the map too. */
@@ -310,15 +345,18 @@ function whoLines(answer: RangeAnswer, kind: RangeInput['kind'], total: number):
 }
 
 /**
- * The average price the market buys paid and the market sells got: each row's middle weighted by what traded there, so to within half a
- * row of the answer's step. Null when neither side traded.
+ * The average price the market buys paid and the market sells got: the dollars over the coins, each row's coins being its dollars at the
+ * row's middle price, so to within half a row of the answer's step. Null when neither side traded.
  */
 function averagePrices(answer: RangeAnswer): { buy: string; sell: string } | null {
-  let bought = 0, buyAt = 0, sold = 0, sellAt = 0;
+  let bought = 0, buyCoins = 0, sold = 0, sellCoins = 0;
   const half = answer.step / 2;
-  for (const [low, buy, sell] of answer.rows) { bought += buy; buyAt += (low + half) * buy; sold += sell; sellAt += (low + half) * sell; }
+  for (const [low, buy, sell] of answer.rows) {
+    const mid = low + half; if (!(mid > 0)) continue;
+    bought += buy; buyCoins += buy / mid; sold += sell; sellCoins += sell / mid;
+  }
   if (!(bought + sold > 0)) return null;
-  return { buy: bought > 0 ? fmtPrice(buyAt / bought) : '–', sell: sold > 0 ? fmtPrice(sellAt / sold) : '–' };
+  return { buy: buyCoins > 0 ? fmtPrice(bought / buyCoins) : '–', sell: sellCoins > 0 ? fmtPrice(sold / sellCoins) : '–' };
 }
 
 /** The most bars a profile is drawn with: a box's rows are joined into bars of whole rows until they fit. */

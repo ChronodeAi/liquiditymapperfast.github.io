@@ -1,4 +1,4 @@
-import type { Store, CandleRow } from '../store.ts';
+import type { Store } from '../store.ts';
 import { venueLabel } from '../venues.ts';
 import type { Hub } from '../hub.ts';
 import { el } from '../dom.ts';
@@ -10,7 +10,7 @@ import { flowIds } from '../cvd/ids.ts';
 import { gridStepFor } from '../../shared/grid.ts';
 import { t } from '../i18n.ts';
 import { draftOf, follow, refreshMs, rowStep, snap, type RangeSelection } from './selection.ts';
-import { rangeLines, type RangeInput, type RangeLine } from './stats.ts';
+import { priceOf, pricePieces, rangeLines, type RangeInput, type RangeLine } from './stats.ts';
 import { venueMark } from '../venue-marks.ts';
 import { scaledUsd } from '../coin.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
@@ -70,17 +70,6 @@ function lineNode(line: RangeLine): HTMLElement {
   }
 }
 
-/** The candles the price line can be read from, finest first, and the most it asks for. */
-const PRICE_TIMEFRAMES: readonly (readonly [string, number])[] = [['1m', 60_000], ['5m', 300_000], ['15m', 900_000], ['30m', 1_800_000], ['1h', 3_600_000], ['4h', 14_400_000], ['1d', 86_400_000]];
-const MAX_PRICE_BARS = 400;
-
-/** Open, close, high and low of the candles that start in [from, to), or null when there are none. Rows are [start, open, high, low, close, …]. */
-export function priceOf(rows: readonly CandleRow[], from: number, to: number, market: string, tf: string): RangeInput['price'] {
-  const inside = rows.filter(r => r[0] >= from && r[0] < to && r[1] > 0 && r[4] > 0).sort((a, b) => a[0] - b[0]);
-  if (!inside.length) return null;
-  return { market, tf, open: inside[0]![1], close: inside[inside.length - 1]![4], high: Math.max(...inside.map(r => r[2])), low: Math.min(...inside.map(r => r[3])) };
-}
-
 /** A point of a drag: a time, and on the map a price. */
 export interface RangePoint { t: number; p: number | null }
 
@@ -105,6 +94,9 @@ export class RangeTool {
   /** The selection the open interest belongs to (a new one, or closing, moves it on), whether a request for it is out, and what it answered for. */
   #oiFor = 0;
   #oiBusy = -1;
+  /** The same for the price line: the selection it belongs to, and the one a question is out for. */
+  #priceFor = 0;
+  #priceBusy = -1;
   #oiKey = '';
   #lastMs = 0;
   #timer = 0;
@@ -144,7 +136,7 @@ export class RangeTool {
   stop(): void {
     if (this.#stopping) return;
     this.#stopping = true;
-    window.clearTimeout(this.#timer); this.#timer = 0; this.#asked++; this.#oiFor++;
+    window.clearTimeout(this.#timer); this.#timer = 0; this.#asked++; this.#oiFor++; this.#priceFor++;
     this.#start = null; this.#before = null; this.#input = null;
     this.store.set({ rangeTool: false, range: null });
     this.#panel?.close(); this.#panel = null;
@@ -225,7 +217,7 @@ export class RangeTool {
   /** Gather everything for `sel` and show it; `fresh` when it is a new selection rather than a live one taken again. */
   async #gather(sel: RangeSelection, fresh: boolean): Promise<void> {
     const asked = ++this.#asked;
-    if (fresh) { this.#oiFor++; this.#oiKey = ''; }
+    if (fresh) { this.#oiFor++; this.#oiKey = ''; this.#priceFor++; }
     window.clearTimeout(this.#timer); this.#timer = 0;
     const state = this.store.state, ids = flowIds(state, this.hub.flow.ids);
     const band = sel.p0 !== null && sel.p1 !== null ? { p0: sel.p0, p1: sel.p1 } : null;
@@ -235,13 +227,18 @@ export class RangeTool {
     // The chart market's price across the selection, from its finest candles that fit in one question; it fills in when it comes.
     const priceInst = state.seriesInstrument || state.marketId;
     if (!priceInst) this.#input = { ...this.#input, price: null };
-    else {
-      const [tf, tfMs] = PRICE_TIMEFRAMES.find(([, ms]) => (sel.t1 - sel.t0) / ms <= MAX_PRICE_BARS) ?? PRICE_TIMEFRAMES[PRICE_TIMEFRAMES.length - 1]!;
-      const first = Math.floor(sel.t0 / tfMs) * tfMs, market = `${venueLabel(priceInst)} ${priceInst.split(':').slice(1).join(':')}`;
-      void this.hub.source.candles(priceInst, tf, first, sel.t1).then(rows => priceOf(rows, first, sel.t1, market, tf), () => null).then(price => {
-        if (asked !== this.#asked || !this.#input) return;
-        this.#input = { ...this.#input, price }; this.#render();
-      });
+    else if (this.#priceBusy !== this.#priceFor) {
+      // One question at a time per selection: a live selection asked again every two seconds must not drop each answer for the next.
+      const pieces = pricePieces(sel.t0, sel.t1), priceFor = this.#priceFor, market = `${venueLabel(priceInst)} ${priceInst.split(':').slice(1).join(':')}`;
+      if (!pieces) this.#input = { ...this.#input, price: null };
+      else {
+        this.#priceBusy = priceFor;
+        void Promise.all(pieces.map(piece => this.hub.source.candles(priceInst, piece.tf, piece.from, piece.to))).then(answers => priceOf(pieces, answers, market), () => null).then(price => {
+          if (this.#priceBusy === priceFor) this.#priceBusy = -1;
+          if (priceFor !== this.#priceFor || !this.#input) return;
+          this.#input = { ...this.#input, price }; this.#render();
+        });
+      }
     }
     const started = performance.now(), mark = state.mark.price > 0 ? state.mark.price : band ? (band.p0 + band.p1) / 2 : 0;
     const step = rowStep(sel, gridStepFor(mark > 0 ? mark : 1));
