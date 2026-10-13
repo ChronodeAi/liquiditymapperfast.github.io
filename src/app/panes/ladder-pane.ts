@@ -566,7 +566,7 @@ export class LadderPane {
         const rowLo = (g.bin0 + bin) * step;
         if (o.cover && beyondCover(o.cover, rowLo, step)) break;
         const y = head + r * ROW_H;
-        steps.push([barX + values[bin]! / maxCum * barW, up ? y + ROW_H : y, up ? y : y + ROW_H, bin]);
+        steps.push([barX + Math.min(1, values[bin]! / maxCum) * barW, up ? y + ROW_H : y, up ? y : y + ROW_H, bin]);
       }
       if (!steps.length || !(values[startBin]! > 0)) return;
       ctx.save();
@@ -709,9 +709,11 @@ export class LadderPane {
     const pullRows = pull?.kind === 'rows' ? pull.rows : null;
     let maxPull = 1;
     if (pullRows) for (let i = 0; i < g.nBins; i++) if (!pullRows.touched[i]) for (const v of [pullRows.bid[i]!, pullRows.ask[i]!]) if (v === v) maxPull = Math.max(maxPull, Math.abs(v));
-    if (state.ladderShow !== 'levels') this.#paintCumulative(ctx, g, cum, o, barX, barW, maxCum, weight, !o.curves?.length);
     // The venue lines' scale, and round values on it as faint gridlines behind the bars (it is not the bars' scale, so it needs its own).
     const curves = o.curves ?? [], scale = curves.length ? this.#curveX(g, curves, o, barX, barW) : null, xAt = scale?.x ?? null;
+    // With the lines on, the whole book's area is on their scale too, filling the width where it passes it: on a scale of its own a
+    // venue's line could stand beyond the total it is part of (Karl, 2026-10-13), and the gridlines would hold for only one of them.
+    if (state.ladderShow !== 'levels') this.#paintCumulative(ctx, g, cum, o, barX, barW, scale ? scale.full : maxCum, weight, !o.curves?.length);
     const ticks = scale ? lineTicks(scale.full).map(v => ({ v, x: Math.round(barX + lineFraction(v, scale.full) * barW) + 0.5 })) : [];
     if (ticks.length) {
       ctx.save(); ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.35; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
