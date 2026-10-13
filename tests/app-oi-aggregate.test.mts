@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { heldOiAt, oiChangeByTime, oiPartsUntil, sumOi, type OiPart } from '../src/app/oi-change.ts';
-import { carriedOiDeltas, nlnsSumCandles } from '../src/app/delta/nlns.ts';
 import { fetchOiSample, fetchOiHistory, OI_SAMPLE_VENUES } from '../src/shared/history.ts';
 import { readSettings } from '../src/app/store.ts';
 import type { OiBar } from '../src/app/store.ts';
@@ -39,23 +38,6 @@ test('on a one-minute chart a venue read every five minutes changes in the bar o
   assert.equal(sum.change.get(3 * M), 1, 'Bybit carried, unchanged');
   assert.equal(sum.change.get(10 * M), 0, 'both unchanged: Binance carried at its reading of five minutes before');
   assert.equal(sum.counted.get(10 * M), 2);
-});
-
-test('NL/NS over venues gives each venue\'s change to its own takers, then adds them up', () => {
-  const starts = [0, M, 2 * M];
-  const up = carriedOiDeltas([bar(0, 100), bar(M, 110), bar(2 * M, 130)], starts, M);
-  const down = carriedOiDeltas([bar(0, 200), bar(M, 195), bar(2 * M, 190)], starts, M);
-  assert.deepEqual(up.map(d => d?.dOi ?? null), [null, 10, 20]);
-  const flow = (delta: number) => ({ delta, buy: Math.max(0, delta), sell: Math.max(0, -delta) }) as never;
-  // Venue A: buyers, OI up (new longs +). Venue B: buyers too, OI down (shorts closed +). One with sellers would count against.
-  const candles = nlnsSumCandles(starts, [{ deltas: up, flows: [null, flow(5), flow(-5)] }, { deltas: down, flows: [null, flow(3), flow(3)] }], [0, 0, 0], [0, 0, 0]);
-  assert.deepEqual(candles.map(c => [c.t, c.dOi, c.v]), [[M, 5, 10 + 5], [2 * M, 15, -20 + 5]]);
-  assert.equal(candles[0]!.kind, 'newLongs');
-  assert.equal(candles[1]!.kind, 'newShorts', 'OI up on the sum, given mostly to sellers');
-  assert.equal(candles[1]!.cum, 15 - 15);
-  // Where a venue's flow is not recorded, the chart's price decides, and the candle says so.
-  const byPrice = nlnsSumCandles(starts, [{ deltas: up, flows: [null, null, null] }], [0, -1, 1], [0, 0, 0]);
-  assert.deepEqual(byPrice.map(c => [c.v, c.byPrice]), [[-10, true], [20, true]]);
 });
 
 test('every venue\'s open interest reads in coins: Deribit\'s USD at its own mark, OKX in coins not contracts; Bybit\'s history pages back', async () => {

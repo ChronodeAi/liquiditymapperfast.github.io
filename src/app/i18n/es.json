@@ -1164,12 +1164,6 @@
  "New shorts": "Cortos nuevos",
  "Read as": "Se lee como",
  "no change": "sin cambio",
- "neither": "ninguno",
- "price rose (no flow recorded)": "el precio subió (sin flujo registrado)",
- "price fell (no flow recorded)": "el precio bajó (sin flujo registrado)",
- "buyers at market": "compradores a mercado",
- "sellers at market": "vendedores a mercado",
- "Since the start": "Desde el inicio",
  "since the start": "desde el inicio",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "Una estimación para {market}: el cambio del interés abierto asignado al lado que operó a mercado.",
  "No open interest for this market.": "No hay interés abierto para este mercado.",
@@ -1251,5 +1245,13 @@
   "one": "{n} bolsa más",
   "other": "{n} bolsas más"
  },
- "{n} of {m} venues": "{n} de {m} bolsas"
+ "{n} of {m} venues": "{n} de {m} bolsas",
+ "Both ways": "En ambos sentidos",
+ "takers even": "takers igualados",
+ "Takers even": "Takers igualados",
+ "Longs": "Largos",
+ "Shorts": "Cortos",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "Un mercado leído con menos frecuencia que cada vela: su cambio desde su última lectura se asigna a sus takers en todo ese tramo.",
+ "Where a market's flow is not recorded, the way the price went decides.": "Donde no se registra el flujo de un mercado, decide la dirección del precio.",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "El cambio de un mercado se mide entre sus propias lecturas y se muestra en la vela de su nueva lectura, asignado a sus takers en todo el tramo desde la lectura anterior: un exchange leído solo cada hora (historial antiguo) cambia una vez por hora, y el popup lo indica. Una vela puede tener nuevos largos en un exchange y nuevos cortos en otro; el popup enumera las cuatro partes y lo lee como en ambos sentidos. Deribit cuenta su interés abierto en dólares, así que se pasa a monedas a un solo precio, el último cierre: un movimiento del precio por sí solo no abre ni cierra nada."
 }

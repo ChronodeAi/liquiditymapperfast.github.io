@@ -1173,12 +1173,6 @@
  "New shorts": "Новые шорты",
  "Read as": "Читается как",
  "no change": "без изменения",
- "neither": "ни одна",
- "price rose (no flow recorded)": "цена выросла (поток не записан)",
- "price fell (no flow recorded)": "цена упала (поток не записан)",
- "buyers at market": "покупатели по рынку",
- "sellers at market": "продавцы по рынку",
- "Since the start": "С начала",
  "since the start": "с начала",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "Оценка для {market}: изменение открытого интереса, отнесённое к стороне, торговавшей по рынку.",
  "No open interest for this market.": "Для этого рынка нет открытого интереса.",
@@ -1264,5 +1258,13 @@
   "many": "ещё {n} бирж",
   "other": "ещё {n} биржи"
  },
- "{n} of {m} venues": "бирж: {n} из {m}"
+ "{n} of {m} venues": "бирж: {n} из {m}",
+ "Both ways": "В обе стороны",
+ "takers even": "тейкеры поровну",
+ "Takers even": "Тейкеры поровну",
+ "Longs": "Лонги",
+ "Shorts": "Шорты",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "Рынок читается реже, чем каждая свеча: его изменение с последнего чтения относится к его тейкерам за весь этот отрезок.",
+ "Where a market's flow is not recorded, the way the price went decides.": "Где поток рынка не записан, решает направление цены.",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "Изменение рынка измеряется между его собственными чтениями и показывается в свече нового чтения, относясь к его тейкерам за весь отрезок с предыдущего чтения: биржа, читаемая только раз в час (старая история), меняется раз в час, и всплывающее окно об этом говорит. В одной свече могут быть новые лонги на одной бирже и новые шорты на другой; окно перечисляет четыре части и читает это как в обе стороны. Deribit считает открытый интерес в долларах, поэтому он переводится в монеты по одной цене, последнему закрытию: само движение цены ничего не открывает и не закрывает."
 }

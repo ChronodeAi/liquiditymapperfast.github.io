@@ -1155,12 +1155,6 @@
  "New shorts": "Yeni shortlar",
  "Read as": "Okunuşu",
  "no change": "değişim yok",
- "neither": "hiçbiri",
- "price rose (no flow recorded)": "fiyat yükseldi (akış kaydı yok)",
- "price fell (no flow recorded)": "fiyat düştü (akış kaydı yok)",
- "buyers at market": "piyasa alıcıları",
- "sellers at market": "piyasa satıcıları",
- "Since the start": "Başlangıçtan beri",
  "since the start": "başlangıçtan beri",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "{market} için bir tahmin: açık pozisyon değişimi piyasa emriyle işlem yapan tarafa verilir.",
  "No open interest for this market.": "Bu piyasa için açık pozisyon yok.",
@@ -1238,5 +1232,13 @@
   "one": "{n} borsa daha",
   "other": "{n} borsa daha"
  },
- "{n} of {m} venues": "{m} borsadan {n}"
+ "{n} of {m} venues": "{m} borsadan {n}",
+ "Both ways": "İki yönde",
+ "takers even": "taker'lar eşit",
+ "Takers even": "Taker'lar eşit",
+ "Longs": "Long'lar",
+ "Shorts": "Short'lar",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "Her mumdan daha seyrek okunan bir piyasa: son okumasından bu yana değişimi, o aralığın tamamındaki taker'larına verilir.",
+ "Where a market's flow is not recorded, the way the price went decides.": "Bir piyasanın akışı kaydedilmediği yerde fiyatın yönü karar verir.",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "Bir piyasanın değişimi kendi okumaları arasında ölçülür ve yeni okumasının mumunda gösterilir; önceki okumadan bu yana tüm aralıktaki taker'larına verilir: yalnızca saatte bir okunan bir borsa (eski geçmiş) saatte bir değişir ve açılır pencere bunu söyler. Bir mumda bir borsada yeni long'lar, başka birinde yeni short'lar olabilir; açılır pencere dört parçayı listeler ve iki yönde okur. Deribit açık pozisyonunu dolar olarak sayar, bu yüzden tek bir fiyattan, en yeni kapanıştan coin'e çevrilir: fiyatın tek başına hareketi hiçbir şey açmaz ya da kapatmaz."
 }

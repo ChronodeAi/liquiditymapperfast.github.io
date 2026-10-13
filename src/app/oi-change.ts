@@ -1,4 +1,4 @@
-import type { OiBar } from './store.ts';
+import type { CandleRow, OiBar } from './store.ts';
 
 /**
  * The change in open interest that each bar stands for: its close minus the close of the bar before it (the first bar has none, so 0).
@@ -82,6 +82,29 @@ export function oiPartsUntil(parts: readonly OiPart[], tfMs: number, until: numb
   if (held && held.tfMs === tfMs && held.until === until) return held.parts;
   const out = parts.map(part => ({ id: part.id, bars: part.bars.filter(b => b[0] + tfMs <= until) }));
   cuts.set(parts, { tfMs, until, parts: out });
+  return out;
+}
+
+/** A market whose open interest is counted in USD (Deribit's BTC and ETH perpetuals): its readings come as coins at each reading's price. */
+export const inverseOi = (id: string): boolean => /^deribit:[A-Z]+-PERPETUAL$/.test(id);
+/**
+ * An inverse market's bars in coins at one price, the newest close of `candles` (oldest first): read as coins at each reading's price, its
+ * open interest would move with the price while no contract opened or closed (a 2 % move would read as 2 % of it opened or closed). Each
+ * reading is put back into USD at the close of its candle (the nearest before it where the candle is missing) and divided by that one price;
+ * bars before the first candle are left out. Without candles the bars are returned as they are.
+ */
+export function atOnePrice(bars: readonly OiBar[], candles: readonly CandleRow[]): readonly OiBar[] {
+  const now = candles[candles.length - 1]?.[4];
+  if (!(now! > 0)) return bars;
+  const out: OiBar[] = [];
+  let k = 0;
+  for (const bar of [...bars].sort((a, b) => a[0] - b[0])) {
+    while (k + 1 < candles.length && candles[k + 1]![0] <= bar[0]) k++;
+    const c = candles[k]!;
+    if (c[0] > bar[0] || !(c[4] > 0)) continue;
+    const f = c[4] / now!;
+    out.push([bar[0], bar[1] * f, bar[2] * f, bar[3] * f, bar[4] * f]);
+  }
   return out;
 }
 

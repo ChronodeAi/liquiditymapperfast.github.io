@@ -3,96 +3,89 @@ import { clock, usd } from '../format.ts';
 import type { InfoLine } from '../infobox.ts';
 import type { OiBar } from '../store.ts';
 import type { CandleFlow } from './candles.ts';
-import { heldOiAt } from '../oi-change.ts';
+import { OI_HOLD_MS, heldOiAt } from '../oi-change.ts';
 
 /**
- * NL/NS: an estimate of who opened and closed positions in each candle. Every position has a long and a short holder, so open interest
- * cannot say which side was new; this assigns each candle's change of open interest to the side that traded at market (the taker delta of
- * the same market, or, where its flow is not recorded, the way its price went). Open interest up with buyers: new longs; up with sellers:
- * new shorts; down with sellers: longs closed; down with buyers: shorts closed. The value `v` is that change signed by the side (new longs
- * and shorts closed are +, new shorts and longs closed are −); its running sum is the net positioning of the side that traded at market.
+ * NL/NS: an estimate of who opened and closed positions. Every position has a long and a short holder, so open interest cannot say which
+ * side was new; this gives each change of open interest to the side that traded at market on the same market over the same stretch (its
+ * taker delta, or, where its flow is not recorded, the way the chart's price went). Up with buyers: longs opened; up with sellers: shorts
+ * opened; down with sellers: longs closed; down with buyers: shorts closed.
+ *
+ * A market's change is measured between its own readings (its bars), never between values carried from one: a venue read every five minutes
+ * (or hourly, in older history) changes once, by the whole step, in the candle of its new reading, and that step is given to its takers over
+ * the whole stretch since the reading before, and marked coarse when that stretch is longer than a candle. Markets are each classified first
+ * and then added up, so in one candle a venue's new longs and another's new shorts both show, and new longs beside shorts closed are +2 for
+ * the longs side even when the open interest did not change.
  */
 
 export type NlnsKind = 'newLongs' | 'newShorts' | 'longsClosed' | 'shortsClosed';
 export interface NlnsCandle {
   t: number;
-  /** The change of open interest over the candle (coins) and what it was at the candle's start. */
+  /** The change of open interest attributed in this candle (coins) and what it was before, over the markets counted. */
   dOi: number; oiStart: number;
-  /** +1 buyers, −1 sellers, 0 neither; `byPrice` when it is the price's way, not the taker delta. */
-  side: 1 | -1 | 0; byPrice: boolean;
-  v: number; kind: NlnsKind | null;
-  /** The running sum of `v` from the last restart, and which run it is in. */
-  cum: number; run: number;
+  /** The four parts (coins, none negative), and changes that went to neither side (the takers came out even). */
+  longOpened: number; longClosed: number; shortOpened: number; shortClosed: number; unassigned: number;
+  /** Longs opened less closed, shorts opened less closed, and the net of the two (`v = longs − shorts`). */
+  longs: number; shorts: number; v: number;
+  /** The largest part, or `mixed` when parts pulled both ways (new longs or shorts closed beside new shorts or longs closed); null when nothing was attributed. */
+  kind: NlnsKind | 'mixed' | null;
+  /** +1 the net went to longs, −1 to shorts, 0 neither; `byPrice`: some market was classified by the chart's price; `coarse`: some change
+   *  covered more than this candle (readings further apart than a candle). */
+  side: 1 | -1 | 0; byPrice: boolean; coarse: boolean;
+  /** Markets whose open interest is known at this candle, and those with a change attributed in it. */
+  covered: number; counted: number;
+  /** Running sums from the last restart (of `v`, `longs`, `shorts`) and which run it is in. */
+  cum: number; cumLongs: number; cumShorts: number; run: number;
 }
 
-/** Each candle's change of open interest from the close of the candle before to its own (bars on the chart's timeframe); null across a gap. */
-export function oiDeltas(bars: readonly OiBar[], starts: readonly number[], tfMs: number): ({ dOi: number; oiStart: number } | null)[] {
-  const close = new Map<number, number>();
-  for (const b of bars) close.set(b[0], b[4]);
-  return starts.map(t => {
-    const before = close.get(t - tfMs), now = close.get(t);
-    return before !== undefined && now !== undefined ? { dOi: now - before, oiStart: before } : null;
-  });
-}
-
-/** The candles: `flows` are the OI market's taker flow per candle (null where not recorded), `priceWay` its price's way (+1, −1, 0). */
-export function nlnsCandles(starts: readonly number[], deltas: readonly ({ dOi: number; oiStart: number } | null)[], flows: readonly (CandleFlow | null)[],
-  priceWay: readonly number[], keys: readonly number[]): NlnsCandle[] {
-  const out: NlnsCandle[] = [];
-  let cum = 0, key = NaN, gap = true, run = -1;
-  for (let i = 0; i < starts.length; i++) {
-    const d = deltas[i];
-    if (!d) { gap = true; continue; }
-    if (keys[i] !== key || gap) { cum = 0; key = keys[i]!; gap = false; run++; }
-    // The market's own flow decides, even when it came out even (neither side); the price's way only where no flow is recorded.
-    const flow = flows[i], byFlow = flow ? Math.sign(flow.delta) : 0, byPrice = flow ? 0 : Math.sign(priceWay[i] ?? 0);
-    const side = (flow ? byFlow : byPrice) as 1 | -1 | 0, v = side * Math.abs(d.dOi);
-    const kind: NlnsKind | null = side === 0 || d.dOi === 0 ? null : d.dOi > 0 ? (side > 0 ? 'newLongs' : 'newShorts') : (side > 0 ? 'shortsClosed' : 'longsClosed');
-    cum += v;
-    out.push({ t: starts[i]!, dOi: d.dOi, oiStart: d.oiStart, side, byPrice: !flow && byPrice !== 0, v, kind, cum, run });
-  }
-  return out;
-}
+/** One market for NL/NS: its open-interest bars on the chart's timeframe, and its taker flow per candle (aligned to the candle starts; null where not recorded). */
+export interface NlnsMarket { bars: readonly OiBar[]; flows: readonly (CandleFlow | null)[] }
 
 /**
- * One venue's change of open interest per candle as `oiDeltas`, with its last reading held where it has no bar, as the OI pane's sum holds it
- * (`heldOiAt`): open interest is a level, and a bar it was not read in is not a bar it changed in.
+ * The candles from `starts` (the chart's candle starts, oldest first): `closes` are the chart's candle closes by start (the price's way where a
+ * market's flow is not recorded; empty when the chart's candles are another market's), `keys` the running sums' restart keys (they restart
+ * where the key changes, and after a candle no market covers).
  */
-export function carriedOiDeltas(bars: readonly OiBar[], starts: readonly number[], tfMs: number, carryMs = Math.max(2 * tfMs, 10 * 60_000)): ({ dOi: number; oiStart: number } | null)[] {
-  const sorted = [...bars].sort((a, b) => a[0] - b[0]);
-  const closeAt = (t: number): number | undefined => heldOiAt(sorted, t, carryMs)?.[4];
-  return starts.map(t => {
-    const before = closeAt(t - tfMs), now = closeAt(t);
-    return before !== undefined && now !== undefined ? { dOi: now - before, oiStart: before } : null;
-  });
-}
-
-/**
- * NL/NS over several venues: each venue's change of open interest given to the side that traded at market on that venue (its own flow; the
- * chart's price where its flow is not recorded), then added up per candle. Never the venues' summed change against their summed delta: one
- * venue's buyers say nothing about who opened positions on another. A candle counts the venues with a change there; one with none is a gap.
- */
-export function nlnsSumCandles(starts: readonly number[], venues: readonly { deltas: readonly ({ dOi: number; oiStart: number } | null)[]; flows: readonly (CandleFlow | null)[] }[],
-  priceWay: readonly number[], keys: readonly number[]): NlnsCandle[] {
-  const out: NlnsCandle[] = [];
-  let cum = 0, key = NaN, gap = true, run = -1;
-  for (let i = 0; i < starts.length; i++) {
-    let dOi = 0, oiStart = 0, v = 0, counted = 0, byPrice = false;
-    for (const venue of venues) {
-      const d = venue.deltas[i]; if (!d) continue;
-      counted++; dOi += d.dOi; oiStart += d.oiStart;
-      const flow = venue.flows[i], side = flow ? Math.sign(flow.delta) : Math.sign(priceWay[i] ?? 0);
-      if (!flow && side !== 0) byPrice = true;
-      v += side * Math.abs(d.dOi);
+export function nlnsModel(starts: readonly number[], markets: readonly NlnsMarket[], closes: ReadonlyMap<number, number>, keys: readonly number[], tfMs: number,
+  holdMs = OI_HOLD_MS): NlnsCandle[] {
+  const index = new Map(starts.map((s, i) => [s, i] as const));
+  const parts = starts.map(() => ({ dOi: 0, oiStart: 0, lo: 0, lc: 0, so: 0, sc: 0, un: 0, byPrice: false, coarse: false, counted: 0 }));
+  const carry = Math.max(2 * tfMs, 10 * 60_000), covered = new Array<number>(starts.length).fill(0);
+  const closeAt = (time: number): number | undefined => { let best: number | undefined; for (let s = time; s >= time - holdMs; s -= tfMs) { best = closes.get(s); if (best !== undefined) break; } return best; };
+  for (const market of markets) {
+    const bars = [...market.bars].sort((a, b) => a[0] - b[0]);
+    starts.forEach((s, i) => { if (heldOiAt(bars, s, carry, holdMs)) covered[i]!++; });
+    for (let k = 1; k < bars.length; k++) {
+      const before = bars[k - 1]!, now = bars[k]!, i = index.get(now[0]);
+      if (i === undefined || now[0] - before[0] > holdMs) continue;
+      const d = now[4] - before[4], p = parts[i]!;
+      p.counted++; p.dOi += d; p.oiStart += before[4];
+      if (now[0] - before[0] > tfMs) p.coarse = true;
+      if (d === 0) continue;
+      // The market's takers over the whole stretch since its reading before (the candles after it, up to and including this one).
+      let delta = 0, seen = false;
+      for (let j = i; j >= 0 && starts[j]! > before[0]; j--) { const f = market.flows[j]; if (f) { delta += f.delta; seen = true; } }
+      let side = seen ? Math.sign(delta) : 0;
+      if (!seen) { const a = closeAt(before[0]), b = closeAt(now[0]); if (a !== undefined && b !== undefined) { side = Math.sign(b - a); if (side) p.byPrice = true; } }
+      const size = Math.abs(d);
+      if (side === 0) p.un += size;
+      else if (d > 0) { if (side > 0) p.lo += size; else p.so += size; }
+      else if (side < 0) p.lc += size; else p.sc += size;
     }
-    if (!counted) { gap = true; continue; }
-    if (keys[i] !== key || gap) { cum = 0; key = keys[i]!; gap = false; run++; }
-    // What the candle reads as follows the sum: open interest up or down, and which side the venues' assignments came to.
-    const side = Math.sign(v) as 1 | -1 | 0;
-    const kind: NlnsKind | null = side === 0 || dOi === 0 ? null : dOi > 0 ? (side > 0 ? 'newLongs' : 'newShorts') : (side > 0 ? 'shortsClosed' : 'longsClosed');
-    cum += v;
-    out.push({ t: starts[i]!, dOi, oiStart, side, byPrice, v, kind, cum, run });
   }
+  const out: NlnsCandle[] = [];
+  let cum = 0, cumLongs = 0, cumShorts = 0, key = NaN, gap = true, run = -1;
+  starts.forEach((s, i) => {
+    if (!covered[i]) { gap = true; return; }
+    if (keys[i] !== key || gap) { cum = 0; cumLongs = 0; cumShorts = 0; key = keys[i]!; gap = false; run++; }
+    const p = parts[i]!, longs = p.lo - p.lc, shorts = p.so - p.sc, v = longs - shorts;
+    const named: [NlnsKind, number][] = [['newLongs', p.lo], ['longsClosed', p.lc], ['newShorts', p.so], ['shortsClosed', p.sc]];
+    const nonzero = named.filter(([, x]) => x > 0), bothWays = (p.lo + p.sc > 0) && (p.so + p.lc > 0);
+    const kind: NlnsCandle['kind'] = !nonzero.length ? null : bothWays ? 'mixed' : nonzero.sort((a, b) => b[1] - a[1])[0]![0];
+    cum += v; cumLongs += longs; cumShorts += shorts;
+    out.push({ t: s, dOi: p.dOi, oiStart: p.oiStart, longOpened: p.lo, longClosed: p.lc, shortOpened: p.so, shortClosed: p.sc, unassigned: p.un, longs, shorts, v, kind,
+      side: Math.sign(v) as 1 | -1 | 0, byPrice: p.byPrice, coarse: p.coarse, covered: covered[i]!, counted: p.counted, cum, cumLongs, cumShorts, run });
+  });
   return out;
 }
 
@@ -102,19 +95,32 @@ export function coinText(v: number, coin: string): string {
   return `${v > 0 ? '+' : v < 0 ? '−' : ''}${body}${coin ? ` ${coin}` : ''}`;
 }
 
-const KIND_TEXT: Record<NlnsKind, () => string> = {
-  newLongs: () => t('New longs'), newShorts: () => t('New shorts'), longsClosed: () => t('Longs closed'), shortsClosed: () => t('Shorts closed'),
+const KIND_TEXT: Record<NlnsKind | 'mixed', () => string> = {
+  newLongs: () => t('New longs'), newShorts: () => t('New shorts'), longsClosed: () => t('Longs closed'), shortsClosed: () => t('Shorts closed'), mixed: () => t('Both ways'),
 };
 
-/** The popup of one candle: the change of open interest (and its share of it), what it is read as and from what, and the running sum. */
-export function nlnsCardLines(c: NlnsCandle, tf: string, coin: string, market: string): InfoLine[] {
+/**
+ * The popup of one candle: the change of open interest (and its share of it), its parts, what they come to for each side, the running sums,
+ * and how it was read (the price where no flow was recorded, a stretch longer than the candle, markets that had no reading in it).
+ */
+export function nlnsCardLines(c: NlnsCandle, tf: string, coin: string, market: string, markets = 1): InfoLine[] {
   const share = c.oiStart > 0 ? ` · ${c.dOi >= 0 ? '+' : '−'}${(Math.abs(c.dOi) / c.oiStart * 100).toFixed(2)}%` : '';
-  return [
+  const lines: InfoLine[] = [
     { text: `${clock(c.t, true)} · ${tf}`, bold: true },
     { label: t('Open interest'), text: `${coinText(c.dOi, coin)}${share}`, bold: true },
-    { label: t('Read as'), text: c.kind ? KIND_TEXT[c.kind]() : t('no change'), color: c.v > 0 ? 'buy' : c.v < 0 ? 'sell' : 'text' },
-    { label: t('Side'), text: c.side === 0 ? t('neither') : c.byPrice ? (c.side > 0 ? t('price rose (no flow recorded)') : t('price fell (no flow recorded)')) : (c.side > 0 ? t('buyers at market') : t('sellers at market')), color: 'muted' },
-    { label: t('Since the start'), text: coinText(c.cum, coin), color: c.cum > 0 ? 'buy' : c.cum < 0 ? 'sell' : 'text' },
-    { text: t('An estimate for {market}: the change of open interest given to the side that traded at market.', { market }), color: 'muted' },
+    { label: t('Read as'), text: c.kind ? KIND_TEXT[c.kind]() : c.unassigned > 0 ? t('takers even') : t('no change'), color: c.v > 0 ? 'buy' : c.v < 0 ? 'sell' : 'text' },
   ];
+  for (const [label, x, color] of [[t('New longs'), c.longOpened, 'buy'], [t('Longs closed'), -c.longClosed, 'sell'], [t('New shorts'), c.shortOpened, 'sell'], [t('Shorts closed'), -c.shortClosed, 'buy']] as const)
+    if (x !== 0) lines.push({ label, text: coinText(x, coin), color });
+  if (c.unassigned > 0) lines.push({ label: t('Takers even'), text: coinText(c.unassigned, coin), color: 'muted' });
+  lines.push(
+    { label: t('Longs'), text: `${coinText(c.longs, coin)} · ${t('since the start')} ${coinText(c.cumLongs, coin)}`, color: c.longs > 0 ? 'buy' : c.longs < 0 ? 'sell' : 'text', rule: true },
+    { label: t('Shorts'), text: `${coinText(c.shorts, coin)} · ${t('since the start')} ${coinText(c.cumShorts, coin)}`, color: c.shorts > 0 ? 'sell' : c.shorts < 0 ? 'buy' : 'text' },
+    { label: t('Net'), text: `${coinText(c.v, coin)} · ${t('since the start')} ${coinText(c.cum, coin)}`, color: c.cum > 0 ? 'buy' : c.cum < 0 ? 'sell' : 'text' },
+  );
+  if (markets > 1 && c.covered < markets) lines.push({ text: t('{n} of {m} venues', { n: c.covered, m: markets }), color: 'muted' });
+  if (c.coarse) lines.push({ text: t('A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.'), color: 'muted', wrap: true });
+  if (c.byPrice) lines.push({ text: t('Where a market\'s flow is not recorded, the way the price went decides.'), color: 'muted', wrap: true });
+  lines.push({ text: t('An estimate for {market}: the change of open interest given to the side that traded at market.', { market }), color: 'muted', wrap: true });
+  return lines;
 }

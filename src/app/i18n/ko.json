@@ -1128,12 +1128,6 @@
  "New shorts": "신규 숏",
  "Read as": "해석",
  "no change": "변화 없음",
- "neither": "없음",
- "price rose (no flow recorded)": "가격 상승 (흐름 기록 없음)",
- "price fell (no flow recorded)": "가격 하락 (흐름 기록 없음)",
- "buyers at market": "시장가 매수자",
- "sellers at market": "시장가 매도자",
- "Since the start": "시작부터",
  "since the start": "시작부터",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "{market} 추정치: 미결제약정 변화를 시장가로 거래한 쪽에 배정했습니다.",
  "No open interest for this market.": "이 시장의 미결제약정이 없습니다.",
@@ -1201,5 +1195,13 @@
  "{n} more venues": {
   "other": "그 밖의 거래소 {n}개"
  },
- "{n} of {m} venues": "거래소 {m}개 중 {n}개"
+ "{n} of {m} venues": "거래소 {m}개 중 {n}개",
+ "Both ways": "양방향",
+ "takers even": "테이커 균형",
+ "Takers even": "테이커 균형",
+ "Longs": "롱",
+ "Shorts": "숏",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "캔들마다보다 드물게 읽히는 시장: 마지막 읽기 이후의 변화는 그 구간 전체의 테이커에게 배정됩니다.",
+ "Where a market's flow is not recorded, the way the price went decides.": "시장의 플로우가 기록되지 않은 곳에서는 가격이 움직인 방향으로 정합니다.",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "시장의 변화는 그 시장 자체의 읽기 사이에서 측정되어 새 읽기의 캔들에 표시되며, 이전 읽기 이후 구간 전체의 테이커에게 배정됩니다. 한 시간에 한 번만 읽히는 거래소(오래된 기록)는 한 시간에 한 번 바뀌며, 팝업이 그렇게 알려 줍니다. 한 캔들에 한 거래소의 신규 롱과 다른 거래소의 신규 숏이 함께 있을 수 있습니다. 팝업은 네 부분을 나열하고 양방향으로 읽습니다. Deribit은 미결제약정을 달러로 세므로 하나의 가격, 최신 종가로 코인으로 환산합니다. 가격 움직임만으로는 아무것도 열리거나 닫히지 않습니다."
 }

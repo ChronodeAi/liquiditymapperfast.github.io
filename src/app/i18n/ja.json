@@ -1128,12 +1128,6 @@
  "New shorts": "新規ショート",
  "Read as": "解釈",
  "no change": "変化なし",
- "neither": "どちらでもない",
- "price rose (no flow recorded)": "価格が上昇（フロー記録なし）",
- "price fell (no flow recorded)": "価格が下落（フロー記録なし）",
- "buyers at market": "成行の買い手",
- "sellers at market": "成行の売り手",
- "Since the start": "開始から",
  "since the start": "開始から",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "{market} の推定：建玉の変化を成行で取引した側に割り当てたもの。",
  "No open interest for this market.": "この市場の建玉はありません。",
@@ -1201,5 +1195,13 @@
  "{n} more venues": {
   "other": "ほか {n} 取引所"
  },
- "{n} of {m} venues": "{m} 取引所中 {n}"
+ "{n} of {m} venues": "{m} 取引所中 {n}",
+ "Both ways": "両方向",
+ "takers even": "テイカーは均衡",
+ "Takers even": "テイカーは均衡",
+ "Longs": "ロング",
+ "Shorts": "ショート",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "ローソク足ごとより低い頻度で読まれる市場：前回の読み取りからの変化は、その区間全体のテイカーに割り当てられます。",
+ "Where a market's flow is not recorded, the way the price went decides.": "市場のフローが記録されていない場合は、価格の動いた方向で判断します。",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "市場の変化はその市場自身の読み取りの間で測り、新しい読み取りのローソク足に表示し、前回の読み取りからの区間全体のテイカーに割り当てます。1時間ごとにしか読まれない取引所（古い履歴）は1時間に1回変化し、ポップアップにそう表示されます。1本のローソク足に、ある取引所の新規ロングと別の取引所の新規ショートが含まれることがあります。ポップアップは4つの内訳を示し、両方向と読みます。Deribitは建玉をドルで数えるため、1つの価格（最新の終値）でコインに換算します。価格の動きだけでは何も建てたり決済したりしません。"
 }

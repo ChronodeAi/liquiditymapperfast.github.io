@@ -4,13 +4,13 @@ import { PrintBook, fromWire, type Print } from './prints.ts';
 import { LiquidationBook, fromWire as liquidationFromWire } from './liquidations.ts';
 import { LIQUIDATIONS_PER_ANSWER } from '../shared/liquidations.ts';
 import { FlowBook } from './flow-book.ts';
-import type { AppState, Store, CandleRow } from './store.ts';
+import type { AppState, Store, CandleRow, OiBar } from './store.ts';
 import type { WorkerIn, WorkerOut, RasterStats } from './worker/raster.worker.ts';
 import type { CellShare } from './cell-sources.ts';
 import type { Bounds } from './view.ts';
 import type { LtParams, LtSeries } from './lt.ts';
 import { pickOi, weakOi, type OiCandidate } from './oi-source.ts';
-import { oiSumOf } from './oi-change.ts';
+import { atOnePrice, inverseOi, oiSumOf } from './oi-change.ts';
 import { flowIds } from './cvd/ids.ts';
 import { aggregateIds } from './cvd/model.ts';
 import { kindOf } from './scope.ts';
@@ -358,7 +358,7 @@ export class Hub {
     // Added together: every venue's bars, asked for at once. Only the venues the filter and the chips let through count: with one answering
     // its own bars are shown, with none nothing (never a market left out standing in).
     if (state.oiMarkets === 'all') {
-      const parts = (await Promise.all(venues.map(async id => ({ id, bars: await this.source.oi(id, timeframe, from, to).catch(() => []) })))).filter(part => part.bars.length);
+      const parts = (await Promise.all(venues.map(async id => ({ id, bars: this.#inCoins(id, await this.source.oi(id, timeframe, from, to).catch(() => [])) })))).filter(part => part.bars.length);
       if (this.#oiKey !== key || generation !== this.#oiGen) return;
       if (parts.length > 1) this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts });
       else this.store.set({ oi: parts[0]?.bars ?? [], oiInstrument: parts[0]?.id ?? '', oiParts: [] });
@@ -368,13 +368,16 @@ export class Hub {
     const candidates: OiCandidate[] = [];
     for (const inst of ids) {
       const bars = await this.source.oi(inst, timeframe, from, to).catch(() => []);
-      candidates.push({ inst, bars });
+      candidates.push({ inst, bars: this.#inCoins(inst, bars) });
       if (!weakOi(bars, now, tf)) break;
     }
     if (this.#oiKey !== key || generation !== this.#oiGen) return;
     const chosen = pickOi(candidates, now, tf);
     if (chosen) this.store.set({ oi: chosen.bars, oiInstrument: chosen.inst, oiParts: [] });
   }
+
+  /** A market's open interest as the panes count it: an inverse market's (counted in USD) in coins at one price (`atOnePrice`), the candles on screen's newest close. */
+  #inCoins(id: string, bars: OiBar[]): OiBar[] { return inverseOi(id) ? [...atOnePrice(bars, this.store.state.candles)] : bars; }
 
   /**
    * Make sure the print book covers `view` with the orders from `minUsd` (history is fetched once per window and smallest size; the live

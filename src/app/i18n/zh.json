@@ -1128,12 +1128,6 @@
  "New shorts": "新开空头",
  "Read as": "解读",
  "no change": "无变化",
- "neither": "都不是",
- "price rose (no flow recorded)": "价格上涨（无资金流记录）",
- "price fell (no flow recorded)": "价格下跌（无资金流记录）",
- "buyers at market": "市价买方",
- "sellers at market": "市价卖方",
- "Since the start": "自开始以来",
  "since the start": "自开始以来",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "{market} 的估算：把未平仓量的变化归给以市价成交的一方。",
  "No open interest for this market.": "此市场没有未平仓量。",
@@ -1201,5 +1195,13 @@
  "{n} more venues": {
   "other": "另外 {n} 个交易所"
  },
- "{n} of {m} venues": "{m} 个交易所中的 {n} 个"
+ "{n} of {m} venues": "{m} 个交易所中的 {n} 个",
+ "Both ways": "双向",
+ "takers even": "主动方持平",
+ "Takers even": "主动方持平",
+ "Longs": "多头",
+ "Shorts": "空头",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "读取频率低于每根K线的市场：自上次读取以来的变化，归于整段时间内的主动方。",
+ "Where a market's flow is not recorded, the way the price went decides.": "市场的流量未被记录时，由价格的方向决定。",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "市场的变化在其自身的两次读取之间测量，显示在新读取所在的K线上，并归于上次读取以来整段时间内的主动方：只按小时读取的交易所（较早的历史）每小时变化一次，弹窗会说明。一根K线可以同时有一个交易所的新多头和另一个交易所的新空头；弹窗列出四个部分，并读作双向。Deribit 以美元计持仓量，因此按一个价格（最新收盘价）换算为币：仅价格变动不会开仓或平仓。"
 }

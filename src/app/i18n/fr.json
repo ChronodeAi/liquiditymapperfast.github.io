@@ -1164,12 +1164,6 @@
  "New shorts": "Nouveaux shorts",
  "Read as": "Lu comme",
  "no change": "aucune variation",
- "neither": "aucun",
- "price rose (no flow recorded)": "le prix a monté (aucun flux enregistré)",
- "price fell (no flow recorded)": "le prix a baissé (aucun flux enregistré)",
- "buyers at market": "acheteurs au marché",
- "sellers at market": "vendeurs au marché",
- "Since the start": "Depuis le début",
  "since the start": "depuis le début",
  "An estimate for {market}: the change of open interest given to the side that traded at market.": "Une estimation pour {market} : la variation de l’intérêt ouvert attribuée au côté qui a traité au marché.",
  "No open interest for this market.": "Pas d’intérêt ouvert pour ce marché.",
@@ -1251,5 +1245,13 @@
   "one": "{n} autre plateforme",
   "other": "{n} autres plateformes"
  },
- "{n} of {m} venues": "{n} plateformes sur {m}"
+ "{n} of {m} venues": "{n} plateformes sur {m}",
+ "Both ways": "Dans les deux sens",
+ "takers even": "takers à égalité",
+ "Takers even": "Takers à égalité",
+ "Longs": "Longs",
+ "Shorts": "Shorts",
+ "A market read less often than every candle: its change since its last reading is given to its takers over that whole stretch.": "Un marché relevé moins souvent qu'à chaque bougie : sa variation depuis son dernier relevé est attribuée à ses takers sur toute cette période.",
+ "Where a market's flow is not recorded, the way the price went decides.": "Là où le flux d'un marché n'est pas enregistré, le sens du prix décide.",
+ "A market's change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.": "La variation d'un marché est mesurée entre ses propres relevés et montrée dans la bougie de son nouveau relevé, attribuée à ses takers sur toute la période depuis le relevé précédent : une plateforme relevée seulement toutes les heures (historique ancien) change une fois par heure, et la fenêtre le dit. Une bougie peut contenir de nouveaux longs sur une plateforme et de nouveaux shorts sur une autre ; la fenêtre liste les quatre parts et la lit comme dans les deux sens. Deribit compte son open interest en dollars : il est converti en coins à un seul prix, la dernière clôture, si bien qu'un mouvement du prix seul n'ouvre ni ne ferme rien."
 }
