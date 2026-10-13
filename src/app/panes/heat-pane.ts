@@ -26,8 +26,8 @@ import { venueLabel } from '../venues.ts';
 import { describeSources } from '../cell-sources.ts';
 import { anomalies, type Anomalies } from '../anomaly.ts';
 import { paintWatermark } from '../watermark.ts';
-import { FootprintData, FootprintLod, candleBody, footprintLayout, paintFootprint, rowCellAt, rowCellLines, visibilityFactor, type Bar as FootprintBar, type LodFrame, type RowCell } from './footprint.ts';
-import { paintInfoBox, type InfoLine } from '../infobox.ts';
+import { FootprintData, FootprintLod, VENUE_LINES, candleBody, footprintLayout, paintFootprint, rowCellAt, rowCellLines, visibilityFactor, type Bar as FootprintBar, type LodFrame, type RowCell } from './footprint.ts';
+import { layoutInfo, paintInfoBox, type InfoLine } from '../infobox.ts';
 import { TrapData, trapStatusText, trapText, type Trap } from '../traps.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type PinchInfo, type Pt } from '../touch.ts';
 import { PRICE_SPAN_SHARE, TIME_SPAN_MS, holdPixel, limitFactor, regionAt, wheelAxis } from './heat-zoom.ts';
@@ -1334,7 +1334,11 @@ export class HeatPane {
     ctx.save(); ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.globalAlpha = 0.9; ctx.strokeRect(Math.round(hit.x) + 0.5, Math.round(hit.y) + 0.5, Math.max(1, Math.round(hit.w) - 1), Math.max(1, Math.round(hit.h)));
     ctx.restore();
     const state = this.store.state, diagonal = state.footprint.diagonal ? this.#footprintMarks.get(this.#footprint, state.barStatOptions).get(hit.bar.t)?.flags.get(hit.cell.low) : undefined;
-    paintInfoBox(ctx, rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, this.footprintMarkets(state).length), x, y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
+    // As many of the row's venues by name as the pane has room for (a short map, a phone with another pane open): the rest go together.
+    const markets = this.footprintMarkets(state).length;
+    let venueLines = VENUE_LINES, lines = rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, markets, venueLines);
+    while (venueLines > 0 && layoutInfo(() => 0, lines).height > ph - 8) lines = rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, markets, --venueLines);
+    paintInfoBox(ctx, lines, x, y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
   }
 
   #paintTrapPopup(ctx: CanvasRenderingContext2D, trap: Trap, x: number, y: number, pw: number, ph: number, touch = false): void {

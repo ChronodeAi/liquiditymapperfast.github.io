@@ -123,3 +123,12 @@ test('a row\'s popup names its venues, the most volume first, with what each sol
   assert.deepEqual(lines.map(l => l.mark), ['binance:BTCUSDT', 'okx:BTC-USDT-SWAP', 'bybit:BTCUSDT']);
   assert.deepEqual(lines.map(l => l.color), ['buy', 'sell', 'buy']);
 });
+
+test('a row only one market traded still says whose it is, and a short pane names fewer venues and puts the rest together', () => {
+  const one = readBar({ t: 0, rows: [[100, 5e3, 0]], buyUsd: 5e3, sellUsd: 0, venueRows: [[0, 5e3, 0]] }, 0, ['bybit:BTCUSDT']);
+  assert.deepEqual(rowCellLines(rowCellAt(one, 5, 101)!, one, 5, '1h', undefined, 3).filter(l => l.mark).map(l => l.mark), ['bybit:BTCUSDT']);
+  const many = readBar({ t: 0, rows: [[100, 30e3, 6e3]], buyUsd: 30e3, sellUsd: 6e3, venueRows: [[0, 10e3, 1e3, 1, 9e3, 2e3, 2, 8e3, 3e3, 3, 3e3, 0]] }, 0, ['a:X', 'b:X', 'c:X', 'd:X']);
+  const short = rowCellLines(rowCellAt(many, 5, 101)!, many, 5, '1h', undefined, 4, 1);
+  assert.deepEqual(short.filter(l => l.mark).map(l => l.mark), ['a:X']);
+  assert.ok(short.some(l => l.label === '3 more venues'), 'the rest together');
+});

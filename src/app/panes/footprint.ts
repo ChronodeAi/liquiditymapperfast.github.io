@@ -331,7 +331,8 @@ export function paintFootprint(ctx: CanvasRenderingContext2D, data: FootprintDat
         const alpha = (p.dark ? 0.9 : 0.62) * lod.barAlpha; ctx.fillStyle = side === 'buy' ? p.candleUp : p.candleDown;
         const barWidth = Math.max(2, Math.min(layout.colWidth, layout.colWidth * Math.max(buy, sell) / maxSide));
         const parts = bar.parts?.[r];
-        if (parts && parts.length > 1 && data.venueOrder.length) {
+        // Every row of markets added together says whose it is, a row only one of them traded included.
+        if (parts?.length && data.venueOrder.length) {
           const spans = !numbers ? [] : mode === 'split'
             ? [[split - 3 - ctx.measureText(volText(sell)).width, split - 2], [split + 2, split + 3 + ctx.measureText(volText(buy)).width]]
             : (w => [[(left + right - w) / 2 - 2, (left + right + w) / 2 + 2]])(ctx.measureText(mode === 'delta' ? signed(buy - sell) : volText(buy + sell)).width);
@@ -366,7 +367,7 @@ export function paintFootprint(ctx: CanvasRenderingContext2D, data: FootprintDat
 }
 
 /** The most venues a footprint row's popup names one by one. */
-const VENUE_LINES = 8;
+export const VENUE_LINES = 8;
 
 /** A venue mark in a footprint piece: this size, in a piece at least two px wider and a row at least as tall. */
 const PIECE_MARK = 9;
@@ -422,8 +423,11 @@ const ratioText = (ratio: number): string => Number.isFinite(ratio) ? `${ratio.t
  * The popup for a footprint row: its price span, what was sold and bought there, which side had it, the diagonal imbalances outlined there
  * (`diagonal`: the ratio of each flagged side), and the candle it belongs to.
  */
-/** `markets`: how many markets the footprint adds together (1: the chart market's own). */
-export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, diagonal?: { sell?: number; buy?: number }, markets = 1): InfoLine[] {
+/**
+ * `markets`: how many markets the footprint adds together (1: the chart market's own); `venueLines`: how many of the row's venues are named one
+ * by one (the rest together), fewer where the pane is too short for the box.
+ */
+export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, diagonal?: { sell?: number; buy?: number }, markets = 1, venueLines = VENUE_LINES): InfoLine[] {
   const side = imbalance(cell.buy, cell.sell), delta = cell.buy - cell.sell, big = Math.max(cell.buy, cell.sell), small = Math.min(cell.buy, cell.sell);
   const lines: InfoLine[] = [
     { text: `${fmtPrice(cell.low, step)} – ${fmtPrice(cell.low + step, step)}`, bold: true },
@@ -440,12 +444,12 @@ export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, 
   if (diagonal?.buy !== undefined) lines.push({ label: t('Diagonal'), text: Number.isFinite(diagonal.buy) ? t('buys {ratio} the sells one row down', { ratio: ratioText(diagonal.buy) }) : t('buys, none sold one row down'), color: 'buy' });
   if (cell.poc) lines.push({ text: t('Point of control: the busiest row of this candle'), color: 'muted', wrap: true });
   // The row's markets, the most volume first: each one's mark, sold × bought and its delta; past eight, the rest together.
-  if (cell.parts && cell.parts.length > 1) {
-    const ranked = [...cell.parts].sort((a, b) => b[1] + b[2] - a[1] - a[2]), shown = ranked.slice(0, VENUE_LINES), rest = ranked.slice(VENUE_LINES);
+  if (cell.parts?.length) {
+    const ranked = [...cell.parts].sort((a, b) => b[1] + b[2] - a[1] - a[2]), shown = ranked.slice(0, Math.max(0, venueLines)), rest = ranked.slice(Math.max(0, venueLines));
     shown.forEach(([id, buy, sell], i) => lines.push({ mark: id, label: venueLabel(venueOfInstrument(id)), text: `${volText(sell)} × ${volText(buy)} · ${signed(buy - sell)}`, color: buy > sell ? 'buy' : buy < sell ? 'sell' : 'text', ...(i === 0 ? { rule: true } : {}) }));
     if (rest.length) {
       const buy = rest.reduce((s, r) => s + r[1], 0), sell = rest.reduce((s, r) => s + r[2], 0);
-      lines.push({ label: tn(rest.length, '{n} more venue', '{n} more venues'), text: `${volText(sell)} × ${volText(buy)} · ${signed(buy - sell)}`, color: 'muted' });
+      lines.push({ label: tn(rest.length, '{n} more venue', '{n} more venues'), text: `${volText(sell)} × ${volText(buy)} · ${signed(buy - sell)}`, color: 'muted', ...(shown.length ? {} : { rule: true }) });
     }
   }
   lines.push({ label: t('Candle volume'), text: `$${volText(cell.barBuy + cell.barSell)}`, rule: true });
