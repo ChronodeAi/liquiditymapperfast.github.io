@@ -4,18 +4,22 @@ import { PrintBook, fromWire, type Print } from './prints.ts';
 import { LiquidationBook, fromWire as liquidationFromWire } from './liquidations.ts';
 import { LIQUIDATIONS_PER_ANSWER } from '../shared/liquidations.ts';
 import { FlowBook } from './flow-book.ts';
-import type { Store, CandleRow } from './store.ts';
+import type { AppState, Store, CandleRow } from './store.ts';
 import type { WorkerIn, WorkerOut, RasterStats } from './worker/raster.worker.ts';
 import type { CellShare } from './cell-sources.ts';
 import type { Bounds } from './view.ts';
 import type { LtParams, LtSeries } from './lt.ts';
 import { pickOi, weakOi, type OiCandidate } from './oi-source.ts';
+import { oiSumOf } from './oi-change.ts';
+import { flowIds } from './cvd/ids.ts';
+import { aggregateIds } from './cvd/model.ts';
+import { kindOf } from './scope.ts';
 import { t } from './i18n.ts';
 import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
 import { AbsorptionBook } from './absorption.ts';
 import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
-import { webGet } from '../shared/history.ts';
+import { OI_SAMPLE_VENUES, venueOf, webGet } from '../shared/history.ts';
 import { KeyLevelHistory } from './keylevels/history.ts';
 import type { SumRow } from '../shared/print-sums.ts';
 
@@ -39,6 +43,14 @@ export interface RasterResult { id: number; w: number; h: number; data: Float32A
 /** Owns data loading: bootstrap, live socket, candles, OI, recorded columns and the raster worker. */
 /** A value area's key: the instruments, the row step and share it was read with, and its window. */
 export const valueAreaKey = (ids: readonly string[], step: number, share: number, w: { from: number; to: number }): string => `${ids.join(',')}|${step}|${share}|${w.from}-${w.to}`;
+
+/**
+ * The perpetuals whose open interest is added together: those of the flow column's ALL VENUES lines (the venues switched on, inside the Spot /
+ * Perp filter: the footprint's and the Delta pane's markets) on a venue whose open interest is read, sorted.
+ */
+export function oiVenueIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels'>, flow: FlowBook): string[] {
+  return aggregateIds(flow, flowIds(state, flow.ids), id => kindOf(state.markets, id)).filter(id => kindOf(state.markets, id) === 'perp' && OI_SAMPLE_VENUES.includes(venueOf(id))).sort();
+}
 
 export class Hub {
   readonly worker: Worker;
@@ -311,7 +323,7 @@ export class Hub {
     } catch (error) {
       if (key === this.#series && generation === this.#seriesGen) {
         // A refresh of what is on screen that fails leaves it as it is; candles (and open interest) of another timeframe or market are not left standing under this label.
-        if (this.#loaded?.key !== key) { this.store.set({ candles: [], seriesInstrument: marketId, oi: [], oiInstrument: '' }); this.#loaded = null; }
+        if (this.#loaded?.key !== key) { this.store.set({ candles: [], seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; }
         this.#series = this.#loaded?.key ?? '';
       }
       throw error;
@@ -328,7 +340,7 @@ export class Hub {
     const opens = live !== undefined && (!last || Math.floor(live[0] / tf) * tf > last[0]);
     this.#loaded = { key, instrument: seriesInstrument };
     // Open interest belongs to the candles it was loaded for: another timeframe's or market's bars are not shown under these while theirs are on their way.
-    this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '' }) });
+    this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
     await this.loadOi();
   }
 
@@ -337,11 +349,18 @@ export class Hub {
    * with history stands in and `oiInstrument` says so. Safe to call often: it is one request when the market has OI.
    */
   async loadOi(): Promise<void> {
-    const { marketId, seriesInstrument, timeframe } = this.store.state;
+    const state = this.store.state, { marketId, seriesInstrument, timeframe } = state;
     const own = seriesInstrument || marketId; if (!own) return;
-    const key = `${own}|${timeframe}`; this.#oiKey = key;
+    const venues = state.oiMarkets === 'all' ? oiVenueIds(state, this.flow) : [];
+    const key = `${own}|${timeframe}|${venues.join(',')}`; this.#oiKey = key;
     const generation = ++this.#oiGen;
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000, now = Date.now(), from = now - 500 * tf, to = now + tf;
+    // Added together: every venue's bars, asked for at once; at least two venues with bars, else the one market's as before.
+    if (venues.length > 1) {
+      const parts = (await Promise.all(venues.map(async id => ({ id, bars: await this.source.oi(id, timeframe, from, to).catch(() => []) })))).filter(part => part.bars.length);
+      if (this.#oiKey !== key || generation !== this.#oiGen) return;
+      if (parts.length > 1) { this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts }); return; }
+    }
     const ids = [...new Set([own, this.#reference, ...this.#oiReferences].filter(Boolean))];
     const candidates: OiCandidate[] = [];
     for (const inst of ids) {
@@ -351,7 +370,7 @@ export class Hub {
     }
     if (this.#oiKey !== key || generation !== this.#oiGen) return;
     const chosen = pickOi(candidates, now, tf);
-    if (chosen) this.store.set({ oi: chosen.bars, oiInstrument: chosen.inst });
+    if (chosen) this.store.set({ oi: chosen.bars, oiInstrument: chosen.inst, oiParts: [] });
   }
 
   /**

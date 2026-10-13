@@ -53,6 +53,53 @@ export function nlnsCandles(starts: readonly number[], deltas: readonly ({ dOi: 
   return out;
 }
 
+/**
+ * One venue's change of open interest per candle as `oiDeltas`, with its last reading carried for up to `carryMs` where it has no bar (a
+ * venue read every five minutes, or a reading missed): open interest is a level, and a bar it was not read in is not a bar it changed in.
+ */
+export function carriedOiDeltas(bars: readonly OiBar[], starts: readonly number[], tfMs: number, carryMs = Math.max(2 * tfMs, 10 * 60_000)): ({ dOi: number; oiStart: number } | null)[] {
+  const sorted = [...bars].sort((a, b) => a[0] - b[0]);
+  const closeAt = (t: number): number | undefined => {
+    let lo = 0, hi = sorted.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (sorted[mid]![0] <= t) lo = mid + 1; else hi = mid; }
+    const bar = sorted[lo - 1];
+    return bar && t - bar[0] <= carryMs ? bar[4] : undefined;
+  };
+  return starts.map(t => {
+    const before = closeAt(t - tfMs), now = closeAt(t);
+    return before !== undefined && now !== undefined ? { dOi: now - before, oiStart: before } : null;
+  });
+}
+
+/**
+ * NL/NS over several venues: each venue's change of open interest given to the side that traded at market on that venue (its own flow; the
+ * chart's price where its flow is not recorded), then added up per candle. Never the venues' summed change against their summed delta: one
+ * venue's buyers say nothing about who opened positions on another. A candle counts the venues with a change there; one with none is a gap.
+ */
+export function nlnsSumCandles(starts: readonly number[], venues: readonly { deltas: readonly ({ dOi: number; oiStart: number } | null)[]; flows: readonly (CandleFlow | null)[] }[],
+  priceWay: readonly number[], keys: readonly number[]): NlnsCandle[] {
+  const out: NlnsCandle[] = [];
+  let cum = 0, key = NaN, gap = true, run = -1;
+  for (let i = 0; i < starts.length; i++) {
+    let dOi = 0, oiStart = 0, v = 0, counted = 0, byPrice = false;
+    for (const venue of venues) {
+      const d = venue.deltas[i]; if (!d) continue;
+      counted++; dOi += d.dOi; oiStart += d.oiStart;
+      const flow = venue.flows[i], side = flow ? Math.sign(flow.delta) : Math.sign(priceWay[i] ?? 0);
+      if (!flow && side !== 0) byPrice = true;
+      v += side * Math.abs(d.dOi);
+    }
+    if (!counted) { gap = true; continue; }
+    if (keys[i] !== key || gap) { cum = 0; key = keys[i]!; gap = false; run++; }
+    // What the candle reads as follows the sum: open interest up or down, and which side the venues' assignments came to.
+    const side = Math.sign(v) as 1 | -1 | 0;
+    const kind: NlnsKind | null = side === 0 || dOi === 0 ? null : dOi > 0 ? (side > 0 ? 'newLongs' : 'newShorts') : (side > 0 ? 'shortsClosed' : 'longsClosed');
+    cum += v;
+    out.push({ t: starts[i]!, dOi, oiStart, side, byPrice, v, kind, cum, run });
+  }
+  return out;
+}
+
 /** An amount of coins, signed and short: "+325 BTC", "−1.2M DOGE". */
 export function coinText(v: number, coin: string): string {
   const a = Math.abs(v), body = a === 0 ? '0' : a >= 1_000 ? usd(a) : a >= 10 ? a.toFixed(0) : a >= 1 ? a.toFixed(1) : a.toPrecision(2);

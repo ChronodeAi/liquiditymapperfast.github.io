@@ -89,12 +89,12 @@ test('Hyperliquid candles are asked for with a POST body', async () => {
   assert.deepEqual(rows[0]!.slice(0, 6), [T0, 10, 12, 9, 11, 4]);
 });
 
-test('open interest history is Binance only and drops rows with no number', async () => {
+test('open interest history drops rows with no number, and a venue without a history is not asked', async () => {
   const rows = await fetchOiHistory('binance:BTCUSDT', HOUR, T0, T0 + 3 * HOUR, async () => [
     { timestamp: T0, sumOpenInterest: '100.5' }, { timestamp: T0 + 300_000, sumOpenInterest: 'n/a' }, { timestamp: T0 + 600_000, sumOpenInterest: '101' },
   ]);
   assert.deepEqual(rows.map(r => r.close), [100.5, 101]);
-  assert.deepEqual(await fetchOiHistory('bybit:BTCUSDT', HOUR, T0, T0 + HOUR, async () => { throw new Error('should not be asked'); }), []);
+  assert.deepEqual(await fetchOiHistory('bitget:BTCUSDT', HOUR, T0, T0 + HOUR, async () => { throw new Error('should not be asked'); }), []);
 });
 
 test('live open interest samples come from Binance and from the Hyperliquid asset context of BTC', async () => {

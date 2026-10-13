@@ -8,7 +8,7 @@ import { flowIds } from '../cvd/ids.ts';
 import { familyKey, venueOfInstrument } from '../cvd/families.ts';
 import { activeIds, kindOf, marketIds } from '../scope.ts';
 import { anomalies } from '../anomaly.ts';
-import { oiDeltas } from '../oi-change.ts';
+import { oiChangeByTime } from '../oi-change.ts';
 import { signedUsd } from '../cvd/text.ts';
 import { venueLabel } from '../venues.ts';
 import type { BurstEvent } from '../cvd/burst.ts';
@@ -243,7 +243,7 @@ export class Alerts {
   #oi(now: number): void {
     const s = this.#s, bars = s.oi;
     if (bars.length < 14) return;
-    const key = `${s.oiInstrument}|${s.timeframe}`;
+    const key = `${s.oiInstrument}|${s.oiParts.map(part => part.id).join(',')}|${s.timeframe}`;
     if (key !== this.#oiKey) { this.#oiKey = key; this.#lastOi = 0; }
     const newest = bars[bars.length - 1]![0];
     if (newest === this.#lastOi) return;
@@ -251,7 +251,8 @@ export class Alerts {
     if (previous === 0 || !s.sounds.panels.oi.jump || !s.highlight.on) return;
     const tf = TIMEFRAMES[s.timeframe] ?? 3_600_000, closed = bars.length - 2;
     if (bars[closed]![0] !== previous || now - (previous + tf) > BAR_FRESH_MS) return;           // a fresh, continuous close, as for the flow
-    const changes = oiDeltas(bars).map(Math.abs);
+    // The change as the OI pane counts it (venues added together: each its own), so the alert sounds for what the pane flags.
+    const change = oiChangeByTime(bars, s.oiParts, tf), changes = Float64Array.from(bars, bar => Math.abs(change.get(bar[0]) ?? 0));
     if (anomalies(changes, s.highlight).flag[closed] !== 1) return;
     this.#fire(now, 'oi', 'oi-jump', null, t('Open interest changed unusually in the candle that just closed'), 'oi-jump', 1_000);
   }

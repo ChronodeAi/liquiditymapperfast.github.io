@@ -16,7 +16,7 @@ import { TimePane, setHtml } from './lower-panes.ts';
 import { FlowCache, candleStarts, deltaCandles, resetKeys, unrecorded, type DeltaCandle } from '../delta/candles.ts';
 import { PIVOTS, type DeltaSettings } from '../delta/settings.ts';
 import { divergences, inView, paintDivergence, type Divergence } from '../delta/divergence.ts';
-import { coinText, nlnsCandles, nlnsCardLines, oiDeltas, type NlnsCandle } from '../delta/nlns.ts';
+import { carriedOiDeltas, coinText, nlnsCandles, nlnsCardLines, nlnsSumCandles, oiDeltas, type NlnsCandle } from '../delta/nlns.ts';
 import { venueLabel } from '../venues.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 
@@ -44,6 +44,8 @@ export class DeltaPane extends TimePane {
   #cache = new FlowCache();
   /** The OI market's own flow per candle, for NL/NS. */
   #oiCache = new FlowCache();
+  /** Each venue's flow per candle while open interest is added together (NL/NS gives each venue's change to its own takers). */
+  #oiCaches = new Map<string, FlowCache>();
   #sync: (() => void)[] = [];
   /** The candles drawn last. */
   candles: DeltaCandle[] = [];
@@ -132,10 +134,21 @@ export class DeltaPane extends TimePane {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, s = state.delta;
     const zone = resolveZone(state.traded.zone, state.timeZone), flow = this.hub.flow, oiInst = state.oiInstrument;
     const coin = state.markets.find(m => (m.instrumentId ?? m.id) === state.marketId)?.base ?? '';
-    const market = oiInst ? `${venueLabel(oiInst)} ${oiInst.split(':').slice(1).join(':')}` : '';
+    const aggregated = state.oiParts.length > 1;
+    const market = aggregated ? t('{n} venues added together', { n: state.oiParts.length }) : oiInst ? `${venueLabel(oiInst)} ${oiInst.split(':').slice(1).join(':')}` : '';
     const starts = candleStarts(v.t0, v.t1, now, tf, s.reset, zone, undefined, true);
     let candles: NlnsCandle[] = [];
-    if (oiInst && state.oi.length && starts.length) {
+    if (aggregated && starts.length) {
+      // Venues added together: each venue's change given to its own takers (the chart's price where its flow is not recorded), then summed.
+      this.#ensure(state.oiParts.map(part => part.id), starts[0]!, Date.now());
+      const way = new Map(state.candles.filter(c => !replaying() || c[0] + tf <= now).map(c => [c[0], Math.sign(c[4] - c[1])]));
+      const venues = state.oiParts.map(part => {
+        const track = flow.track(part.id), bars = replaying() ? part.bars.filter(b => b[0] + tf <= now) : part.bars;
+        let cache = this.#oiCaches.get(part.id); if (!cache) { cache = new FlowCache(); this.#oiCaches.set(part.id, cache); }
+        return { deltas: carriedOiDeltas(bars, starts, tf), flows: track ? unrecorded(starts, cache.get(`${part.id}|${tf}|${flow.loads}`, [track], starts, tf, now), tf, now) : starts.map(() => null) };
+      });
+      candles = nlnsSumCandles(starts, venues, starts.map(t0 => way.get(t0) ?? 0), resetKeys(starts, s.reset, zone));
+    } else if (oiInst && state.oi.length && starts.length) {
       this.#ensure([oiInst], starts[0]!, Date.now());
       const track = flow.track(oiInst), tracks = track ? [track] : [];
       const flows = tracks.length ? unrecorded(starts, this.#oiCache.get(`${oiInst}|${tf}|${flow.loads}`, tracks, starts, tf, now), tf, now) : starts.map(() => null);
@@ -149,7 +162,7 @@ export class DeltaPane extends TimePane {
     const visible = candles.filter(c => c.t + tf >= v.t0 && c.t <= v.t1);
     if (!visible.length) {
       ctx.fillStyle = p.muted; ctx.textAlign = 'left';
-      ctx.fillText(!oiInst || !state.oi.length ? t('No open interest for this market.') : t('No change of open interest is held for these candles yet.'), 12, ph / 2);
+      ctx.fillText(!aggregated && (!oiInst || !state.oi.length) ? t('No open interest for this market.') : t('No change of open interest is held for these candles yet.'), 12, ph / 2);
       setHtml(readout, ''); return;
     }
     let lo = 0, hi = 0;
@@ -188,7 +201,7 @@ export class DeltaPane extends TimePane {
     if (hover && this.pointer) this.#lines = nlnsCardLines(shown, state.timeframe, coin, market);
     const tone = (x: number): string => x > 0 ? 'bid' : x < 0 ? 'ask' : '';
     const byPrice = visible.some(c => c.byPrice) ? ` · ${t('side by price where no flow is recorded')}` : '';
-    setHtml(readout, `NL/NS <b class="${tone(shown.v)}">${coinText(shown.v, coin)}</b> ${t('since the start')} <b class="${tone(shown.cum)}">${coinText(shown.cum, coin)}</b> <span class="muted">${t('from {venue}', { venue: market })}${byPrice}</span>`);
+    setHtml(readout, `NL/NS <b class="${tone(shown.v)}">${coinText(shown.v, coin)}</b> ${t('since the start')} <b class="${tone(shown.cum)}">${coinText(shown.cum, coin)}</b> <span class="muted">${aggregated ? market : t('from {venue}', { venue: market })}${byPrice}</span>`);
   }
 
   #paint(): void {

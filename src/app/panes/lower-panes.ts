@@ -3,7 +3,7 @@ import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
 import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar } from '../store.ts';
-import { oiDeltas } from '../oi-change.ts';
+import { oiChangeByTime, oiDeltas, type OiPart } from '../oi-change.ts';
 import { anomalies, type HighlightOptions } from '../anomaly.ts';
 import { venueLabel } from '../venues.ts';
 import { activeIds, emptyScopeMessage, marketIds } from '../scope.ts';
@@ -187,6 +187,12 @@ export abstract class TimePane {
   protected undrawn(): void {}
 }
 
+/** Where the OI pane's bars come from when it is not the chart market alone: the venues added together, or the market standing in. */
+export function oiSourceText(state: Pick<AppState, 'oiParts' | 'oiInstrument' | 'seriesInstrument'>): string | null {
+  if (state.oiParts.length > 1) return t('{n} venues added together', { n: state.oiParts.length });
+  return state.oiInstrument && state.oiInstrument !== state.seriesInstrument ? t('from {venue}', { venue: `${venueLabel(state.oiInstrument)} ${state.oiInstrument.split(':').slice(1).join(':')}` }) : null;
+}
+
 export class DepthPane extends TimePane {
   #range = 0.2;
   #series: { t0: number; t1: number; w: number; bid: Float32Array; ask: Float32Array } | null = null;
@@ -322,20 +328,28 @@ export class DepthPane extends TimePane {
  * newest candle (no sample has arrived since), and below it the change between samples, with unusually large changes at full weight.
  */
 export class OiPane extends TimePane {
-  #cache: { oi: readonly OiBar[]; key: string; delta: Float64Array; flag: Uint8Array; sigma: Float64Array } | null = null;
+  #cache: { oi: readonly OiBar[]; parts: readonly OiPart[]; key: string; delta: Float64Array; flag: Uint8Array; sigma: Float64Array } | null = null;
   #card = new HoverCard();
   #lines: InfoLine[] | null = null;
+  readonly #venues = document.createElement('select');
   constructor(host: HTMLElement, store: Store, view: View) {
     super(host, store, view, 'oi');
     this.head.innerHTML = `<strong>${t('Open Interest')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('oiPane'));
+    // Whose open interest: the perpetuals of the venues switched on added together, or the chart market's own.
+    const wrap = document.createElement('label'); wrap.className = 'ctl'; setTip(wrap, t('Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.')); wrap.append(t('Venues'));
+    this.#venues.append(new Option(t('All perpetuals'), 'all'), new Option(t('The chart market'), 'chart'));
+    this.#venues.value = store.state.oiMarkets; this.#venues.onchange = () => store.set({ oiMarkets: this.#venues.value === 'chart' ? 'chart' : 'all' });
+    wrap.append(this.#venues); this.head.append(wrap);
   }
-  #analysis(oi: readonly OiBar[], highlight: HighlightOptions) {
-    const key = `${highlight.mult}|${highlight.length}`;
-    if (this.#cache && this.#cache.oi === oi && this.#cache.key === key) return this.#cache;
-    const delta = oiDeltas(oi), size = delta.map(Math.abs);
+  /** Each bar's change (oi-change.ts: venues added together count their own changes) and the ones that stand out. */
+  #analysis(oi: readonly OiBar[], highlight: HighlightOptions, parts: readonly OiPart[], tfMs: number) {
+    const key = `${highlight.mult}|${highlight.length}|${tfMs}`;
+    if (this.#cache && this.#cache.oi === oi && this.#cache.parts === parts && this.#cache.key === key) return this.#cache;
+    const change = parts.length > 1 ? oiChangeByTime(oi, parts, tfMs) : null;
+    const delta = change ? Float64Array.from(oi, bar => change.get(bar[0]) ?? 0) : oiDeltas(oi), size = delta.map(Math.abs);
     const found = anomalies(size, highlight);
-    this.#cache = { oi, key, delta, flag: found.flag, sigma: found.sigma };
+    this.#cache = { oi, parts, key, delta, flag: found.flag, sigma: found.sigma };
     return this.#cache;
   }
   protected draw(): void {
@@ -358,11 +372,12 @@ export class OiPane extends TimePane {
   #paint(): void {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state: AppState = this.store.state;
     // Replay: the bar under way at its moment would carry what came after; only bars that ended by then.
+    if (this.#venues.value !== state.oiMarkets) this.#venues.value = state.oiMarkets;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, oi = this.#oiAt(state.oi, tf), highlight = state.highlight;
     const readout = this.head.querySelector('.readout');
     const say = (html: string): void => setHtml(readout, html);
     if (!oi.length) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('No open-interest history for this market yet.'), 12, ph / 2); say(''); return; }
-    const analysis = this.#analysis(oi, highlight);
+    const analysis = this.#analysis(oi, highlight, state.oiParts, tf);
     const visible: number[] = [];
     for (let i = 0; i < oi.length; i++) if (oi[i]![0] + tf >= v.t0 && oi[i]![0] <= v.t1) visible.push(i);
     if (!visible.length) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('No open-interest samples in view.'), 12, ph / 2); say(''); return; }
@@ -422,7 +437,7 @@ export class OiPane extends TimePane {
     const bar = oi[shown]!, d = shown > 0 ? analysis.delta[shown]! : 0, flagged = highlight.on && analysis.flag[shown] === 1;
     const age = pageNow() - lastBar[0], stale = age > Math.max(3 * tf, 3 * 60_000);
     const sign = d > 0 ? '+' : d < 0 ? '−' : '';
-    const source = state.oiInstrument && state.oiInstrument !== state.seriesInstrument ? ` <span class="muted">${t('from {venue}', { venue: `${venueLabel(state.oiInstrument)} ${state.oiInstrument.split(':').slice(1).join(':')}` })}</span>` : '';
+    const from = oiSourceText(state), source = from ? ` <span class="muted">${from}</span>` : '';
     const sigma = flagged && Number.isFinite(analysis.sigma[shown]) ? ` <span class="muted">${analysis.sigma[shown]!.toFixed(1)}σ</span>` : '';
     const over = hover && this.pointer ? barAt(oi, tf, hover.t) : -1;
     if (over === oi.length - 1 && hover && hover.t >= oi[over]![0] + tf) this.cursorT = oi[over]![0] + tf / 2;
@@ -432,7 +447,7 @@ export class OiPane extends TimePane {
         time: there[0], level: there[4], change, before: over > 1 ? analysis.delta[over - 1]! : null,
         rank: change === null || !seen.length ? null : 1 + seen.filter(i => Math.abs(analysis.delta[i]!) > size).length, of: seen.length,
         sigma: highlight.on && analysis.flag[over] === 1 && Number.isFinite(analysis.sigma[over]) ? analysis.sigma[over]! : null,
-        source: state.oiInstrument && state.oiInstrument !== state.seriesInstrument ? t('from {venue}', { venue: `${venueLabel(state.oiInstrument)} ${state.oiInstrument.split(':').slice(1).join(':')}` }) : null,
+        source: from,
         staleMin: over === oi.length - 1 && stale ? Math.round(age / 60_000) : null,
       });
     }
@@ -651,9 +666,12 @@ export class BarStatsPane extends TimePane {
     setText(readout, markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats);
     if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); return; }
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
-    const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity, all = [...data.bars.values()].filter(b => b.t + tfMs <= until).sort((a, b) => a.t - b.t);
+    // The bars of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
+    // view, whatever was looked at before.
+    const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity;
+    const all = [...data.bars.values()].filter(b => b.t + tfMs <= until && b.t + 2 * tfMs > v.t0 && b.t < v.t1 + tfMs).sort((a, b) => a.t - b.t);
     if (!all.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once the footprint has executions for the visible candles.'), 12, ph / 2); return; }
-    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles: new Map(state.candles.map(c => [c[0], c] as const)), oi: new Map(state.oi.map(b => [b[0], b] as const)) };
+    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles: new Map(state.candles.map(c => [c[0], c] as const)), oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, state.oiParts, tfMs) };
     // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.
     const labelOf = new Map(defs.map(def => [def.id, def.approx?.(input) ? `≈${def.label}` : def.label]));
     const slot = pw * tfMs / (v.t1 - v.t0), top = 3, rowH = Math.max(15, (ph - 6) / defs.length), filled = options.cells === 'filled';

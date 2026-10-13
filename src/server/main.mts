@@ -153,7 +153,7 @@ try {
   const address = await runningApp.start();
   if (address === null || typeof address !== 'object' || typeof address.address !== 'string' || !Number.isInteger(address.port)) throw new Error('Local server did not return a valid TCP address');
   const memoryOnly = String(effectiveHistoryPath).trim() === ':memory:';
-  v2 = installV2(runningApp, { dataDir: memoryOnly ? '' : path.dirname(path.resolve(String(effectiveHistoryPath))), persist: !memoryOnly });
+  v2 = installV2(runningApp, { dataDir: memoryOnly ? '' : path.dirname(path.resolve(String(effectiveHistoryPath))), persist: !memoryOnly, oiSampling: live });
   startupStage = 'feed-start';
   failAtRequestedTestStage('feed-start');
   if (feeds) await feeds.start(liveFeedCoreConfig);

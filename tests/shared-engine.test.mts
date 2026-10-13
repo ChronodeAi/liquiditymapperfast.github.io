@@ -188,7 +188,7 @@ test('bootstrap lists the running venues as markets and says which have open int
   engine.step();
   const boot = engine.bootstrap();
   assert.deepEqual(boot.markets.map(m => m.instrumentId), ['binance:BTCUSDT', 'bybit:BTCUSDT', 'hyperliquid:BTCUSDT']);
-  assert.deepEqual(boot.oiReferences, ['binance:BTCUSDT', 'hyperliquid:BTCUSDT'], 'Binance first, then Hyperliquid, in that order whatever the selection order');
+  assert.deepEqual(boot.oiReferences, ['binance:BTCUSDT', 'bybit:BTCUSDT', 'hyperliquid:BTCUSDT'], 'in the order of the sampled venues (Binance first) whatever the selection order');
   assert.equal(boot.markInstrumentId, 'bybit:BTCUSDT');
   assert.equal(boot.markPrice, 100.5);
 });
