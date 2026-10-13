@@ -1233,5 +1233,9 @@
  "{n} venues added together": "{n} borsa toplandı",
  "All perpetuals": "Tüm vadesizler",
  "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "Bu panelin, bar istatistiklerinin ve NL/NS'nin saydığı açık pozisyon: açık olan tüm borsaların vadesizleri toplanmış, ya da yalnızca grafiğin piyasası.",
- "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI panelinin Borsalar ayarı Tüm vadesizler iken (varsayılan), her borsanın açık pozisyon değişimi o borsada piyasa emriyle işlem yapan tarafa verilir ve sonra borsalar toplanır: bir borsanın alıcıları başka bir borsada kimin pozisyon açtığı hakkında hiçbir şey söylemez."
+ "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI panelinin Borsalar ayarı Tüm vadesizler iken (varsayılan), her borsanın açık pozisyon değişimi o borsada piyasa emriyle işlem yapan tarafa verilir ve sonra borsalar toplanır: bir borsanın alıcıları başka bir borsada kimin pozisyon açtığı hakkında hiçbir şey söylemez.",
+ "{n} more venues": {
+  "one": "{n} borsa daha",
+  "other": "{n} borsa daha"
+ }
 }

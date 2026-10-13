@@ -287,6 +287,15 @@ test('an aggregated footprint is the row-by-row sum of its markets, its minutes 
   assert.deepEqual([sliced.from, sliced.bars.map(bar => bar.t)], [T0 + 2 * COLUMN_MS, [T0 + 3 * COLUMN_MS]], 'at least one bar with data, the empty bars beside it free');
   const two = recorder.queryMany(['a:BTC', 'b:BTC'], T0, T0 + 5 * COLUMN_MS, COLUMN_MS, 20, [], 3);
   assert.deepEqual([two.from, two.bars.map(bar => bar.t)], [T0 + COLUMN_MS, [T0 + COLUMN_MS, T0 + 3 * COLUMN_MS]]);
+  // By venue: each row's markets, which add up to the row, named by place in `venues` (the most volume first).
+  const split = recorder.queryMany(['a:BTC', 'b:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20, [], Infinity, true);
+  assert.deepEqual(split.venues, ['a:BTC', 'b:BTC']);
+  split.bars[0]!.rows.forEach((row, i) => {
+    const flat = split.bars[0]!.venueRows![i]!; let buy = 0, sell = 0;
+    for (let j = 0; j < flat.length; j += 3) { buy += flat[j + 1]!; sell += flat[j + 2]!; }
+    assert.deepEqual([buy, sell], [row[1], row[2]], `row ${row[0]}`);
+  });
+  assert.equal(recorder.queryMany(['a:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20, [], Infinity, true).bars[0]!.venueRows, undefined, 'one market: no venues');
   // A window reaching years either side costs what its retained part does.
   const started = performance.now(), wide = recorder.queryMany(['a:BTC', 'b:BTC'], 0, 1e15, COLUMN_MS, 20, [], 3);
   assert.ok(performance.now() - started < 1_000, 'bounded to the recording');

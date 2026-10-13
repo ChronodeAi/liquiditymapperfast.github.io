@@ -1197,5 +1197,8 @@
  "{n} venues added together": "{n} 取引所を合算",
  "All perpetuals": "すべての無期限",
  "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "このペイン、バー統計、NL/NS が数える建玉の対象：オンのすべての取引所の無期限を合算したもの、またはチャートの市場のみ。",
- "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI ペインの「取引所」が「すべての無期限」（既定）のとき、各取引所の建玉の変化はその取引所で成行で取引した側に割り当てられ、そのあと取引所が合算されます。ある取引所の買い手は、別の取引所で誰がポジションを開いたかについて何も示しません。"
+ "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI ペインの「取引所」が「すべての無期限」（既定）のとき、各取引所の建玉の変化はその取引所で成行で取引した側に割り当てられ、そのあと取引所が合算されます。ある取引所の買い手は、別の取引所で誰がポジションを開いたかについて何も示しません。",
+ "{n} more venues": {
+  "other": "ほか {n} 取引所"
+ }
 }

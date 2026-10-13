@@ -1257,5 +1257,11 @@
  "{n} venues added together": "сложено бирж: {n}",
  "All perpetuals": "Все бессрочные",
  "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "Чей открытый интерес считают эта панель, статистика баров и NL/NS: бессрочные контракты всех включённых бирж вместе или только рынок графика.",
- "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "Когда «Биржи» панели OI стоят на «Все бессрочные» (по умолчанию), изменение открытого интереса каждой биржи отдаётся стороне, торговавшей по рынку на этой бирже, а затем биржи складываются: покупатели одной биржи ничего не говорят о том, кто открывал позиции на другой."
+ "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "Когда «Биржи» панели OI стоят на «Все бессрочные» (по умолчанию), изменение открытого интереса каждой биржи отдаётся стороне, торговавшей по рынку на этой бирже, а затем биржи складываются: покупатели одной биржи ничего не говорят о том, кто открывал позиции на другой.",
+ "{n} more venues": {
+  "one": "ещё {n} биржа",
+  "few": "ещё {n} биржи",
+  "many": "ещё {n} бирж",
+  "other": "ещё {n} биржи"
+ }
 }

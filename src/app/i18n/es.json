@@ -1245,5 +1245,10 @@
  "{n} venues added together": "{n} exchanges sumados",
  "All perpetuals": "Todos los perpetuos",
  "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "De quién cuentan el interés abierto este panel, las estadísticas de barra y NL/NS: los perpetuos de todos los exchanges activados sumados, o solo el mercado del gráfico.",
- "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "Con Bolsas del panel OI en Todos los perpetuos (por defecto), el cambio de interés abierto de cada exchange se asigna al lado que operó a mercado en ese exchange, y luego se suman los exchanges: los compradores de un exchange no dicen nada sobre quién abrió posiciones en otro."
+ "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "Con Bolsas del panel OI en Todos los perpetuos (por defecto), el cambio de interés abierto de cada exchange se asigna al lado que operó a mercado en ese exchange, y luego se suman los exchanges: los compradores de un exchange no dicen nada sobre quién abrió posiciones en otro.",
+ "{n} more venues": {
+  "many": "{n} bolsas más",
+  "one": "{n} bolsa más",
+  "other": "{n} bolsas más"
+ }
 }

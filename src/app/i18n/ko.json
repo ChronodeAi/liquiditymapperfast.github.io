@@ -1197,5 +1197,8 @@
  "{n} venues added together": "{n}개 거래소 합산",
  "All perpetuals": "모든 무기한",
  "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "이 창, 바 통계, NL/NS가 세는 미결제약정의 대상: 켜진 모든 거래소의 무기한 합산, 또는 차트 시장만.",
- "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI 창의 거래소가 모든 무기한(기본값)이면 각 거래소의 미결제약정 변화는 그 거래소에서 시장가로 거래한 쪽에 배정되고, 그다음 거래소들을 합산합니다. 한 거래소의 매수자는 다른 거래소에서 누가 포지션을 열었는지에 대해 아무것도 말해 주지 않습니다."
+ "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI 창의 거래소가 모든 무기한(기본값)이면 각 거래소의 미결제약정 변화는 그 거래소에서 시장가로 거래한 쪽에 배정되고, 그다음 거래소들을 합산합니다. 한 거래소의 매수자는 다른 거래소에서 누가 포지션을 열었는지에 대해 아무것도 말해 주지 않습니다.",
+ "{n} more venues": {
+  "other": "그 밖의 거래소 {n}개"
+ }
 }

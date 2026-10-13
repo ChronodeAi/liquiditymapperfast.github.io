@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FOOTPRINT_REFRESH_MS, FootprintData } from '../src/app/panes/footprint.ts';
+import { FOOTPRINT_REFRESH_MS, FootprintData, readBar, rowCellAt, rowCellLines, venueOrderOf } from '../src/app/panes/footprint.ts';
 import type { FootprintResponse } from '../src/app/source.ts';
 
 const H = 3_600_000;
@@ -102,4 +102,24 @@ test('a view with more bars than are held for long is not asked for again on eve
     past.clear();
     assert.equal(past.bars.size, 0, 'no markets to count: no bars');
   } finally { time.restore(); }
+});
+
+test('venue rows read as ids whatever each answer\'s order, a malformed one is left out whole, and the order follows the volume held', () => {
+  const row = [[100, 30, 5], [105, 2, 9]] as [number, number, number][];
+  const a = readBar({ t: 0, rows: row, buyUsd: 32, sellUsd: 14, venueRows: [[0, 20, 5, 1, 10, 0], [1, 2, 9]] }, 0, ['binance:BTCUSDT', 'bybit:BTCUSDT']);
+  const b = readBar({ t: H, rows: row, buyUsd: 32, sellUsd: 14, venueRows: [[1, 20, 5, 0, 10, 0], [0, 2, 9]] }, 0, ['okx:BTC-USDT-SWAP', 'binance:BTCUSDT']);
+  assert.deepEqual(a.parts, [[['binance:BTCUSDT', 20, 5], ['bybit:BTCUSDT', 10, 0]], [['bybit:BTCUSDT', 2, 9]]]);
+  assert.deepEqual(b.parts?.[0]?.[0], ['binance:BTCUSDT', 20, 5], 'the place in its own answer\'s list');
+  assert.equal('venueRows' in a, false, 'held as ids only');
+  for (const bad of [[[5, 1, 1], []], [[0, 1], []], [[0, -1, 1], []], [[0, 1, 1]]])
+    assert.equal(readBar({ t: 0, rows: row, buyUsd: 0, sellUsd: 0, venueRows: bad as number[][] }, 0, ['binance:BTCUSDT']).parts, undefined, JSON.stringify(bad));
+  assert.deepEqual(venueOrderOf([a, b]), ['binance:BTCUSDT', 'bybit:BTCUSDT', 'okx:BTC-USDT-SWAP']);
+});
+
+test('a row\'s popup names its venues, the most volume first, with what each sold, bought and its delta', () => {
+  const bar = readBar({ t: 0, rows: [[100, 31, 15]], buyUsd: 31, sellUsd: 15, venueRows: [[0, 20e3, 5e3, 1, 10e3, 0, 2, 1e3, 10e3]] }, 0, ['binance:BTCUSDT', 'bybit:BTCUSDT', 'okx:BTC-USDT-SWAP']);
+  const cell = rowCellAt(bar, 5, 102)!;
+  const lines = rowCellLines(cell, bar, 5, '1h', undefined, 3).filter(l => l.mark);
+  assert.deepEqual(lines.map(l => l.mark), ['binance:BTCUSDT', 'okx:BTC-USDT-SWAP', 'bybit:BTCUSDT']);
+  assert.deepEqual(lines.map(l => l.color), ['buy', 'sell', 'buy']);
 });

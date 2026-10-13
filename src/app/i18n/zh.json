@@ -1197,5 +1197,8 @@
  "{n} venues added together": "{n} 个交易所相加",
  "All perpetuals": "所有永续",
  "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "此面板、柱状统计和 NL/NS 计算谁的持仓量：所有已开启交易所的永续合约相加，或仅图表市场。",
- "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "当 OI 面板的“交易所”为“所有永续”（默认）时，每个交易所的持仓量变化分给在该交易所以市价成交的一方，然后再把各交易所相加：一个交易所的买方并不能说明谁在另一个交易所开了仓。"
+ "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "当 OI 面板的“交易所”为“所有永续”（默认）时，每个交易所的持仓量变化分给在该交易所以市价成交的一方，然后再把各交易所相加：一个交易所的买方并不能说明谁在另一个交易所开了仓。",
+ "{n} more venues": {
+  "other": "另外 {n} 个交易所"
+ }
 }

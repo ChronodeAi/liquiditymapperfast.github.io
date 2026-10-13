@@ -341,7 +341,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     // A budget (instrument-minutes) asks for the newest part of the window only, as far back as it allows: the answer's `from` says where it starts.
     const rawBudget = url.searchParams.get('budget'), budget = rawBudget === null ? Infinity : Number(rawBudget);
     if (!(budget > 0)) return sendJson(res, { error: 'budget must be a positive number' }, 400);
-    sendJson(res, { instrumentId: id, tf, ...footprint.queryMany(ids, span.from, span.to, tfMs, rows, cuts, budget) });
+    // `venues=1`: each row's markets too (the footprint's bars split by venue); only a page that draws them asks.
+    sendJson(res, { instrumentId: id, tf, ...footprint.queryMany(ids, span.from, span.to, tfMs, rows, cuts, budget, url.searchParams.get('venues') === '1') });
   };
   const liquidationsRoute = (url: URL, res: ServerResponse) => {
     // As the prints: a window longer than what is kept is cut to its last eight days, never refused.

@@ -52,7 +52,7 @@ export interface EngineTick {
   prices: Record<string, number>;
   candles: Record<string, LiveCandle>;
 }
-export interface FootprintAnswer { step: number; fine: number; bars: ReturnType<FootprintRecorder['query']>['bars']; from: number }
+export interface FootprintAnswer { step: number; fine: number; bars: ReturnType<FootprintRecorder['query']>['bars']; from: number; venues?: string[] }
 
 export interface EngineOptions {
   /** The coin, and the tier its size floors are kept at (the coin's own unless the page fixed another for its recordings). */
@@ -317,7 +317,7 @@ export class Engine {
   }
 
   /** One instrument's footprint, or several (comma separated) added together, as the server's route answers. */
-  footprint(instrumentId: string, tfMs: number, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number): FootprintAnswer { return this.footprints.queryMany(instrumentId.split(',').filter(Boolean).slice(0, MAX_PROFILE_INSTRUMENTS), from, to, tfMs, rowStep, this.#cuts(cuts), budget !== undefined && budget > 0 ? budget : Infinity); }
+  footprint(instrumentId: string, tfMs: number, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number, byVenue = false): FootprintAnswer { return this.footprints.queryMany(instrumentId.split(',').filter(Boolean).slice(0, MAX_PROFILE_INSTRUMENTS), from, to, tfMs, rowStep, this.#cuts(cuts), budget !== undefined && budget > 0 ? budget : Infinity, byVenue); }
   /** Size lines a question may draw (see `parseCuts`): any that are not are left out rather than refused, as the page asked for them itself. */
   #cuts(cuts: readonly number[]): number[] { return cuts.filter(c => Number.isFinite(c) && c >= this.footprints.floorUsd * (1 - 1e-9) && c <= MAX_CUT_USD).slice(0, MAX_CUTS); }
 

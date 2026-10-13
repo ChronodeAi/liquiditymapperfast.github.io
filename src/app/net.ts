@@ -19,8 +19,8 @@ async function request(path: string): Promise<Response> {
 /** The size lines as asked, to the last digit: a line rounded on the way would count orders the page puts under it (a coin's scaled sizes have cents). */
 const cutsParam = (cuts: readonly number[]): string => cuts.length ? `&cuts=${cuts.map(String).join(',')}` : '';
 /** Recorded history for one instrument and window, as the footprint draws it, with the orders from each size line in `cuts` where the server has them. */
-export async function getFootprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number): Promise<FootprintResponse> {
-  return (await request(`/api/v2/footprint?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}&rows=${rowStep}${cutsParam(cuts)}${budget ? `&budget=${Math.round(budget)}` : ''}`)).json() as Promise<FootprintResponse>;
+export async function getFootprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number, venues = false): Promise<FootprintResponse> {
+  return (await request(`/api/v2/footprint?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}&rows=${rowStep}${cutsParam(cuts)}${budget ? `&budget=${Math.round(budget)}` : ''}${venues ? '&venues=1' : ''}`)).json() as Promise<FootprintResponse>;
 }
 export const getBootstrap = async (): Promise<BootstrapState> => (await request('/api/v2/state')).json();
 export async function getCandles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> {

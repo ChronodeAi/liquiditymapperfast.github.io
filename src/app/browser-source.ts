@@ -229,8 +229,8 @@ export class BrowserSource implements DataSource, VenueControl {
     if (!answer) throw new Error('the browser engine answered the sizes question with something else');
     return answer;
   }
-  async footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number): Promise<FootprintResponse> {
-    return this.#call({ method: 'footprint', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to, rowStep, cuts: [...cuts], ...(budget ? { budget } : {}) });
+  async footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number, venues = false): Promise<FootprintResponse> {
+    return this.#call({ method: 'footprint', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to, rowStep, cuts: [...cuts], ...(budget ? { budget } : {}), ...(venues ? { venues } : {}) });
   }
 
   // ---- VenueControl ---------------------------------------------------------------------------------------------------------------

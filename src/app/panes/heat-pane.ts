@@ -461,7 +461,7 @@ export class HeatPane {
     const cuts = linesToAsk([state.barStatOptions.retailUsd, state.barStatOptions.whaleUsd], scaledUsd);
     const markets = this.footprintMarkets(state);
     if (!markets.length) this.#footprint.clear();
-    else this.#footprint.ensure(markets.join(','), state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines, budget) => this.hub.footprint(inst, tf, from, to, rows, lines, budget), () => this.invalidate(), cuts, this.hub.sourceNow());
+    else this.#footprint.ensure(markets.join(','), state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines, budget, venues) => this.hub.footprint(inst, tf, from, to, rows, lines, budget, venues), () => this.invalidate(), cuts, this.hub.sourceNow());
     const rowH = rowStep > 0 ? Math.abs(v.yOf(0, ph) - v.yOf(rowStep, ph)) : 0;
     const factor = visibilityFactor(state.candles, tfMs, v, pw, ph, rowH || 1, rowStep || 1);
     this.#lodFrame = this.#lod.step(now, { enabled: true, hasData: this.#footprint.bars.size > 0, widthCss: pw * tfMs / (v.t1 - v.t0), rowHeightCss: rowH, factor });

@@ -6,9 +6,13 @@ import type { CandleRow } from '../store.ts';
 import type { FootprintResponse } from '../source.ts';
 import type { InfoLine } from '../infobox.ts';
 import { price as fmtPrice, clock } from '../format.ts';
-import { t } from '../i18n.ts';
+import { t, tn } from '../i18n.ts';
+import { venueLabel } from '../venues.ts';
+import { venueOfInstrument } from '../cvd/families.ts';
 import type { BarMarks } from '../footprint/marks.ts';
 import type { FootprintSettings } from '../footprint/settings.ts';
+import { barPieces } from './ladder-pieces.ts';
+import { drawVenueMark } from '../venue-marks.ts';
 
 type Row = [number, number, number];
 /** Trade counts and USD by size bucket (see SIZE_BUCKET_LABELS); only present for bars whose executions were recorded with stats. */
@@ -20,7 +24,14 @@ export interface Bar {
   stats?: TradeStats;
   /** USD of the market orders from each size line the bars were loaded with (`FootprintData.cuts`), bought then sold; absent where the source does not know them. */
   over?: number[];
+  /** On the wire, venues added together: each row's markets as [place in the answer's `venues`, buy, sell, ...] (`readBar` turns them into `parts`). */
+  venueRows?: number[][];
+  /** Each row's markets with volume there (aligned to `rows`), the most volume of the answer first. */
+  parts?: VenuePart[][];
 }
+
+/** One market's part of a footprint row: its instrument, the USD it bought and sold at market there. */
+export type VenuePart = [id: string, buy: number, sell: number];
 
 /** Trade stats from the wire: eight finite non-negative size buckets per side and integer counts, else none (the bar then has no trade statistics). */
 export function validStats(value: unknown): TradeStats | undefined {
@@ -31,11 +42,39 @@ export function validStats(value: unknown): TradeStats | undefined {
   return count(buyN) && count(sellN) && bucket(buy) && bucket(sell) ? { buyN, sellN, buy, sell } : undefined;
 }
 
-/** A bar from the server with its optional trade stats and size-line sums checked (two finite, non-negative sums for each of `cuts` lines). */
-export function readBar(bar: Bar, cuts = 0): Bar {
-  const { stats, over, ...rest } = bar, valid = validStats(stats);
+/**
+ * A bar from the server with its optional trade stats and size-line sums checked (two finite, non-negative sums for each of `cuts` lines), and
+ * its rows' markets (`venueRows`, named by place in the answer's `venues`) turned into ids: slices of one view come in several answers, each
+ * with its own order. Rows' markets that do not read as such (a place out of range, a number that is not one) are left out whole.
+ */
+export function readBar(bar: Bar, cuts = 0, venues?: readonly string[]): Bar {
+  const { stats, over, venueRows, parts: _parts, ...rest } = bar, valid = validStats(stats);
   const lines = cuts > 0 && Array.isArray(over) && over.length === 2 * cuts && over.every(x => typeof x === 'number' && Number.isFinite(x) && x >= 0) ? { over } : {};
-  return valid ? { ...rest, stats: valid, ...lines } : rest;
+  const parts = venues && Array.isArray(venueRows) ? readParts(venueRows, bar.rows.length, venues) : null;
+  return { ...rest, ...(valid ? { stats: valid } : {}), ...lines, ...(parts ? { parts } : {}) };
+}
+
+function readParts(rows: unknown[], count: number, venues: readonly string[]): VenuePart[][] | null {
+  if (rows.length !== count) return null;
+  const out: VenuePart[][] = [];
+  for (const flat of rows) {
+    if (!Array.isArray(flat) || flat.length % 3 !== 0) return null;
+    const row: VenuePart[] = [];
+    for (let i = 0; i < flat.length; i += 3) {
+      const place = flat[i], buy = flat[i + 1], sell = flat[i + 2], id = Number.isInteger(place) ? venues[place as number] : undefined;
+      if (typeof id !== 'string' || typeof buy !== 'number' || typeof sell !== 'number' || !(buy >= 0) || !(sell >= 0) || !Number.isFinite(buy + sell)) return null;
+      row.push([id, buy, sell]);
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/** The markets in the order their pieces keep on every row: the most volume over the bars held first (one order, so a venue keeps its place). */
+export function venueOrderOf(bars: Iterable<Bar>): string[] {
+  const total = new Map<string, number>();
+  for (const bar of bars) for (const row of bar.parts ?? []) for (const [id, buy, sell] of row) total.set(id, (total.get(id) ?? 0) + buy + sell);
+  return [...total].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([id]) => id);
 }
 
 /**
@@ -138,7 +177,7 @@ export const FOOTPRINT_REFRESH_MS = 5_000;
 /** More bars than this held (scrolled back over days of small candles) and the next look starts again from the view. */
 const FOOTPRINT_MAX_BARS = 3_000;
 
-type FootprintLoad = (inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[], budget: number) => Promise<FootprintResponse>;
+type FootprintLoad = (inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[], budget: number, venues: boolean) => Promise<FootprintResponse>;
 
 /**
  * Executions per candle (taker buy/sell USD by price row) for the visible window. A recorded bar does not change once it is settled, so
@@ -154,12 +193,14 @@ export class FootprintData {
   cuts: number[] = [];
   /** Bumped whenever `bars` changes, for what is worked out from them (the imbalance marks). */
   version = 0;
+  /** With markets added together: the order of every row's venue pieces (`venueOrderOf`), worked out once a load. */
+  venueOrder: string[] = [];
   #busy = false; #retryAt = 0;
 
   /** No markets to count (Aggregated with every venue off, or none inside the filter): no bars, and nothing asked for. */
   clear(): void {
     if (this.#context === '' && !this.bars.size) return;
-    this.#context = ''; this.#request++; this.#held = null; this.#busy = false; this.bars = new Map(); this.step = 0; this.fine = 0; this.version++;
+    this.#context = ''; this.#request++; this.#held = null; this.#busy = false; this.bars = new Map(); this.venueOrder = []; this.step = 0; this.fine = 0; this.version++;
   }
   /** The market and timeframe the bars belong to, and the number of the request whose answer counts. */
   #context = ''; #request = 0;
@@ -176,7 +217,7 @@ export class FootprintData {
     // Rows of another market or timeframe are not rows of this one, whatever the window: they go now, rather than being drawn until the new
     // ones come (or for good, if they never do). A request still out for the old context is left to finish, and its answer is ignored.
     const context = `${inst}|${tf}`;
-    if (context !== this.#context) { this.#context = context; this.bars = new Map(); this.step = 0; this.fine = 0; this.#held = null; this.#busy = false; this.#retryAt = 0; this.version++; }
+    if (context !== this.#context) { this.#context = context; this.bars = new Map(); this.venueOrder = []; this.step = 0; this.fine = 0; this.#held = null; this.#busy = false; this.#retryAt = 0; this.version++; }
     const clock = performance.now();
     if (this.#busy || clock < this.#retryAt) return;
     // Other size lines are another question: the bars' sums are for the lines asked.
@@ -195,7 +236,8 @@ export class FootprintData {
     else return;
     this.#busy = true;
     const request = ++this.#request, asked = [...cuts];
-    load(inst, tf, ask.from, ask.to, rowStep, asked, FOOTPRINT_BUDGET).then(body => {
+    // Several markets (a comma list): each row's markets too, for the bar's pieces.
+    load(inst, tf, ask.from, ask.to, rowStep, asked, FOOTPRINT_BUDGET, inst.includes(',')).then(body => {
       if (request !== this.#request) return;
       // A source that answered only the newest part says where it starts; an older one answers the whole window.
       const reached = Math.max(ask.from, Number.isFinite(body.from) ? body.from! : ask.from), held = this.#held;
@@ -204,13 +246,13 @@ export class FootprintData {
       const fresh = ask.kind === 'whole' || !held || body.step !== this.step;
       const bars = fresh ? new Map<number, Bar>() : this.bars;
       if (!fresh && ask.kind === 'tail') for (const t of [...bars.keys()]) if (t >= reached) bars.delete(t);
-      for (const bar of body.bars) if (bar.t >= reached && bar.t < ask.to) bars.set(bar.t, readBar(bar, asked.length));
+      for (const bar of body.bars) if (bar.t >= reached && bar.t < ask.to) bars.set(bar.t, readBar(bar, asked.length, body.venues));
       if (fresh) this.#held = { grid, from: reached, to: ask.to, settled, at: performance.now() };
       else if (ask.kind === 'older') held.from = reached;
       // A tail too long for one answer (the page was away): what it did not reach is asked for again as older slices.
       else { if (reached > ask.from) { for (const t of [...bars.keys()]) if (t < reached) bars.delete(t); held.from = reached; } held.to = ask.to; held.settled = Math.max(held.settled, settled); held.at = performance.now(); }
       // Held oldest first, as one answer gives them (an older slice lands after the newer ones).
-      this.bars = fresh ? bars : new Map([...bars].sort((a, b) => a[0] - b[0])); this.step = body.step; this.fine = body.fine; this.cuts = asked; this.version++; onLoad();
+      this.bars = fresh ? bars : new Map([...bars].sort((a, b) => a[0] - b[0])); this.venueOrder = venueOrderOf(this.bars.values()); this.step = body.step; this.fine = body.fine; this.cuts = asked; this.version++; onLoad();
     }).catch(error => {
       if (request !== this.#request) return;
       // Asked again in five seconds, not on every frame.
@@ -278,14 +320,24 @@ export function paintFootprint(ctx: CanvasRenderingContext2D, data: FootprintDat
     if (bar.t + tfMs < view.t0 || bar.t > view.t1) continue;
     const left = view.xOf(bar.t, pw) + layout.colLeft, split = left + Math.min(numberWidth + 5.5, layout.colWidth / 2), right = Math.min(left + layout.colWidth, split + numberWidth + 5.5);
     const flags = diagonal?.get(bar.t)?.flags;
-    for (const [low, buy, sell] of bar.rows) {
+    // Whether the numbers print: a venue mark is not drawn over them (their spans across, worked out per row below).
+    const numbers = lod.sellBuyAlpha > 0.3 && mode !== 'none';
+    for (let r = 0; r < bar.rows.length; r++) {
+      const [low, buy, sell] = bar.rows[r]!;
       const yTop = view.yOf(low + step, ph), h = Math.max(1, rowPx - 1);
       if (yTop + h < 0 || yTop > ph) continue;
       const side = imbalance(buy, sell);
       if (side) {
-        ctx.globalAlpha = (p.dark ? 0.9 : 0.62) * lod.barAlpha; ctx.fillStyle = side === 'buy' ? p.candleUp : p.candleDown;
+        const alpha = (p.dark ? 0.9 : 0.62) * lod.barAlpha; ctx.fillStyle = side === 'buy' ? p.candleUp : p.candleDown;
         const barWidth = Math.max(2, Math.min(layout.colWidth, layout.colWidth * Math.max(buy, sell) / maxSide));
-        ctx.fillRect(left, yTop, barWidth, h);
+        const parts = bar.parts?.[r];
+        if (parts && parts.length > 1 && data.venueOrder.length) {
+          const spans = !numbers ? [] : mode === 'split'
+            ? [[split - 3 - ctx.measureText(volText(sell)).width, split - 2], [split + 2, split + 3 + ctx.measureText(volText(buy)).width]]
+            : (w => [[(left + right - w) / 2 - 2, (left + right + w) / 2 + 2]])(ctx.measureText(mode === 'delta' ? signed(buy - sell) : volText(buy + sell)).width);
+          paintPieces(ctx, data.venueOrder, parts, side, maxSide, left, layout.colWidth, yTop, h, ctx.fillStyle as string, alpha, lod.barAlpha, spans);
+        }
+        else { ctx.globalAlpha = alpha; ctx.fillRect(left, yTop, barWidth, h); }
         if (marks?.wants(bar.t, low + step / 2, side)) marks.add(left, yTop, barWidth, h, bar.t);
       }
       const flag = flags?.get(low);
@@ -313,6 +365,33 @@ export function paintFootprint(ctx: CanvasRenderingContext2D, data: FootprintDat
   ctx.globalAlpha = 1; ctx.font = '11px ui-sans-serif, system-ui, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
 }
 
+/** The most venues a footprint row's popup names one by one. */
+const VENUE_LINES = 8;
+
+/** A venue mark in a footprint piece: this size, in a piece at least two px wider and a row at least as tall. */
+const PIECE_MARK = 9;
+
+/**
+ * A row's bar split by venue (the Compact book's pieces, `barPieces`): each market's part of the dominant side, in `order` (the same on every
+ * row, so a venue keeps its place), in the side's colour with the shade alternating by that place; parts too narrow to see make one piece at
+ * the end. The pieces add up to the bar as it is drawn whole. A piece wide enough and a row tall enough carry the venue's mark, never over
+ * the row's printed numbers (`texts`, the span across of each).
+ */
+function paintPieces(ctx: CanvasRenderingContext2D, order: readonly string[], parts: readonly VenuePart[], side: 'buy' | 'sell', maxSide: number, left: number, width: number,
+  yTop: number, h: number, color: string, alpha: number, markAlpha: number, texts: readonly (readonly number[])[]): void {
+  const values = order.map(id => { for (const part of parts) if (part[0] === id) return side === 'buy' ? part[1] : part[2]; return 0; });
+  for (const piece of barPieces(order, values, maxSide, left, width, 3)) {
+    const w = Math.max(1, piece.w - (piece.w >= 3 ? 1 : 0));
+    ctx.globalAlpha = alpha * (piece.rank < 0 ? 0.45 : piece.rank % 2 === 0 ? 1 : 0.62); ctx.fillStyle = color;
+    ctx.fillRect(piece.x, yTop, w, h);
+    if (piece.id === null || w < PIECE_MARK + 2 || h < PIECE_MARK) continue;
+    const cx = piece.x + w / 2;
+    if (texts.some(([a, b]) => cx + PIECE_MARK / 2 > a! && cx - PIECE_MARK / 2 < b!)) continue;
+    ctx.globalAlpha = markAlpha;
+    drawVenueMark(ctx, piece.id, cx, yTop + h / 2, PIECE_MARK);
+  }
+}
+
 /** One price row of one candle, with how it stands in that candle. */
 export interface RowCell {
   low: number; buy: number; sell: number;
@@ -321,15 +400,17 @@ export interface RowCell {
   /** This row's share of the candle's executed volume, 0 to 1. */
   share: number;
   barBuy: number; barSell: number;
+  /** With markets added together: each market's part of the row (its instrument, bought, sold). */
+  parts?: readonly VenuePart[];
 }
 
 /** The row of `bar` that holds `price`, with its place in the candle, or null where the candle has no executions at that price. */
 export function rowCellAt(bar: Bar, step: number, price: number): RowCell | null {
-  const row = bar.rows.find(r => price >= r[0] && price < r[0] + step);
+  const index = bar.rows.findIndex(r => price >= r[0] && price < r[0] + step), row = bar.rows[index];
   if (!row) return null;
   let busiest = 0, total = 0;
   for (const r of bar.rows) { busiest = Math.max(busiest, r[1] + r[2]); total += r[1] + r[2]; }
-  return { low: row[0], buy: row[1], sell: row[2], poc: row[1] + row[2] >= busiest && busiest > 0, share: total > 0 ? (row[1] + row[2]) / total : 0, barBuy: bar.buyUsd, barSell: bar.sellUsd };
+  return { low: row[0], buy: row[1], sell: row[2], poc: row[1] + row[2] >= busiest && busiest > 0, share: total > 0 ? (row[1] + row[2]) / total : 0, barBuy: bar.buyUsd, barSell: bar.sellUsd, ...(bar.parts?.[index] ? { parts: bar.parts[index] } : {}) };
 }
 
 const signed = (value: number): string => (value < 0 ? '-' : value > 0 ? '+' : '') + volText(Math.abs(value));
@@ -358,6 +439,15 @@ export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, 
   if (diagonal?.sell !== undefined) lines.push({ label: t('Diagonal'), text: Number.isFinite(diagonal.sell) ? t('sells {ratio} the buys one row up', { ratio: ratioText(diagonal.sell) }) : t('sells, none bought one row up'), color: 'sell' });
   if (diagonal?.buy !== undefined) lines.push({ label: t('Diagonal'), text: Number.isFinite(diagonal.buy) ? t('buys {ratio} the sells one row down', { ratio: ratioText(diagonal.buy) }) : t('buys, none sold one row down'), color: 'buy' });
   if (cell.poc) lines.push({ text: t('Point of control: the busiest row of this candle'), color: 'muted', wrap: true });
+  // The row's markets, the most volume first: each one's mark, sold × bought and its delta; past eight, the rest together.
+  if (cell.parts && cell.parts.length > 1) {
+    const ranked = [...cell.parts].sort((a, b) => b[1] + b[2] - a[1] - a[2]), shown = ranked.slice(0, VENUE_LINES), rest = ranked.slice(VENUE_LINES);
+    shown.forEach(([id, buy, sell], i) => lines.push({ mark: id, label: venueLabel(venueOfInstrument(id)), text: `${volText(sell)} × ${volText(buy)} · ${signed(buy - sell)}`, color: buy > sell ? 'buy' : buy < sell ? 'sell' : 'text', ...(i === 0 ? { rule: true } : {}) }));
+    if (rest.length) {
+      const buy = rest.reduce((s, r) => s + r[1], 0), sell = rest.reduce((s, r) => s + r[2], 0);
+      lines.push({ label: tn(rest.length, '{n} more venue', '{n} more venues'), text: `${volText(sell)} × ${volText(buy)} · ${signed(buy - sell)}`, color: 'muted' });
+    }
+  }
   lines.push({ label: t('Candle volume'), text: `$${volText(cell.barBuy + cell.barSell)}`, rule: true });
   lines.push({ label: t('Candle delta'), text: signed(cell.barBuy - cell.barSell), color: cell.barBuy > cell.barSell ? 'buy' : cell.barBuy < cell.barSell ? 'sell' : 'text' });
   return lines;

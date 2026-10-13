@@ -606,7 +606,7 @@ export class Hub {
 
   /** Executions per candle for a window (the footprint). */
   /** `cuts`: size lines (the coin's USD) whose orders each bar carries in `over`, where the source knows them. */
-  footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number): Promise<FootprintResponse> { return this.source.footprint(inst, tf, from, to, rowStep, cuts, budget); }
+  footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number, venues = false): Promise<FootprintResponse> { return this.source.footprint(inst, tf, from, to, rowStep, cuts, budget, venues); }
 
   /** Depth (USD within +-range of the books' own price) per pixel column over [t0, t1]. */
   depth(enabled: string[], t0: number, t1: number, w: number, range: number): Promise<{ bid: Float32Array; ask: Float32Array }> {
