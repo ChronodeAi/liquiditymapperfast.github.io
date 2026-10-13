@@ -2328,11 +2328,14 @@ export class LiveFeedManager {
   }
 
   #flushWholeBook(id: string, feed: LiveFeed) {
-    if (!this.#isCurrentTransportFeed(feed) || !feed.session) return;
+    if (!this.#isCurrentTransportFeed(feed) || !(feed.session && 'pending' in feed.session && feed.session.pending)) return;
+    // A timer the event loop ran late can come after an update has handed a book on: the interval counts from that one, so wait out the rest.
+    const at = this.now();
+    if (at - (feed.wholeBookAt ?? -Infinity) < WHOLE_BOOK_EVERY_MS) { this.#scheduleWholeBook(id, feed, at); return; }
     const routed = feed.spec.venue === 'kraken' ? handOnKrakenDepthSession(feedSession(feed, createKrakenDepthSession, 'kraken'))
       : feed.spec.venue === 'bitfinex' ? handOnBitfinexDepthSession(feedSession(feed, createBitfinexDepthSession, 'bitfinex')) : null;
     if (!routed?.session.book) return;
-    feed.wholeBookAt = this.now();
+    feed.wholeBookAt = at;
     const delivered = routed.session.book, mutation = this.#stageRetainedDepthSession(id, feed, routed.session, delivered);
     try {
       if (this.#emit(id, feed.spec.venue, delivered, mutation) === false) { this.#fail(id, new Error('retained depth admission rejected'), feed.socket); return; }

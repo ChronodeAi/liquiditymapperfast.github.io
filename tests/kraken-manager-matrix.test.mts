@@ -237,11 +237,13 @@ test('Kraken manager hands its book on at most every WHOLE_BOOK_EVERY_MS, and a 
   clock += WHOLE_BOOK_EVERY_MS; socket.emit(v2frame('update', step('6.00000000')));
   assert.equal(books().length, 2);
   assert.equal(defined(defined(books().at(-1)).message.bids?.[0]).amount, 6, 'the book handed on holds every update before it');
-  await flush.fn();
-  assert.equal(books().length, 2, 'a timer with nothing held hands nothing on');
+  // An update held right after that book, then the timer set before it runs late: the interval counts from the book, so it waits again.
   clock += 20; socket.emit(v2frame('update', step('7.00000000')));
-  assert.equal(books().length, 2);
-  await defined(timers.at(-1)).fn();
+  await flush.fn();
+  assert.equal(books().length, 2, 'a late timer does not hand a book on 20 ms after the last');
+  const rest = defined(timers.at(-1));
+  assert.equal(rest.delay, WHOLE_BOOK_EVERY_MS - 20, 'it waits out the rest of the interval');
+  clock += WHOLE_BOOK_EVERY_MS; await rest.fn();
   assert.equal(books().length, 3, 'the held update goes out on the timer');
   assert.equal(defined(defined(books().at(-1)).message.bids?.[0]).amount, 7);
   assert.equal(defined(books().at(-1)).message.checksumVerified, true);
