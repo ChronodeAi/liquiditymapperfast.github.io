@@ -103,8 +103,9 @@ export class LsPane extends TimePane {
 
   /** Ask for the readings of the view (and half a view before it), again when what is shown changed or a minute after the last time. */
   #load(state: AppState, ids: readonly string[], tfMs: number): void {
-    const v = this.view, span = v.t1 - v.t0, from = Math.floor((v.t0 - span / 2) / HOUR) * HOUR, to = Math.ceil((Math.max(v.t1, Date.now()) + tfMs) / MINUTE) * MINUTE;
-    const key = `${ids.join(',')}|${state.lsMetric}|${state.timeframe}|${from}`;
+    const v = this.view, span = v.t1 - v.t0, from = Math.floor((v.t0 - span / 2) / HOUR) * HOUR, to = Math.ceil((v.t1 + tfMs) / MINUTE) * MINUTE;
+    // The view's own window (an old view is not read up to now: a question reaches only so far), by the hour.
+    const key = `${ids.join(',')}|${state.lsMetric}|${state.timeframe}|${from}|${Math.ceil(to / HOUR)}`;
     if (key === this.#key && Date.now() - this.#asked < MINUTE) return;
     const stale = key !== this.#key, generation = ++this.#generation, source = this.hub.source;
     this.#key = key; this.#asked = Date.now();

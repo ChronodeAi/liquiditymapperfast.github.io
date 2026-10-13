@@ -158,3 +158,24 @@ test('settled bars still without the sums of the size lines asked are asked agai
     assert.ok([...data.bars.values()].filter(b => b.t < 14 * H).every(b => b.over?.[0] === 5), 'and now with their sums');
   } finally { time.restore(); }
 });
+
+test('a size-sum retry that comes back in slices goes on through the older slices', async () => {
+  const time = clock(9_000_000);
+  try {
+    let filled = false;
+    const asked: { from: number; to: number }[] = [];
+    // Answers at most three bars, newest first, and says where it starts.
+    const load = async (_i: string, _tf: string, from: number, to: number): Promise<FootprintResponse> => {
+      asked.push({ from, to });
+      const bars = [];
+      for (let t = Math.floor((to - 1) / H) * H; t >= from && bars.length < 3; t -= H) bars.unshift({ t, rows: [[100, 1, 1]] as [number, number, number][], buyUsd: 1, sellUsd: 1, minutes: 60, stats: { buyN: 1, sellN: 1, buy: [0, 0, 0, 0, 0, 0, 0, 0], sell: [0, 0, 0, 0, 0, 0, 0, 0] }, ...(filled ? { over: [5, 6] } : {}) });
+      return { step: 5, fine: 5, bars: bars as never, from: bars.length ? bars[0]!.t : from };
+    };
+    const data = new FootprintData(), view = { t0: 10 * H, t1: 18 * H, p0: 0, p1: 1 }, sourceNow = 18 * H + 30 * 60_000;
+    const step = async () => { data.ensure('a', '1h', view, 5, load as never, () => {}, [50_000], sourceNow); await turn(); };
+    for (let i = 0; i < 6; i++) await step();
+    filled = true; time.advance(60_000);
+    for (let i = 0; i < 6; i++) await step();
+    assert.ok([...data.bars.values()].filter(b => b.t < 18 * H).every(b => b.over?.[0] === 5), 'every settled bar has its sums, not only the newest slice');
+  } finally { time.restore(); }
+});
