@@ -95,7 +95,7 @@ export const inverseOi = (id: string): boolean => /^deribit:[A-Z]+-PERPETUAL$/.t
  */
 export function atOnePrice(bars: readonly OiBar[], candles: readonly CandleRow[], at?: number): readonly OiBar[] {
   const now = at ?? candles[candles.length - 1]?.[4];
-  if (!(now! > 0)) return bars;
+  if (!(now! > 0) || !candles.length) return bars;
   const out: OiBar[] = [];
   let k = 0;
   for (const bar of [...bars].sort((a, b) => a[0] - b[0])) {

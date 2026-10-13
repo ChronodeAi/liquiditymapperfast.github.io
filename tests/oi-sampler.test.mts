@@ -62,3 +62,20 @@ test('each instrument is read with its own listing, a spot book is never sampled
   assert.ok(recorded.length > 0, 'the history is read once the wait is over');
   sampler.close();
 });
+
+test('history the store refuses (over its budget) is read again later, not taken as done', async () => {
+  let clock = NOW, refusing = true;
+  const recorded: OiSampleMessage[] = [];
+  const get = async (url: string): Promise<unknown> => {
+    if (url.includes('open-interest?category')) return { result: { list: [{ timestamp: String(clock - (clock % 300_000)), openInterest: '900' }] } };
+    if (url.includes('tickers')) return { result: { list: [{ openInterest: '10' }] } };
+    throw new Error(url);
+  };
+  const sampler = new OiSampler(() => {}, m => { if (refusing) return false; recorded.push(m); return true; }, get, () => clock, 3_600_000);
+  sampler.sync(['bybit:BTCUSDT']);
+  await sampler.round();
+  assert.equal(recorded.length, 0);
+  refusing = false; clock += 61_000; await sampler.round();
+  assert.ok(recorded.length > 0, 'written once the store takes rows again');
+  sampler.close();
+});

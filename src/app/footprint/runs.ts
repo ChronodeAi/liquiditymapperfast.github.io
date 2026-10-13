@@ -28,9 +28,10 @@ export function reachedAt(low: number, high: number, after: number, candles: rea
  * The zones and naked points of control of the closed candles marked, the newest `limit`: each zone until reached; each point of control
  * (its row) only while no later candle has traded into it.
  */
-export function runsOf(marks: ReadonlyMap<number, BarMarks>, candles: readonly CandleRow[], tfMs: number, step: number, now: number, want: { zones: boolean; pocs: boolean }, limit = 80): FootprintRun[] {
+export function runsOf(marks: ReadonlyMap<number, BarMarks>, candles: readonly CandleRow[], tfMs: number, step: number, now: number, want: { zones: boolean; pocs: boolean }, limit = 80, until = Infinity): FootprintRun[] {
   const out: FootprintRun[] = [];
-  const bars = [...marks.entries()].filter(([t]) => t + tfMs <= now).sort((a, b) => b[0] - a[0]);
+  // Only bars before the view's right edge (`until`) can start a run inside it: later bars the loader still holds must not take the limit.
+  const bars = [...marks.entries()].filter(([t]) => t + tfMs <= now && t < until).sort((a, b) => b[0] - a[0]);
   for (const [t, m] of bars) {
     if (out.length >= limit) break;
     const from = t + tfMs;
@@ -44,10 +45,11 @@ export function runsOf(marks: ReadonlyMap<number, BarMarks>, candles: readonly C
 export class FootprintRuns {
   #key = '';
   #runs: FootprintRun[] = [];
-  get(marksKey: string, marks: ReadonlyMap<number, BarMarks>, candles: readonly CandleRow[], tfMs: number, step: number, now: number, want: { zones: boolean; pocs: boolean }): FootprintRun[] {
+  get(marksKey: string, marks: ReadonlyMap<number, BarMarks>, candles: readonly CandleRow[], tfMs: number, step: number, now: number, want: { zones: boolean; pocs: boolean }, until = Infinity): FootprintRun[] {
+    const edge = Number.isFinite(until) ? Math.ceil(until / tfMs) * tfMs : Infinity;
     const last = candles[candles.length - 1];
-    const key = `${marksKey}|${step}|${tfMs}|${candles.length}|${last ? `${last[0]}|${last[2]}|${last[3]}` : ''}|${Math.floor(now / tfMs)}|${want.zones}|${want.pocs}`;
-    if (key !== this.#key) { this.#key = key; this.#runs = runsOf(marks, candles, tfMs, step, now, want); }
+    const key = `${marksKey}|${step}|${tfMs}|${candles.length}|${last ? `${last[0]}|${last[2]}|${last[3]}` : ''}|${Math.floor(now / tfMs)}|${want.zones}|${want.pocs}|${edge}`;
+    if (key !== this.#key) { this.#key = key; this.#runs = runsOf(marks, candles, tfMs, step, now, want, 80, edge); }
     return this.#runs;
   }
 }

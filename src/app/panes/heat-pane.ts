@@ -515,7 +515,7 @@ export class HeatPane {
       // Zones and naked points of control only while the footprint itself shows, faded with it: zoomed out, its data is still loaded.
       if ((fp.zones || fp.nakedPoc) && this.#lodFrame.barAlpha > 0.05 && state.seriesInstrument === state.marketId) {
         const tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000;
-        paintRuns(ctx, this.#footprintRuns.get(this.#footprintMarks.key, marks, state.candles, tfMs, this.#footprint.step, pageNow(), { zones: fp.zones, pocs: fp.nakedPoc }), v, pw, ph, p, this.#lodFrame.barAlpha);
+        paintRuns(ctx, this.#footprintRuns.get(this.#footprintMarks.key, marks, state.candles, tfMs, this.#footprint.step, pageNow(), { zones: fp.zones, pocs: fp.nakedPoc }, v.t1), v, pw, ph, p, this.#lodFrame.barAlpha);
       }
       paintFootprint(ctx, this.#footprint, this.#lodFrame, state.timeframe, v, pw, ph, p, this.#trapMarks(), { marks, settings: fp, ...(replaying() ? { until: pageNow() } : {}) });
     }

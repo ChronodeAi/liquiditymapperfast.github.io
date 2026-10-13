@@ -40,10 +40,10 @@ export class OiSampler {
   readonly #history = new Map<string, { done: boolean; tries: number; nextAt: number }>();
 
   /**
-   * `apply` hands a live reading to the server's reducer; `record` writes a history row to the store. `get` and `now` are the network and
+   * `apply` hands a live reading to the server's reducer; `record` writes a history row to the store (false: refused). `get` and `now` are the network and
    * the clock (tests pass fakes).
    */
-  constructor(private apply: (message: OiSampleMessage, venue: string) => void, private record: (message: OiSampleMessage) => void,
+  constructor(private apply: (message: OiSampleMessage, venue: string) => void, private record: (message: OiSampleMessage) => unknown,
     private get: Fetcher = webGet, private now: () => number = Date.now, private everyMs = OI_SAMPLE_MS) {}
 
   /** The perpetuals whose book is live: those of the sampled venues are read from now on, the others are let go. */
@@ -91,7 +91,8 @@ export class OiSampler {
       if (this.#closed) return;
       for (const r of rows.slice(i, i + ROWS_PER_TURN)) {
         const t = Number(r.start);
-        this.record({ kind: 'openInterest', instrumentId: id, sourceTimestamp: t, observationTimestamp: t, receivedAt: now, base: Number(r.close), quality: 'sampled', source: `${venue}-openInterestHistory` });
+        // A store that refuses writes (over its budget: `recordOi` answers false) leaves the history to be read again later, not done.
+        if (this.record({ kind: 'openInterest', instrumentId: id, sourceTimestamp: t, observationTimestamp: t, receivedAt: now, base: Number(r.close), quality: 'sampled', source: `${venue}-openInterestHistory` }) === false) throw new Error('the history store refused the rows');
       }
       await new Promise<void>(resolve => setImmediate(resolve));
     }

@@ -64,3 +64,12 @@ test('footprint settings are read field by field', () => {
   assert.equal(readFootprint({ markets: 'chart' }).markets, 'chart');
   assert.equal(readFootprint({ text: 'everything' }).text, 'split');
 });
+
+test('bars after the view the loader still holds do not take the run limit from the view', () => {
+  const MIN = 60_000, marks = marksOf(bar, 5, DEFAULT_STAT_OPTIONS), c = (t: number, high: number, low: number): CandleRow => [t, low, high, low, high, 1];
+  // The view's bar at T, and 100 later bars still held from a later view: each makes a zone and a point of control.
+  const held = new Map([[T, marks], ...Array.from({ length: 100 }, (_, i) => [T + (i + 10) * MIN, marks] as const)]);
+  const candles = [c(T, 125, 100), c(T + MIN, 150, 131)];
+  assert.equal(runsOf(held, candles, MIN, 5, T + 200 * MIN, { zones: true, pocs: true }).some(r => r.from === T + MIN), false, 'without the edge the later bars fill the 80');
+  assert.deepEqual(runsOf(held, candles, MIN, 5, T + 200 * MIN, { zones: true, pocs: true }, 80, T + 5 * MIN).map(r => [r.kind, r.from]), [['zone', T + MIN], ['poc', T + MIN]]);
+});
