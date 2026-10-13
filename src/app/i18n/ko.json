@@ -1250,5 +1250,6 @@
  "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "이 패널, 바 통계, NL/NS, 롱/숏 패널이 세는 미결제약정의 대상: 켜진 각 거래소의 무기한 합계, 차트 시장만, 또는 직접 고른 시장.",
  "Pick the perpetuals whose open interest is added together.": "미결제약정을 합산할 무기한을 고릅니다.",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것)이며, 상자의 가격뿐 아니라 전체입니다. 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다.",
- "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것). 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다."
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것). 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다.",
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}: 마지막 업데이트를 읽지 못했습니다. 이전 값입니다."
 }

@@ -61,6 +61,7 @@ export function lsCardLines(series: readonly LsSeries[], time: number, tf: strin
     if (s.status === 'failed') { lines.push({ label, text: t('could not be read'), color: 'muted', mark: s.id }); continue; }
     const p = lsAt(s.points, time, s.periodMs);
     lines.push(p ? { label, text: shareText(p.long), color: p.long > 0.5 ? 'buy' : p.long < 0.5 ? 'sell' : 'text', mark: s.id } : { label, text: t('no reading'), color: 'muted', mark: s.id });
+    if (s.status === 'stale') lines.push({ text: t('{venue}: the last update could not be read; these are its earlier readings.', { venue: venueLabel(s.id) }), color: 'muted', wrap: true });
   }
   // Who each line counts, the venues of one population together: "Binance: top traders, by positions · Bybit, OKX: all accounts".
   const groups = new Map<LsPopulation, string[]>();
@@ -183,6 +184,7 @@ export class LsPane extends TimePane {
     const parts = series.map(s => {
       const q = lsAt(s.points, time, s.periodMs), name = venueLabel(s.id);
       if (s.status === 'serverOnly') return `<span class="muted">${name} ${t('server only')}</span>`;
+      if (s.status === 'stale' && q) return `${name} <b class="muted">${pct(q.long)}</b>`;
       return q ? `${name} <b class="${q.long > 0.5 ? 'bid' : q.long < 0.5 ? 'ask' : ''}">${pct(q.long)}</b>` : `<span class="muted">${name} –</span>`;
     });
     setHtml(readout, `${t('long')} ${parts.join(' ')}`);

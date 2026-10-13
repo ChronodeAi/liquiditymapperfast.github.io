@@ -1250,5 +1250,6 @@
  "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "此面板、柱状统计、NL/NS 和多空比面板计入谁的持仓量：每个已开启交易所的永续相加、仅图表市场，或您选择的市场。",
  "Pick the perpetuals whose open interest is added together.": "选择要相加持仓量的永续合约。",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个，且是其全部，不只是方框内的价格。上升：开仓；下降：平仓。不是谁开仓或平仓。",
- "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个。上升：开仓；下降：平仓。不是谁开仓或平仓。"
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个。上升：开仓；下降：平仓。不是谁开仓或平仓。",
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}：最近一次更新无法读取；这些是之前的读数。"
 }

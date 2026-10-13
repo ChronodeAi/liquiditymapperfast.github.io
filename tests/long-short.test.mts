@@ -172,3 +172,14 @@ test('a window older than the cache holds gets its readings, and a changed answe
   const changed = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ buyRatio: '0.6', sellRatio: '0.4', time: String(NOW - 5 * M) }] } }) });
   await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, changed, NOW), /unknown shape/);
 });
+
+test('a refresh that fails after a good answer says so, with the readings held from before', async () => {
+  let now = NOW, failing = false;
+  const get = fake({ 'https://api.bybit.com/': () => { if (failing) throw new Error('HTTP 503'); return { retCode: 0, result: { list: [{ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(NOW - 10 * M) }] } }; } });
+  const cache = new LongShortCache(get, true, () => now);
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW + H)).status, 'ok');
+  failing = true; now += 6 * M;
+  const after = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW + H);
+  assert.deepEqual([after.status, after.points.length], ['stale', 1]);
+  assert.equal(parseLsSeries(after).status, 'stale', 'and the wire carries it');
+});

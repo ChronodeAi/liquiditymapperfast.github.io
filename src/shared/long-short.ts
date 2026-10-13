@@ -25,9 +25,10 @@ export const LS_METRICS: readonly LsMetric[] = ['accounts', 'topAccounts', 'topP
 export interface LsPoint { t: number; long: number }
 /**
  * `ok` with points; `empty` the venue answered with none for the window; `unsupported` the venue publishes no such series (or none for this
- * market); `serverOnly` a page cannot read it (no CORS header) but a server can; `failed` the request or its answer was not good.
+ * market); `serverOnly` a page cannot read it (no CORS header) but a server can; `failed` the request or its answer was not good; `stale`
+ * the points held from before, the last request for more having failed.
  */
-export type LsStatus = 'ok' | 'empty' | 'unsupported' | 'serverOnly' | 'failed';
+export type LsStatus = 'ok' | 'empty' | 'unsupported' | 'serverOnly' | 'failed' | 'stale';
 export interface LsSeries { id: string; population: LsPopulation | null; periodMs: number; points: LsPoint[]; status: LsStatus }
 
 export const LS_VENUES: readonly string[] = ['binance', 'bybit', 'okx', 'bitget'];
@@ -189,12 +190,14 @@ export class LongShortCache {
     }
     if (held.busy) await held.busy;
     const points = [...held.points.values()].filter(p => p.t >= from - periodMs && p.t < to).sort((a, b) => a.t - b.t);
-    if (points.length) return answer(points, 'ok');
-    return answer([], held.failed && held.failed >= held.checked ? 'failed' : 'empty');
+    // The last request failing after the last success says so, with what is held from before.
+    const failing = held.failed > 0 && held.failed >= held.checked;
+    if (points.length) return answer(points, failing ? 'stale' : 'ok');
+    return answer([], failing ? 'failed' : 'empty');
   }
 }
 
-const STATUSES: readonly LsStatus[] = ['ok', 'empty', 'unsupported', 'serverOnly', 'failed'];
+const STATUSES: readonly LsStatus[] = ['ok', 'empty', 'unsupported', 'serverOnly', 'failed', 'stale'];
 const POPULATIONS: readonly LsPopulation[] = ['accounts', 'topAccounts', 'topPositions', 'activeAccounts'];
 /** A series as it came over the wire, checked: anything not of its shape is an error; a reading out of range or out of order is left out. */
 export function parseLsSeries(value: unknown): LsSeries {

@@ -176,6 +176,8 @@ export const FOOTPRINT_SETTLE_MS = 2 * 60_000;
 export const FOOTPRINT_REFRESH_MS = 5_000;
 /** Settled bars missing their size-line sums are asked again this often, at most this many times a load. */
 const REDO_MS = 60_000, REDO_TRIES = 10;
+/** Every this often the refresh also asks the last hour of settled bars again (late trades). */
+const RECHECK_MS = 5 * 60_000, RECHECK_SPAN_MS = 3_600_000;
 /** More bars than this held (scrolled back over days of small candles) and the next look starts again from the view. */
 const FOOTPRINT_MAX_BARS = 3_000;
 
@@ -207,7 +209,7 @@ export class FootprintData {
   /** The market and timeframe the bars belong to, and the number of the request whose answer counts. */
   #context = ''; #request = 0;
   /** What the bars cover: their row size and size lines (`grid`), [from, to), the bars before `settled` final, and when the tail was last asked. */
-  #held: { grid: string; from: number; to: number; settled: number; at: number; redo: { from: number; to: number; at: number; tries: number } } | null = null;
+  #held: { grid: string; from: number; to: number; settled: number; at: number; rechecked: number; redo: { from: number; to: number; at: number; tries: number } } | null = null;
 
   /**
    * Ask for what the view needs next, if anything: everything (another row size or size lines, or a view the bars held do not touch), the
@@ -233,7 +235,13 @@ export class FootprintData {
     let ask: { from: number; to: number; kind: 'whole' | 'tail' | 'older' | 'redo' };
     if (!h || h.grid !== grid || want.to <= h.from || want.from >= h.to) ask = { ...want, kind: 'whole' };
     // From the first bar that can still change, but never past what is held (panning right through the past, the bars after it are not held yet).
-    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) ask = { from: Math.min(Math.max(h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };
+    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) {
+      // Every few minutes the tail reaches back an hour into the settled bars: a trade a venue sends late (after a reconnect) lands in a
+      // minute already settled here, and is otherwise only seen when the view is loaded again.
+      const recheck = clock - h.rechecked >= RECHECK_MS;
+      if (recheck) h.rechecked = clock;
+      ask = { from: Math.min(Math.max(recheck ? h.settled - RECHECK_SPAN_MS : h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };
+    }
     else if (want.from < h.from) ask = { from: want.from, to: h.from, kind: 'older' };
     // Settled bars without the sums of the size lines asked (minutes whose lists the server fills in after it starts) are asked again, once
     // a minute and at most REDO_TRIES times, from the first of them to where the tail starts.
@@ -257,7 +265,7 @@ export class FootprintData {
       if (!fresh && ask.kind === 'tail') for (const t of [...bars.keys()]) if (t >= reached) bars.delete(t);
       if (!fresh && ask.kind === 'redo') for (const t of [...bars.keys()]) if (t >= reached && t < ask.to) bars.delete(t);
       for (const bar of body.bars) if (bar.t >= reached && bar.t < ask.to) bars.set(bar.t, readBar(bar, asked.length, body.venues));
-      if (fresh) this.#held = { grid, from: reached, to: ask.to, settled, at: performance.now(), redo: { from: Infinity, to: Infinity, at: performance.now(), tries: 0 } };
+      if (fresh) this.#held = { grid, from: reached, to: ask.to, settled, at: performance.now(), rechecked: performance.now(), redo: { from: Infinity, to: Infinity, at: performance.now(), tries: 0 } };
       else if (ask.kind === 'older') held.from = reached;
       // The bars it reached are replaced and what is held stays; an answer that stopped short leaves the older part for the next slice.
       else if (ask.kind === 'redo') held.redo.to = reached > ask.from ? reached : Infinity;

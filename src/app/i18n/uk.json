@@ -1318,5 +1318,6 @@
  "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "Чий відкритий інтерес рахують ця панель, статистика за свічками, NL/NS і панель Лонг/Шорт: перпетуали кожної ввімкненої біржі разом, лише ринок графіка або вибрані вами ринки.",
  "Pick the perpetuals whose open interest is added together.": "Виберіть перпетуали, чий відкритий інтерес додається.",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "Один ринок, найбільший із {n}, які додає панель OI, і весь його інтерес, а не лише ціни рамки. Росте — позиції відкрито; падає — закрито. Але не хто їх відкрив чи закрив.",
- "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "Один ринок, найбільший із {n}, які додає панель OI. Росте — позиції відкрито; падає — закрито. Але не хто їх відкрив чи закрив."
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "Один ринок, найбільший із {n}, які додає панель OI. Росте — позиції відкрито; падає — закрито. Але не хто їх відкрив чи закрив.",
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}: останнє оновлення не вдалося прочитати; це попередні значення."
 }

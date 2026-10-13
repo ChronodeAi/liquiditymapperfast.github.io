@@ -341,11 +341,24 @@ export class Hub {
    * Load open interest for the series on screen. The market's own series is used while it is healthy; otherwise a reference perp
    * with history stands in and `oiInstrument` says so. Safe to call often: it is one request when the market has OI.
    */
-  async loadOi(): Promise<void> {
+  loadOi(): Promise<void> {
     const state = this.store.state, { marketId, seriesInstrument, timeframe } = state;
-    const own = seriesInstrument || marketId; if (!own) return;
+    const own = seriesInstrument || marketId; if (!own) return Promise.resolve();
     const added = oiMarketIds(state, this.flow), venues = added ?? [];
-    const key = `${own}|${timeframe}|${state.oiMarkets}|${venues.join(',')}`; this.#oiKey = key;
+    const key = `${own}|${timeframe}|${state.oiMarkets}|${venues.join(',')}`;
+    // A load for the same markets still under way is the answer: asking again on the 20 s clock while a slow history (Bybit's pages, in a
+    // page) is still coming would make every answer stale before it came, and the pane would never get one.
+    const held = this.#oiInflight;
+    if (held && held.key === key && held.generation === this.#oiGen) return held.promise;
+    const promise: Promise<void> = this.#loadOi(own, key, added, venues).finally(() => { if (this.#oiInflight?.promise === promise) this.#oiInflight = null; });
+    this.#oiInflight = { key, generation: this.#oiGen, promise };
+    return promise;
+  }
+  #oiInflight: { key: string; generation: number; promise: Promise<void> } | null = null;
+
+  async #loadOi(own: string, key: string, added: string[] | null, venues: string[]): Promise<void> {
+    const state = this.store.state, { timeframe } = state;
+    this.#oiKey = key;
     const generation = ++this.#oiGen;
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000, now = Date.now(), from = now - 500 * tf, to = now + tf;
     // Added together: every venue's bars, asked for at once; only the venues the filter and the chips let through count, or the markets

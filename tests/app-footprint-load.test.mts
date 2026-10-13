@@ -179,3 +179,19 @@ test('a size-sum retry that comes back in slices goes on through the older slice
     assert.ok([...data.bars.values()].filter(b => b.t < 18 * H).every(b => b.over?.[0] === 5), 'every settled bar has its sums, not only the newest slice');
   } finally { time.restore(); }
 });
+
+test('every few minutes the refresh reaches back an hour into the settled bars, for trades a venue sent late', async () => {
+  const time = clock(20_000_000);
+  try {
+    const { asked, load } = source(50), data = new FootprintData(), view = { t0: 0, t1: 10 * H, p0: 0, p1: 1 };
+    const sourceNow = 10 * H + 30 * 60_000;
+    const step = async () => { data.ensure('a', '1h', view, 5, load, () => {}, [], sourceNow); await turn(); };
+    await step();
+    time.advance(FOOTPRINT_REFRESH_MS); await step();
+    assert.equal(asked.at(-1)!.from, 10 * H, 'a refresh: the open bar');
+    time.advance(5 * 60_000); await step();
+    assert.equal(asked.at(-1)!.from, 9 * H, 'five minutes on: the hour before it too');
+    time.advance(FOOTPRINT_REFRESH_MS); await step();
+    assert.equal(asked.at(-1)!.from, 10 * H);
+  } finally { time.restore(); }
+});

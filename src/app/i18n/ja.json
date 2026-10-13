@@ -1250,5 +1250,6 @@
  "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "このペイン、バー統計、NL/NS、ロング/ショートペインが数える建玉の対象：オンの各取引所の無期限の合計、チャートの市場のみ、または選んだ市場。",
  "Pick the perpetuals whose open interest is added together.": "建玉を合算する無期限を選びます。",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "1つの市場（OIペインが合算する{n}市場のうち最大のもの）で、ボックスの価格だけでなく全体です。増加：ポジションが建てられた、減少：決済された。誰が建てたり決済したかではありません。",
- "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "1つの市場（OIペインが合算する{n}市場のうち最大のもの）。増加：ポジションが建てられた、減少：決済された。誰が建てたり決済したかではありません。"
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "1つの市場（OIペインが合算する{n}市場のうち最大のもの）。増加：ポジションが建てられた、減少：決済された。誰が建てたり決済したかではありません。",
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}：最新の更新を読み取れませんでした。これは以前の値です。"
 }
