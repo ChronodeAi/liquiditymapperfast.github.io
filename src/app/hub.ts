@@ -355,11 +355,14 @@ export class Hub {
     const key = `${own}|${timeframe}|${venues.join(',')}`; this.#oiKey = key;
     const generation = ++this.#oiGen;
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000, now = Date.now(), from = now - 500 * tf, to = now + tf;
-    // Added together: every venue's bars, asked for at once; at least two venues with bars, else the one market's as before.
-    if (venues.length > 1) {
+    // Added together: every venue's bars, asked for at once. Only the venues the filter and the chips let through count: with one answering
+    // its own bars are shown, with none nothing (never a market left out standing in).
+    if (state.oiMarkets === 'all') {
       const parts = (await Promise.all(venues.map(async id => ({ id, bars: await this.source.oi(id, timeframe, from, to).catch(() => []) })))).filter(part => part.bars.length);
       if (this.#oiKey !== key || generation !== this.#oiGen) return;
-      if (parts.length > 1) { this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts }); return; }
+      if (parts.length > 1) this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts });
+      else this.store.set({ oi: parts[0]?.bars ?? [], oiInstrument: parts[0]?.id ?? '', oiParts: [] });
+      return;
     }
     const ids = [...new Set([own, this.#reference, ...this.#oiReferences].filter(Boolean))];
     const candidates: OiCandidate[] = [];

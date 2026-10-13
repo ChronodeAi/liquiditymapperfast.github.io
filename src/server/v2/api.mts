@@ -142,6 +142,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
    * reader for each such book the feed manager holds, started and stopped with it on the sources' 5 s round.
    */
   // Open interest of Bybit, OKX, Bitget and Deribit while their books are live (Binance's and Hyperliquid's come from the feed manager).
+  // Only a market the registry calls a perpetual (a spot book of a venue that has perpetuals too has no open interest).
+  const perpetual = (id: string): boolean => (app.state.markets ?? []).some(m => String((m as { instrumentId?: unknown; id?: unknown }).instrumentId ?? (m as { id?: unknown }).id) === id && (m as { marketType?: unknown }).marketType === 'perpetual');
   const oiSampler = oiSampling ? new OiSampler((message, venue) => { app.applyMessage(message, venue); }, message => { app.history.recordOi({ ...message }); }) : null;
   const farBooks = new Map<string, FarPoller>();
   const syncFar = (ids: readonly string[]): void => {
@@ -235,7 +237,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     detect(orders.add(trades));
     takeOrders(false);
     absorption.step();
-    if (now - lastSources >= 5_000) { lastSources = now; flowSources.sync(new Set([...Object.keys(app.state.books ?? {}), ...extra.enabledInstrumentIds])); syncFar(Object.keys(app.state.books ?? {})); oiSampler?.sync(Object.keys(app.state.books ?? {})); }
+    if (now - lastSources >= 5_000) { lastSources = now; flowSources.sync(new Set([...Object.keys(app.state.books ?? {}), ...extra.enabledInstrumentIds])); syncFar(Object.keys(app.state.books ?? {})); oiSampler?.sync(Object.keys(app.state.books ?? {}).filter(perpetual)); }
     // Each store on its own: one that cannot write (a full disk) keeps its rows for the next round and does not stop the others or the rest of this pass.
     if (now - lastFlush >= 30_000) { lastFlush = now; for (const store of [footprint, prints, liquidations, flow, absorption]) { try { store.flush(); } catch (error) { fault('recordings could not be saved; will try again:', error); } } }
     if (now - lastPrune >= 3_600_000) { lastPrune = now; recorder.prune(now); }

@@ -33,24 +33,24 @@ export interface OiPart { id: string; bars: readonly OiBar[] }
 export interface OiSum { bars: OiBar[]; venues: number[]; change: Map<number, number>; counted: Map<number, number> }
 export function sumOi(parts: readonly OiPart[], tfMs: number, carryMs = Math.max(2 * tfMs, 10 * 60_000)): OiSum {
   const times = [...new Set(parts.flatMap(p => p.bars.map(b => b[0])))].sort((a, b) => a - b);
-  // Each venue's bar (its own, or its last reading carried) at each time, or null.
-  const at = parts.map(part => {
-    const own = new Map(part.bars.map(b => [b[0], b] as const)), out: (OiBar | null)[] = [];
-    let last: OiBar | null = null;
-    for (const t of times) {
-      const bar = own.get(t);
-      if (bar) { last = bar; out.push(bar); }
-      else out.push(last && t - last[0] <= carryMs ? [t, last[4], last[4], last[4], last[4]] : null);
-    }
-    return out;
-  });
+  const sorted = parts.map(part => [...part.bars].sort((a, b) => a[0] - b[0]));
+  // A venue's bar at a time: its own, or its last reading carried (as a flat bar), or null.
+  const barAt = (bars: readonly OiBar[], t: number): OiBar | null => {
+    let lo = 0, hi = bars.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (bars[mid]![0] <= t) lo = mid + 1; else hi = mid; }
+    const last = bars[lo - 1];
+    if (!last || t - last[0] > carryMs) return null;
+    return last[0] === t ? last : [t, last[4], last[4], last[4], last[4]];
+  };
   const bars: OiBar[] = [], venues: number[] = [], change = new Map<number, number>(), counted = new Map<number, number>();
-  times.forEach((t, i) => {
+  times.forEach(t => {
     const bar: OiBar = [t, 0, 0, 0, 0]; let n = 0, d = 0, both = 0;
-    for (const series of at) {
-      const b = series[i]; if (!b) continue;
+    for (const series of sorted) {
+      const b = barAt(series, t); if (!b) continue;
       n++; bar[1] += b[1]; bar[2] += b[2]; bar[3] += b[3]; bar[4] += b[4];
-      const before = i > 0 && times[i - 1] === t - tfMs ? series[i - 1] : null;
+      // The reading one timeframe before, carried as above: a venue read every five minutes on a one-minute chart changes in the bar of its
+      // new reading, by the whole step from the last.
+      const before = barAt(series, t - tfMs);
       if (before) { d += b[4] - before[4]; both++; }
     }
     if (!n) return;

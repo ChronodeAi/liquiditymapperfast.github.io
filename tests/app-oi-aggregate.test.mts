@@ -31,6 +31,16 @@ test('venues added together: a venue whose readings start is not counted as posi
   assert.deepEqual(late.venues, [2, 2, 2, 1, 1, 1]);
 });
 
+test('on a one-minute chart a venue read every five minutes changes in the bar of its new reading, by the whole step', () => {
+  const fiveMinutes: OiPart = { id: 'bybit:BTCUSDT', bars: [bar(0, 300), bar(5 * M, 330), bar(10 * M, 330)] };
+  const everyMinute: OiPart = { id: 'binance:BTCUSDT', bars: [0, 1, 2, 3, 4, 5].map(i => bar(i * M, 1_000 + i)) };
+  const sum = sumOi([fiveMinutes, everyMinute], M);
+  assert.equal(sum.change.get(5 * M), 30 + 1, 'Bybit +30 from its carried reading one minute before, Binance +1');
+  assert.equal(sum.change.get(3 * M), 1, 'Bybit carried, unchanged');
+  assert.equal(sum.change.get(10 * M), 0, 'both unchanged: Binance carried at its reading of five minutes before');
+  assert.equal(sum.counted.get(10 * M), 2);
+});
+
 test('NL/NS over venues gives each venue\'s change to its own takers, then adds them up', () => {
   const starts = [0, M, 2 * M];
   const up = carriedOiDeltas([bar(0, 100), bar(M, 110), bar(2 * M, 130)], starts, M);

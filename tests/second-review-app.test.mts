@@ -44,7 +44,8 @@ class FakeSource {
   async footprint() { return { step: 0, fine: 0, bars: [] }; }
 }
 async function rig(patch: Partial<AppState> = {}) {
-  const store = new Store({ ...initialState(), ...patch }), source = new FakeSource();
+  // One market's open interest (the chart market's, a reference standing in): what these tests are about; added together has its own.
+  const store = new Store({ ...initialState(), oiMarkets: 'chart', ...patch }), source = new FakeSource();
   const hub = new Hub(store, source as unknown as DataSource);
   (hub.worker as unknown as FakeWorker).onmessage!({ data: { type: 'ready' } });
   await hub.start();
