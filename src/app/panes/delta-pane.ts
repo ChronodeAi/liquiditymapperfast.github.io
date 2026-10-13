@@ -16,7 +16,7 @@ import { TimePane, setHtml } from './lower-panes.ts';
 import { FlowCache, candleStarts, deltaCandles, resetKeys, unrecorded, type DeltaCandle } from '../delta/candles.ts';
 import { PIVOTS, type DeltaSettings } from '../delta/settings.ts';
 import { divergences, inView, paintDivergence, type Divergence } from '../delta/divergence.ts';
-import { coinText, nlnsCardLines, nlnsModel, type NlnsCandle, type NlnsMarket } from '../delta/nlns.ts';
+import { coinText, nlnsCardLines, nlnsModel, withLead, type NlnsCandle, type NlnsMarket } from '../delta/nlns.ts';
 import { oiPartsUntil } from '../oi-change.ts';
 import { venueLabel } from '../venues.ts';
 import { togglePanel, type Panel } from '../ui.ts';
@@ -152,7 +152,10 @@ export class DeltaPane extends TimePane {
     const sources: { id: string; bars: readonly OiBar[] }[] = aggregated ? [...oiPartsUntil(state.oiParts, tf, replaying() ? now : Infinity)]
       : oiInst && state.oi.length ? [{ id: oiInst, bars: replaying() ? state.oi.filter(b => b[0] + tf <= now) : state.oi }] : [];
     if (!sources.length || !starts.length) return [];
-    this.#ensure(sources.map(m => m.id), starts[0]!, Date.now());
+    // A reading's change is given to the takers since the reading before, which can be before the view: the candles of one hold before it
+    // are worked out too (in a run of their own, so the sums still start at the view) and left out of what is drawn.
+    const { all, keys } = withLead(starts, resetKeys(starts, s.reset, zone), tf);
+    this.#ensure(sources.map(m => m.id), all[0]!, Date.now());
     const key = `${sources.map(m => m.id).join(',')}|${tf}|${starts[0]}|${starts.length}|${starts[starts.length - 1]}|${s.reset}|${zone}|${flow.loads}|${Math.floor(now / 1000)}`;
     const held = this.#model;
     if (held && held.key === key && held.oi === state.oi && held.parts === state.oiParts && held.candles === state.candles) return held.model;
@@ -162,11 +165,11 @@ export class DeltaPane extends TimePane {
     const markets: NlnsMarket[] = sources.map(m => {
       const track = flow.track(m.id);
       let cache = this.#oiCaches.get(m.id); if (!cache) { cache = new FlowCache(); this.#oiCaches.set(m.id, cache); }
-      return { bars: m.bars, flows: track ? unrecorded(starts, cache.get(`${m.id}|${tf}|${flow.loads}`, [track], starts, tf, now), tf, now) : starts.map(() => null) };
+      return { bars: m.bars, flows: track ? unrecorded(all, cache.get(`${m.id}|${tf}|${flow.loads}`, [track], all, tf, now), tf, now) : all.map(() => null) };
     });
     // A venue no longer counted keeps no cache.
     for (const id of this.#oiCaches.keys()) if (!sources.some(m => m.id === id)) this.#oiCaches.delete(id);
-    const model = nlnsModel(starts, markets, closes, resetKeys(starts, s.reset, zone), tf);
+    const model = nlnsModel(all, markets, closes, keys, tf).filter(c => c.t >= starts[0]!);
     this.#model = { key, oi: state.oi, parts: state.oiParts, candles: state.candles, model };
     return model;
   }

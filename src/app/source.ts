@@ -82,7 +82,8 @@ export interface DataSource {
   bootstrap(): Promise<BootstrapState>;
   connect(handlers: LiveHandlers): { close(): void };
   candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]>;
-  oi(inst: string, tf: string, from: number, to: number): Promise<OiBar[]>;
+  /** `usd`: an inverse market's own USD in place of its coins (the readings that kept one; an older source ignores it and answers coins). */
+  oi(inst: string, tf: string, from: number, to: number, usd?: boolean): Promise<OiBar[]>;
   /** A venue's published long/short readings for one market (shared/long-short.ts):  is the Binance series chosen. */
   longShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries>;
   /** Large trades in [from, to), oldest first. */

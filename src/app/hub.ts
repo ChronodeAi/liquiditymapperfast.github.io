@@ -352,7 +352,7 @@ export class Hub {
     // picked ('custom', whatever the chips say). With one answering its own bars are shown, with none nothing (never a market left out
     // standing in, never the chart market in place of an empty list).
     if (added) {
-      const parts = (await Promise.all(venues.map(async id => ({ id, bars: this.#inCoins(id, await this.source.oi(id, timeframe, from, to).catch(() => [])) })))).filter(part => part.bars.length);
+      const parts = (await Promise.all(venues.map(async id => ({ id, bars: await this.#oiBars(id, timeframe, from, to).catch((): OiBar[] => []) })))).filter(part => part.bars.length);
       if (this.#oiKey !== key || generation !== this.#oiGen) return;
       if (parts.length > 1) this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts });
       else this.store.set({ oi: parts[0]?.bars ?? [], oiInstrument: parts[0]?.id ?? '', oiParts: [] });
@@ -361,8 +361,8 @@ export class Hub {
     const ids = [...new Set([own, this.#reference, ...this.#oiReferences].filter(Boolean))];
     const candidates: OiCandidate[] = [];
     for (const inst of ids) {
-      const bars = await this.source.oi(inst, timeframe, from, to).catch(() => []);
-      candidates.push({ inst, bars: this.#inCoins(inst, bars) });
+      const bars = await this.#oiBars(inst, timeframe, from, to).catch((): OiBar[] => []);
+      candidates.push({ inst, bars });
       if (!weakOi(bars, now, tf)) break;
     }
     if (this.#oiKey !== key || generation !== this.#oiGen) return;
@@ -370,8 +370,19 @@ export class Hub {
     if (chosen) this.store.set({ oi: chosen.bars, oiInstrument: chosen.inst, oiParts: [] });
   }
 
-  /** A market's open interest as the panes count it: an inverse market's (counted in USD) in coins at one price (`atOnePrice`), the candles on screen's newest close. */
-  #inCoins(id: string, bars: OiBar[]): OiBar[] { return inverseOi(id) ? [...atOnePrice(bars, this.store.state.candles)] : bars; }
+  /**
+   * A market's open interest as the panes count it, in coins. An inverse market counts it in USD, and its coins (the USD at each reading's
+   * mark) move with the price while no contract opens or closes: it is read in its own USD and put in coins at one price, the newest close of
+   * the candles on screen, so only contracts move it. A source with no USD readings (an older server, readings from before) gives its coins
+   * put back into USD at each candle's close (`atOnePrice`), which is off by what the price moved between a reading and its candle's close.
+   */
+  async #oiBars(id: string, tf: string, from: number, to: number): Promise<OiBar[]> {
+    if (!inverseOi(id)) return this.source.oi(id, tf, from, to);
+    const candles = this.store.state.candles, price = candles[candles.length - 1]?.[4] ?? 0;
+    const usd = price > 0 ? await this.source.oi(id, tf, from, to, true).catch((): OiBar[] => []) : [];
+    if (usd.length) return usd.map(b => [b[0], b[1] / price, b[2] / price, b[3] / price, b[4] / price]);
+    return [...atOnePrice(await this.source.oi(id, tf, from, to), candles)];
+  }
 
   /**
    * Make sure the print book covers `view` with the orders from `minUsd` (history is fetched once per window and smallest size; the live

@@ -46,9 +46,10 @@ export async function getPrints(from: number, to: number, minUsd?: number): Prom
   const body = await (await request(`/api/v2/prints?from=${Math.floor(from)}&to=${Math.ceil(to)}${min}`)).json() as { prints?: unknown[] };
   return (body.prints ?? []).flatMap(row => { const p = fromWire(row); return p ? [p] : []; });
 }
-export async function getOi(inst: string, tf: string, from: number, to: number): Promise<OiBar[]> {
-  const body = await (await request(`/api/v2/oi?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${from}&to=${to}`)).json() as { bars: OiBar[] };
-  return body.bars;
+export async function getOi(inst: string, tf: string, from: number, to: number, usd = false): Promise<OiBar[]> {
+  const body = await (await request(`/api/v2/oi?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${from}&to=${to}${usd ? '&usd=1' : ''}`)).json() as { bars: OiBar[]; usd?: unknown };
+  // A server from before USD readings ignores the flag and answers coins: none, rather than coins read as dollars.
+  return usd && body.usd !== true ? [] : body.bars;
 }
 /** A venue's long/short readings for one market (the server reads them from the venue when asked, see shared/long-short.ts). */
 export async function getLongShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries> {

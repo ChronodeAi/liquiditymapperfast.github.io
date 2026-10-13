@@ -199,7 +199,7 @@ export class BrowserSource implements DataSource, VenueControl {
   /** Read from the venues by the page itself (each answers with CORS headers but OKX, which a page cannot read), kept in memory. */
   #longShort = new LongShortCache(webGet, true);
   longShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries> { return this.#longShort.series(inst, metric, TIMEFRAMES[tf] ?? 3_600_000, from, to); }
-  async oi(inst: string, tf: string, from: number, to: number): Promise<OiBar[]> { return this.#call({ method: 'oi', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to }); }
+  async oi(inst: string, tf: string, from: number, to: number, usd = false): Promise<OiBar[]> { return this.#call({ method: 'oi', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to, ...(usd ? { usd } : {}) }); }
   async prints(from: number, to: number, minUsd?: number): Promise<Print[]> { return this.#call({ method: 'prints', from, to, ...(minUsd !== undefined ? { minUsd } : {}) }); }
   async printSums(ids: string[], from: number, to: number, minUsd: number, stepMs: number): Promise<PrintSumsAnswer> {
     const answer: PrintSumsAnswer | null = await this.#call({ method: 'printSums', ids, from, to, minUsd, stepMs });

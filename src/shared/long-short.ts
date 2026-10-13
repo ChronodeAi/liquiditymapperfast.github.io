@@ -146,7 +146,8 @@ export class LongShortCache {
     const older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
     if ((older || due) && !held.busy && now - held.failed >= MINUTE) {
       const h = held, start = older ? from : Math.max(from, now - 2 * periodMs), end = older && !due ? h.from : now + periodMs;
-      h.busy = fetchLongShort(venue, symbol, metric, periodMs, start, end, this.get, now).then(points => {
+      // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
+      h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(points => {
         for (const p of points) h.points.set(p.t, p);
         if (older) h.from = Math.min(h.from, start);
         if (due || !Number.isFinite(h.from)) h.refreshed = now;

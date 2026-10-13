@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LongShortCache, fetchLongShort, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
 import { lsAt } from '../src/app/panes/ls-pane.ts';
-import type { Fetcher } from '../src/shared/history.ts';
+import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings } from '../src/app/store.ts';
 
 const M = 60_000, H = 3_600_000, NOW = Date.UTC(2026, 9, 13, 18, 50);
@@ -96,4 +96,22 @@ test('the Binance series is a saved setting and a layout setting: only the three
   assert.deepEqual([readSettings({}).lsMetric, readSettings({ lsMetric: 'topPositions' }).lsMetric, readSettings({ lsMetric: 'whales' }).lsMetric], ['accounts', 'topPositions', 'accounts']);
   assert.equal(readSettings({}).show.ls, false);
   assert.ok((LAYOUT_KEYS as readonly string[]).includes('lsMetric'));
+});
+
+test("Binance's top-trader choice is Binance's alone: the other venues still read their accounts", async () => {
+  const get = fake({
+    'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(NOW - 5 * M) }] } }),
+    'https://fapi.binance.com/futures/data/topLongShortPositionRatio': () => [{ longAccount: '0.61', shortAccount: '0.39', longShortRatio: '1.5641', timestamp: NOW - 5 * M }],
+  });
+  const cache = new LongShortCache(get, true, () => NOW);
+  const bybit = await cache.series('bybit:BTCUSDT', 'topPositions', 5 * M, NOW - H, NOW), binance = await cache.series('binance:BTCUSDT', 'topPositions', 5 * M, NOW - H, NOW);
+  assert.deepEqual([bybit.status, bybit.population, binance.status, binance.population], ['ok', 'accounts', 'ok', 'topPositions']);
+});
+
+test('open-interest history that answers an error fails, so the sampler tries again, instead of reading as none', async () => {
+  const listing = { symbol: 'BTCUSDT', unit: 1 };
+  await assert.rejects(fetchOiHistory('bybit:BTCUSDT', H, NOW - 24 * H, NOW, fake({ 'https://api.bybit.com/': () => ({ retCode: 10006, retMsg: 'Too many visits' }) }), listing), /bybit/);
+  await assert.rejects(fetchOiHistory('okx:BTC-USDT-SWAP', H, NOW - 24 * H, NOW, fake({ 'https://www.okx.com/': () => ({ code: '50011', msg: 'Too Many Requests', data: [] }) }), { symbol: 'BTC-USDT-SWAP', unit: 1 }), /okx/);
+  await assert.rejects(fetchOiHistory('binance:BTCUSDT', H, NOW - 24 * H, NOW, fake({ 'https://fapi.binance.com/': () => ({ code: -1003, msg: 'Too many requests' }) }), listing), /binance/);
+  assert.deepEqual(await fetchOiHistory('bybit:BTCUSDT', H, NOW - 24 * H, NOW, fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [] } }) }), listing), [], 'an empty list is none');
 });

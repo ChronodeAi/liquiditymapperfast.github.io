@@ -25,7 +25,7 @@ import { AbsorptionRecorder, GROUP_FLOOR_USD, GROUPS_PER_MINUTE, ABSORPTION_WIND
 import { ExtraVenues, RECOMMENDED_EXTRA_VENUES } from './venues.mts';
 import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
-import { TIMEFRAMES, aggregateCandles, aggregateOi, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
+import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
 
 type App = ReturnType<typeof createLocalServer>;
 /** `oiSampling`: read the open interest of the venues the feed manager does not (oi-sampler.mts); a live server only, never a test. */
@@ -324,11 +324,13 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (!id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
     const span = windowOf(url, Date.now() + tfMs, 400 * tfMs); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
     const { from, to } = span;
+    // `usd=1`: an inverse market's own USD (the readings that kept one) in place of its coins.
+    const usd = url.searchParams.get('usd') === '1';
     const stored = app.history.listOi(id, { from, to, limit: 300_000 }) as OiRow[];
     // The live samples are held to the same window as the stored bars: one past `to` would put a bar outside what was asked for.
     const at = (s: { observationTimestamp?: unknown; sourceTimestamp?: unknown; receivedAt?: unknown }): number => Number(s.observationTimestamp ?? s.sourceTimestamp ?? s.receivedAt);
     const live = (app.state.oi ?? []).filter(s => s.instrumentId === id && at(s) >= from && at(s) < to) as OiRow[];
-    sendJson(res, { instrumentId: id, tf, bars: aggregateOi(withLiveOi(stored, live), tfMs) });
+    sendJson(res, { instrumentId: id, tf, ...(usd ? { usd } : {}), bars: aggregateOi(usd ? withLiveOi(quoteRows(stored), quoteRows(live)) : withLiveOi(stored, live), tfMs) });
   };
   // Long/short ratios as the venues publish them, read when asked for and kept in memory only (shared/long-short.ts): nothing of the
   // history store's budget, and nothing read while no page shows the pane.

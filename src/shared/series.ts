@@ -36,7 +36,25 @@ export function aggregateCandles(rows: Iterable<CandleRow>, tfMs: number): Candl
 
 /** [start, open, high, low, close] of base open interest per bucket. */
 export type OiBar = [number, number, number, number, number];
-export interface OiRow { base?: unknown; observationTimestamp?: unknown; sourceTimestamp?: unknown; receivedAt?: unknown; start?: unknown; close?: unknown; open?: unknown; high?: unknown; low?: unknown }
+export interface OiRow { base?: unknown; quote?: unknown; observationTimestamp?: unknown; sourceTimestamp?: unknown; receivedAt?: unknown; start?: unknown; close?: unknown; open?: unknown; high?: unknown; low?: unknown;
+  /** A stored bar's USD (`quote`) open, high, low and close, where its samples had one. */
+  quoteOpen?: unknown; quoteHigh?: unknown; quoteLow?: unknown; quoteClose?: unknown }
+
+/**
+ * The rows' USD (an inverse market's own unit) in place of their coins, for `aggregateOi`: a stored bar by its quote prices, a sample by its
+ * quote; a row with none is left out.
+ */
+export function quoteRows(rows: readonly OiRow[]): OiRow[] {
+  const out: OiRow[] = [];
+  for (const row of rows) {
+    const close = Number(row.quoteClose);
+    if (Number.isFinite(Number(row.start)) && Number.isFinite(close) && close > 0) {
+      const or = (v: unknown): number => Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : close;
+      out.push({ start: row.start, open: or(row.quoteOpen), high: or(row.quoteHigh), low: or(row.quoteLow), close });
+    } else if (!Number.isFinite(Number(row.start)) && Number.isFinite(Number(row.quote)) && Number(row.quote) > 0) out.push({ ...row, base: row.quote });
+  }
+  return out;
+}
 
 export function aggregateOi(rows: Iterable<OiRow>, tfMs: number): OiBar[] {
   const points: { t: number; o: number; h: number; l: number; c: number }[] = [];

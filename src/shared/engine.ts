@@ -8,8 +8,8 @@ import { OrderBuilder, orderRow } from './orders.ts';
 import { RecordedBefore } from './restart.ts';
 import { AbsorptionRecorder, GROUP_FLOOR_USD, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from './absorption.ts';
 import { FLOW_MEMORY_MS, FLOW_SEC, FlowRecorder, type FlowFrame, type FlowStore, type FlowUpdate } from './flow.ts';
-import { TIMEFRAMES, type Candle, type OiBar, type OiRow } from './series.ts';
-import { OI_SAMPLE_VENUES, fetchCandles, fetchOiHistory, fetchOiSample, oiBars, venueOf, webGet, type Fetcher } from './history.ts';
+import { TIMEFRAMES, quoteRows, type Candle, type OiBar, type OiRow } from './series.ts';
+import { OI_SAMPLE_VENUES, fetchCandles, fetchOiHistory, fetchOiReading, oiBars, venueOf, webGet, type Fetcher } from './history.ts';
 import { browserVenues, type BrowserVenue } from './venues.ts';
 import { BTC, SCALES, type Coin, type MarketVenue } from './coins.ts';
 import type { BookConnector, TradeEvent } from './connector.ts';
@@ -351,13 +351,14 @@ export class Engine {
   }
 
   /** Open interest bars: the venue's own history where it has one, and the readings taken while the page was open. */
-  async oi(instrumentId: string, tfMs: number, from: number, to: number): Promise<OiBar[]> {
+  /** `usd`: an inverse market's own USD in place of its coins (the samples that have one; its history, in coins, is left out). */
+  async oi(instrumentId: string, tfMs: number, from: number, to: number, usd = false): Promise<OiBar[]> {
     const venue = venueOf(instrumentId), key = `${instrumentId}|${tfMs}|${from}|${to}`, cached = this.#oiCache.get(key), now = this.#now();
     let stored: Promise<OiRow[]>;
     if (cached && now - cached.at < OI_CACHE_MS) stored = cached.rows;
     else { const listing = this.#listing(instrumentId); stored = listing ? fetchOiHistory(instrumentId, tfMs, from, to, this.#get, listing).catch(() => []) : Promise.resolve([]); this.#oiCache.set(key, { at: now, rows: stored }); if (this.#oiCache.size > 20) this.#oiCache.delete(this.#oiCache.keys().next().value!); }
     const live = (this.#oiLive.get(venue) ?? []).filter(sample => Number(sample.observationTimestamp) >= from);
-    return oiBars(await stored, live, tfMs);
+    return usd ? oiBars(quoteRows(await stored), quoteRows(live), tfMs) : oiBars(await stored, live, tfMs);
   }
 
   #pollOi(now: number): void {
@@ -366,10 +367,10 @@ export class Engine {
       if (now - (this.#oiAsked.get(venue) ?? 0) < OI_SAMPLE_MS) continue;
       this.#oiAsked.set(venue, now);
       const listing = this.#coin.markets[venue as MarketVenue]; if (!listing) continue;
-      void fetchOiSample(venue, this.#get, listing).then(base => {
-        if (base === null) return;
+      void fetchOiReading(venue, this.#get, listing).then(reading => {
+        if (reading === null) return;
         const list = this.#oiLive.get(venue) ?? []; this.#oiLive.set(venue, list);
-        list.push({ observationTimestamp: this.#now(), base });
+        list.push({ observationTimestamp: this.#now(), base: reading.base, ...(reading.quote !== undefined ? { quote: reading.quote } : {}) });
         while (list.length && Number(list[0]!.observationTimestamp) < this.#now() - OI_KEEP_MS) list.shift();
       }, () => { /* the next minute asks again */ });
     }

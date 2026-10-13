@@ -168,15 +168,23 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
   const venue = venueOf(instrumentId), market = listingOf(venue, listing);
   if (!market || !OI_VENUES.includes(venue)) return [];
   const rows = new Map<number, OiRow>(), take = (t: number, coins: number): void => { if (Number.isFinite(t) && coins > 0 && t >= from - tfMs && t <= to) rows.set(t, oiRow(t, coins * market.unit)); };
+  // An answer that is not the venue's list (an error sent with HTTP 200) fails the read: the sampler tries again later, where an empty
+  // history would have been taken as done.
+  const rowsOf = (answer: unknown, ok: boolean, path: (string | number)[]): unknown[] => {
+    const got = at(answer, ...path);
+    if (!ok || !Array.isArray(got)) throw new Error(`${venue}: no open-interest history in the answer`);
+    return got;
+  };
   if (venue === 'binance') {
     const period = nativeInterval({ intervals: BINANCE_OI_PERIODS }, Math.max(tfMs, 300_000)) ?? 300_000;
-    for (const r of list(await get(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${market.symbol}&period=${BINANCE_OI_PERIODS[period]}&limit=500&endTime=${to}`)))
+    for (const r of rowsOf(await get(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${market.symbol}&period=${BINANCE_OI_PERIODS[period]}&limit=500&endTime=${to}`), true, []))
       take(num(at(r, 'timestamp')), num(at(r, 'sumOpenInterest')));
   } else if (venue === 'bybit') {
     const period = nativeInterval({ intervals: BYBIT_OI_PERIODS }, Math.max(tfMs, 300_000)) ?? 300_000;
     // Newest first, 200 a page; each next page ends before the oldest of the last.
     for (let end = to, page = 0; page < OI_PAGES && end >= from; page++) {
-      const got = list(at(await get(`https://api.bybit.com/v5/market/open-interest?category=linear&symbol=${market.symbol}&intervalTime=${BYBIT_OI_PERIODS[period]}&limit=200&endTime=${Math.floor(end)}`), 'result', 'list'));
+      const answer = await get(`https://api.bybit.com/v5/market/open-interest?category=linear&symbol=${market.symbol}&intervalTime=${BYBIT_OI_PERIODS[period]}&limit=200&endTime=${Math.floor(end)}`);
+      const got = rowsOf(answer, at(answer, 'retCode') === undefined || num(at(answer, 'retCode')) === 0, ['result', 'list']);
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(t, num(at(r, 'openInterest'))); if (t < oldest) oldest = t; }
       if (got.length < 200 || !Number.isFinite(oldest)) break;
@@ -186,7 +194,8 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
     const period = nativeInterval({ intervals: OKX_OI_PERIODS }, Math.max(tfMs, 300_000)) ?? 300_000;
     for (let end = to, page = 0; page < OI_PAGES && end >= from; page++) {
       // Rows of [ts, contracts, coins, USD], newest first, 100 a page.
-      const got = list(at(await get(`https://www.okx.com/api/v5/rubik/stat/contracts/open-interest-history?instId=${market.symbol}&period=${OKX_OI_PERIODS[period]}&limit=100&end=${Math.floor(end)}`), 'data'));
+      const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/open-interest-history?instId=${market.symbol}&period=${OKX_OI_PERIODS[period]}&limit=100&end=${Math.floor(end)}`);
+      const got = rowsOf(answer, at(answer, 'code') === undefined || String(at(answer, 'code')) === '0', ['data']);
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 0)); take(t, num(at(r, 2))); if (t < oldest) oldest = t; }
       if (got.length < 100 || !Number.isFinite(oldest)) break;
@@ -198,6 +207,19 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
 
 /** A live open-interest reading, in coins, of a venue's perpetual (null where it has none, or no listing for the coin). */
 export async function fetchOiSample(venue: string, get: Fetcher, listing?: HistoryListing): Promise<number | null> {
+  return (await fetchOiReading(venue, get, listing))?.base ?? null;
+}
+
+/**
+ * The same reading with, for an inverse market (Deribit's BTC and ETH perpetuals, counted in USD), its own USD as `quote`: its coins are
+ * the USD at the mark of the moment, and only the USD tells contracts opened or closed apart from the price moving.
+ */
+export async function fetchOiReading(venue: string, get: Fetcher, listing?: HistoryListing): Promise<{ base: number; quote?: number } | null> {
+  const value = await readOiSample(venue, get, listing);
+  return value === null ? null : typeof value === 'number' ? { base: value } : value;
+}
+
+async function readOiSample(venue: string, get: Fetcher, listing?: HistoryListing): Promise<number | { base: number; quote: number } | null> {
   const market = listingOf(venue, listing); if (!market) return null;
   const coins = (v: number): number | null => v > 0 && Number.isFinite(v) ? v * market.unit : null;
   if (venue === 'binance') return coins(num(at(await get(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${market.symbol}`), 'openInterest')));
@@ -213,7 +235,9 @@ export async function fetchOiSample(venue: string, get: Fetcher, listing?: Histo
     const summary = at(await get(`https://www.deribit.com/api/v2/public/get_book_summary_by_instrument?instrument_name=${market.symbol}`), 'result', 0);
     // A coin-margined perpetual counts open interest in USD: coins at the mark of the moment, not at a price read later.
     const oi = num(at(summary, 'open_interest')), mark = num(at(summary, 'mark_price'));
-    return market.inverse ? (mark > 0 ? coins(oi / mark) : null) : coins(oi);
+    if (!market.inverse) return coins(oi);
+    const base = mark > 0 ? coins(oi / mark) : null;
+    return base !== null && oi > 0 ? { base, quote: oi * market.unit } : null;
   }
   return null;
 }

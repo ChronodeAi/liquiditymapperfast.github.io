@@ -1,4 +1,4 @@
-import { fetchOiHistory, fetchOiSample, venueOf, webGet, type Fetcher, type HistoryListing } from '../../shared/history.ts';
+import { fetchOiHistory, fetchOiReading, venueOf, webGet, type Fetcher, type HistoryListing } from '../../shared/history.ts';
 import { unitOf, type CoinVenue } from '../../shared/coins.ts';
 
 /**
@@ -74,8 +74,9 @@ export class OiSampler {
         catch { history.tries++; history.nextAt = this.now() + Math.min(RETRY_MAX_MS, RETRY_MS * 2 ** (history.tries - 1)); }
       }
       if (this.#closed) return;
-      const coins = await fetchOiSample(venue, this.get, listing).catch(() => null);
-      if (coins !== null && !this.#closed) this.apply({ kind: 'openInterest', instrumentId: id, sourceTimestamp: null, receivedAt: this.now(), base: coins, quality: 'sampled', source: `${venue}-openInterest` }, venue);
+      // An inverse market's reading keeps its own USD too (`quote`): the coins alone move with the price.
+      const reading = await fetchOiReading(venue, this.get, listing).catch(() => null);
+      if (reading !== null && !this.#closed) this.apply({ kind: 'openInterest', instrumentId: id, sourceTimestamp: null, receivedAt: this.now(), base: reading.base, ...(reading.quote !== undefined ? { quote: reading.quote } : {}), quality: 'sampled', source: `${venue}-openInterest` }, venue);
     }
   }
 

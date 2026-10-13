@@ -25,7 +25,7 @@ export type RpcCall =
   | { method: 'valueAreas'; ids: string[]; windows: { from: number; to: number }[]; rowStep: number; share: number }
   | { method: 'absorption'; ids: string[]; mins: number[]; from: number; to: number; limit: number; since: number }
   | { method: 'candles'; inst: string; tfMs: number; from: number; to: number }
-  | { method: 'oi'; inst: string; tfMs: number; from: number; to: number };
+  | { method: 'oi'; inst: string; tfMs: number; from: number; to: number; usd?: boolean };
 
 export interface RpcResult {
   bootstrap: EngineBootstrap; columns: ColumnsFrame; footprint: FootprintAnswer; prints: Print[]; liquidations: Liquidation[]; printSums: PrintSumsAnswer | null; flow: FlowFrame; sizes: SizesAnswer; profile: ProfileAnswer; range: RangeAnswer; valueAreas: ValueAreaAnswer; absorption: AbsorptionAnswer; candles: Candle[]; oi: OiBar[];

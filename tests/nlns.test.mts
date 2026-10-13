@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { coinText, nlnsCardLines, nlnsModel, type NlnsMarket } from '../src/app/delta/nlns.ts';
+import { coinText, nlnsCardLines, nlnsModel, withLead, type NlnsMarket } from '../src/app/delta/nlns.ts';
+import { fetchOiReading } from '../src/shared/history.ts';
+import { quoteRows } from '../src/shared/series.ts';
 import { atOnePrice, inverseOi } from '../src/app/oi-change.ts';
 import { readDelta } from '../src/app/delta/settings.ts';
 import type { CandleRow, OiBar } from '../src/app/store.ts';
@@ -88,4 +90,34 @@ test('the words: coins, signed and short; the popup gives the share of open inte
   assert.match(lines[lines.length - 1]!.text, /Binance BTCUSDT/);
   assert.equal(readDelta({ style: 'nlns' }).style, 'nlns');
   assert.deepEqual([readDelta({}).nlns, readDelta({ nlns: 'split' }).nlns, readDelta({ nlns: 'both' }).nlns], ['net', 'split', 'net'], 'net by default; split kept; anything else net');
+});
+
+test('a 4-hour or daily chart: bars a candle apart are consecutive readings, not a gap', () => {
+  const D = 24 * H, starts = [T, T + D, T + 2 * D];
+  const c = nlnsModel(starts, [{ bars: [bar(T, 100), bar(T + D, 120), bar(T + 2 * D, 110)], flows: [null, flow(5), flow(-5)] }], none, keys(starts), D);
+  assert.deepEqual(c.map(x => [x.kind, x.v]), [[null, 0], ['newLongs', 20], ['longsClosed', -10]]);
+  assert.ok(c.every(x => !x.coarse), 'a candle apart is not coarse');
+});
+
+test('a reading whose stretch began before the view is given to the takers of the whole stretch, wherever the view starts', () => {
+  // Hourly readings on a one-minute chart: buyers for 50 minutes (+1 each), sellers for the last 10 (−2 each): the hour's takers bought (+30).
+  const flowAt = (t: number) => t > T && t <= T + H ? flow(t <= T + 50 * M ? 1 : -2) : null;
+  const bars = [bar(T, 1_000), bar(T + H, 1_050)];
+  const read = (from: number) => {
+    const starts = Array.from({ length: (T + H - from) / M + 1 }, (_, i) => from + i * M);
+    const lead = withLead(starts, starts.map(() => 0), M);
+    return nlnsModel(lead.all, [{ bars, flows: lead.all.map(flowAt) }], none, lead.keys, M).filter(x => x.t >= starts[0]!);
+  };
+  for (const from of [T, T + 30 * M, T + 50 * M]) {
+    const last = read(from).at(-1)!;
+    assert.deepEqual([last.t, last.kind, last.v, last.cum], [T + H, 'newLongs', 50, 50], `view from ${(from - T) / M} min`);
+  }
+});
+
+test('an inverse market keeps its own USD with each reading; stored bars and samples give it in place of coins', async () => {
+  const get = (async () => ({ result: [{ open_interest: 1_000_000, mark_price: 50_000 }] })) as never;
+  assert.deepEqual(await fetchOiReading('deribit', get, { symbol: 'BTC-PERPETUAL', unit: 1, inverse: true }), { base: 20, quote: 1_000_000 });
+  assert.deepEqual(await fetchOiReading('deribit', get, { symbol: 'BTC_USDC-PERPETUAL', unit: 1 }), { base: 1_000_000 }, 'a linear market reads coins only');
+  const rows = quoteRows([{ start: T, open: 20, close: 18, quoteOpen: 1e6, quoteHigh: 1e6, quoteLow: 1e6, quoteClose: 1e6 }, { start: T + H, close: 19 }, { observationTimestamp: T + 2 * H, base: 18.2, quote: 1e6 }, { observationTimestamp: T + 3 * H, base: 18 }]);
+  assert.deepEqual(rows.map(r => [Number(r.start ?? r.observationTimestamp), Number(r.close ?? r.base)]), [[T, 1e6], [T + 2 * H, 1e6]], 'rows without USD are left out');
 });

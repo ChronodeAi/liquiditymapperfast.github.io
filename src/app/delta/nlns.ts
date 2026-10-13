@@ -48,6 +48,8 @@ export interface NlnsMarket { bars: readonly OiBar[]; flows: readonly (CandleFlo
  */
 export function nlnsModel(starts: readonly number[], markets: readonly NlnsMarket[], closes: ReadonlyMap<number, number>, keys: readonly number[], tfMs: number,
   holdMs = OI_HOLD_MS): NlnsCandle[] {
+  // Bars a candle apart are consecutive readings however long the candle (a 4-hour or daily chart's bars are 4 h or a day apart).
+  holdMs = Math.max(holdMs, tfMs);
   const index = new Map(starts.map((s, i) => [s, i] as const));
   const parts = starts.map(() => ({ dOi: 0, oiStart: 0, lo: 0, lc: 0, so: 0, sc: 0, un: 0, byPrice: false, coarse: false, counted: 0 }));
   const carry = Math.max(2 * tfMs, 10 * 60_000), covered = new Array<number>(starts.length).fill(0);
@@ -87,6 +89,17 @@ export function nlnsModel(starts: readonly number[], markets: readonly NlnsMarke
       side: Math.sign(v) as 1 | -1 | 0, byPrice: p.byPrice, coarse: p.coarse, covered: covered[i]!, counted: p.counted, cum, cumLongs, cumShorts, run });
   });
   return out;
+}
+
+/**
+ * The candles NL/NS works out for the view's `starts`: those of one hold before them first (a reading's change is given to the takers since
+ * the reading before, which can be before the view), with restart keys that put them in a run of their own so the sums still start at the
+ * view. Drop the candles before `starts[0]` from the model.
+ */
+export function withLead(starts: readonly number[], keys: readonly number[], tfMs: number, holdMs = OI_HOLD_MS): { all: number[]; keys: number[] } {
+  if (!starts.length) return { all: [], keys: [] };
+  const lead = Math.ceil(Math.max(holdMs, tfMs) / tfMs);
+  return { all: [...Array.from({ length: lead }, (_, k) => starts[0]! - (lead - k) * tfMs), ...starts], keys: [...Array.from({ length: lead }, () => -Infinity), ...keys] };
 }
 
 /** An amount of coins, signed and short: "+325 BTC", "−1.2M DOGE". */
