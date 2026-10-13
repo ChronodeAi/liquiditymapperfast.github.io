@@ -1,4 +1,5 @@
 import { fetchOiHistory, fetchOiSample, venueOf, webGet, type Fetcher, type HistoryListing } from '../../shared/history.ts';
+import { unitOf, type CoinVenue } from '../../shared/coins.ts';
 
 /**
  * Open interest of the perpetuals the feed manager does not read (it reads Binance's and Hyperliquid's): Bybit, OKX, Bitget and Deribit,
@@ -19,14 +20,16 @@ const RETRY_MS = 60_000, RETRY_MAX_MS = 3_600_000;
 export interface OiSampleMessage { kind: 'openInterest'; instrumentId: string; sourceTimestamp: number | null; observationTimestamp?: number; receivedAt: number; base: number; quality: 'native' | 'sampled'; source?: string }
 
 /**
- * How a perpetual lists its coin, from its own instrument id (`venue:SYMBOL`): its symbol, a unit of 1 000 for a symbol that counts thousands
- * (1000PEPEUSDT), and Deribit's coin-margined perpetuals (BTC-PERPETUAL, ETH-PERPETUAL; the X_USDC-PERPETUAL ones are linear). Null for an
+ * How a perpetual lists its coin, from its own instrument id (`venue:SYMBOL`): its symbol, its unit as the coin list reads it (1000PEPEUSDT and
+ * Bybit's SHIB1000USDT count thousands), and Deribit's coin-margined perpetuals (BTC-PERPETUAL, ETH-PERPETUAL; the X_USDC-PERPETUAL ones are linear). Null for an
  * id that names no single perpetual (a spot market's `:spot` suffix).
  */
 export function oiListingOf(id: string): HistoryListing | null {
   const parts = id.split(':'); if (parts.length !== 2 || !parts[1]) return null;
   const [venue, symbol] = parts as [string, string];
-  return { symbol, unit: /^1000(?!\d)/.test(symbol) ? 1000 : 1, ...(venue === 'deribit' && /^[A-Z]+-PERPETUAL$/.test(symbol) ? { inverse: true } : {}) };
+  // The market's name for the base, then its unit as the coin list reads it (1000PEPE, Bybit's SHIB1000).
+  const base = venue === 'okx' ? symbol.split('-')[0]! : venue === 'deribit' ? symbol.replace(/-PERPETUAL$/, '').replace(/_USDC$/, '') : symbol.replace(/(USDT|USDC)$/, '');
+  return { symbol, unit: unitOf(base, venue as CoinVenue)[1], ...(venue === 'deribit' && /^[A-Z]+-PERPETUAL$/.test(symbol) ? { inverse: true } : {}) };
 }
 
 export class OiSampler {

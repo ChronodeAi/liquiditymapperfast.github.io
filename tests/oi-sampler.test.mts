@@ -36,6 +36,8 @@ test('the server samples the venues the feed manager does not read, writing thei
 test('each instrument is read with its own listing, a spot book is never sampled, and a failed history is tried again later', async () => {
   assert.deepEqual(oiListingOf('bybit:ETHUSDT'), { symbol: 'ETHUSDT', unit: 1 });
   assert.deepEqual(oiListingOf('bybit:1000PEPEUSDT'), { symbol: '1000PEPEUSDT', unit: 1000 });
+  assert.deepEqual(oiListingOf('bybit:SHIB1000USDT'), { symbol: 'SHIB1000USDT', unit: 1000 }, 'Bybit writes the thousands after the coin');
+  assert.deepEqual(oiListingOf('okx:PEPE-USDT-SWAP'), { symbol: 'PEPE-USDT-SWAP', unit: 1 });
   assert.deepEqual(oiListingOf('deribit:ETH-PERPETUAL'), { symbol: 'ETH-PERPETUAL', unit: 1, inverse: true });
   assert.deepEqual(oiListingOf('deribit:SOL_USDC-PERPETUAL'), { symbol: 'SOL_USDC-PERPETUAL', unit: 1 });
   assert.equal(oiListingOf('bybit:BTCUSDT:spot'), null);
