@@ -287,6 +287,10 @@ test('an aggregated footprint is the row-by-row sum of its markets, its minutes 
   assert.deepEqual([sliced.from, sliced.bars.map(bar => bar.t)], [T0 + 2 * COLUMN_MS, [T0 + 3 * COLUMN_MS]], 'at least one bar with data, the empty bars beside it free');
   const two = recorder.queryMany(['a:BTC', 'b:BTC'], T0, T0 + 5 * COLUMN_MS, COLUMN_MS, 20, [], 3);
   assert.deepEqual([two.from, two.bars.map(bar => bar.t)], [T0 + COLUMN_MS, [T0 + COLUMN_MS, T0 + 3 * COLUMN_MS]]);
+  // A window reaching years either side costs what its retained part does.
+  const started = performance.now(), wide = recorder.queryMany(['a:BTC', 'b:BTC'], 0, 1e15, COLUMN_MS, 20, [], 3);
+  assert.ok(performance.now() - started < 1_000, 'bounded to the recording');
+  assert.deepEqual(wide.bars.map(bar => bar.t), [T0 + COLUMN_MS, T0 + 3 * COLUMN_MS]);
   recorder.close();
 });
 

@@ -71,3 +71,35 @@ test('another row size asks again from the view, and an old source that answers 
   assert.deepEqual(asked.at(-1), [9, 13]);
   assert.equal(asked.length, 2);
 });
+
+test('a view with more bars than are held for long is not asked for again on every look, and panning right through the past asks from the held end', async () => {
+  const time = clock(5_000_000);
+  try {
+    const M = 60_000, asked: number[][] = [];
+    const load = async (_i: string, _tf: string, from: number, to: number): Promise<FootprintResponse> => {
+      asked.push([from, to]);
+      const bars = []; for (let t = from; t < to; t += M) bars.push({ t, rows: [[100, 1, 1]] as [number, number, number][], buyUsd: 1, sellUsd: 1, minutes: 1 });
+      return { step: 5, fine: 5, bars };
+    };
+    const data = new FootprintData(), wide = { t0: 0, t1: 4_000 * M, p0: 0, p1: 1 };
+    for (let i = 0; i < 4; i++) { data.ensure('a', '1m', wide, 5, load, () => {}, [], 10 * 86_400_000); await turn(); }
+    assert.equal(asked.length, 1, 'more than 3 000 bars in view, all past: one question, then none');
+    assert.equal(data.bars.size, 4_002);
+
+    // Hourly bars held for [9h, 13h) with the source at 30h; the view moves to [12h, 15h).
+    const hourly: number[][] = [];
+    const loadH = async (_i: string, _tf: string, from: number, to: number): Promise<FootprintResponse> => {
+      hourly.push([from / H, to / H]);
+      const bars = []; for (let t = from; t < to; t += H) bars.push({ t, rows: [[100, 1, 1]] as [number, number, number][], buyUsd: 1, sellUsd: 1, minutes: 60 });
+      return { step: 5, fine: 5, bars };
+    };
+    const past = new FootprintData();
+    past.ensure('a', '1h', { t0: 10 * H, t1: 12 * H, p0: 0, p1: 1 }, 5, loadH, () => {}, [], 30 * H); await turn();
+    past.ensure('a', '1h', { t0: 12 * H, t1: 14 * H, p0: 0, p1: 1 }, 5, loadH, () => {}, [], 30 * H); await turn();
+    assert.deepEqual(hourly, [[9, 13], [13, 15]], 'the bars after the held ones, not from the settled time far beyond them');
+    assert.deepEqual([...past.bars.keys()].map(t => t / H), [9, 10, 11, 12, 13, 14]);
+
+    past.clear();
+    assert.equal(past.bars.size, 0, 'no markets to count: no bars');
+  } finally { time.restore(); }
+});

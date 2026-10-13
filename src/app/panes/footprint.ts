@@ -155,6 +155,12 @@ export class FootprintData {
   /** Bumped whenever `bars` changes, for what is worked out from them (the imbalance marks). */
   version = 0;
   #busy = false; #retryAt = 0;
+
+  /** No markets to count (Aggregated with every venue off, or none inside the filter): no bars, and nothing asked for. */
+  clear(): void {
+    if (this.#context === '' && !this.bars.size) return;
+    this.#context = ''; this.#request++; this.#held = null; this.#busy = false; this.bars = new Map(); this.step = 0; this.fine = 0; this.version++;
+  }
   /** The market and timeframe the bars belong to, and the number of the request whose answer counts. */
   #context = ''; #request = 0;
   /** What the bars cover: their row size and size lines (`grid`), [from, to), the bars before `settled` final, and when the tail was last asked. */
@@ -176,9 +182,15 @@ export class FootprintData {
     // Other size lines are another question: the bars' sums are for the lines asked.
     const grid = `${rowStep}|${cuts.join(',')}`, want = { from: Math.floor((view.t0 - tfMs) / tfMs) * tfMs, to: Math.ceil((view.t1 + tfMs) / tfMs) * tfMs };
     const h = this.#held;
+    // Scrolled over more bars than are worth holding: those off the view go (the view's own are kept, however many it shows).
+    if (h && this.bars.size > FOOTPRINT_MAX_BARS && (h.from < want.from || h.to > want.to)) {
+      for (const t of [...this.bars.keys()]) if (t < want.from || t >= want.to) this.bars.delete(t);
+      h.from = Math.max(h.from, want.from); h.to = Math.min(h.to, want.to); this.version++;
+    }
     let ask: { from: number; to: number; kind: 'whole' | 'tail' | 'older' };
-    if (!h || h.grid !== grid || want.to <= h.from || want.from >= h.to || this.bars.size > FOOTPRINT_MAX_BARS) ask = { ...want, kind: 'whole' };
-    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) ask = { from: Math.max(h.settled, h.from), to: Math.max(want.to, h.to), kind: 'tail' };
+    if (!h || h.grid !== grid || want.to <= h.from || want.from >= h.to) ask = { ...want, kind: 'whole' };
+    // From the first bar that can still change, but never past what is held (panning right through the past, the bars after it are not held yet).
+    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) ask = { from: Math.min(Math.max(h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };
     else if (want.from < h.from) ask = { from: want.from, to: h.from, kind: 'older' };
     else return;
     this.#busy = true;

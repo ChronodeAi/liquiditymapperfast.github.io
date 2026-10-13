@@ -442,9 +442,12 @@ export class HeatPane {
    */
   footprintMarkets(state: AppState): string[] {
     if (state.footprint.markets !== 'all') return [state.marketId];
-    const key = [state.markets, state.disabledVenues, state.scope, state.levels?.books.length, this.hub.flow.ids.length];
+    // What the set depends on: the markets, the chips and the filter, which books are on the map, and the flow held (a load can make a market
+    // with older minutes count, `FlowBook.loads`), compared by value where they are not replaced when they change.
+    const key = [state.markets, state.disabledVenues, state.scope, state.levels ? state.levels.books.map(b => b.venue).join(',') : null, this.hub.flow.ids.length, this.hub.flow.loads];
     if (!this.#footprintIds || this.#footprintIds.key.some((k, i) => k !== key[i])) this.#footprintIds = { key, ids: aggregateIds(this.hub.flow, flowIds(state, this.hub.flow.ids), id => kindOf(state.markets, id)).sort().slice(0, MAX_PROFILE_INSTRUMENTS) };
-    return this.#footprintIds.ids.length ? this.#footprintIds.ids : [state.marketId];
+    // None (every venue off, or none inside the filter) counts none: the chart market is not put in their place.
+    return this.#footprintIds.ids;
   }
 
   /** Advance the footprint level of detail for this frame (also drives the heatmap dimming). */
@@ -456,7 +459,9 @@ export class HeatPane {
     const rowStep = fine > 0 ? fine * 2 ** this.#lod.level(fineRowPx) : 0;
     // The Bar stats' retail and whale sizes are asked as size lines (those between box edges), so their rows are exact at any size from the floor.
     const cuts = linesToAsk([state.barStatOptions.retailUsd, state.barStatOptions.whaleUsd], scaledUsd);
-    this.#footprint.ensure(this.footprintMarkets(state).join(','), state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines, budget) => this.hub.footprint(inst, tf, from, to, rows, lines, budget), () => this.invalidate(), cuts, this.hub.sourceNow());
+    const markets = this.footprintMarkets(state);
+    if (!markets.length) this.#footprint.clear();
+    else this.#footprint.ensure(markets.join(','), state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines, budget) => this.hub.footprint(inst, tf, from, to, rows, lines, budget), () => this.invalidate(), cuts, this.hub.sourceNow());
     const rowH = rowStep > 0 ? Math.abs(v.yOf(0, ph) - v.yOf(rowStep, ph)) : 0;
     const factor = visibilityFactor(state.candles, tfMs, v, pw, ph, rowH || 1, rowStep || 1);
     this.#lodFrame = this.#lod.step(now, { enabled: true, hasData: this.#footprint.bars.size > 0, widthCss: pw * tfMs / (v.t1 - v.t0), rowHeightCss: rowH, factor });

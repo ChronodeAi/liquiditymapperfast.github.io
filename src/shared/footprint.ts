@@ -740,9 +740,12 @@ export class FootprintRecorder {
     if (!Number.isFinite(budget)) return from;
     const sums = ids.map(id => this.#sums.get(id)).filter((s): s is Map<number, MinuteSum> => s !== undefined);
     // A minute read back from the store costs about four held in memory (the SQL and the parsing of its rows, measured 2026-10-13).
+    // Only minutes the recorder can hold are scanned: a window reaching years back or ahead costs what its retained part does.
+    const lo = Math.max(from, this.#cutoff), hi = Math.min(to, this.now() + 2 * MINUTE);
+    if (!(hi > lo)) return from;
     let spent = 0;
-    for (let bar = Math.floor((to - 1) / tfMs) * tfMs; bar + tfMs > from; bar -= tfMs) {
-      const start = Math.max(bar, from), end = Math.min(bar + tfMs, to);
+    for (let bar = Math.floor((hi - 1) / tfMs) * tfMs; bar + tfMs > lo; bar -= tfMs) {
+      const start = Math.max(bar, lo), end = Math.min(bar + tfMs, hi);
       let cost = 0;
       for (let t = Math.ceil(start / MINUTE) * MINUTE; t < end; t += MINUTE) { const each = this.#cold && t < this.#hotFrom ? 4 : 1; for (const s of sums) if (s.has(t)) cost += each; }
       if (spent > 0 && spent + cost > budget) return bar + tfMs;
