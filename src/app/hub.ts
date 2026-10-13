@@ -382,7 +382,7 @@ export class Hub {
     const candles = this.store.state.candles, price = at ?? candles[candles.length - 1]?.[4] ?? 0;
     const usd = price > 0 ? await this.source.oi(id, tf, from, to, true).catch((): OiBar[] => []) : [];
     if (usd.length) return usd.map(b => [b[0], b[1] / price, b[2] / price, b[3] / price, b[4] / price]);
-    return [...atOnePrice(await this.source.oi(id, tf, from, to), candles)];
+    return [...atOnePrice(await this.source.oi(id, tf, from, to), candles, at)];
   }
 
   /**

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { LongShortCache, fetchLongShort, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
 import { lsAt, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
-import { LAYOUT_KEYS, readSettings } from '../src/app/store.ts';
+import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
+import { atOnePrice } from '../src/app/oi-change.ts';
 
 const M = 60_000, H = 3_600_000, NOW = Date.UTC(2026, 9, 13, 18, 50);
 
@@ -48,13 +49,13 @@ test("the venues' answers as they come (measured 2026-10-13): Binance pages back
     'https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio-contract': () => ({ code: '0', data: [[String(NOW - 10 * M), '1.2192867221330219'], [String(NOW - 15 * M), 'x']] }),
     'https://api.bitget.com/api/v2/mix/market/account-long-short': () => ({ code: '00000', data: [{ longAccountRatio: '0.6174', shortAccountRatio: '0.3826', longShortAccountRatio: '1.6136', ts: String(NOW - 10 * M) }] }),
   });
-  const binance = await fetchLongShort('binance', 'BTCUSDT', 'accounts', 5 * M, NOW - 3 * 24 * H, NOW, get, NOW);
+  const { points: binance } = await fetchLongShort('binance', 'BTCUSDT', 'accounts', 5 * M, NOW - 3 * 24 * H, NOW, get, NOW);
   assert.ok(binance.length > 500 && binance.every((p, i) => i === 0 || p.t > binance[i - 1]!.t), 'pages joined, oldest first, no repeats');
   assert.equal(get.asked.filter(u => u.includes('binance')).length, 2, 'until a page is short');
-  assert.deepEqual((await fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).map(p => p.long), [0.5945, 0.594]);
-  const okx = await fetchLongShort('okx', 'BTC-USDT-SWAP', 'accounts', 5 * M, NOW - H, NOW, get, NOW);
+  assert.deepEqual((await fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.5945, 0.594]);
+  const { points: okx } = await fetchLongShort('okx', 'BTC-USDT-SWAP', 'accounts', 5 * M, NOW - H, NOW, get, NOW);
   assert.equal(okx.length, 1, 'a ratio that is not a number is left out'); assert.ok(Math.abs(okx[0]!.long - 0.5494) < 1e-3);
-  assert.deepEqual((await fetchLongShort('bitget', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).map(p => p.long), [0.6174]);
+  assert.deepEqual((await fetchLongShort('bitget', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.6174]);
   await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'topPositions', 5 * M, NOW - H, NOW, get, NOW), /no such series/, "only Binance publishes its top traders'");
   // Binance keeps 30 days: nothing older is asked for.
   const old = fake({ 'https://fapi.binance.com/': () => [] });
@@ -137,4 +138,26 @@ test('a question for an older window asked while a newer one is read gets its wi
 test('the scale and the readout follow the steps as drawn: a reading holds until the next, and past the newest the newest stands', () => {
   const s = { points: [{ t: 0, long: 0.6 }, { t: 15 * M, long: 0.62 }], periodMs: 5 * M };
   assert.deepEqual([stepEnd(s, 0), stepEnd(s, 1)], [15 * M, 20 * M], 'the first holds until the second (within three periods), the last one period');
+});
+
+test('a long window held only as far as its pages reached; a pane shown again after a pause reads the readings it missed', async () => {
+  // A venue with a full page for every question: twelve pages of five-minute readings reach about 21 days back.
+  const full = (end: number) => ({ retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.floor(end / (5 * M)) * 5 * M - (i + 1) * 5 * M) })) } });
+  const deep = await fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - 29 * 24 * H, NOW, fake({ 'https://api.bybit.com/': url => full(Number(url.searchParams.get('endTime'))) }), NOW);
+  assert.ok(deep.from > NOW - 22 * 24 * H && deep.from < NOW - 20 * 24 * H, 'it says where its pages stopped');
+  let now = NOW;
+  const get = fake({ 'https://api.bybit.com/': url => { const end = Number(url.searchParams.get('endTime')); return { retCode: 0, result: { list: Array.from({ length: 30 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.min(Math.floor(end / (5 * M)), Math.floor(now / (5 * M))) * 5 * M - (i + 1) * 5 * M) })) } }; } });
+  const cache = new LongShortCache(get, true, () => now);
+  await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW);
+  now = NOW + H; // the pane was hidden for an hour
+  const after = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW + 50 * M, NOW + H);
+  const gap = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW, NOW + H);
+  assert.equal(after.status, 'ok');
+  assert.ok(gap.points.some(p => p.t === NOW + 30 * M), 'the readings of the hour it was hidden are held');
+});
+
+test("the one price for an inverse market's coins can be the Range selection's own", () => {
+  const candles: CandleRow[] = [[0, 0, 0, 0, 50_000, 0], [H, 0, 0, 0, 100_000, 0]];
+  assert.deepEqual(atOnePrice([[0, 20, 20, 20, 20]], candles, 50_000).map(b => b[4]), [20]);
+  assert.deepEqual(atOnePrice([[0, 20, 20, 20, 20]], candles).map(b => b[4]), [10]);
 });

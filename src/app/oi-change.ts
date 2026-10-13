@@ -93,8 +93,8 @@ export const inverseOi = (id: string): boolean => /^deribit:[A-Z]+-PERPETUAL$/.t
  * reading is put back into USD at the close of its candle (the nearest before it where the candle is missing) and divided by that one price;
  * bars before the first candle are left out. Without candles the bars are returned as they are.
  */
-export function atOnePrice(bars: readonly OiBar[], candles: readonly CandleRow[]): readonly OiBar[] {
-  const now = candles[candles.length - 1]?.[4];
+export function atOnePrice(bars: readonly OiBar[], candles: readonly CandleRow[], at?: number): readonly OiBar[] {
+  const now = at ?? candles[candles.length - 1]?.[4];
   if (!(now! > 0)) return bars;
   const out: OiBar[] = [];
   let k = 0;

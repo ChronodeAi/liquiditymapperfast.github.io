@@ -43,6 +43,8 @@ const BINANCE_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'globalLon
 /** Binance answers only for the last 30 days. */
 const BINANCE_SPAN_MS = 30 * DAY;
 const PAGES = 12;
+/** Readings a page, per venue (Bitget has one page of 30). */
+const PAGE_ROWS: Readonly<Record<string, number>> = { binance: 500, bybit: 500, okx: 100, bitget: 30 };
 
 /** The venue's longest period no longer than the chart's candle (five minutes at the least): readings at least as fine as the candles where it can. */
 export function lsPeriodOf(venue: string, tfMs: number): number | null {
@@ -74,17 +76,19 @@ export function lsReading(t: number, long: number, short?: number, ratio?: numbe
 export const shareOfRatio = (ratio: number): number => ratio / (1 + ratio);
 
 /**
- * A venue's readings of `metric` for the market `symbol` over [from, to), oldest first. Throws when an answer is not what the venue sends (a
- * changed API reads as failed, not as empty); a reading that does not add up is left out.
+ * A venue's readings of `metric` for the market `symbol` over [from, to), oldest first, and how far back the answer reaches: `from`, or where
+ * its pages ran out (at most `PAGES` a question) when the venue had more. Throws when an answer is not what the venue sends (a changed API
+ * reads as failed, not as empty); a reading that does not add up is left out.
  */
-export async function fetchLongShort(venue: string, symbol: string, metric: LsMetric, periodMs: number, from: number, to: number, get: Fetcher, now = Date.now()): Promise<LsPoint[]> {
+export async function fetchLongShort(venue: string, symbol: string, metric: LsMetric, periodMs: number, from: number, to: number, get: Fetcher, now = Date.now()): Promise<{ points: LsPoint[]; from: number }> {
   const name = PERIODS[venue]?.[periodMs];
   if (!name || lsPopulationOf(venue, metric) === null || (venue !== 'binance' && metric !== 'accounts')) throw new Error(`${venue} publishes no such series`);
   const out = new Map<number, LsPoint>(), take = (p: LsPoint | null): void => { if (p && p.t >= from - periodMs && p.t < to) out.set(p.t, p); };
   const s = encodeURIComponent(symbol);
+  let end = to, page = 0;
   if (venue === 'binance') {
     const floor = Math.max(from, now - BINANCE_SPAN_MS + periodMs);
-    for (let end = Math.min(to, now), page = 0; page < PAGES && end > floor; page++) {
+    for (end = Math.min(to, now); page < PAGES && end > floor; page++) {
       const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'longAccount')), num(at(r, 'shortAccount')), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
@@ -92,7 +96,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       end = oldest - 1;
     }
   } else if (venue === 'bybit') {
-    for (let end = to, page = 0; page < PAGES && end >= from; page++) {
+    for (; page < PAGES && end >= from; page++) {
       const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
       if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
       const got = rows(at(answer, 'result', 'list'), 'bybit');
@@ -102,7 +106,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       end = oldest - 1;
     }
   } else if (venue === 'okx') {
-    for (let end = to, page = 0; page < PAGES && end >= from; page++) {
+    for (; page < PAGES && end >= from; page++) {
       const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio-contract?instId=${s}&period=${name}&limit=100&end=${Math.floor(end)}`);
       if (String(at(answer, 'code')) !== '0') throw new Error(`okx: ${String(at(answer, 'msg'))}`);
       const got = rows(at(answer, 'data'), 'okx');
@@ -116,7 +120,8 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
     for (const r of rows(at(answer, 'data'), 'bitget')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
   }
-  return [...out.values()].sort((a, b) => a.t - b.t);
+  // Every page full: the venue may hold more before where the last one ended.
+  return { points: [...out.values()].sort((a, b) => a.t - b.t), from: page >= PAGES && end > from ? end : from };
 }
 
 /**
@@ -145,13 +150,18 @@ export class LongShortCache {
     // looks again once it is answered (it may have been for another window); a failure waits a minute before the next try.
     for (let round = 0; round < 4; round++) {
       if (held.busy) { await held.busy; continue; }
-      const now = this.now(), older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
+      const now = this.now();
+      // Not asked for longer than one question reaches back: start again from this window, rather than leave a hole.
+      if (held.refreshed && now - held.refreshed > PAGES * PAGE_ROWS[venue]! * periodMs * 0.9) { held.points.clear(); held.from = Infinity; held.refreshed = 0; }
+      const older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
       if (!(older || due) || now - held.failed < MINUTE) break;
-      const h = held, start = older ? from : Math.max(from, now - 2 * periodMs), end = older && !due ? h.from : now + periodMs;
+      // The newest stretch from where the last refresh ended (a pane hidden for an hour gets the hour), older ones from the window asked.
+      const h = held, start = older ? from : h.refreshed - 2 * periodMs, end = older && !due ? h.from : now + periodMs;
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
-      h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(points => {
+      h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(({ points, from: reached }) => {
         for (const p of points) h.points.set(p.t, p);
-        if (older) h.from = Math.min(h.from, start);
+        // Held from where the answer reached, which a long window's pages may stop short of: the next question reads on from there.
+        if (older) h.from = Math.min(h.from, reached);
         if (due || !Number.isFinite(h.from)) h.refreshed = now;
         if (h.points.size > this.maxPoints) { const keep = [...h.points.keys()].sort((a, b) => a - b).slice(-this.maxPoints); h.points = new Map(keep.map(t => [t, h.points.get(t)!])); h.from = keep[0]!; }
       }, () => { h.failed = now; }).finally(() => { h.busy = null; });
