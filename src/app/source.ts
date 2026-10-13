@@ -1,4 +1,5 @@
 import type { Print } from './prints.ts';
+import type { LsMetric, LsSeries } from '../shared/long-short.ts';
 import type { Liquidation } from '../shared/liquidations.ts';
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
 import type { FlowFrame, FlowMinutesFrame, FlowUpdate } from '../shared/flow.ts';
@@ -82,6 +83,8 @@ export interface DataSource {
   connect(handlers: LiveHandlers): { close(): void };
   candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]>;
   oi(inst: string, tf: string, from: number, to: number): Promise<OiBar[]>;
+  /** A venue's published long/short readings for one market (shared/long-short.ts):  is the Binance series chosen. */
+  longShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries>;
   /** Large trades in [from, to), oldest first. */
   /** Large market orders in [from, to) from `minUsd` (the recording's floor when absent), the newest few thousand of them. */
   prints(from: number, to: number, minUsd?: number): Promise<Print[]>;

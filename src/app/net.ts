@@ -1,4 +1,5 @@
 import type { PrintSumsAnswer, SumRow } from '../shared/print-sums.ts';
+import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
 import { decodeFlowFrame, decodeFlowMinutes, type FlowFrame, type FlowMinutesFrame, type FlowUpdate } from '../shared/flow.ts';
 import { parseProfile, parseRange, parseSizes, parseValueAreas, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from '../shared/footprint.ts';
@@ -48,6 +49,10 @@ export async function getPrints(from: number, to: number, minUsd?: number): Prom
 export async function getOi(inst: string, tf: string, from: number, to: number): Promise<OiBar[]> {
   const body = await (await request(`/api/v2/oi?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${from}&to=${to}`)).json() as { bars: OiBar[] };
   return body.bars;
+}
+/** A venue's long/short readings for one market (the server reads them from the venue when asked, see shared/long-short.ts). */
+export async function getLongShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries> {
+  return parseLsSeries(await (await request(`/api/v2/long-short?inst=${encodeURIComponent(inst)}&metric=${metric}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`)).json());
 }
 /** Taker flow per second for the instruments, as the server records it. */
 export async function getFlow(ids: string[], from: number, to: number): Promise<FlowFrame> {

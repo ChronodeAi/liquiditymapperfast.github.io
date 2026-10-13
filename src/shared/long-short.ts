@@ -1,0 +1,173 @@
+import type { Fetcher } from './history.ts';
+
+/**
+ * Long/short ratios as the exchanges publish them: the share of a population that is net long, per period. They count accounts (or, for
+ * Binance's top traders, their positions) as each exchange classifies them, never coins: every contract has a long and a short holder, so in
+ * coins the two sides are always equal. Nothing here is derived from trades or open interest, and a missing reading is never filled in with
+ * 50 %. Hyperliquid publishes none.
+ *
+ * Measured 2026-10-13 (BTC):
+ * - Binance `futures/data/{globalLongShortAccountRatio | topLongShortAccountRatio | topLongShortPositionRatio}`: `longAccount`,
+ *   `shortAccount`, `longShortRatio`; 500 a page back from `endTime`, the last 30 days only (an older `endTime` is an error); CORS.
+ * - Bybit `v5/market/account-ratio`: `buyRatio`, `sellRatio`, newest first, 500 a page back from `endTime`, years of it; CORS.
+ * - OKX `rubik/stat/contracts/long-short-account-ratio-contract`: `[ts, ratio]` newest first, 100 a page back from `end` (five-minute
+ *   periods for about a day, hourly for weeks); no CORS header, so a page cannot read it.
+ * - Bitget `v2/mix/market/account-long-short` ("active" long/short accounts in Bitget's documentation): `longAccountRatio`,
+ *   `shortAccountRatio`, `longShortAccountRatio`; the newest 30 periods only, no paging; CORS; one request a second.
+ */
+
+/** Which population a series counts: every account, Binance's top traders' accounts or their positions, or Bitget's active accounts. */
+export type LsPopulation = 'accounts' | 'topAccounts' | 'topPositions' | 'activeAccounts';
+/** The Binance series a person can choose; the other venues publish one each. */
+export type LsMetric = 'accounts' | 'topAccounts' | 'topPositions';
+export const LS_METRICS: readonly LsMetric[] = ['accounts', 'topAccounts', 'topPositions'];
+/** One reading: the period's start (ms) and the share net long (0..1). */
+export interface LsPoint { t: number; long: number }
+/**
+ * `ok` with points; `empty` the venue answered with none for the window; `unsupported` the venue publishes no such series (or none for this
+ * market); `serverOnly` a page cannot read it (no CORS header) but a server can; `failed` the request or its answer was not good.
+ */
+export type LsStatus = 'ok' | 'empty' | 'unsupported' | 'serverOnly' | 'failed';
+export interface LsSeries { id: string; population: LsPopulation | null; periodMs: number; points: LsPoint[]; status: LsStatus }
+
+export const LS_VENUES: readonly string[] = ['binance', 'bybit', 'okx', 'bitget'];
+const MINUTE = 60_000, HOUR = 3_600_000, DAY = 86_400_000;
+/** Each venue's periods (ms) to its name for them. */
+const PERIODS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
+  binance: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [2 * HOUR]: '2h', [4 * HOUR]: '4h', [6 * HOUR]: '6h', [12 * HOUR]: '12h', [DAY]: '1d' },
+  bybit: { [5 * MINUTE]: '5min', [15 * MINUTE]: '15min', [30 * MINUTE]: '30min', [HOUR]: '1h', [4 * HOUR]: '4h', [DAY]: '1d' },
+  okx: { [5 * MINUTE]: '5m', [HOUR]: '1H', [DAY]: '1D' },
+  bitget: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [2 * HOUR]: '2h', [4 * HOUR]: '4h', [6 * HOUR]: '6h', [12 * HOUR]: '12h', [DAY]: '1d' },
+};
+const BINANCE_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'globalLongShortAccountRatio', topAccounts: 'topLongShortAccountRatio', topPositions: 'topLongShortPositionRatio' };
+/** Binance answers only for the last 30 days. */
+const BINANCE_SPAN_MS = 30 * DAY;
+const PAGES = 12;
+
+/** The venue's longest period no longer than the chart's candle (five minutes at the least): readings at least as fine as the candles where it can. */
+export function lsPeriodOf(venue: string, tfMs: number): number | null {
+  const periods = PERIODS[venue]; if (!periods) return null;
+  const all = Object.keys(periods).map(Number).sort((a, b) => a - b), want = Math.max(tfMs, 5 * MINUTE);
+  return all.filter(p => p <= want).pop() ?? all[0]!;
+}
+
+/** The population a venue's series counts, given the Binance series chosen; null for a venue that publishes none. */
+export function lsPopulationOf(venue: string, metric: LsMetric): LsPopulation | null {
+  return venue === 'binance' ? metric : venue === 'bitget' ? 'activeAccounts' : venue === 'bybit' || venue === 'okx' ? 'accounts' : null;
+}
+
+const num = (value: unknown): number => typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
+const at = (value: unknown, ...path: (string | number)[]): unknown => path.reduce<unknown>((v, key) => (v !== null && typeof v === 'object' ? (v as Record<string | number, unknown>)[key] : undefined), value);
+function rows(value: unknown, what: string): unknown[] { if (!Array.isArray(value)) throw new Error(`${what}: not a list`); return value; }
+
+/**
+ * One reading from what a venue gave: the long share, checked against the short share (they add up to 1, within the rounding of four
+ * decimals) and the ratio (long over short, within half a percent) where the venue gives them. A reading that fails is null, never guessed.
+ */
+export function lsReading(t: number, long: number, short?: number, ratio?: number): LsPoint | null {
+  if (!Number.isFinite(t) || t <= 0 || !Number.isFinite(long) || long <= 0 || long >= 1) return null;
+  if (short !== undefined && (!Number.isFinite(short) || Math.abs(long + short - 1) > 0.002)) return null;
+  if (ratio !== undefined && (!Number.isFinite(ratio) || ratio <= 0 || Math.abs(ratio - long / (1 - long)) > 0.005 * ratio + 0.002)) return null;
+  return { t, long };
+}
+/** The long share from a ratio of long to short accounts (OKX gives only that): 1.25 is 1.25 long accounts for each short one, 55.6 % long. */
+export const shareOfRatio = (ratio: number): number => ratio / (1 + ratio);
+
+/**
+ * A venue's readings of `metric` for the market `symbol` over [from, to), oldest first. Throws when an answer is not what the venue sends (a
+ * changed API reads as failed, not as empty); a reading that does not add up is left out.
+ */
+export async function fetchLongShort(venue: string, symbol: string, metric: LsMetric, periodMs: number, from: number, to: number, get: Fetcher, now = Date.now()): Promise<LsPoint[]> {
+  const name = PERIODS[venue]?.[periodMs];
+  if (!name || lsPopulationOf(venue, metric) === null || (venue !== 'binance' && metric !== 'accounts')) throw new Error(`${venue} publishes no such series`);
+  const out = new Map<number, LsPoint>(), take = (p: LsPoint | null): void => { if (p && p.t >= from - periodMs && p.t < to) out.set(p.t, p); };
+  const s = encodeURIComponent(symbol);
+  if (venue === 'binance') {
+    const floor = Math.max(from, now - BINANCE_SPAN_MS + periodMs);
+    for (let end = Math.min(to, now), page = 0; page < PAGES && end > floor; page++) {
+      const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance');
+      let oldest = Infinity;
+      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'longAccount')), num(at(r, 'shortAccount')), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
+      if (got.length < 500 || !Number.isFinite(oldest)) break;
+      end = oldest - 1;
+    }
+  } else if (venue === 'bybit') {
+    for (let end = to, page = 0; page < PAGES && end >= from; page++) {
+      const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
+      if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
+      const got = rows(at(answer, 'result', 'list'), 'bybit');
+      let oldest = Infinity;
+      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'buyRatio')), num(at(r, 'sellRatio')))); if (t < oldest) oldest = t; }
+      if (got.length < 500 || !Number.isFinite(oldest)) break;
+      end = oldest - 1;
+    }
+  } else if (venue === 'okx') {
+    for (let end = to, page = 0; page < PAGES && end >= from; page++) {
+      const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio-contract?instId=${s}&period=${name}&limit=100&end=${Math.floor(end)}`);
+      if (String(at(answer, 'code')) !== '0') throw new Error(`okx: ${String(at(answer, 'msg'))}`);
+      const got = rows(at(answer, 'data'), 'okx');
+      let oldest = Infinity;
+      for (const r of got) { const t = num(at(r, 0)), ratio = num(at(r, 1)); take(Number.isFinite(ratio) && ratio > 0 ? lsReading(t, shareOfRatio(ratio)) : null); if (t < oldest) oldest = t; }
+      if (got.length < 100 || !Number.isFinite(oldest)) break;
+      end = oldest - 1;
+    }
+  } else if (venue === 'bitget') {
+    const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
+    if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
+    for (const r of rows(at(answer, 'data'), 'bitget')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
+  }
+  return [...out.values()].sort((a, b) => a.t - b.t);
+}
+
+/**
+ * The readings asked for, kept: at most `maxSeries` series (the least recently asked for goes first), each at most `maxPoints` readings (the
+ * oldest go first), and nothing on disk. A window older than what a series holds is read once; its newest stretch is read again at most once
+ * a period (and never more than once a minute), and several questions about one series at once share one request. Bitget publishes only its
+ * newest 30 periods, so its series grows only while it is asked for.
+ */
+export class LongShortCache {
+  #series = new Map<string, { points: Map<number, LsPoint>; from: number; refreshed: number; failed: number; busy: Promise<void> | null }>();
+  constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000) {}
+
+  async series(id: string, metric: LsMetric, tfMs: number, from: number, to: number): Promise<LsSeries> {
+    const colon = id.indexOf(':'), venue = id.slice(0, colon), symbol = id.slice(colon + 1);
+    const population = colon > 0 ? lsPopulationOf(venue, metric) : null, periodMs = population ? lsPeriodOf(venue, tfMs) ?? 0 : 0;
+    const answer = (points: LsPoint[], status: LsStatus): LsSeries => ({ id, population, periodMs, points, status });
+    if (!population || !periodMs || !LS_VENUES.includes(venue)) return answer([], 'unsupported');
+    if (this.browser && venue === 'okx') return answer([], 'serverOnly');
+    const key = `${id}|${population}|${periodMs}`;
+    let held = this.#series.get(key);
+    if (held) this.#series.delete(key);
+    held ??= { points: new Map(), from: Infinity, refreshed: 0, failed: 0, busy: null };
+    this.#series.set(key, held);
+    while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
+    const now = this.now();
+    // Older than held, or the newest stretch due again: one request at a time per series; a failure waits a minute before the next try.
+    const older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
+    if ((older || due) && !held.busy && now - held.failed >= MINUTE) {
+      const h = held, start = older ? from : Math.max(from, now - 2 * periodMs), end = older && !due ? h.from : now + periodMs;
+      h.busy = fetchLongShort(venue, symbol, metric, periodMs, start, end, this.get, now).then(points => {
+        for (const p of points) h.points.set(p.t, p);
+        if (older) h.from = Math.min(h.from, start);
+        if (due || !Number.isFinite(h.from)) h.refreshed = now;
+        if (h.points.size > this.maxPoints) { const keep = [...h.points.keys()].sort((a, b) => a - b).slice(-this.maxPoints); h.points = new Map(keep.map(t => [t, h.points.get(t)!])); h.from = keep[0]!; }
+      }, () => { h.failed = now; }).finally(() => { h.busy = null; });
+    }
+    if (held.busy) await held.busy;
+    const points = [...held.points.values()].filter(p => p.t >= from - periodMs && p.t < to).sort((a, b) => a.t - b.t);
+    if (points.length) return answer(points, 'ok');
+    return answer([], held.failed && held.failed >= held.refreshed ? 'failed' : 'empty');
+  }
+}
+
+const STATUSES: readonly LsStatus[] = ['ok', 'empty', 'unsupported', 'serverOnly', 'failed'];
+const POPULATIONS: readonly LsPopulation[] = ['accounts', 'topAccounts', 'topPositions', 'activeAccounts'];
+/** A series as it came over the wire, checked: anything not of its shape is an error; a reading out of range or out of order is left out. */
+export function parseLsSeries(value: unknown): LsSeries {
+  const id = at(value, 'id'), population = at(value, 'population'), periodMs = num(at(value, 'periodMs')), status = at(value, 'status'), points = at(value, 'points');
+  if (typeof id !== 'string' || !(population === null || POPULATIONS.includes(population as LsPopulation)) || !(periodMs >= 0) || !STATUSES.includes(status as LsStatus) || !Array.isArray(points))
+    throw new Error('not a long/short series');
+  const kept: LsPoint[] = [];
+  for (const p of points) { const r = lsReading(num(at(p, 't')), num(at(p, 'long'))); if (r && (!kept.length || r.t > kept[kept.length - 1]!.t)) kept.push(r); }
+  return { id, population: population as LsPopulation | null, periodMs, points: kept, status: status as LsStatus };
+}

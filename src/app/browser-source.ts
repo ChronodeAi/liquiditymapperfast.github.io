@@ -1,6 +1,8 @@
 import type { VenueStatus } from '../shared/engine.ts';
 import type { FlowFrame } from '../shared/flow.ts';
 import { TIMEFRAMES } from '../shared/series.ts';
+import { LongShortCache, type LsMetric, type LsSeries } from '../shared/long-short.ts';
+import { webGet } from '../shared/history.ts';
 import { toWire } from '../shared/prints.ts';
 import { toWire as liquidationWire, type Liquidation } from '../shared/liquidations.ts';
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
@@ -194,6 +196,9 @@ export class BrowserSource implements DataSource, VenueControl {
   }
 
   async candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> { return this.#call({ method: 'candles', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to }); }
+  /** Read from the venues by the page itself (each answers with CORS headers but OKX, which a page cannot read), kept in memory. */
+  #longShort = new LongShortCache(webGet, true);
+  longShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries> { return this.#longShort.series(inst, metric, TIMEFRAMES[tf] ?? 3_600_000, from, to); }
   async oi(inst: string, tf: string, from: number, to: number): Promise<OiBar[]> { return this.#call({ method: 'oi', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to }); }
   async prints(from: number, to: number, minUsd?: number): Promise<Print[]> { return this.#call({ method: 'prints', from, to, ...(minUsd !== undefined ? { minUsd } : {}) }); }
   async printSums(ids: string[], from: number, to: number, minUsd: number, stepMs: number): Promise<PrintSumsAnswer> {

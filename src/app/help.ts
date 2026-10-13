@@ -11,7 +11,7 @@ import { t } from './i18n.ts';
  * button opens (Trades, Absorption, Highlights, Sounds) has it in its panel's tool strip; a settings window opened from a pane's header
  * shares that pane's. Windows that only do a job (About, Install, the venue menu, the venue and coin pickers) explain themselves and have none.
  */
-export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'barStats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'replay';
+export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'barStats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay';
 
 export interface HelpTopic {
   title: string;
@@ -73,6 +73,18 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
       t('With the OI pane\'s Venues on All perpetuals (the default), each venue\'s change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue\'s buyers say nothing about who opened positions on another.'),
       t('A market\'s change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.'),
       t('As (with NL/NS shown): Net is one series, longs less shorts, as bars with their running sum. Longs and shorts draws two lines instead: the running sum of the longs (new longs less longs closed) and of the shorts (new shorts less shorts closed). A rising line is that side adding positions, a falling one that side closing them.')],
+  },
+  ls: {
+    title: t('Long/Short'), guide: 'lower-panes',
+    tip: t('A pane under the map: the share of each exchange\'s accounts that is net long, as the exchanges publish it.'),
+    body: [],
+  },
+  lsPane: {
+    title: t('Long/Short'), guide: 'lower-panes',
+    tip: t('The share of each exchange\'s accounts that is net long, as the exchange publishes it.'),
+    body: [t('Each line is one exchange\'s share of accounts that are net long, as the exchange publishes it, for the open-interest markets (the OI pane\'s Venues) on Binance, Bybit, OKX and Bitget, with the exchange\'s mark where its line ends. The scale fits the lines, which move by tenths of a percent; the dashed line is 50 %, where it falls inside it.'),
+      t('These count accounts (or, for Binance\'s top traders by positions, the size of their positions) as each exchange classifies them, never coins: every contract has a long and a short holder, so in coins the two sides are always equal. A ratio of 1.25 is 1.25 long accounts for each short one, not 25 % more BTC long. The exchanges count different people, so their lines are not added together.'),
+      t('Binance publishes three series (all accounts, its top traders by accounts, and by positions; the header chooses) for the last 30 days; Bybit and OKX one each, OKX only to a server (a page cannot read it); Bitget its active accounts for its newest 30 periods only, so its line starts there. Hyperliquid publishes none. Readings come every five minutes at the finest and hold until the next; nothing is filled in where an exchange has none. They have not been tested as a signal.')],
   },
   absorption: {
     title: t('Absorption'), guide: 'trades',

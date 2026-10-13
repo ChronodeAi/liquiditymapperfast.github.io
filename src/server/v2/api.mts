@@ -6,6 +6,8 @@ import type { createLocalServer } from '../http.mts';
 import { MAX_CROSSED_BP, crossedByBp, valueBook, withFar, type ValuedBook } from './levels.mts';
 import { FarPoller, farSource, freshFar, type FarBook } from '../../shared/far-book.ts';
 import { OiSampler } from './oi-sampler.mts';
+import { LS_METRICS, LongShortCache, type LsMetric } from '../../shared/long-short.ts';
+import { webGet } from '../../shared/history.ts';
 import { TOUCH_HINT_MS } from '../../shared/levels.ts';
 import { COLUMNS_PER_REQUEST } from '../../shared/columns.ts';
 import { DepthRecorder, COLUMN_MS, HOT_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
@@ -328,6 +330,16 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const live = (app.state.oi ?? []).filter(s => s.instrumentId === id && at(s) >= from && at(s) < to) as OiRow[];
     sendJson(res, { instrumentId: id, tf, bars: aggregateOi(withLiveOi(stored, live), tfMs) });
   };
+  // Long/short ratios as the venues publish them, read when asked for and kept in memory only (shared/long-short.ts): nothing of the
+  // history store's budget, and nothing read while no page shows the pane.
+  const longShort = new LongShortCache(webGet, false);
+  const longShortRoute = (url: URL, res: ServerResponse) => {
+    const id = url.searchParams.get('inst') ?? '', tf = url.searchParams.get('tf') ?? '1h', tfMs = timeframeMs(tf), metric = url.searchParams.get('metric') ?? 'accounts';
+    if (!id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
+    if (!(LS_METRICS as readonly string[]).includes(metric)) return sendJson(res, { error: `metric must be one of ${LS_METRICS.join(', ')}` }, 400);
+    const span = windowOf(url, Date.now() + tfMs, 400 * tfMs); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
+    longShort.series(id, metric as LsMetric, tfMs, span.from, span.to).then(series => sendJson(res, series), () => sendJson(res, { error: 'long/short ratios could not be read' }, 502));
+  };
   const footprintRoute = (url: URL, res: ServerResponse) => {
     // One instrument, or several (comma separated) added together: the aggregated footprint.
     const id = url.searchParams.get('inst') ?? '', ids = id.split(',').filter(Boolean); const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);
@@ -507,6 +519,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/columns': columns(url, res); return true;
           case '/api/v2/candles': candles(url, res); return true;
           case '/api/v2/oi': oi(url, res); return true;
+          case '/api/v2/long-short': longShortRoute(url, res); return true;
           case '/api/v2/footprint': footprintRoute(url, res); return true;
           case '/api/v2/prints': printsRoute(url, res); return true;
           case '/api/v2/print-sums': printSumsRoute(url, res); return true;
