@@ -1251,5 +1251,12 @@
  "Traded, last {window}": "Проторговано, останні {window}",
  "No trades held for this book: placed by its liquidity in view.": "Угод за цим стаканом немає: місце за видимою ліквідністю.",
  "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of all venues. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "У компактному режимі «Лінії бірж» малюють накопичений обсяг кожної з найбільших бірж окремо, поверх накопиченого обсягу всього стакана. Лінії мають власний спільний масштаб: уся ширина — найбільша з них на видимих рядках, тож їх можна порівнювати між собою; частку лінії серед усіх бірж показує спливне вікно. Біржі впорядковано за торговим обсягом у вікні рейтингу колонки потоку (стакан без угод — за видимою ліквідністю) і тримаються хвилину; значок біля кожного кольору в заголовку називає біржу. Лінія обривається там, куди стакан її біржі вже не сягає. Наведіть курсор біля лінії або її пункту в заголовку, щоб побачити її саму з цифрами.",
- "Lines, full width": "Лінії, уся ширина"
+ "Lines, full width": "Лінії, уся ширина",
+ "Count": "Враховувати",
+ "Whose market orders the footprint and the bar statistics count.": "Чиї ринкові ордери враховують футпринт і статистика барів.",
+ "The chart market": "Ринок графіка",
+ "Aggregated: every market switched on": "Зведено: усі ввімкнені ринки",
+ "Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market's candles. Each market's trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane's market.": "Зведено додає всі ринки, чиї біржі ввімкнені, у межах фільтра Спот / Перп, на свічки ринку графіка. Угоди кожного ринку лишаються за його власними цінами: безстрокові контракти торгуються за кілька базисних пунктів один від одного, але спотові ринки в USD можуть відстояти на 10 базисних пунктів і більше, тож виберіть Перп у фільтрі, щоб рядки лишалися чіткими. Відкритий інтерес у статистиці барів лишається ринком панелі OI.",
+ "{n} markets": "{n} ринків",
+ "{n} added together": "складено: {n}"
 }

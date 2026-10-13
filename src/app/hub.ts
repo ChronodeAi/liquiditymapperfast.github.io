@@ -579,9 +579,12 @@ export class Hub {
     } finally { this.#columnsLoading = false; }
   }
 
+  /** The source's clock (the page's, less the difference seen at boot): what the source counts as settled is by its own time. */
+  sourceNow(): number { return Date.now() - this.#sourceSkew; }
+
   /** Executions per candle for a window (the footprint). */
   /** `cuts`: size lines (the coin's USD) whose orders each bar carries in `over`, where the source knows them. */
-  footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = []): Promise<FootprintResponse> { return this.source.footprint(inst, tf, from, to, rowStep, cuts); }
+  footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number): Promise<FootprintResponse> { return this.source.footprint(inst, tf, from, to, rowStep, cuts, budget); }
 
   /** Depth (USD within +-range of the books' own price) per pixel column over [t0, t1]. */
   depth(enabled: string[], t0: number, t1: number, w: number, range: number): Promise<{ bid: Float32Array; ask: Float32Array }> {

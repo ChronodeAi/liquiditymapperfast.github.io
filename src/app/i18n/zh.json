@@ -1186,5 +1186,12 @@
  "Traded, last {window}": "成交额，最近 {window}",
  "No trades held for this book: placed by its liquidity in view.": "没有此订单簿的成交记录：按可见流动性排序。",
  "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of all venues. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "在紧凑模式下，交易所曲线把每个最大交易所的累计量单独画出，叠在整个订单簿的累计量之上。曲线共用自己的刻度，全宽为可见行中曲线的最大值，因此曲线之间可以相互比较；某条曲线占所有交易所的份额见弹出框。交易所按流量列排名窗口内的成交额排序（没有成交记录的订单簿按可见流动性），并保持一分钟；标题行中每种颜色旁的标识指明交易所。曲线在该交易所订单簿不再覆盖的地方停止。把指针移近一条曲线或它在标题行中的条目，即可单独查看它及其数字。",
- "Lines, full width": "曲线，全宽"
+ "Lines, full width": "曲线，全宽",
+ "Count": "统计范围",
+ "Whose market orders the footprint and the bar statistics count.": "足迹图和柱状统计所计的市价单来自哪里。",
+ "The chart market": "图表的市场",
+ "Aggregated: every market switched on": "聚合：所有已开启的市场",
+ "Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market's candles. Each market's trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane's market.": "聚合会把现货 / 永续筛选范围内、交易所已开启的每个市场，叠加到图表市场的 K 线上。每个市场的成交仍在它自己的价格上：永续合约彼此相差几个基点，但美元现货市场可能相差 10 个基点或更多，所以想让各行清晰，请在筛选中选择永续。柱状统计中的持仓量仍是 OI 面板的市场。",
+ "{n} markets": "{n} 个市场",
+ "{n} added together": "{n} 个相加"
 }

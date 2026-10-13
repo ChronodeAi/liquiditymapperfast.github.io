@@ -14,7 +14,7 @@ import type { Coin } from '../../shared/coins.ts';
 export type RpcCall =
   | { method: 'bootstrap' }
   | { method: 'columns'; ids: string[]; from: number; to: number; stepMs: number }
-  | { method: 'footprint'; inst: string; tfMs: number; from: number; to: number; rowStep: number; cuts?: number[] }
+  | { method: 'footprint'; inst: string; tfMs: number; from: number; to: number; rowStep: number; cuts?: number[]; budget?: number }
   | { method: 'prints'; from: number; to: number; minUsd?: number }
   | { method: 'liquidations'; from: number; to: number; minUsd?: number }
   | { method: 'printSums'; ids: string[]; from: number; to: number; minUsd: number; stepMs: number }

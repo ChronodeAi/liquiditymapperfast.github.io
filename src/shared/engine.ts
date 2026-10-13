@@ -1,6 +1,6 @@
 import type { ValuedBook } from './levels.ts';
 import { BROWSER_RETENTION_MS, COLUMN_MS, DepthRecorder, MIN_BIN_USD, SAMPLE_MS, STALE_MS, type Column, type ColumnStore } from './recorder.ts';
-import { FootprintRecorder, MAX_CUT_USD, MAX_CUTS, type FootprintStore, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from './footprint.ts';
+import { FootprintRecorder, MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, type FootprintStore, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from './footprint.ts';
 import { PRINT_FLOOR_USD, PRINTS_PER_ANSWER, PrintStream, type Print, type PrintStore } from './prints.ts';
 import type { PrintSumsAnswer } from './print-sums.ts';
 import { LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER, LiquidationStream, type Liquidation, type LiquidationEvent } from './liquidations.ts';
@@ -52,7 +52,7 @@ export interface EngineTick {
   prices: Record<string, number>;
   candles: Record<string, LiveCandle>;
 }
-export interface FootprintAnswer { step: number; fine: number; bars: ReturnType<FootprintRecorder['query']>['bars'] }
+export interface FootprintAnswer { step: number; fine: number; bars: ReturnType<FootprintRecorder['query']>['bars']; from: number }
 
 export interface EngineOptions {
   /** The coin, and the tier its size floors are kept at (the coin's own unless the page fixed another for its recordings). */
@@ -316,7 +316,8 @@ export class Engine {
     return { from, to, stepMs: step, instruments: packColumns(ids.map(id => ({ instrumentId: id, step: this.recorder.steps.get(id) ?? 0, columns: this.recorder.query(id, from, to, step) }))) };
   }
 
-  footprint(instrumentId: string, tfMs: number, from: number, to: number, rowStep: number, cuts: readonly number[] = []): FootprintAnswer { return this.footprints.query(instrumentId, from, to, tfMs, rowStep, this.#cuts(cuts)); }
+  /** One instrument's footprint, or several (comma separated) added together, as the server's route answers. */
+  footprint(instrumentId: string, tfMs: number, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number): FootprintAnswer { return this.footprints.queryMany(instrumentId.split(',').filter(Boolean).slice(0, MAX_PROFILE_INSTRUMENTS), from, to, tfMs, rowStep, this.#cuts(cuts), budget !== undefined && budget > 0 ? budget : Infinity); }
   /** Size lines a question may draw (see `parseCuts`): any that are not are left out rather than refused, as the page asked for them itself. */
   #cuts(cuts: readonly number[]): number[] { return cuts.filter(c => Number.isFinite(c) && c >= this.footprints.floorUsd * (1 - 1e-9) && c <= MAX_CUT_USD).slice(0, MAX_CUTS); }
 

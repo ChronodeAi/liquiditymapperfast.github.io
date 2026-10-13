@@ -264,6 +264,32 @@ test('footprint dedupes by trade id, buckets by minute and merges rows at query 
   recorder.close();
 });
 
+test('an aggregated footprint is the row-by-row sum of its markets, its minutes those any of them recorded, its stats only where all have them', () => {
+  const recorder = new FootprintRecorder(null, () => T0 + 10 * COLUMN_MS);
+  let id = 0;
+  const trade = (inst: string, side: string, price: number, usd: number, t: number) => ({ instrumentId: inst, tradeId: String(++id), side, price, notionalUsd: usd, sourceTimestamp: t });
+  recorder.ingest([trade('a:BTC', 'buy', 85_000, 100, T0 + 1_000), trade('a:BTC', 'sell', 85_013, 40, T0 + 2_000), trade('a:BTC', 'buy', 85_041, 7, T0 + 3 * COLUMN_MS)]);
+  recorder.ingest([trade('b:BTC', 'sell', 85_001, 30, T0 + 1_500), trade('b:BTC', 'buy', 85_060, 9, T0 + COLUMN_MS + 5)]);
+  const a = recorder.query('a:BTC', T0, T0 + 5 * COLUMN_MS, 3_600_000, 20), b = recorder.query('b:BTC', T0, T0 + 5 * COLUMN_MS, 3_600_000, 20);
+  const both = recorder.queryMany(['a:BTC', 'b:BTC', 'unknown:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20);
+  assert.equal(both.step, a.step);
+  assert.equal(both.bars.length, 1);
+  const sum = new Map<number, [number, number]>();
+  for (const row of [...a.bars[0]!.rows, ...b.bars[0]!.rows]) { const cell = sum.get(row[0]) ?? [0, 0]; cell[0] += row[1]; cell[1] += row[2]; sum.set(row[0], cell); }
+  assert.deepEqual(both.bars[0]!.rows, [...sum].sort((x, y) => x[0] - y[0]).map(([p, [buy, sell]]) => [p, buy, sell]));
+  assert.equal(both.bars[0]!.buyUsd, a.bars[0]!.buyUsd + b.bars[0]!.buyUsd);
+  assert.equal(both.bars[0]!.sellUsd, a.bars[0]!.sellUsd + b.bars[0]!.sellUsd);
+  assert.equal(both.bars[0]!.minutes, 3, 'minutes 0, 1 and 3: the union of what each recorded, not their sum');
+  assert.deepEqual(recorder.queryMany(['a:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20), { ...a, from: T0 }, 'one market is its own footprint');
+  assert.deepEqual(recorder.queryMany(['unknown:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20), { step: 0, fine: 0, bars: [], from: T0 });
+  // A budget takes whole bars, newest first, and says where it starts: minutes 0, 1 (a and b) and 3 (a) cost four instrument-minutes.
+  const sliced = recorder.queryMany(['a:BTC', 'b:BTC'], T0, T0 + 5 * COLUMN_MS, COLUMN_MS, 20, [], 1);
+  assert.deepEqual([sliced.from, sliced.bars.map(bar => bar.t)], [T0 + 2 * COLUMN_MS, [T0 + 3 * COLUMN_MS]], 'at least one bar with data, the empty bars beside it free');
+  const two = recorder.queryMany(['a:BTC', 'b:BTC'], T0, T0 + 5 * COLUMN_MS, COLUMN_MS, 20, [], 3);
+  assert.deepEqual([two.from, two.bars.map(bar => bar.t)], [T0 + COLUMN_MS, [T0 + COLUMN_MS, T0 + 3 * COLUMN_MS]]);
+  recorder.close();
+});
+
 test('footprint minutes persist to a file, flush only what changed, and reload', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hlm-fp-'));
   const file = path.join(dir, 'fp.sqlite');

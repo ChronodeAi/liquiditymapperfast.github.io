@@ -129,39 +129,80 @@ export class FootprintLod {
   }
 }
 
-/** Executions per candle (taker buy/sell USD by price row), fetched for the visible window and cached briefly. */
+/** Instrument-minutes a footprint answer may merge (newest first; the rest is asked for in further answers): about 70 to 270 ms on a server. */
+export const FOOTPRINT_BUDGET = 5_000;
+/** A bar is final once it ended this long ago (a late trade or an order still being counted can change its last minutes until then). */
+export const FOOTPRINT_SETTLE_MS = 2 * 60_000;
+/** How often the bars that can still change are asked for again. */
+export const FOOTPRINT_REFRESH_MS = 5_000;
+/** More bars than this held (scrolled back over days of small candles) and the next look starts again from the view. */
+const FOOTPRINT_MAX_BARS = 3_000;
+
+type FootprintLoad = (inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[], budget: number) => Promise<FootprintResponse>;
+
+/**
+ * Executions per candle (taker buy/sell USD by price row) for the visible window. A recorded bar does not change once it is settled, so
+ * after the first look only the bars that still can are asked for again (every 5 s), and a window too long for one answer (a week of
+ * hourly candles, or many markets added together) comes in slices of at most FOOTPRINT_BUDGET instrument-minutes, newest first: asking for
+ * the whole window every 5 s cost a server 0.4 s each time for one market's week, 8 s for fourteen (2026-10-13).
+ */
 export class FootprintData {
   /** Row step of the loaded data and the recorded finest step. */
   step = 0; fine = 0;
   bars = new Map<number, Bar>();
   /** The size lines the bars were asked for (the coin's USD: the Bar stats' retail and whale sizes): each bar's `over` holds their sums. */
   cuts: number[] = [];
-  /** Bumped whenever `bars` is replaced, for what is worked out from them (the imbalance marks). */
+  /** Bumped whenever `bars` changes, for what is worked out from them (the imbalance marks). */
   version = 0;
-  #key = ''; #loadedAt = 0; #busy = false;
+  #busy = false; #retryAt = 0;
   /** The market and timeframe the bars belong to, and the number of the request whose answer counts. */
   #context = ''; #request = 0;
+  /** What the bars cover: their row size and size lines (`grid`), [from, to), the bars before `settled` final, and when the tail was last asked. */
+  #held: { grid: string; from: number; to: number; settled: number; at: number } | null = null;
 
-  /** Start a refresh when the window, row size or timeframe changed or the data is older than 5 s. */
-  ensure(inst: string, tf: string, view: Bounds, rowStep: number, load: (inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[]) => Promise<FootprintResponse>, onLoad: () => void, cuts: readonly number[] = []): void {
+  /**
+   * Ask for what the view needs next, if anything: everything (another row size or size lines, or a view the bars held do not touch), the
+   * bars that can still change (every FOOTPRINT_REFRESH_MS, or the view reaching past the newest), or the next older slice. `now` is the
+   * source's clock (a bar is settled by its time).
+   */
+  ensure(inst: string, tf: string, view: Bounds, rowStep: number, load: FootprintLoad, onLoad: () => void, cuts: readonly number[] = [], now = Date.now()): void {
     const tfMs = TIMEFRAMES[tf] ?? 3_600_000;
     // Rows of another market or timeframe are not rows of this one, whatever the window: they go now, rather than being drawn until the new
     // ones come (or for good, if they never do). A request still out for the old context is left to finish, and its answer is ignored.
     const context = `${inst}|${tf}`;
-    if (context !== this.#context) { this.#context = context; this.bars = new Map(); this.step = 0; this.fine = 0; this.#key = ''; this.#busy = false; this.version++; }
+    if (context !== this.#context) { this.#context = context; this.bars = new Map(); this.step = 0; this.fine = 0; this.#held = null; this.#busy = false; this.#retryAt = 0; this.version++; }
+    const clock = performance.now();
+    if (this.#busy || clock < this.#retryAt) return;
     // Other size lines are another question: the bars' sums are for the lines asked.
-    const key = `${context}|${rowStep}|${Math.floor(view.t0 / tfMs)}|${Math.floor(view.t1 / tfMs)}|${cuts.join(',')}`;
-    if (this.#busy || (key === this.#key && performance.now() - this.#loadedAt < 5_000)) return;
-    this.#busy = true; this.#key = key;
-    const request = ++this.#request;
-    const asked = [...cuts];
-    load(inst, tf, view.t0 - tfMs, view.t1 + tfMs, rowStep, asked).then(body => {
+    const grid = `${rowStep}|${cuts.join(',')}`, want = { from: Math.floor((view.t0 - tfMs) / tfMs) * tfMs, to: Math.ceil((view.t1 + tfMs) / tfMs) * tfMs };
+    const h = this.#held;
+    let ask: { from: number; to: number; kind: 'whole' | 'tail' | 'older' };
+    if (!h || h.grid !== grid || want.to <= h.from || want.from >= h.to || this.bars.size > FOOTPRINT_MAX_BARS) ask = { ...want, kind: 'whole' };
+    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) ask = { from: Math.max(h.settled, h.from), to: Math.max(want.to, h.to), kind: 'tail' };
+    else if (want.from < h.from) ask = { from: want.from, to: h.from, kind: 'older' };
+    else return;
+    this.#busy = true;
+    const request = ++this.#request, asked = [...cuts];
+    load(inst, tf, ask.from, ask.to, rowStep, asked, FOOTPRINT_BUDGET).then(body => {
       if (request !== this.#request) return;
-      this.step = body.step; this.fine = body.fine; this.cuts = asked; this.bars = new Map(body.bars.map(bar => [bar.t, readBar(bar, asked.length)])); this.version++; this.#loadedAt = performance.now(); onLoad();
+      // A source that answered only the newest part says where it starts; an older one answers the whole window.
+      const reached = Math.max(ask.from, Number.isFinite(body.from) ? body.from! : ask.from), held = this.#held;
+      const settled = Math.floor((now - FOOTPRINT_SETTLE_MS) / tfMs) * tfMs;
+      // Bars on another grid than those held (the recorded step changed) cannot sit beside them: start again from this answer.
+      const fresh = ask.kind === 'whole' || !held || body.step !== this.step;
+      const bars = fresh ? new Map<number, Bar>() : this.bars;
+      if (!fresh && ask.kind === 'tail') for (const t of [...bars.keys()]) if (t >= reached) bars.delete(t);
+      for (const bar of body.bars) if (bar.t >= reached && bar.t < ask.to) bars.set(bar.t, readBar(bar, asked.length));
+      if (fresh) this.#held = { grid, from: reached, to: ask.to, settled, at: performance.now() };
+      else if (ask.kind === 'older') held.from = reached;
+      // A tail too long for one answer (the page was away): what it did not reach is asked for again as older slices.
+      else { if (reached > ask.from) { for (const t of [...bars.keys()]) if (t < reached) bars.delete(t); held.from = reached; } held.to = ask.to; held.settled = Math.max(held.settled, settled); held.at = performance.now(); }
+      // Held oldest first, as one answer gives them (an older slice lands after the newer ones).
+      this.bars = fresh ? bars : new Map([...bars].sort((a, b) => a[0] - b[0])); this.step = body.step; this.fine = body.fine; this.cuts = asked; this.version++; onLoad();
     }).catch(error => {
       if (request !== this.#request) return;
       // Asked again in five seconds, not on every frame.
-      console.error('footprint load failed', error); this.#loadedAt = performance.now();
+      console.error('footprint load failed', error); this.#retryAt = performance.now() + FOOTPRINT_REFRESH_MS;
     }).finally(() => { if (request === this.#request) this.#busy = false; });
   }
 }
@@ -288,11 +329,13 @@ const ratioText = (ratio: number): string => Number.isFinite(ratio) ? `${ratio.t
  * The popup for a footprint row: its price span, what was sold and bought there, which side had it, the diagonal imbalances outlined there
  * (`diagonal`: the ratio of each flagged side), and the candle it belongs to.
  */
-export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, diagonal?: { sell?: number; buy?: number }): InfoLine[] {
+/** `markets`: how many markets the footprint adds together (1: the chart market's own). */
+export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, diagonal?: { sell?: number; buy?: number }, markets = 1): InfoLine[] {
   const side = imbalance(cell.buy, cell.sell), delta = cell.buy - cell.sell, big = Math.max(cell.buy, cell.sell), small = Math.min(cell.buy, cell.sell);
   const lines: InfoLine[] = [
     { text: `${fmtPrice(cell.low, step)} – ${fmtPrice(cell.low + step, step)}`, bold: true },
     { label: t('Candle'), text: `${clock(bar.t, true)} · ${tf}` },
+    ...(markets > 1 ? [{ label: t('Markets'), text: t('{n} added together', { n: markets }) }] : []),
     { label: t('Sold'), text: `$${volText(cell.sell)}`, color: 'sell' },
     { label: t('Bought'), text: `$${volText(cell.buy)}`, color: 'buy' },
     { label: t('Delta'), text: signed(delta), color: delta > 0 ? 'buy' : delta < 0 ? 'sell' : 'text', bold: true },

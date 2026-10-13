@@ -646,7 +646,9 @@ export class BarStatsPane extends TimePane {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state = this.store.state;
     const tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000, defs = enabledStats(state.barStats), options = state.barStatOptions;
     const readout = this.head.querySelector('.readout');
-    setText(readout, tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view'));
+    // Aggregated, the rows count every market the footprint adds together; open interest stays the OI pane's one market (as its row's tip says).
+    const markets = this.heat.footprintMarkets(state).length, stats = tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view');
+    setText(readout, markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats);
     if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); return; }
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
     const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity, all = [...data.bars.values()].filter(b => b.t + tfMs <= until).sort((a, b) => a.t - b.t);

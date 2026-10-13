@@ -323,14 +323,19 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     sendJson(res, { instrumentId: id, tf, bars: aggregateOi(withLiveOi(stored, live), tfMs) });
   };
   const footprintRoute = (url: URL, res: ServerResponse) => {
-    const id = url.searchParams.get('inst') ?? ''; const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);
-    if (!id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
+    // One instrument, or several (comma separated) added together: the aggregated footprint.
+    const id = url.searchParams.get('inst') ?? '', ids = id.split(',').filter(Boolean); const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);
+    if (!ids.length || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
+    if (ids.length > MAX_PROFILE_INSTRUMENTS) return sendJson(res, { error: `inst must name 1 to ${MAX_PROFILE_INSTRUMENTS} instruments` }, 400);
     const span = windowOf(url, Date.now() + tfMs, 200 * tfMs); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
     const rows = num(url.searchParams.get('rows'), 0);
     if (!(rows >= 0)) return sendJson(res, { error: 'rows must not be negative' }, 400);
     const cuts = parseCuts(url.searchParams.get('cuts'), footprint.floorUsd);
     if (!cuts) return sendJson(res, { error: BAD_CUTS(footprint.floorUsd) }, 400);
-    sendJson(res, { instrumentId: id, tf, ...footprint.query(id, span.from, span.to, tfMs, rows, cuts) });
+    // A budget (instrument-minutes) asks for the newest part of the window only, as far back as it allows: the answer's `from` says where it starts.
+    const rawBudget = url.searchParams.get('budget'), budget = rawBudget === null ? Infinity : Number(rawBudget);
+    if (!(budget > 0)) return sendJson(res, { error: 'budget must be a positive number' }, 400);
+    sendJson(res, { instrumentId: id, tf, ...footprint.queryMany(ids, span.from, span.to, tfMs, rows, cuts, budget) });
   };
   const liquidationsRoute = (url: URL, res: ServerResponse) => {
     // As the prints: a window longer than what is kept is cut to its last eight days, never refused.

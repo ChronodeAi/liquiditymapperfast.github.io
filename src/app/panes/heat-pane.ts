@@ -5,7 +5,7 @@ import { isCoarse, isPhone } from '../device.ts';
 import { dimOutside, mirrorLines, mirrorStats, paintBand, paintMirrorBox, percentText, type MirrorLine, type MirrorStats } from '../mirror.ts';
 import { TIMEFRAMES, valueAreaKey, type Hub, type RasterResult } from '../hub.ts';
 import { gridStepFor } from '../../shared/grid.ts';
-import type { ProfileAnswer } from '../../shared/footprint.ts';
+import { MAX_PROFILE_INSTRUMENTS, type ProfileAnswer } from '../../shared/footprint.ts';
 import type { ValueLevels } from '../../shared/profile.ts';
 import { answerLevels, linesWindows, requestStep, touchedAt } from '../traded/levels.ts';
 import type { ProfileWindow } from '../traded/sessions.ts';
@@ -15,10 +15,11 @@ import { View, niceStep, type Bounds } from '../view.ts';
 import { clock, dayOfMonth, price as fmtPrice, tickLabel, usd, zoneName, zoneOffsetMs } from '../format.ts';
 import type { Store, AppState, CandleRow } from '../store.ts';
 import { cumulative, groupLevels, type Grouped } from './levels-data.ts';
-import { activeIds, emptyScopeMessage, heatmapSourceOf } from '../scope.ts';
+import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.ts';
 import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } from '../prints.ts';
 import { tradedHeader, tradedLines, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
 import { flowIds, flowLoadIds } from '../cvd/ids.ts';
+import { aggregateIds } from '../cvd/model.ts';
 import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from '../absorption.ts';
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
 import { venueLabel } from '../venues.ts';
@@ -433,6 +434,19 @@ export class HeatPane {
     this.onFrame();
   }
 
+  #footprintIds: { key: unknown[]; ids: string[] } | null = null;
+  /**
+   * The markets the footprint counts, sorted: the chart market alone, or (Aggregated) those of the flow column's ALL VENUES lines, which the
+   * Delta pane adds up too (`aggregateIds`: the venues switched on, inside the Spot / Perp filter, one spot and one perpetual market each), so
+   * the bar statistics' delta and the Delta pane's agree; at most MAX_PROFILE_INSTRUMENTS. Worked out again only when what it depends on changes.
+   */
+  footprintMarkets(state: AppState): string[] {
+    if (state.footprint.markets !== 'all') return [state.marketId];
+    const key = [state.markets, state.disabledVenues, state.scope, state.levels?.books.length, this.hub.flow.ids.length];
+    if (!this.#footprintIds || this.#footprintIds.key.some((k, i) => k !== key[i])) this.#footprintIds = { key, ids: aggregateIds(this.hub.flow, flowIds(state, this.hub.flow.ids), id => kindOf(state.markets, id)).sort().slice(0, MAX_PROFILE_INSTRUMENTS) };
+    return this.#footprintIds.ids.length ? this.#footprintIds.ids : [state.marketId];
+  }
+
   /** Advance the footprint level of detail for this frame (also drives the heatmap dimming). */
   #stepFootprint(state: AppState): void {
     const v = this.view, pw = this.plotW, ph = this.plotH, now = performance.now();
@@ -442,7 +456,7 @@ export class HeatPane {
     const rowStep = fine > 0 ? fine * 2 ** this.#lod.level(fineRowPx) : 0;
     // The Bar stats' retail and whale sizes are asked as size lines (those between box edges), so their rows are exact at any size from the floor.
     const cuts = linesToAsk([state.barStatOptions.retailUsd, state.barStatOptions.whaleUsd], scaledUsd);
-    this.#footprint.ensure(state.marketId, state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines) => this.hub.footprint(inst, tf, from, to, rows, lines), () => this.invalidate(), cuts);
+    this.#footprint.ensure(this.footprintMarkets(state).join(','), state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines, budget) => this.hub.footprint(inst, tf, from, to, rows, lines, budget), () => this.invalidate(), cuts, this.hub.sourceNow());
     const rowH = rowStep > 0 ? Math.abs(v.yOf(0, ph) - v.yOf(rowStep, ph)) : 0;
     const factor = visibilityFactor(state.candles, tfMs, v, pw, ph, rowH || 1, rowStep || 1);
     this.#lodFrame = this.#lod.step(now, { enabled: true, hasData: this.#footprint.bars.size > 0, widthCss: pw * tfMs / (v.t1 - v.t0), rowHeightCss: rowH, factor });
@@ -1315,7 +1329,7 @@ export class HeatPane {
     ctx.save(); ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.globalAlpha = 0.9; ctx.strokeRect(Math.round(hit.x) + 0.5, Math.round(hit.y) + 0.5, Math.max(1, Math.round(hit.w) - 1), Math.max(1, Math.round(hit.h)));
     ctx.restore();
     const state = this.store.state, diagonal = state.footprint.diagonal ? this.#footprintMarks.get(this.#footprint, state.barStatOptions).get(hit.bar.t)?.flags.get(hit.cell.low) : undefined;
-    paintInfoBox(ctx, rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal), x, y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
+    paintInfoBox(ctx, rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, this.footprintMarkets(state).length), x, y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
   }
 
   #paintTrapPopup(ctx: CanvasRenderingContext2D, trap: Trap, x: number, y: number, pw: number, ph: number, touch = false): void {

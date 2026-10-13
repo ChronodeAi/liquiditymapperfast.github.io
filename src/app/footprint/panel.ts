@@ -17,6 +17,9 @@ export function buildFootprintPanel(store: Store, tools: HTMLElement, body: HTML
   tools.append(helpButton('footprint'));
   body.append(
     switchRow(t('Show the footprint'), t('Zoom in on the candles to see, at each price, what was sold and bought at market; the bar statistics show under the map.'), store.state.show.footprint, on => { store.set({ show: { ...store.state.show, footprint: on } }); rebuild(); }),
+    heading(t('Markets')),
+    selectRow(t('Count'), t('Whose market orders the footprint and the bar statistics count.'), [['chart', t('The chart market')], ['all', t('Aggregated: every market switched on')]], fp.markets, v => set({ markets: v === 'all' ? 'all' : 'chart' })),
+    note(t('Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market\'s candles. Each market\'s trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane\'s market.')),
     heading(t('Cells')),
     selectRow(t('Numbers'), t('What each row prints once the candles are wide enough.'), [['split', t('Sold × bought')], ['delta', t('Delta')], ['total', t('Total')], ['none', t('None')]], fp.text, v => set({ text: v === 'delta' || v === 'total' || v === 'none' ? v : 'split' })),
     heading(t('Imbalances')),

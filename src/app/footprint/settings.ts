@@ -9,10 +9,15 @@ export interface FootprintSettings {
   diagonal: boolean;
   zones: boolean;
   nakedPoc: boolean;
+  /**
+   * Whose trades the footprint (and the bar statistics, which read it) counts: the chart market's, or every market the flow views count
+   * (the venues switched on, inside the Spot / Perp filter: `flowIds`) added together on the chart market's candles.
+   */
+  markets: 'chart' | 'all';
 }
 
 /** Diagonal imbalances outlined, the numbers as before; zones and naked points of control off until chosen. */
-export const FOOTPRINT_DEFAULTS: Readonly<FootprintSettings> = { text: 'split', diagonal: true, zones: false, nakedPoc: false };
+export const FOOTPRINT_DEFAULTS: Readonly<FootprintSettings> = { text: 'split', diagonal: true, zones: false, nakedPoc: false, markets: 'chart' };
 
 const flag = (value: unknown, fallback: boolean): boolean => typeof value === 'boolean' ? value : fallback;
 
@@ -21,5 +26,6 @@ export function readFootprint(saved: unknown): FootprintSettings {
   return {
     text: s.text === 'delta' || s.text === 'total' || s.text === 'none' ? s.text : 'split',
     diagonal: flag(s.diagonal, d.diagonal), zones: flag(s.zones, d.zones), nakedPoc: flag(s.nakedPoc, d.nakedPoc),
+    markets: s.markets === 'all' ? 'all' : 'chart',
   };
 }

@@ -1186,5 +1186,12 @@
  "Traded, last {window}": "거래액, 최근 {window}",
  "No trades held for this book: placed by its liquidity in view.": "이 호가창의 거래 기록이 없습니다: 보이는 유동성으로 순위를 매겼습니다.",
  "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of all venues. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "컴팩트에서 거래소 선은 가장 큰 거래소 각각의 누적을 전체 호가창의 누적 위에 따로 그립니다. 선들은 자체 척도를 함께 쓰며, 전체 너비는 보이는 행에서 선들 중 가장 큰 값이므로 선끼리 비교할 수 있습니다. 전체 거래소 중 한 선의 비중은 팝업에 나옵니다. 거래소는 흐름 열의 순위 기간 동안의 거래량으로 순위를 매기며(거래 기록이 없는 호가창은 보이는 유동성으로) 1분 동안 유지됩니다. 헤더에서 각 색 옆의 마크가 거래소를 알려 줍니다. 선은 그 거래소의 호가창이 닿지 않는 곳에서 끝납니다. 선이나 헤더의 항목 가까이에 올리면 그 선만 수치와 함께 보입니다.",
- "Lines, full width": "선, 전체 너비"
+ "Lines, full width": "선, 전체 너비",
+ "Count": "집계 대상",
+ "Whose market orders the footprint and the bar statistics count.": "풋프린트와 바 통계가 세는 시장가 주문의 대상.",
+ "The chart market": "차트의 시장",
+ "Aggregated: every market switched on": "집계: 켜진 모든 시장",
+ "Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market's candles. Each market's trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane's market.": "집계는 현물 / 무기한 필터 안에서 거래소가 켜진 모든 시장을 차트 시장의 캔들에 더합니다. 각 시장의 체결은 그 시장의 가격에 그대로 남습니다. 무기한끼리는 몇 베이시스 포인트 차이지만 USD 현물 시장은 10 베이시스 포인트 이상 떨어질 수 있으니, 행을 선명하게 유지하려면 필터에서 무기한을 고르세요. 바 통계의 미결제약정은 OI 창의 시장 그대로입니다.",
+ "{n} markets": "{n}개 시장",
+ "{n} added together": "{n}개를 합산"
 }

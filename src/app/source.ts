@@ -38,7 +38,8 @@ export interface LiveHandlers {
 }
 
 /** Executions per candle for a window, as the footprint draws them. */
-export interface FootprintResponse { step: number; fine: number; bars: Bar[] }
+/** `from`: where the answer starts when the source answered only the newest part of the window for a `budget` (absent from an older source: the whole window). */
+export interface FootprintResponse { step: number; fine: number; bars: Bar[]; from?: number }
 
 /** One venue the person can switch on or off. */
 export interface VenueEntry {
@@ -94,7 +95,7 @@ export interface DataSource {
   /** The same flow a minute at a time, for windows older than the seconds the page holds; a source that keeps no older flow (the browser keeps a day) has none. */
   flowMinutes?(ids: string[], from: number, to: number): Promise<FlowMinutesFrame>;
   /** `cuts`: size lines (USD, from the print floor) whose orders each bar carries in `over` where the source has them (an older server leaves them out). */
-  footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts?: readonly number[]): Promise<FootprintResponse>;
+  footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts?: readonly number[], budget?: number): Promise<FootprintResponse>;
   /**
    * The trades of `ids` added together by size over each of the last `windows` minutes (up to and including the open one), in one answer: the
    * minutes two answers saw cannot be added, so a long list is never asked in parts. Rejects when the source cannot say (an older server).

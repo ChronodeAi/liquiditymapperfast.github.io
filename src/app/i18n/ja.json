@@ -1186,5 +1186,12 @@
  "Traded, last {window}": "約定額（直近{window}）",
  "No trades held for this book: placed by its liquidity in view.": "この板の約定データがありません：表示範囲の流動性で順位付けしています。",
  "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of all venues. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "コンパクトでは、取引所ラインが大きい取引所それぞれの累計を、板全体の累計の上に個別に描きます。ラインは独自のスケールを共有し、全幅は表示中の行でのラインの最大値なので、ライン同士を比較できます。全取引所に占める割合はポップアップに表示されます。順位はフロー列のランキング期間の約定額で決まり（約定データのない板は表示範囲の流動性で）、1分間保持されます。ヘッダーの各色の横のマークが取引所を示します。ラインは、その取引所の板が届かなくなる所で終わります。ラインやヘッダーの項目の近くにカーソルを置くと、そのラインだけを数値とともに表示します。",
- "Lines, full width": "ライン、全幅"
+ "Lines, full width": "ライン、全幅",
+ "Count": "集計対象",
+ "Whose market orders the footprint and the bar statistics count.": "フットプリントとバー統計が数える成行注文の対象。",
+ "The chart market": "チャートの市場",
+ "Aggregated: every market switched on": "集計：オンのすべての市場",
+ "Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market's candles. Each market's trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane's market.": "集計は、現物 / 無期限フィルターの範囲で取引所がオンになっているすべての市場を、チャートの市場のローソク足に合算します。各市場の約定はその市場自身の価格のままです。無期限同士の差は数ベーシスポイントですが、USD 現物市場は 10 ベーシスポイント以上離れることがあるため、行をはっきりさせるにはフィルターで無期限を選んでください。バー統計の建玉は OI ペインの市場のままです。",
+ "{n} markets": "{n} 市場",
+ "{n} added together": "{n} を合算"
 }
