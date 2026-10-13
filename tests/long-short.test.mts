@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LongShortCache, fetchLongShort, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
+import { LongShortCache, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
 import { lsAt, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
@@ -182,4 +182,32 @@ test('a refresh that fails after a good answer says so, with the readings held f
   const after = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW + H);
   assert.deepEqual([after.status, after.points.length], ['stale', 1]);
   assert.equal(parseLsSeries(after).status, 'stale', 'and the wire carries it');
+});
+
+test('a long window on a fine chart takes a coarser period: one question reaches across it and the series keeps all of it', async () => {
+  const full = (url: URL) => { const end = Number(url.searchParams.get('endTime')), p = url.searchParams.get('period') === '1h' ? H : url.searchParams.get('period') === '30min' ? 30 * M : 5 * M;
+    return { retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.floor(end / p) * p - (i + 1) * p) })) } }; };
+  const get = fake({ 'https://api.bybit.com/': full });
+  const cache = new LongShortCache(get, false, () => NOW);
+  const month = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 40 * 24 * H, NOW);
+  assert.deepEqual([month.status, month.periodMs], ['ok', 30 * M], 'forty days: half-hourly (1,920 readings), the shortest period at or above 40 days / 2,000');
+  assert.ok(month.points[0]!.t <= NOW - 40 * 24 * H + 30 * M && month.points.length >= 1_900, 'the whole window, oldest included');
+  const asked = get.asked.length;
+  await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 40 * 24 * H, NOW);
+  assert.equal(get.asked.length, asked, 'asked again at once: nothing more to read');
+  assert.equal(lsPeriodAtLeast('bybit', 28.8 * M), 30 * M);
+});
+
+test('a good answer after a failure clears it: readings read back after a failed try are not called stale', async () => {
+  let now = NOW, failOlder = true;
+  const get = fake({ 'https://api.bybit.com/': url => {
+    const end = Number(url.searchParams.get('endTime'));
+    if (end < NOW - 30 * M && failOlder) throw new Error('HTTP 503');
+    return { retCode: 0, result: { list: Array.from({ length: 60 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.floor(end / (5 * M)) * 5 * M - (i + 1) * 5 * M) })) } };
+  } });
+  const cache = new LongShortCache(get, false, () => now);
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW)).status, 'ok');
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 4 * H, NOW - 3 * H)).status, 'failed');
+  failOlder = false; now += 61_000;
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 4 * H, NOW - 3 * H)).status, 'ok');
 });

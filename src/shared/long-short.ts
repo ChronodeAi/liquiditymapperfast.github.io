@@ -46,12 +46,21 @@ const BINANCE_SPAN_MS = 30 * DAY;
 const PAGES = 12;
 /** Readings a page, per venue (Bitget has one page of 30). */
 const PAGE_ROWS: Readonly<Record<string, number>> = { binance: 500, bybit: 500, okx: 100, bitget: 30 };
+/** The most readings one window takes from a venue: well inside what one question's pages reach, and far below what a series keeps. */
+const windowReadings = (venue: string): number => Math.min(2_000, Math.floor(PAGES * (PAGE_ROWS[venue] ?? 30) * 0.8));
 
 /** The venue's longest period no longer than the chart's candle (five minutes at the least): readings at least as fine as the candles where it can. */
 export function lsPeriodOf(venue: string, tfMs: number): number | null {
   const periods = PERIODS[venue]; if (!periods) return null;
   const all = Object.keys(periods).map(Number).sort((a, b) => a - b), want = Math.max(tfMs, 5 * MINUTE);
   return all.filter(p => p <= want).pop() ?? all[0]!;
+}
+
+/** The venue's shortest period at least `ms` long (its longest where none is): a window's readings kept to a number. */
+export function lsPeriodAtLeast(venue: string, ms: number): number | null {
+  const periods = PERIODS[venue]; if (!periods) return null;
+  const all = Object.keys(periods).map(Number).sort((a, b) => a - b);
+  return all.find(p => p >= ms) ?? all[all.length - 1]!;
 }
 
 /** The population a venue's series counts, given the Binance series chosen; null for a venue that publishes none. */
@@ -147,9 +156,12 @@ export class LongShortCache {
 
   async series(id: string, metric: LsMetric, tfMs: number, from: number, to: number): Promise<LsSeries> {
     const colon = id.indexOf(':'), venue = id.slice(0, colon), symbol = id.slice(colon + 1);
-    const population = colon > 0 ? lsPopulationOf(venue, metric) : null, periodMs = population ? lsPeriodOf(venue, tfMs) ?? 0 : 0;
+    // A window needs at most `windowReadings` readings: a long one on a fine chart takes a coarser period, so one question always reaches
+    // across it and the series never holds more than it keeps (a month of five-minute readings is neither readable nor drawable).
+    const population = colon > 0 && LS_VENUES.includes(venue) ? lsPopulationOf(venue, metric) : null;
+    const need = (to - from) / windowReadings(venue), periodMs = population ? (need > tfMs ? lsPeriodAtLeast(venue, need) : lsPeriodOf(venue, tfMs)) ?? 0 : 0;
     const answer = (points: LsPoint[], status: LsStatus): LsSeries => ({ id, population, periodMs, points, status });
-    if (!population || !periodMs || !LS_VENUES.includes(venue)) return answer([], 'unsupported');
+    if (!population || !periodMs) return answer([], 'unsupported');
     if (this.browser && venue === 'okx') return answer([], 'serverOnly');
     const key = `${id}|${population}|${periodMs}`;
     let held = this.#series.get(key);
@@ -172,6 +184,7 @@ export class LongShortCache {
       if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
       h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(({ points, from: reached }) => {
+        h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
         // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
         // period before now: the reading of the period under way comes later.
