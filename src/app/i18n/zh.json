@@ -1200,5 +1200,6 @@
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "当 OI 面板的“交易所”为“所有永续”（默认）时，每个交易所的持仓量变化分给在该交易所以市价成交的一方，然后再把各交易所相加：一个交易所的买方并不能说明谁在另一个交易所开了仓。",
  "{n} more venues": {
   "other": "另外 {n} 个交易所"
- }
+ },
+ "{n} of {m} venues": "{m} 个交易所中的 {n} 个"
 }

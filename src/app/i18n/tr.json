@@ -1237,5 +1237,6 @@
  "{n} more venues": {
   "one": "{n} borsa daha",
   "other": "{n} borsa daha"
- }
+ },
+ "{n} of {m} venues": "{m} borsadan {n}"
 }

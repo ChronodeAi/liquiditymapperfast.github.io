@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { oiChangeByTime, sumOi, type OiPart } from '../src/app/oi-change.ts';
+import { heldOiAt, oiChangeByTime, sumOi, type OiPart } from '../src/app/oi-change.ts';
 import { carriedOiDeltas, nlnsSumCandles } from '../src/app/delta/nlns.ts';
 import { fetchOiSample, fetchOiHistory, OI_SAMPLE_VENUES } from '../src/shared/history.ts';
 import { readSettings } from '../src/app/store.ts';
@@ -86,4 +86,16 @@ test('the OI pane adds venues together unless the chart market is chosen', () =>
   assert.equal(readSettings({}).oiMarkets, 'all');
   assert.equal(readSettings({ oiMarkets: 'chart' }).oiMarkets, 'chart');
   assert.equal(readSettings({ oiMarkets: 'everything' }).oiMarkets, 'all');
+});
+
+test('a venue\x27s hourly history holds until its next reading, a gap longer than two hours does not', () => {
+  const H = 60 * M, hourly = [bar(0, 100), bar(H, 110), bar(2 * H, 120), bar(8 * H, 200)];
+  assert.equal(heldOiAt(hourly, 45 * M, 30 * M)?.[4], 100, 'held past the short carry, until the next reading an hour on');
+  assert.equal(heldOiAt(hourly, 2 * H + 20 * M, 30 * M)?.[4], 120, 'the short carry after a reading before a long silence');
+  assert.equal(heldOiAt(hourly, 4 * H, 30 * M), null, 'six hours of silence is a gap');
+  assert.equal(heldOiAt(hourly, 8 * H + 20 * M, 30 * M)?.[4], 200, 'after the newest, the short carry');
+  assert.equal(heldOiAt(hourly, 9 * H, 30 * M), null);
+  // On a 15 minute chart an hourly venue beside a 15 minute one is counted in every bar, not every other half hour.
+  const sum = sumOi([{ id: 'a', bars: hourly.slice(0, 3) }, { id: 'b', bars: Array.from({ length: 9 }, (_, i) => bar(i * 15 * M, 50)) }], 15 * M);
+  assert.ok(sum.venues.every(n => n === 2), JSON.stringify(sum.venues));
 });

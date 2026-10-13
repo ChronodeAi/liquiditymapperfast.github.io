@@ -1237,5 +1237,6 @@
  "{n} more venues": {
   "one": "{n} weitere Börse",
   "other": "{n} weitere Börsen"
- }
+ },
+ "{n} of {m} venues": "{n} von {m} Börsen"
 }

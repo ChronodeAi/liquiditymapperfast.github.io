@@ -3,6 +3,7 @@ import { clock, usd } from '../format.ts';
 import type { InfoLine } from '../infobox.ts';
 import type { OiBar } from '../store.ts';
 import type { CandleFlow } from './candles.ts';
+import { heldOiAt } from '../oi-change.ts';
 
 /**
  * NL/NS: an estimate of who opened and closed positions in each candle. Every position has a long and a short holder, so open interest
@@ -54,17 +55,12 @@ export function nlnsCandles(starts: readonly number[], deltas: readonly ({ dOi: 
 }
 
 /**
- * One venue's change of open interest per candle as `oiDeltas`, with its last reading carried for up to `carryMs` where it has no bar (a
- * venue read every five minutes, or a reading missed): open interest is a level, and a bar it was not read in is not a bar it changed in.
+ * One venue's change of open interest per candle as `oiDeltas`, with its last reading held where it has no bar, as the OI pane's sum holds it
+ * (`heldOiAt`): open interest is a level, and a bar it was not read in is not a bar it changed in.
  */
 export function carriedOiDeltas(bars: readonly OiBar[], starts: readonly number[], tfMs: number, carryMs = Math.max(2 * tfMs, 10 * 60_000)): ({ dOi: number; oiStart: number } | null)[] {
   const sorted = [...bars].sort((a, b) => a[0] - b[0]);
-  const closeAt = (t: number): number | undefined => {
-    let lo = 0, hi = sorted.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (sorted[mid]![0] <= t) lo = mid + 1; else hi = mid; }
-    const bar = sorted[lo - 1];
-    return bar && t - bar[0] <= carryMs ? bar[4] : undefined;
-  };
+  const closeAt = (t: number): number | undefined => heldOiAt(sorted, t, carryMs)?.[4];
   return starts.map(t => {
     const before = closeAt(t - tfMs), now = closeAt(t);
     return before !== undefined && now !== undefined ? { dOi: now - before, oiStart: before } : null;

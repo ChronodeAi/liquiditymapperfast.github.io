@@ -21,12 +21,30 @@ export function oiDeltaByTime(bars: Iterable<OiBar>): Map<number, number> {
 
 /** One venue's open-interest bars (its perpetual, in coins) on the chart's timeframe. */
 export interface OiPart { id: string; bars: readonly OiBar[] }
+
+/**
+ * Up to this long a venue's reading holds until its next one: open interest is a level, and the history some venues keep is hourly (Bybit's
+ * and OKX's before their last two days). A longer silence is a gap, not a flat level (a server that was not running).
+ */
+export const OI_HOLD_MS = 2 * 3_600_000;
+/**
+ * A venue's bar at `t` from its bars oldest first: its own, else its last reading held (as a flat bar) while its next reading comes within
+ * `OI_HOLD_MS` of it, or for `carryMs` after its newest (the next is still to come); null where it has no reading to stand on.
+ */
+export function heldOiAt(bars: readonly OiBar[], t: number, carryMs: number, holdMs = OI_HOLD_MS): OiBar | null {
+  let lo = 0, hi = bars.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (bars[mid]![0] <= t) lo = mid + 1; else hi = mid; }
+  const last = bars[lo - 1], next = bars[lo];
+  if (!last) return null;
+  if (last[0] === t) return last;
+  return (next && next[0] - last[0] <= holdMs) || t - last[0] <= carryMs ? [t, last[4], last[4], last[4], last[4]] : null;
+}
 /**
  * Several venues' open interest added together (the aggregated pane): `bars` the sum at every bar time any of them has, `venues` how many
  * it counts there, and `change` each bar's change of open interest with `counted`, the venues it is made of.
  *
- * Open interest is a level read now and then, so a venue with no bar at a time (it was read every five minutes, or a reading was missed) is
- * counted at its last reading for up to `carryMs`. A bar's change is the sum of each venue's own change from the bar before (one timeframe
+ * Open interest is a level read now and then, so a venue with no bar at a time is counted at its last reading (`heldOiAt`: until its next one
+ * within two hours, or for `carryMs` after its newest). A bar's change is the sum of each venue's own change from the bar before (one timeframe
  * earlier) over the venues present at both, never the difference of two sums: a venue whose readings start (or stop) would otherwise show
  * as its whole open interest opened (or closed) in one bar. A bar with no venue present at both has no change.
  */
@@ -34,14 +52,7 @@ export interface OiSum { bars: OiBar[]; venues: number[]; change: Map<number, nu
 export function sumOi(parts: readonly OiPart[], tfMs: number, carryMs = Math.max(2 * tfMs, 10 * 60_000)): OiSum {
   const times = [...new Set(parts.flatMap(p => p.bars.map(b => b[0])))].sort((a, b) => a - b);
   const sorted = parts.map(part => [...part.bars].sort((a, b) => a[0] - b[0]));
-  // A venue's bar at a time: its own, or its last reading carried (as a flat bar), or null.
-  const barAt = (bars: readonly OiBar[], t: number): OiBar | null => {
-    let lo = 0, hi = bars.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (bars[mid]![0] <= t) lo = mid + 1; else hi = mid; }
-    const last = bars[lo - 1];
-    if (!last || t - last[0] > carryMs) return null;
-    return last[0] === t ? last : [t, last[4], last[4], last[4], last[4]];
-  };
+  const barAt = (bars: readonly OiBar[], t: number): OiBar | null => heldOiAt(bars, t, carryMs);
   const bars: OiBar[] = [], venues: number[] = [], change = new Map<number, number>(), counted = new Map<number, number>();
   times.forEach(t => {
     const bar: OiBar = [t, 0, 0, 0, 0]; let n = 0, d = 0, both = 0;

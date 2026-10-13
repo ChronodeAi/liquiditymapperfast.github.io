@@ -1250,5 +1250,6 @@
   "many": "{n} autres plateformes",
   "one": "{n} autre plateforme",
   "other": "{n} autres plateformes"
- }
+ },
+ "{n} of {m} venues": "{n} plateformes sur {m}"
 }

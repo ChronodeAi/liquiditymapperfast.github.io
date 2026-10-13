@@ -1200,5 +1200,6 @@
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI 창의 거래소가 모든 무기한(기본값)이면 각 거래소의 미결제약정 변화는 그 거래소에서 시장가로 거래한 쪽에 배정되고, 그다음 거래소들을 합산합니다. 한 거래소의 매수자는 다른 거래소에서 누가 포지션을 열었는지에 대해 아무것도 말해 주지 않습니다.",
  "{n} more venues": {
   "other": "그 밖의 거래소 {n}개"
- }
+ },
+ "{n} of {m} venues": "거래소 {m}개 중 {n}개"
 }

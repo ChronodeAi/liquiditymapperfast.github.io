@@ -3,7 +3,7 @@ import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
 import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar } from '../store.ts';
-import { oiChangeByTime, oiDeltas, type OiPart } from '../oi-change.ts';
+import { oiChangeByTime, oiDeltas, oiSumOf, type OiPart } from '../oi-change.ts';
 import { anomalies, type HighlightOptions } from '../anomaly.ts';
 import { venueLabel } from '../venues.ts';
 import { activeIds, emptyScopeMessage, marketIds } from '../scope.ts';
@@ -188,8 +188,8 @@ export abstract class TimePane {
 }
 
 /** Where the OI pane's bars come from when it is not the chart market alone: the venues added together, or the market standing in. */
-export function oiSourceText(state: Pick<AppState, 'oiParts' | 'oiInstrument' | 'seriesInstrument'>): string | null {
-  if (state.oiParts.length > 1) return t('{n} venues added together', { n: state.oiParts.length });
+export function oiSourceText(state: Pick<AppState, 'oiParts' | 'oiInstrument' | 'seriesInstrument'>, counted?: number): string | null {
+  if (state.oiParts.length > 1) return counted !== undefined && counted < state.oiParts.length ? t('{n} of {m} venues', { n: counted, m: state.oiParts.length }) : t('{n} venues added together', { n: state.oiParts.length });
   return state.oiInstrument && state.oiInstrument !== state.seriesInstrument ? t('from {venue}', { venue: `${venueLabel(state.oiInstrument)} ${state.oiInstrument.split(':').slice(1).join(':')}` }) : null;
 }
 
@@ -419,7 +419,20 @@ export class OiPane extends TimePane {
     const tail = oiTail(oi.length, last, xSampled, pw), endY = y(oi[last]![4]);
     line(first, last); ctx.lineTo(tail.x, endY); ctx.lineTo(tail.x, lineBottom); ctx.lineTo(xc(first), lineBottom); ctx.closePath();
     ctx.globalAlpha = 0.09; ctx.fillStyle = p.accent; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.lineWidth = 1.6; ctx.strokeStyle = p.accent; line(first, last); ctx.lineTo(tail.x, endY); ctx.stroke();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = p.accent;
+    // Venues added together: where fewer of them have a reading than elsewhere in view (a recording gap), the sum is drawn dashed and faint,
+    // so a gap does not read as positions opened or closed.
+    const venues = state.oiParts.length > 1 ? oiSumOf(state.oiParts, tf).venues : null, most = venues ? Math.max(...visible.map(i => venues[i] ?? 0)) : 0;
+    if (venues && visible.some(i => (venues[i] ?? 0) < most)) {
+      const full = (i: number): boolean => (venues[i] ?? 0) >= most;
+      for (let i = first; i <= last; i++) {
+        const x0 = i === first ? xc(i) : xc(i), y0 = y(oi[Math.max(first, i - 1)]![4]);
+        ctx.setLineDash(full(i) ? [] : [3, 3]); ctx.globalAlpha = full(i) ? 1 : 0.45; ctx.beginPath();
+        if (i === first) { ctx.moveTo(x0, y(oi[i]![4])); } else { ctx.moveTo(x0, y0); ctx.lineTo(x0, y(oi[i]![4])); }
+        ctx.lineTo(i === last ? tail.x : xc(i + 1), y(oi[i]![4])); ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    } else { line(first, last); ctx.lineTo(tail.x, endY); ctx.stroke(); }
     if (tail.live && xEnd > xSampled + 2) { ctx.globalAlpha = 0.55; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(xSampled, y(lastBar[4])); ctx.lineTo(xEnd, y(lastBar[4])); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
     ctx.lineWidth = 1;
     const spacing = visible.length > 1 ? (xc(visible[visible.length - 1]!) - xc(visible[0]!)) / (visible.length - 1) : 99;
@@ -437,7 +450,7 @@ export class OiPane extends TimePane {
     const bar = oi[shown]!, d = shown > 0 ? analysis.delta[shown]! : 0, flagged = highlight.on && analysis.flag[shown] === 1;
     const age = pageNow() - lastBar[0], stale = age > Math.max(3 * tf, 3 * 60_000);
     const sign = d > 0 ? '+' : d < 0 ? '−' : '';
-    const from = oiSourceText(state), source = from ? ` <span class="muted">${from}</span>` : '';
+    const from = oiSourceText(state, venues?.[shown]), source = from ? ` <span class="muted">${from}</span>` : '';
     const sigma = flagged && Number.isFinite(analysis.sigma[shown]) ? ` <span class="muted">${analysis.sigma[shown]!.toFixed(1)}σ</span>` : '';
     const over = hover && this.pointer ? barAt(oi, tf, hover.t) : -1;
     if (over === oi.length - 1 && hover && hover.t >= oi[over]![0] + tf) this.cursorT = oi[over]![0] + tf / 2;
@@ -447,7 +460,7 @@ export class OiPane extends TimePane {
         time: there[0], level: there[4], change, before: over > 1 ? analysis.delta[over - 1]! : null,
         rank: change === null || !seen.length ? null : 1 + seen.filter(i => Math.abs(analysis.delta[i]!) > size).length, of: seen.length,
         sigma: highlight.on && analysis.flag[over] === 1 && Number.isFinite(analysis.sigma[over]) ? analysis.sigma[over]! : null,
-        source: from,
+        source: oiSourceText(state, venues?.[over]),
         staleMin: over === oi.length - 1 && stale ? Math.round(age / 60_000) : null,
       });
     }
