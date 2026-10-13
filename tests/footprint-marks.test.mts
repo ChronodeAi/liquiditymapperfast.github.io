@@ -59,7 +59,8 @@ test('footprint settings are read field by field', () => {
   assert.deepEqual(readFootprint(undefined), FOOTPRINT_DEFAULTS);
   assert.deepEqual([FOOTPRINT_DEFAULTS.text, FOOTPRINT_DEFAULTS.diagonal, FOOTPRINT_DEFAULTS.zones, FOOTPRINT_DEFAULTS.nakedPoc], ['split', true, false, false]);
   assert.deepEqual(readFootprint({ text: 'delta', diagonal: false, zones: true, nakedPoc: 'yes', markets: 'all' }), { text: 'delta', diagonal: false, zones: true, nakedPoc: false, markets: 'all' });
-  assert.equal(FOOTPRINT_DEFAULTS.markets, 'chart', 'the chart market alone until Aggregated is chosen');
-  assert.equal(readFootprint({ markets: 'everything' }).markets, 'chart');
+  assert.equal(FOOTPRINT_DEFAULTS.markets, 'all', 'every venue added together until the chart market is chosen');
+  assert.equal(readFootprint({ markets: 'everything' }).markets, 'all');
+  assert.equal(readFootprint({ markets: 'chart' }).markets, 'chart');
   assert.equal(readFootprint({ text: 'everything' }).text, 'split');
 });

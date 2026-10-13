@@ -16,8 +16,8 @@ export interface FootprintSettings {
   markets: 'chart' | 'all';
 }
 
-/** Diagonal imbalances outlined, the numbers as before; zones and naked points of control off until chosen. */
-export const FOOTPRINT_DEFAULTS: Readonly<FootprintSettings> = { text: 'split', diagonal: true, zones: false, nakedPoc: false, markets: 'chart' };
+/** Diagonal imbalances outlined, the numbers as before; zones and naked points of control off until chosen; every venue added together (2026-10-13). */
+export const FOOTPRINT_DEFAULTS: Readonly<FootprintSettings> = { text: 'split', diagonal: true, zones: false, nakedPoc: false, markets: 'all' };
 
 const flag = (value: unknown, fallback: boolean): boolean => typeof value === 'boolean' ? value : fallback;
 
@@ -26,6 +26,6 @@ export function readFootprint(saved: unknown): FootprintSettings {
   return {
     text: s.text === 'delta' || s.text === 'total' || s.text === 'none' ? s.text : 'split',
     diagonal: flag(s.diagonal, d.diagonal), zones: flag(s.zones, d.zones), nakedPoc: flag(s.nakedPoc, d.nakedPoc),
-    markets: s.markets === 'all' ? 'all' : 'chart',
+    markets: s.markets === 'chart' ? 'chart' : 'all',
   };
 }
