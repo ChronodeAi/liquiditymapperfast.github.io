@@ -33,6 +33,12 @@ export function populationText(population: LsPopulation): string {
   return population === 'accounts' ? t('all accounts') : population === 'topAccounts' ? t('top traders, by accounts') : population === 'topPositions' ? t('top traders, by positions') : t('active accounts');
 }
 
+/** Where the step of a series' reading `i` ends: at the next reading where it comes within the hold, else a period after it. */
+export function stepEnd(s: Pick<LsSeries, 'points' | 'periodMs'>, i: number): number {
+  const q = s.points[i]!, next = s.points[i + 1];
+  return next && next.t - q.t <= HOLD_PERIODS * s.periodMs ? next.t : q.t + s.periodMs;
+}
+
 /** The reading of `points` (oldest first) in effect at `time`: the last one at or before it, while its hold lasts. */
 export function lsAt(points: readonly LsPoint[], time: number, periodMs: number): LsPoint | null {
   let lo = 0, hi = points.length;
@@ -129,7 +135,8 @@ export class LsPane extends TimePane {
     const series = this.#series.filter(s => ids.includes(s.id)).map(s => replaying() ? { ...s, points: s.points.filter(q => q.t + s.periodMs <= now) } : s);
     const shown = series.filter(s => s.points.length);
     let lo = Infinity, hi = -Infinity;
-    for (const s of shown) for (const q of s.points) if (q.t + s.periodMs >= v.t0 && q.t <= v.t1) { lo = Math.min(lo, q.long); hi = Math.max(hi, q.long); }
+    // Over the steps drawn: a reading counts while it holds (until the next), as the lines are drawn.
+    for (const s of shown) s.points.forEach((q, i) => { if (stepEnd(s, i) >= v.t0 && q.t <= v.t1) { lo = Math.min(lo, q.long); hi = Math.max(hi, q.long); } });
     if (lo > hi) { lo = 0.45; hi = 0.55; }
     const pad = Math.max((hi - lo) * 0.1, 0.005), min = lo - pad, max = hi + pad, top = 8, bottom = ph - 8;
     const y = (share: number): number => top + (1 - (share - min) / (max - min)) * (bottom - top);
@@ -144,7 +151,7 @@ export class LsPane extends TimePane {
       ctx.strokeStyle = LINE_COLORS[s.id.split(':')[0]!] ?? p.text; ctx.lineWidth = 1.5; ctx.beginPath();
       let last: { x: number; y: number } | null = null, prevEnd = -Infinity;
       for (let i = 0; i < s.points.length; i++) {
-        const q = s.points[i]!, next = s.points[i + 1], end = next && next.t - q.t <= HOLD_PERIODS * s.periodMs ? next.t : q.t + s.periodMs;
+        const q = s.points[i]!, end = stepEnd(s, i);
         if (end < v.t0 || q.t > v.t1) { prevEnd = end; continue; }
         const x0 = v.xOf(q.t, pw), x1 = v.xOf(end, pw), yq = y(q.long);
         if (last && prevEnd === q.t) ctx.lineTo(x0, yq); else ctx.moveTo(x0, yq);
@@ -166,8 +173,11 @@ export class LsPane extends TimePane {
       ctx.textAlign = 'left';
       ctx.fillText(this.#series.length ? t('No long/short readings for this time.') : t('Reading the long/short ratios…'), 12, ph / 2);
     }
-    // Readout and popup: the moment under the pointer, else now.
-    const hover = state.hover, time = hover ? hover.t : Math.min(now, v.t1);
+    // Readout and popup: the moment under the pointer, else now; past the newest reading (or over the price axis), the newest, and the cursor there.
+    const newest = Math.max(-Infinity, ...shown.map(s => s.points[s.points.length - 1]!.t));
+    let time = state.hover ? state.hover.t : Math.min(now, v.t1);
+    if (time > newest && Number.isFinite(newest) && shown.every(s => !lsAt(s.points, time, s.periodMs))) { time = newest; if (state.hover && this.pointer) this.cursorT = newest; }
+    const hover = state.hover;
     if (hover && this.pointer) this.#lines = lsCardLines(series, time, state.timeframe);
     const parts = series.map(s => {
       const q = lsAt(s.points, time, s.periodMs), name = venueLabel(s.id);

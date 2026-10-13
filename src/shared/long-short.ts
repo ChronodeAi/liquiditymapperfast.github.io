@@ -141,10 +141,12 @@ export class LongShortCache {
     held ??= { points: new Map(), from: Infinity, refreshed: 0, failed: 0, busy: null };
     this.#series.set(key, held);
     while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
-    const now = this.now();
-    // Older than held, or the newest stretch due again: one request at a time per series; a failure waits a minute before the next try.
-    const older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
-    if ((older || due) && !held.busy && now - held.failed >= MINUTE) {
+    // Older than held, or the newest stretch due again: one request at a time per series, and a question that waited for another's request
+    // looks again once it is answered (it may have been for another window); a failure waits a minute before the next try.
+    for (let round = 0; round < 4; round++) {
+      if (held.busy) { await held.busy; continue; }
+      const now = this.now(), older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
+      if (!(older || due) || now - held.failed < MINUTE) break;
       const h = held, start = older ? from : Math.max(from, now - 2 * periodMs), end = older && !due ? h.from : now + periodMs;
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
       h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(points => {

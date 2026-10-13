@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LongShortCache, fetchLongShort, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
-import { lsAt } from '../src/app/panes/ls-pane.ts';
+import { lsAt, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings } from '../src/app/store.ts';
 
@@ -114,4 +114,27 @@ test('open-interest history that answers an error fails, so the sampler tries ag
   await assert.rejects(fetchOiHistory('okx:BTC-USDT-SWAP', H, NOW - 24 * H, NOW, fake({ 'https://www.okx.com/': () => ({ code: '50011', msg: 'Too Many Requests', data: [] }) }), { symbol: 'BTC-USDT-SWAP', unit: 1 }), /okx/);
   await assert.rejects(fetchOiHistory('binance:BTCUSDT', H, NOW - 24 * H, NOW, fake({ 'https://fapi.binance.com/': () => ({ code: -1003, msg: 'Too many requests' }) }), listing), /binance/);
   assert.deepEqual(await fetchOiHistory('bybit:BTCUSDT', H, NOW - 24 * H, NOW, fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [] } }) }), listing), [], 'an empty list is none');
+});
+
+test('a question for an older window asked while a newer one is read gets its window too, after waiting its turn', async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>(r => { release = r; });
+  const get = fake({ 'https://api.bybit.com/': async url => {
+    const end = Number(url.searchParams.get('endTime'));
+    if (end > NOW - H) await gate;
+    // Five-minute readings, newest first, for the 24 periods (two hours) before `endTime`: a request for the newest stretch does not reach the older window.
+    return { retCode: 0, result: { list: Array.from({ length: 24 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.floor(end / (5 * M)) * 5 * M - (i + 1) * 5 * M) })) } };
+  } });
+  const cache = new LongShortCache(get, true, () => NOW);
+  const newer = cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW);
+  const older = cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 3 * H, NOW - 2 * H);
+  release();
+  const [a, b] = await Promise.all([newer, older]);
+  assert.equal(a.status, 'ok');
+  assert.deepEqual([b.status, b.points.length > 0], ['ok', true], 'the older window was read once the newer request was answered');
+});
+
+test('the scale and the readout follow the steps as drawn: a reading holds until the next, and past the newest the newest stands', () => {
+  const s = { points: [{ t: 0, long: 0.6 }, { t: 15 * M, long: 0.62 }], periodMs: 5 * M };
+  assert.deepEqual([stepEnd(s, 0), stepEnd(s, 1)], [15 * M, 20 * M], 'the first holds until the second (within three periods), the last one period');
 });

@@ -254,7 +254,7 @@ export class RangeTool {
     if (!oiInst) this.#input = { ...this.#input, oi: null };
     else if (oiKey !== this.#oiKey && this.#oiBusy !== oiFor) {
       this.#oiBusy = oiFor;
-      void this.hub.source.oi(oiInst, '1m', sel.t0 - 11 * 60_000, sel.t1 + 60_000).then(bars => bars.length ? { inst: oiInst, bars, coin: market?.base ?? '', price, ...(of > 1 ? { of } : {}) } : null, () => null)
+      void this.hub.oiBars(oiInst, '1m', sel.t0 - 11 * 60_000, sel.t1 + 60_000, price > 0 ? price : undefined).then(bars => bars.length ? { inst: oiInst, bars, coin: market?.base ?? '', price, ...(of > 1 ? { of } : {}) } : null, () => null)
         .then(interest => {
           if (this.#oiBusy === oiFor) this.#oiBusy = -1;
           if (oiFor !== this.#oiFor || !this.#input) return;
