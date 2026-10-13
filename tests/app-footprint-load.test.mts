@@ -134,3 +134,27 @@ test('a row only one market traded still says whose it is, and a short pane name
   const none = rowCellLines(rowCellAt(many, 5, 101)!, many, 5, '1h', undefined, 4, -1);
   assert.equal(none.length, rowCellLines({ ...rowCellAt(many, 5, 101)!, parts: undefined }, many, 5, '1h', undefined, 4).length, 'too short even for that: the box as it was before venues');
 });
+
+test('settled bars still without the sums of the size lines asked are asked again once a minute, a few times, until the sums come', async () => {
+  const time = clock(5_000_000);
+  try {
+    let filled = false;
+    const asked: { from: number; to: number }[] = [];
+    const load = async (_i: string, _tf: string, from: number, to: number): Promise<FootprintResponse> => {
+      asked.push({ from, to });
+      const bars = [];
+      for (let t = Math.floor(from / H) * H; t < to; t += H) bars.push({ t, rows: [[100, 1, 1]] as [number, number, number][], buyUsd: 1, sellUsd: 1, minutes: 60, stats: { buyN: 1, sellN: 1, buy: [0, 0, 0, 0, 0, 0, 0, 0], sell: [0, 0, 0, 0, 0, 0, 0, 0] }, ...(filled ? { over: [5, 6] } : {}) });
+      return { step: 5, fine: 5, bars: bars as never, from };
+    };
+    const data = new FootprintData(), view = { t0: 10 * H, t1: 14 * H, p0: 0, p1: 1 }, sourceNow = 14 * H + 30 * 60_000;
+    const step = async () => { data.ensure('a', '1h', view, 5, load as never, () => {}, [50_000], sourceNow); await turn(); };
+    await step();
+    assert.ok([...data.bars.values()].every(b => !b.over), 'the server has not filled in the lists yet');
+    const before = asked.length;
+    time.advance(FOOTPRINT_REFRESH_MS); await step();
+    assert.ok(asked.slice(before).every(a => a.from >= 14 * H), 'within the minute only the bars that can still change');
+    filled = true; time.advance(60_000); await step(); await step();
+    assert.ok(asked.some(a => a.from <= 10 * H && a.to <= 14 * H), 'the settled bars asked again');
+    assert.ok([...data.bars.values()].filter(b => b.t < 14 * H).every(b => b.over?.[0] === 5), 'and now with their sums');
+  } finally { time.restore(); }
+});

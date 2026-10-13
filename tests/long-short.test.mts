@@ -162,3 +162,13 @@ test("the one price for an inverse market's coins can be the Range selection's o
   assert.deepEqual(atOnePrice([[0, 20, 20, 20, 20]], candles).map(b => b[4]), [10]);
   assert.deepEqual(atOnePrice([[0, 20, 20, 20, 20]], [], 50_000).map(b => b[4]), [20], 'no candles to convert by: as they are');
 });
+
+test('a window older than the cache holds gets its readings, and a changed answer fails rather than reading as empty', async () => {
+  const full = (end: number) => ({ retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.floor(end / (5 * M)) * 5 * M - (i + 1) * 5 * M) })) } });
+  const cache = new LongShortCache(fake({ 'https://api.bybit.com/': url => full(Number(url.searchParams.get('endTime'))) }), false, () => NOW);
+  const old = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 40 * 24 * H, NOW - 39 * 24 * H);
+  assert.deepEqual([old.status, old.points.length], ['ok', 289], 'forty days back: a day of five-minute readings and the one before it, which holds at its start');
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - H, NOW)).status, 'ok', 'and the newest after it');
+  const changed = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ buyRatio: '0.6', sellRatio: '0.4', time: String(NOW - 5 * M) }] } }) });
+  await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, changed, NOW), /unknown shape/);
+});

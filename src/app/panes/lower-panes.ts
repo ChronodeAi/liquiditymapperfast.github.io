@@ -344,7 +344,7 @@ export class OiPane extends TimePane {
     const wrap = document.createElement('label'); wrap.className = 'ctl'; setTip(wrap, t('Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.')); wrap.append(t('Venues'));
     this.#venues.append(new Option(t('All perpetuals'), 'all'), new Option(t('The chart market'), 'chart'), new Option(t('Chosen markets'), 'custom'));
     this.#venues.value = store.state.oiMarkets;
-    this.#venues.onchange = () => { const v = this.#venues.value; store.set({ oiMarkets: v === 'chart' || v === 'custom' ? v : 'all' }); if (v === 'custom' && !this.#panel) this.#choose.click(); };
+    this.#venues.onchange = () => { const v = this.#venues.value; store.set({ oiMarkets: v === 'chart' || v === 'custom' ? v : 'all' }); if (v === 'custom' && !this.#panel) { this.#choose.hidden = false; this.#choose.click(); } };
     // The markets picked, in a panel (the Delta pane opens the same one while it shows NL/NS).
     this.#choose.type = 'button'; this.#choose.textContent = t('Choose…'); setTip(this.#choose, t('Pick the perpetuals whose open interest is added together.'));
     this.#choose.hidden = store.state.oiMarkets !== 'custom';

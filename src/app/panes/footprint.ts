@@ -174,6 +174,8 @@ export const FOOTPRINT_BUDGET = 5_000;
 export const FOOTPRINT_SETTLE_MS = 2 * 60_000;
 /** How often the bars that can still change are asked for again. */
 export const FOOTPRINT_REFRESH_MS = 5_000;
+/** Settled bars missing their size-line sums are asked again this often, at most this many times a load. */
+const REDO_MS = 60_000, REDO_TRIES = 10;
 /** More bars than this held (scrolled back over days of small candles) and the next look starts again from the view. */
 const FOOTPRINT_MAX_BARS = 3_000;
 
@@ -205,7 +207,7 @@ export class FootprintData {
   /** The market and timeframe the bars belong to, and the number of the request whose answer counts. */
   #context = ''; #request = 0;
   /** What the bars cover: their row size and size lines (`grid`), [from, to), the bars before `settled` final, and when the tail was last asked. */
-  #held: { grid: string; from: number; to: number; settled: number; at: number } | null = null;
+  #held: { grid: string; from: number; to: number; settled: number; at: number; redo: { from: number; at: number; tries: number } } | null = null;
 
   /**
    * Ask for what the view needs next, if anything: everything (another row size or size lines, or a view the bars held do not touch), the
@@ -228,11 +230,14 @@ export class FootprintData {
       for (const t of [...this.bars.keys()]) if (t < want.from || t >= want.to) this.bars.delete(t);
       h.from = Math.max(h.from, want.from); h.to = Math.min(h.to, want.to); this.version++;
     }
-    let ask: { from: number; to: number; kind: 'whole' | 'tail' | 'older' };
+    let ask: { from: number; to: number; kind: 'whole' | 'tail' | 'older' | 'redo' };
     if (!h || h.grid !== grid || want.to <= h.from || want.from >= h.to) ask = { ...want, kind: 'whole' };
     // From the first bar that can still change, but never past what is held (panning right through the past, the bars after it are not held yet).
     else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) ask = { from: Math.min(Math.max(h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };
     else if (want.from < h.from) ask = { from: want.from, to: h.from, kind: 'older' };
+    // Settled bars without the sums of the size lines asked (minutes whose lists the server fills in after it starts) are asked again, once
+    // a minute and at most REDO_TRIES times, from the first of them to where the tail starts.
+    else if (h.redo.from < Math.min(h.settled, h.to) && h.redo.tries < REDO_TRIES && clock - h.redo.at >= REDO_MS) { h.redo.tries++; h.redo.at = clock; ask = { from: Math.max(h.redo.from, h.from), to: Math.min(h.settled, h.to), kind: 'redo' }; }
     else return;
     this.#busy = true;
     const request = ++this.#request, asked = [...cuts];
@@ -246,13 +251,17 @@ export class FootprintData {
       const fresh = ask.kind === 'whole' || !held || body.step !== this.step;
       const bars = fresh ? new Map<number, Bar>() : this.bars;
       if (!fresh && ask.kind === 'tail') for (const t of [...bars.keys()]) if (t >= reached) bars.delete(t);
+      if (!fresh && ask.kind === 'redo') for (const t of [...bars.keys()]) if (t >= reached && t < ask.to) bars.delete(t);
       for (const bar of body.bars) if (bar.t >= reached && bar.t < ask.to) bars.set(bar.t, readBar(bar, asked.length, body.venues));
-      if (fresh) this.#held = { grid, from: reached, to: ask.to, settled, at: performance.now() };
+      if (fresh) this.#held = { grid, from: reached, to: ask.to, settled, at: performance.now(), redo: { from: Infinity, at: performance.now(), tries: 0 } };
       else if (ask.kind === 'older') held.from = reached;
+      else if (ask.kind === 'redo') { /* the bars it reached are replaced; what is held stays */ }
       // A tail too long for one answer (the page was away): what it did not reach is asked for again as older slices.
       else { if (reached > ask.from) { for (const t of [...bars.keys()]) if (t < reached) bars.delete(t); held.from = reached; } held.to = ask.to; held.settled = Math.max(held.settled, settled); held.at = performance.now(); }
       // Held oldest first, as one answer gives them (an older slice lands after the newer ones).
-      this.bars = fresh ? bars : new Map([...bars].sort((a, b) => a[0] - b[0])); this.venueOrder = venueOrderOf(this.bars.values()); this.step = body.step; this.fine = body.fine; this.cuts = asked; this.version++; onLoad();
+      this.bars = fresh ? bars : new Map([...bars].sort((a, b) => a[0] - b[0])); this.venueOrder = venueOrderOf(this.bars.values());
+      // The first bar still without the sums of the lines asked (a bar with no statistics at all never gets them).
+      if (this.#held) { let first = Infinity; if (asked.length) for (const [t, b] of this.bars) if (b.stats && !b.over) { first = t; break; } this.#held.redo.from = first; } this.step = body.step; this.fine = body.fine; this.cuts = asked; this.version++; onLoad();
     }).catch(error => {
       if (request !== this.#request) return;
       // Asked again in five seconds, not on every frame.

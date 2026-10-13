@@ -60,7 +60,15 @@ export function lsPopulationOf(venue: string, metric: LsMetric): LsPopulation | 
 
 const num = (value: unknown): number => typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
 const at = (value: unknown, ...path: (string | number)[]): unknown => path.reduce<unknown>((v, key) => (v !== null && typeof v === 'object' ? (v as Record<string | number, unknown>)[key] : undefined), value);
-function rows(value: unknown, what: string): unknown[] { if (!Array.isArray(value)) throw new Error(`${what}: not a list`); return value; }
+/**
+ * A venue's list of readings, checked for its shape: not a list, or rows none of which carries the time field the venue sends (a changed
+ * API), fail the answer; a reading that is there but does not add up is left out later, one at a time.
+ */
+function rows(value: unknown, what: string, time: string | number): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${what}: not a list`);
+  if (value.length && !value.some(r => at(r, time) !== undefined)) throw new Error(`${what}: readings of an unknown shape`);
+  return value;
+}
 
 /**
  * One reading from what a venue gave: the long share, checked against the short share (they add up to 1, within the rounding of four
@@ -89,7 +97,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   if (venue === 'binance') {
     const floor = Math.max(from, now - BINANCE_SPAN_MS + periodMs);
     for (end = Math.min(to, now); page < PAGES && end > floor; page++) {
-      const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance');
+      const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'longAccount')), num(at(r, 'shortAccount')), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
@@ -99,7 +107,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     for (; page < PAGES && end >= from; page++) {
       const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
       if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
-      const got = rows(at(answer, 'result', 'list'), 'bybit');
+      const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'buyRatio')), num(at(r, 'sellRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
@@ -109,7 +117,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     for (; page < PAGES && end >= from; page++) {
       const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio-contract?instId=${s}&period=${name}&limit=100&end=${Math.floor(end)}`);
       if (String(at(answer, 'code')) !== '0') throw new Error(`okx: ${String(at(answer, 'msg'))}`);
-      const got = rows(at(answer, 'data'), 'okx');
+      const got = rows(at(answer, 'data'), 'okx', 0);
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 0)), ratio = num(at(r, 1)); take(Number.isFinite(ratio) && ratio > 0 ? lsReading(t, shareOfRatio(ratio)) : null); if (t < oldest) oldest = t; }
       if (got.length < 100 || !Number.isFinite(oldest)) break;
@@ -118,20 +126,22 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   } else if (venue === 'bitget') {
     const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
     if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
-    for (const r of rows(at(answer, 'data'), 'bitget')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
+    for (const r of rows(at(answer, 'data'), 'bitget', 'ts')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
   }
   // Every page full: the venue may hold more before where the last one ended.
   return { points: [...out.values()].sort((a, b) => a.t - b.t), from: page >= PAGES && end > from ? end : from };
 }
 
 /**
- * The readings asked for, kept: at most `maxSeries` series (the least recently asked for goes first), each at most `maxPoints` readings (the
- * oldest go first), and nothing on disk. A window older than what a series holds is read once; its newest stretch is read again at most once
- * a period (and never more than once a minute), and several questions about one series at once share one request. Bitget publishes only its
- * newest 30 periods, so its series grows only while it is asked for.
+ * The readings asked for, kept: at most `maxSeries` series (the least recently asked for goes first), each one unbroken stretch of at most
+ * `maxPoints` readings, and nothing on disk. A series holds [from, to): a window older than that is read back to it, one reaching past it
+ * (the newest, at most once a period and never more than once a minute) from where it ends, so a pane hidden for an hour gets the hour; a
+ * window further from what is held than one question reaches starts the series again there. Past `maxPoints` the readings furthest from the
+ * window asked go. One request at a time per series: a question that waited for another's looks again once it is answered. Bitget publishes
+ * only its newest 30 periods, so its series grows only while it is asked for.
  */
 export class LongShortCache {
-  #series = new Map<string, { points: Map<number, LsPoint>; from: number; refreshed: number; failed: number; busy: Promise<void> | null }>();
+  #series = new Map<string, { points: Map<number, LsPoint>; from: number; to: number; checked: number; failed: number; busy: Promise<void> | null }>();
   constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000) {}
 
   async series(id: string, metric: LsMetric, tfMs: number, from: number, to: number): Promise<LsSeries> {
@@ -143,33 +153,44 @@ export class LongShortCache {
     const key = `${id}|${population}|${periodMs}`;
     let held = this.#series.get(key);
     if (held) this.#series.delete(key);
-    held ??= { points: new Map(), from: Infinity, refreshed: 0, failed: 0, busy: null };
+    held ??= { points: new Map(), from: Infinity, to: -Infinity, checked: 0, failed: 0, busy: null };
     this.#series.set(key, held);
     while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
-    // Older than held, or the newest stretch due again: one request at a time per series, and a question that waited for another's request
-    // looks again once it is answered (it may have been for another window); a failure waits a minute before the next try.
+    const reach = PAGES * PAGE_ROWS[venue]! * periodMs * 0.9;
     for (let round = 0; round < 4; round++) {
       if (held.busy) { await held.busy; continue; }
-      const now = this.now();
-      // Not asked for longer than one question reaches back: start again from this window, rather than leave a hole.
-      if (held.refreshed && now - held.refreshed > PAGES * PAGE_ROWS[venue]! * periodMs * 0.9) { held.points.clear(); held.from = Infinity; held.refreshed = 0; }
-      const older = from < held.from, due = now - held.refreshed >= Math.max(periodMs, MINUTE);
-      if (!(older || due) || now - held.failed < MINUTE) break;
-      // The newest stretch from where the last refresh ended (a pane hidden for an hour gets the hour), older ones from the window asked.
-      const h = held, start = older ? from : h.refreshed - 2 * periodMs, end = older && !due ? h.from : now + periodMs;
+      const h = held, now = this.now(), want = Math.min(to, now + periodMs);
+      if (now - h.failed < MINUTE) break;
+      let start: number, end: number, kind: 'whole' | 'older' | 'newer';
+      if (!(h.from < h.to)) { start = from; end = want; kind = 'whole'; }
+      else if (from < h.from) { start = from; end = h.from; kind = 'older'; }
+      // Past what is held: at once where that ends before the live edge, at the live edge at most once a period (and once a minute).
+      else if (want > h.to && (h.to < now - 2 * periodMs || now - h.checked >= Math.max(periodMs, MINUTE))) { start = h.to - 2 * periodMs; end = want; kind = 'newer'; }
+      else break;
+      // Too far from what is held for one question to join them without a hole: the series starts again at this window.
+      if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
       h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(({ points, from: reached }) => {
         for (const p of points) h.points.set(p.t, p);
-        // Held from where the answer reached, which a long window's pages may stop short of: the next question reads on from there.
-        if (older) h.from = Math.min(h.from, reached);
-        if (due || !Number.isFinite(h.from)) h.refreshed = now;
-        if (h.points.size > this.maxPoints) { const keep = [...h.points.keys()].sort((a, b) => a - b).slice(-this.maxPoints); h.points = new Map(keep.map(t => [t, h.points.get(t)!])); h.from = keep[0]!; }
+        // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
+        // period before now: the reading of the period under way comes later.
+        const until = Math.min(end, now - periodMs);
+        if (kind === 'whole') { h.from = reached; h.to = until; h.checked = now; }
+        else if (kind === 'older') h.from = Math.min(h.from, reached);
+        else { h.to = Math.max(h.to, until); h.checked = now; }
+        if (h.points.size > this.maxPoints) {
+          // The readings furthest from the window asked go, so what it asked for is kept and the rest stays one unbroken stretch.
+          const times = [...h.points.keys()].sort((a, b) => a - b), first = times.findIndex(t => t >= from - periodMs);
+          const at = Math.max(0, Math.min(first < 0 ? times.length : first, times.length - this.maxPoints)), keep = times.slice(at, at + this.maxPoints);
+          h.points = new Map(keep.map(t => [t, h.points.get(t)!]));
+          h.from = Math.max(h.from, keep[0]!); h.to = Math.min(h.to, keep[keep.length - 1]! + periodMs);
+        }
       }, () => { h.failed = now; }).finally(() => { h.busy = null; });
     }
     if (held.busy) await held.busy;
     const points = [...held.points.values()].filter(p => p.t >= from - periodMs && p.t < to).sort((a, b) => a.t - b.t);
     if (points.length) return answer(points, 'ok');
-    return answer([], held.failed && held.failed >= held.refreshed ? 'failed' : 'empty');
+    return answer([], held.failed && held.failed >= held.checked ? 'failed' : 'empty');
   }
 }
 
