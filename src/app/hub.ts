@@ -11,15 +11,13 @@ import type { Bounds } from './view.ts';
 import type { LtParams, LtSeries } from './lt.ts';
 import { pickOi, weakOi, type OiCandidate } from './oi-source.ts';
 import { atOnePrice, inverseOi, oiSumOf } from './oi-change.ts';
-import { flowIds } from './cvd/ids.ts';
-import { aggregateIds } from './cvd/model.ts';
-import { kindOf } from './scope.ts';
+import { oiMarketIds } from './market-choice.ts';
 import { t } from './i18n.ts';
 import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
 import { AbsorptionBook } from './absorption.ts';
 import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
-import { OI_SAMPLE_VENUES, venueOf, webGet } from '../shared/history.ts';
+import { webGet } from '../shared/history.ts';
 import { KeyLevelHistory } from './keylevels/history.ts';
 import type { SumRow } from '../shared/print-sums.ts';
 
@@ -44,13 +42,8 @@ export interface RasterResult { id: number; w: number; h: number; data: Float32A
 /** A value area's key: the instruments, the row step and share it was read with, and its window. */
 export const valueAreaKey = (ids: readonly string[], step: number, share: number, w: { from: number; to: number }): string => `${ids.join(',')}|${step}|${share}|${w.from}-${w.to}`;
 
-/**
- * The perpetuals whose open interest is added together: those of the flow column's ALL VENUES lines (the venues switched on, inside the Spot /
- * Perp filter: the footprint's and the Delta pane's markets) on a venue whose open interest is read, sorted.
- */
-export function oiVenueIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels'>, flow: FlowBook): string[] {
-  return aggregateIds(flow, flowIds(state, flow.ids), id => kindOf(state.markets, id)).filter(id => kindOf(state.markets, id) === 'perp' && OI_SAMPLE_VENUES.includes(venueOf(id))).sort();
-}
+/** The perpetuals whose open interest is added together with every venue on (market-choice.ts). */
+export { oiVenueIds } from './market-choice.ts';
 
 export class Hub {
   readonly worker: Worker;
@@ -351,13 +344,14 @@ export class Hub {
   async loadOi(): Promise<void> {
     const state = this.store.state, { marketId, seriesInstrument, timeframe } = state;
     const own = seriesInstrument || marketId; if (!own) return;
-    const venues = state.oiMarkets === 'all' ? oiVenueIds(state, this.flow) : [];
-    const key = `${own}|${timeframe}|${venues.join(',')}`; this.#oiKey = key;
+    const added = oiMarketIds(state, this.flow), venues = added ?? [];
+    const key = `${own}|${timeframe}|${state.oiMarkets}|${venues.join(',')}`; this.#oiKey = key;
     const generation = ++this.#oiGen;
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000, now = Date.now(), from = now - 500 * tf, to = now + tf;
-    // Added together: every venue's bars, asked for at once. Only the venues the filter and the chips let through count: with one answering
-    // its own bars are shown, with none nothing (never a market left out standing in).
-    if (state.oiMarkets === 'all') {
+    // Added together: every venue's bars, asked for at once; only the venues the filter and the chips let through count, or the markets
+    // picked ('custom', whatever the chips say). With one answering its own bars are shown, with none nothing (never a market left out
+    // standing in, never the chart market in place of an empty list).
+    if (added) {
       const parts = (await Promise.all(venues.map(async id => ({ id, bars: this.#inCoins(id, await this.source.oi(id, timeframe, from, to).catch(() => [])) })))).filter(part => part.bars.length);
       if (this.#oiKey !== key || generation !== this.#oiGen) return;
       if (parts.length > 1) this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts });

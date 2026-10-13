@@ -281,6 +281,7 @@ test('an aggregated footprint is the row-by-row sum of its markets, its minutes 
   assert.equal(both.bars[0]!.sellUsd, a.bars[0]!.sellUsd + b.bars[0]!.sellUsd);
   assert.equal(both.bars[0]!.minutes, 3, 'minutes 0, 1 and 3: the union of what each recorded, not their sum');
   assert.deepEqual(recorder.queryMany(['a:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20), { ...a, from: T0 }, 'one market is its own footprint');
+  assert.deepEqual(recorder.queryMany(['a:BTC', 'b:BTC', 'a:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20), { ...both, from: T0 }, 'a market named twice counts once');
   assert.deepEqual(recorder.queryMany(['unknown:BTC'], T0, T0 + 5 * COLUMN_MS, 3_600_000, 20), { step: 0, fine: 0, bars: [], from: T0 });
   // A budget takes whole bars, newest first, and says where it starts: minutes 0, 1 (a and b) and 3 (a) cost four instrument-minutes.
   const sliced = recorder.queryMany(['a:BTC', 'b:BTC'], T0, T0 + 5 * COLUMN_MS, COLUMN_MS, 20, [], 1);

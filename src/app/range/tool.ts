@@ -244,15 +244,17 @@ export class RangeTool {
     const step = rowStep(sel, gridStepFor(mark > 0 ? mark : 1));
     const answer = this.hub.source.range(ids, sel.t0, sel.t1, band, step).then(a => ({ a, e: null }), (e: unknown) => ({ a: null, e: e instanceof Error ? e.message : String(e) }));
     const resting = band ? this.hub.cell(activeIds(state), sel.t0, sel.t1, band.p0, band.p1) : Promise.resolve(null);
-    // The open interest of the market the OI pane shows, a sample a minute, from a little before the selection.
-    const oiInst = state.oiInstrument || state.seriesInstrument || state.marketId, market = state.markets.find(m => (m.instrumentId ?? m.id) === state.marketId);
+    // The open interest of the market the OI pane shows, a sample a minute, from a little before the selection; where it adds several, the
+    // largest of them (never the chart market, which may be one it does not count), and the lines say so.
+    const parts = state.oiParts, largest = parts.length > 1 ? parts.reduce((a, b) => (b.bars[b.bars.length - 1]?.[4] ?? 0) > (a.bars[a.bars.length - 1]?.[4] ?? 0) ? b : a) : null;
+    const oiInst = largest ? largest.id : state.oiInstrument || (state.oiMarkets === 'chart' ? state.seriesInstrument || state.marketId : ''), market = state.markets.find(m => (m.instrumentId ?? m.id) === state.marketId);
     // Its dollar figure at the price of the selection's end (the chart's candle there), not today's; it fills in when it comes, the rest does not wait.
     const endCandle = [...state.candles].reverse().find(c => c[0] < sel.t1), price = endCandle ? endCandle[4] : state.mark.price;
-    const oiKey = `${oiInst}|${Math.floor(sel.t0 / 60_000)}|${Math.floor(sel.t1 / 60_000)}`, oiFor = this.#oiFor;
+    const oiKey = `${oiInst}|${parts.length}|${Math.floor(sel.t0 / 60_000)}|${Math.floor(sel.t1 / 60_000)}`, oiFor = this.#oiFor, of = parts.length;
     if (!oiInst) this.#input = { ...this.#input, oi: null };
     else if (oiKey !== this.#oiKey && this.#oiBusy !== oiFor) {
       this.#oiBusy = oiFor;
-      void this.hub.source.oi(oiInst, '1m', sel.t0 - 11 * 60_000, sel.t1 + 60_000).then(bars => bars.length ? { inst: oiInst, bars, coin: market?.base ?? '', price } : null, () => null)
+      void this.hub.source.oi(oiInst, '1m', sel.t0 - 11 * 60_000, sel.t1 + 60_000).then(bars => bars.length ? { inst: oiInst, bars, coin: market?.base ?? '', price, ...(of > 1 ? { of } : {}) } : null, () => null)
         .then(interest => {
           if (this.#oiBusy === oiFor) this.#oiBusy = -1;
           if (oiFor !== this.#oiFor || !this.#input) return;

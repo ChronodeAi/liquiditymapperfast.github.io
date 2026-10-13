@@ -1226,7 +1226,6 @@
  "{n} added together": "{n} zusammengezählt",
  "{n} venues added together": "{n} Börsen zusammengezählt",
  "All perpetuals": "Alle Perpetuals",
- "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "Wessen Open Interest dieser Bereich, die Balkenstatistik und NL/NS zählen: die Perpetuals aller eingeschalteten Börsen zusammengezählt oder nur der Chart-Markt.",
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "Mit „Börsen“ im OI-Bereich auf „Alle Perpetuals“ (Standard) wird die Änderung des Open Interest jeder Börse der Seite zugeordnet, die an dieser Börse zum Markt gehandelt hat, und dann werden die Börsen addiert: Die Käufer einer Börse sagen nichts darüber, wer an einer anderen Positionen eröffnet hat.",
  "{n} more venues": {
   "one": "{n} weitere Börse",
@@ -1269,5 +1268,24 @@
  "No long/short readings for this time.": "Keine Long/Short-Werte für diese Zeit.",
  "Reading the long/short ratios…": "Long/Short-Verhältnisse werden gelesen…",
  "server only": "nur Server",
- "long": "long"
+ "long": "long",
+ "Chosen markets": "Gewählte Märkte",
+ "The markets ticked below are added together onto the chart market's candles, whatever the venue chips and the Spot / Perp filter say; with none ticked, none is counted. Each market's trades stay at its own prices, so a USD spot market can sit 10 basis points or more from the perpetuals. The bar statistics' oi chg row counts the OI pane's markets.": "Die unten angehakten Märkte werden auf die Kerzen des Chart-Markts addiert, was auch immer die Börsen-Chips und der Spot/Perp-Filter sagen; ist keiner angehakt, wird keiner gezählt. Die Trades jedes Markts bleiben bei seinen eigenen Preisen, ein USD-Spotmarkt kann also 10 Basispunkte oder mehr von den Perpetuals entfernt liegen. Die oi-chg-Zeile der Balkenstatistik zählt die Märkte des OI-Bereichs.",
+ "Count (in its panel) chooses whose market orders are added together: every market switched on (Aggregated), the chart market, or Chosen markets, ticked in a list whatever the venue chips and the Spot / Perp filter say. A choice is an exchange and a kind (Binance perpetual, Coinbase spot), so a layout made on one coin picks the same exchanges' markets on another; one the coin is not listed on counts nothing, and with none ticked nothing is counted.": "Zählen (in seinem Fenster) wählt, wessen Marktorders addiert werden: jeder eingeschaltete Markt (Aggregiert), der Chart-Markt oder Gewählte Märkte, in einer Liste angehakt, was auch immer die Börsen-Chips und der Spot/Perp-Filter sagen. Eine Wahl ist eine Börse und eine Art (Binance Perpetual, Coinbase Spot), daher wählt ein auf einem Coin gemachtes Layout auf einem anderen die Märkte derselben Börsen; eine, die den Coin nicht führt, zählt nichts, und ist keiner angehakt, wird nichts gezählt.",
+ "Venues can also be Chosen markets: the perpetuals ticked in its panel (Choose…, or Markets… in the Delta pane with NL/NS shown), added together whatever the venue chips and the Spot / Perp filter say. NL/NS and the Long/Short pane count the same markets. With none ticked, nothing is counted.": "Börsen kann auch Gewählte Märkte sein: die in seinem Fenster angehakten Perpetuals (Wählen…, oder Märkte… im Delta-Bereich bei angezeigtem NL/NS), addiert, was auch immer die Börsen-Chips und der Spot/Perp-Filter sagen. NL/NS und der Long/Short-Bereich zählen dieselben Märkte. Ist keiner angehakt, wird nichts gezählt.",
+ "Perpetual": "Perpetual",
+ "not listed for this coin here": "für diesen Coin hier nicht gelistet",
+ "No perpetual of an exchange whose open interest is read is listed yet.": "Noch kein Perpetual einer Börse gelistet, deren Open Interest gelesen wird.",
+ "No market is listed yet.": "Noch kein Markt gelistet.",
+ "Whose open interest the OI pane, the bar statistics, NL/NS and the Long/Short pane count.": "Wessen Open Interest der OI-Bereich, die Balkenstatistik, NL/NS und der Long/Short-Bereich zählen.",
+ "The perpetuals ticked below are added together whatever the venue chips and the Spot / Perp filter say. With none ticked, none is counted.": "Die unten angehakten Perpetuals werden addiert, was auch immer die Börsen-Chips und der Spot/Perp-Filter sagen. Ist keiner angehakt, wird keiner gezählt.",
+ "All perpetuals adds the perpetuals of every venue switched on, inside the Spot / Perp filter, on an exchange whose open interest is read.": "Alle Perpetuals addiert die Perpetuals jeder eingeschalteten Börse, innerhalb des Spot/Perp-Filters, an einer Börse, deren Open Interest gelesen wird.",
+ "The chart market alone, or a reference market standing in where it has no open interest (the pane says which).": "Der Chart-Markt allein oder ein Referenzmarkt, der einspringt, wo er kein Open Interest hat (der Bereich sagt, welcher).",
+ "Markets…": "Märkte…",
+ "Whose open interest NL/NS counts: the OI pane's markets, chosen here or in the OI pane.": "Wessen Open Interest NL/NS zählt: die Märkte des OI-Bereichs, hier oder im OI-Bereich gewählt.",
+ "Open interest markets": "Open-Interest-Märkte",
+ "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "Wessen Open Interest dieser Bereich, die Balkenstatistik, NL/NS und der Long/Short-Bereich zählen: die Perpetuals jeder eingeschalteten Börse addiert, der Chart-Markt allein oder die Märkte, die du wählst.",
+ "Pick the perpetuals whose open interest is added together.": "Wähle die Perpetuals, deren Open Interest addiert wird.",
+ "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "Ein Markt, der größte der {n}, die der OI-Bereich addiert, und all sein Open Interest, nicht nur das der Preise des Kastens. Steigend: Positionen eröffnet; fallend: geschlossen. Nicht, wer sie eröffnet oder geschlossen hat.",
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "Ein Markt, der größte der {n}, die der OI-Bereich addiert. Steigend: Positionen eröffnet; fallend: geschlossen. Nicht, wer sie eröffnet oder geschlossen hat."
 }

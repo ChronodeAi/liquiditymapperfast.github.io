@@ -1226,7 +1226,6 @@
  "{n} added together": "{n} toplandı",
  "{n} venues added together": "{n} borsa toplandı",
  "All perpetuals": "Tüm vadesizler",
- "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "Bu panelin, bar istatistiklerinin ve NL/NS'nin saydığı açık pozisyon: açık olan tüm borsaların vadesizleri toplanmış, ya da yalnızca grafiğin piyasası.",
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI panelinin Borsalar ayarı Tüm vadesizler iken (varsayılan), her borsanın açık pozisyon değişimi o borsada piyasa emriyle işlem yapan tarafa verilir ve sonra borsalar toplanır: bir borsanın alıcıları başka bir borsada kimin pozisyon açtığı hakkında hiçbir şey söylemez.",
  "{n} more venues": {
   "one": "{n} borsa daha",
@@ -1269,5 +1268,24 @@
  "No long/short readings for this time.": "Bu zaman için long/short değeri yok.",
  "Reading the long/short ratios…": "Long/short oranları okunuyor…",
  "server only": "yalnızca sunucu",
- "long": "long"
+ "long": "long",
+ "Chosen markets": "Seçilen piyasalar",
+ "The markets ticked below are added together onto the chart market's candles, whatever the venue chips and the Spot / Perp filter say; with none ticked, none is counted. Each market's trades stay at its own prices, so a USD spot market can sit 10 basis points or more from the perpetuals. The bar statistics' oi chg row counts the OI pane's markets.": "Aşağıda işaretlenen piyasalar, borsa çipleri ve Spot / Perp filtresi ne derse desin, grafik piyasasının mumlarına eklenir; hiçbiri işaretli değilse hiçbiri sayılmaz. Her piyasanın işlemleri kendi fiyatlarında kalır, bu yüzden bir USD spot piyasası perpetual'lardan 10 baz puan veya daha fazla uzakta olabilir. Çubuk istatistiklerinin oi chg satırı OI bölmesinin piyasalarını sayar.",
+ "Count (in its panel) chooses whose market orders are added together: every market switched on (Aggregated), the chart market, or Chosen markets, ticked in a list whatever the venue chips and the Spot / Perp filter say. A choice is an exchange and a kind (Binance perpetual, Coinbase spot), so a layout made on one coin picks the same exchanges' markets on another; one the coin is not listed on counts nothing, and with none ticked nothing is counted.": "Say (panelinde), hangi piyasa emirlerinin ekleneceğini seçer: açık her piyasa (Toplu), grafik piyasası ya da borsa çipleri ve Spot / Perp filtresi ne derse desin bir listede işaretlenen Seçilen piyasalar. Bir seçim bir borsa ve bir türdür (Binance perpetual, Coinbase spot), bu yüzden bir coin'de yapılan bir düzen başka bir coin'de aynı borsaların piyasalarını seçer; coin'i listelemeyen bir borsa hiçbir şey saymaz ve hiçbiri işaretli değilse hiçbir şey sayılmaz.",
+ "Venues can also be Chosen markets: the perpetuals ticked in its panel (Choose…, or Markets… in the Delta pane with NL/NS shown), added together whatever the venue chips and the Spot / Perp filter say. NL/NS and the Long/Short pane count the same markets. With none ticked, nothing is counted.": "Borsalar, Seçilen piyasalar da olabilir: panelinde işaretlenen perpetual'lar (Seç… ya da NL/NS gösterilirken Delta bölmesindeki Piyasalar…), borsa çipleri ve Spot / Perp filtresi ne derse desin eklenir. NL/NS ve Long/Short bölmesi aynı piyasaları sayar. Hiçbiri işaretli değilse hiçbir şey sayılmaz.",
+ "Perpetual": "Perpetual",
+ "not listed for this coin here": "burada bu coin için listelenmemiş",
+ "No perpetual of an exchange whose open interest is read is listed yet.": "Açık pozisyonu okunan bir borsanın perpetual'ı henüz listelenmedi.",
+ "No market is listed yet.": "Henüz listelenmiş piyasa yok.",
+ "Whose open interest the OI pane, the bar statistics, NL/NS and the Long/Short pane count.": "OI bölmesi, çubuk istatistikleri, NL/NS ve Long/Short bölmesinin saydığı açık pozisyon kimin.",
+ "The perpetuals ticked below are added together whatever the venue chips and the Spot / Perp filter say. With none ticked, none is counted.": "Aşağıda işaretlenen perpetual'lar, borsa çipleri ve Spot / Perp filtresi ne derse desin eklenir. Hiçbiri işaretli değilse hiçbiri sayılmaz.",
+ "All perpetuals adds the perpetuals of every venue switched on, inside the Spot / Perp filter, on an exchange whose open interest is read.": "Tüm perpetual'lar, Spot / Perp filtresi içinde açık olan her borsanın, açık pozisyonu okunan borsalardaki perpetual'larını ekler.",
+ "The chart market alone, or a reference market standing in where it has no open interest (the pane says which).": "Yalnızca grafik piyasası ya da açık pozisyonu olmadığı yerde onun yerine geçen bir referans piyasası (bölme hangisi olduğunu söyler).",
+ "Markets…": "Piyasalar…",
+ "Whose open interest NL/NS counts: the OI pane's markets, chosen here or in the OI pane.": "NL/NS'nin saydığı açık pozisyon kimin: OI bölmesinin piyasaları, burada ya da OI bölmesinde seçilir.",
+ "Open interest markets": "Açık pozisyon piyasaları",
+ "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "Bu bölme, çubuk istatistikleri, NL/NS ve Long/Short bölmesinin saydığı açık pozisyon kimin: açık her borsanın perpetual'ları toplamı, yalnızca grafik piyasası ya da seçtiğiniz piyasalar.",
+ "Pick the perpetuals whose open interest is added together.": "Açık pozisyonu eklenecek perpetual'ları seçin.",
+ "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "Tek bir piyasa, OI bölmesinin eklediği {n} piyasanın en büyüğü, ve tamamı, yalnızca kutunun fiyatları değil. Yükseliyor: pozisyonlar açıldı; düşüyor: kapandı. Kimin açtığı veya kapattığı değil.",
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "Tek bir piyasa, OI bölmesinin eklediği {n} piyasanın en büyüğü. Yükseliyor: pozisyonlar açıldı; düşüyor: kapandı. Kimin açtığı veya kapattığı değil."
 }

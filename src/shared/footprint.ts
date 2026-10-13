@@ -762,7 +762,8 @@ export class FootprintRecorder {
    * any of them recorded; its `stats` and `over` are given only when every instrument-minute in it had them (as `sizesOf` counts).
    */
   queryMany(ids: readonly string[], from: number, to: number, tfMs: number, rowStep: number, cuts: readonly number[] = [], budget = Infinity, byVenue = false): { step: number; fine: number; bars: FootprintBar[]; from: number; venues?: string[] } {
-    const known = ids.filter(id => this.#steps.has(id));
+    // A market named twice counts once.
+    const known = [...new Set(ids)].filter(id => this.#steps.has(id));
     const fine = known.reduce((most, id) => Math.max(most, this.#steps.get(id)!), 0);
     if (!fine) return { step: 0, fine: 0, bars: [], from };
     from = this.#reach(known, from, to, tfMs, budget);

@@ -27,6 +27,8 @@ import { t, tn } from '../i18n.ts';
 import { scaledUsd, unscaledUsd } from '../coin.ts';
 import { DRAG_MIN_PX, selects } from '../range/selection.ts';
 import type { RangeTool } from '../range/tool.ts';
+import type { FlowBook } from '../flow-book.ts';
+import { buildOiMarketsPanel } from '../market-picker.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 
 /**
@@ -332,15 +334,25 @@ export class OiPane extends TimePane {
   #card = new HoverCard();
   #lines: InfoLine[] | null = null;
   readonly #venues = document.createElement('select');
-  constructor(host: HTMLElement, store: Store, view: View) {
+  readonly #choose = document.createElement('button');
+  #panel: Panel | null = null;
+  constructor(host: HTMLElement, store: Store, view: View, flow: FlowBook) {
     super(host, store, view, 'oi');
     this.head.innerHTML = `<strong>${t('Open Interest')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('oiPane'));
     // Whose open interest: the perpetuals of the venues switched on added together, or the chart market's own.
-    const wrap = document.createElement('label'); wrap.className = 'ctl'; setTip(wrap, t('Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.')); wrap.append(t('Venues'));
-    this.#venues.append(new Option(t('All perpetuals'), 'all'), new Option(t('The chart market'), 'chart'));
-    this.#venues.value = store.state.oiMarkets; this.#venues.onchange = () => store.set({ oiMarkets: this.#venues.value === 'chart' ? 'chart' : 'all' });
-    wrap.append(this.#venues); this.head.append(wrap);
+    const wrap = document.createElement('label'); wrap.className = 'ctl'; setTip(wrap, t('Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.')); wrap.append(t('Venues'));
+    this.#venues.append(new Option(t('All perpetuals'), 'all'), new Option(t('The chart market'), 'chart'), new Option(t('Chosen markets'), 'custom'));
+    this.#venues.value = store.state.oiMarkets;
+    this.#venues.onchange = () => { const v = this.#venues.value; store.set({ oiMarkets: v === 'chart' || v === 'custom' ? v : 'all' }); if (v === 'custom' && !this.#panel) this.#choose.click(); };
+    // The markets picked, in a panel (the Delta pane opens the same one while it shows NL/NS).
+    this.#choose.type = 'button'; this.#choose.textContent = t('Choose…'); setTip(this.#choose, t('Pick the perpetuals whose open interest is added together.'));
+    this.#choose.hidden = store.state.oiMarkets !== 'custom';
+    const build = (_tools: HTMLElement, body: HTMLElement): void => buildOiMarketsPanel(store, flow, body, () => this.#panel?.render(build));
+    this.#choose.onclick = () => { this.#panel = togglePanel(this.#choose, { title: t('Open interest markets'), width: 380, align: 'right', onClose: () => { this.#panel = null; } }, build); };
+    // One group, so the header's rule that puts its last control at the right edge moves the select and its button together.
+    const group = document.createElement('span'); group.className = 'ctl ctl-group';
+    wrap.append(this.#venues); group.append(wrap, this.#choose); this.head.append(group);
   }
   /** Each bar's change (oi-change.ts: venues added together count their own changes) and the ones that stand out. */
   #analysis(oi: readonly OiBar[], highlight: HighlightOptions, parts: readonly OiPart[], tfMs: number) {
@@ -373,6 +385,7 @@ export class OiPane extends TimePane {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state: AppState = this.store.state;
     // Replay: the bar under way at its moment would carry what came after; only bars that ended by then.
     if (this.#venues.value !== state.oiMarkets) this.#venues.value = state.oiMarkets;
+    this.#choose.hidden = state.oiMarkets !== 'custom';
     // Venues added together: the sum is made of the bars that ended by the replay's moment (oiPartsUntil), as NL/NS makes its own.
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, parts = oiPartsUntil(state.oiParts, tf, replaying() ? Math.floor(pageNow() / tf) * tf : Infinity);
     const oi = parts.length > 1 ? oiSumOf(parts, tf).bars : this.#oiAt(state.oi, tf), highlight = state.highlight;

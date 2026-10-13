@@ -27,6 +27,7 @@ import { LIQUIDATION_LIMITS, LIQUIDATION_MINIMUMS, coverageLines, type Liquidati
 import { buildKeyLevelPanel } from './keylevels/panel.ts';
 import { buildVwapPanel, type WhaleInfo } from './vwap/panel.ts';
 import { buildFootprintPanel } from './footprint/panel.ts';
+import type { FlowBook } from './flow-book.ts';
 import type { KeyLevelHistory } from './keylevels/history.ts';
 import { INLINE_CHIPS, chipPlan, exchangeGroups } from './chips.ts';
 import { openMenu } from './menu.ts';
@@ -112,6 +113,8 @@ export class Toolbar {
   /** The footprint (on/off is `show.footprint`), set in its panel: a lamp button since it holds settings, not one of the pane toggles. */
   #footprint = el('button', { class: 'led-btn', textContent: t('Footprint'), tip: HELP.footprint.tip });
   #footprintPanel: Panel | null = null;
+  /** The flow book (set by the page once the hub exists): the footprint's market picker puts markets with recorded flow first. */
+  flow: FlowBook | null = null;
   /** The VWAP lines (vwap/), set in its panel. */
   #vwap = el('button', { class: 'led-btn', textContent: t('VWAP'), tip: HELP.vwap.tip });
   #vwapPanel: Panel | null = null;
@@ -219,7 +222,7 @@ export class Toolbar {
       this.#tradePanel = this.#track(togglePanel(this.#trades, { title: t('Trades'), width: 380, align: 'left', onClose: () => { this.#tradePanel = null; } }, build), build);
     };
     this.#footprint.onclick = () => {
-      const build = (tools: HTMLElement, body: HTMLElement): void => buildFootprintPanel(this.store, tools, body, () => this.#footprintPanel?.render(build));
+      const build = (tools: HTMLElement, body: HTMLElement): void => buildFootprintPanel(this.store, this.flow, tools, body, () => this.#footprintPanel?.render(build));
       this.#footprintPanel = this.#track(togglePanel(this.#footprint, { title: t('Footprint'), width: 440, align: 'left', onClose: () => { this.#footprintPanel = null; } }, build), build);
     };
     this.#vwap.onclick = () => {

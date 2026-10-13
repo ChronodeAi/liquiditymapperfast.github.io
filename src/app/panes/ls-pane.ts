@@ -1,4 +1,5 @@
-import { TIMEFRAMES, oiVenueIds, type Hub } from '../hub.ts';
+import { TIMEFRAMES, type Hub } from '../hub.ts';
+import { oiMarketIds } from '../market-choice.ts';
 import type { Store, AppState } from '../store.ts';
 import type { View } from '../view.ts';
 import { helpButton } from '../help.ts';
@@ -20,9 +21,9 @@ const LINE_COLORS: Readonly<Record<string, string>> = { binance: '#d4a106', bybi
 /** A reading stands until the next one, or for this many of its periods after it when none follows (a gap past that breaks the line). */
 const HOLD_PERIODS = 3;
 
-/** The markets the pane shows: the OI pane's markets (its venues added together, or its one market) on a venue that publishes a ratio. */
+/** The markets the pane shows: the OI pane's markets (those it adds together, or its one market) on a venue that publishes a ratio. */
 export function lsIds(state: AppState, hub: Hub): string[] {
-  const ids = state.oiMarkets === 'all' ? oiVenueIds(state, hub.flow) : [state.oiInstrument || state.seriesInstrument || state.marketId];
+  const ids = oiMarketIds(state, hub.flow) ?? [state.oiInstrument || state.seriesInstrument || state.marketId];
   const venue = (id: string): number => LS_VENUES.indexOf(id.split(':')[0]!);
   return [...new Set(ids)].filter(id => venue(id) >= 0).sort((a, b) => venue(a) - venue(b));
 }

@@ -1190,7 +1190,6 @@
  "{n} added together": "{n}개를 합산",
  "{n} venues added together": "{n}개 거래소 합산",
  "All perpetuals": "모든 무기한",
- "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "이 창, 바 통계, NL/NS가 세는 미결제약정의 대상: 켜진 모든 거래소의 무기한 합산, 또는 차트 시장만.",
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "OI 창의 거래소가 모든 무기한(기본값)이면 각 거래소의 미결제약정 변화는 그 거래소에서 시장가로 거래한 쪽에 배정되고, 그다음 거래소들을 합산합니다. 한 거래소의 매수자는 다른 거래소에서 누가 포지션을 열었는지에 대해 아무것도 말해 주지 않습니다.",
  "{n} more venues": {
   "other": "그 밖의 거래소 {n}개"
@@ -1232,5 +1231,24 @@
  "No long/short readings for this time.": "이 시각의 롱/숏 값이 없습니다.",
  "Reading the long/short ratios…": "롱/숏 비율을 읽는 중…",
  "server only": "서버만",
- "long": "롱"
+ "long": "롱",
+ "Chosen markets": "선택한 시장",
+ "The markets ticked below are added together onto the chart market's candles, whatever the venue chips and the Spot / Perp filter say; with none ticked, none is counted. Each market's trades stay at its own prices, so a USD spot market can sit 10 basis points or more from the perpetuals. The bar statistics' oi chg row counts the OI pane's markets.": "아래에 체크한 시장은 거래소 칩과 현물/무기한 필터와 관계없이 차트 시장의 캔들에 합산됩니다. 아무것도 체크하지 않으면 아무것도 세지 않습니다. 각 시장의 체결은 자체 가격에 그대로 있으므로 USD 현물 시장은 무기한과 10베이시스포인트 이상 떨어질 수 있습니다. 바 통계의 oi chg 행은 OI 패널의 시장을 셉니다.",
+ "Count (in its panel) chooses whose market orders are added together: every market switched on (Aggregated), the chart market, or Chosen markets, ticked in a list whatever the venue chips and the Spot / Perp filter say. A choice is an exchange and a kind (Binance perpetual, Coinbase spot), so a layout made on one coin picks the same exchanges' markets on another; one the coin is not listed on counts nothing, and with none ticked nothing is counted.": "세기(패널 안)는 어떤 시장가 주문을 합산할지 고릅니다: 켜진 모든 시장(합산), 차트 시장, 또는 선택한 시장(거래소 칩과 현물/무기한 필터와 관계없이 목록에서 체크). 선택은 거래소와 종류(Binance 무기한, Coinbase 현물)이므로 한 코인에서 만든 레이아웃은 다른 코인에서도 같은 거래소의 시장을 고릅니다. 그 코인을 상장하지 않은 거래소는 아무것도 세지 않으며, 아무것도 체크하지 않으면 아무것도 세지 않습니다.",
+ "Venues can also be Chosen markets: the perpetuals ticked in its panel (Choose…, or Markets… in the Delta pane with NL/NS shown), added together whatever the venue chips and the Spot / Perp filter say. NL/NS and the Long/Short pane count the same markets. With none ticked, nothing is counted.": "거래소는 선택한 시장이 될 수도 있습니다: 패널에서 체크한 무기한(선택…, 또는 NL/NS가 보일 때 델타 패널의 시장…)을 거래소 칩과 현물/무기한 필터와 관계없이 합산합니다. NL/NS와 롱/숏 패널도 같은 시장을 셉니다. 아무것도 체크하지 않으면 아무것도 세지 않습니다.",
+ "Perpetual": "무기한",
+ "not listed for this coin here": "여기서는 이 코인에 상장되지 않음",
+ "No perpetual of an exchange whose open interest is read is listed yet.": "미결제약정을 읽는 거래소의 무기한이 아직 목록에 없습니다.",
+ "No market is listed yet.": "아직 목록에 시장이 없습니다.",
+ "Whose open interest the OI pane, the bar statistics, NL/NS and the Long/Short pane count.": "OI 패널, 바 통계, NL/NS, 롱/숏 패널이 세는 미결제약정의 대상.",
+ "The perpetuals ticked below are added together whatever the venue chips and the Spot / Perp filter say. With none ticked, none is counted.": "아래에 체크한 무기한은 거래소 칩과 현물/무기한 필터와 관계없이 합산됩니다. 아무것도 체크하지 않으면 아무것도 세지 않습니다.",
+ "All perpetuals adds the perpetuals of every venue switched on, inside the Spot / Perp filter, on an exchange whose open interest is read.": "모든 무기한은 현물/무기한 필터 안에서 켜진 각 거래소 중 미결제약정을 읽는 거래소의 무기한을 합산합니다.",
+ "The chart market alone, or a reference market standing in where it has no open interest (the pane says which).": "차트 시장만, 또는 미결제약정이 없을 때 대신하는 참조 시장(패널에 표시).",
+ "Markets…": "시장…",
+ "Whose open interest NL/NS counts: the OI pane's markets, chosen here or in the OI pane.": "NL/NS가 세는 미결제약정의 대상: OI 패널의 시장으로, 여기나 OI 패널에서 고릅니다.",
+ "Open interest markets": "미결제약정 시장",
+ "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "이 패널, 바 통계, NL/NS, 롱/숏 패널이 세는 미결제약정의 대상: 켜진 각 거래소의 무기한 합계, 차트 시장만, 또는 직접 고른 시장.",
+ "Pick the perpetuals whose open interest is added together.": "미결제약정을 합산할 무기한을 고릅니다.",
+ "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것)이며, 상자의 가격뿐 아니라 전체입니다. 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다.",
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것). 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다."
 }

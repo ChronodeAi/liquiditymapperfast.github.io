@@ -11,9 +11,10 @@ export interface FootprintSettings {
   nakedPoc: boolean;
   /**
    * Whose trades the footprint (and the bar statistics, which read it) counts: the chart market's, or every market the flow views count
-   * (the venues switched on, inside the Spot / Perp filter: `flowIds`) added together on the chart market's candles.
+   * (the venues switched on, inside the Spot / Perp filter: `flowIds`) added together on the chart market's candles, or the markets picked
+   * (`customMarkets.footprint`, market-choice.ts), whatever the chips and the filter say.
    */
-  markets: 'chart' | 'all';
+  markets: 'chart' | 'all' | 'custom';
 }
 
 /** Diagonal imbalances outlined, the numbers as before; zones and naked points of control off until chosen; every venue added together (2026-10-13). */
@@ -26,6 +27,6 @@ export function readFootprint(saved: unknown): FootprintSettings {
   return {
     text: s.text === 'delta' || s.text === 'total' || s.text === 'none' ? s.text : 'split',
     diagonal: flag(s.diagonal, d.diagonal), zones: flag(s.zones, d.zones), nakedPoc: flag(s.nakedPoc, d.nakedPoc),
-    markets: s.markets === 'chart' ? 'chart' : 'all',
+    markets: s.markets === 'chart' || s.markets === 'custom' ? s.markets : 'all',
   };
 }

@@ -19,6 +19,8 @@ import { divergences, inView, paintDivergence, type Divergence } from '../delta/
 import { coinText, nlnsCardLines, nlnsModel, type NlnsCandle, type NlnsMarket } from '../delta/nlns.ts';
 import { oiPartsUntil } from '../oi-change.ts';
 import { venueLabel } from '../venues.ts';
+import { togglePanel, type Panel } from '../ui.ts';
+import { buildOiMarketsPanel } from '../market-picker.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 
 const HISTORY_CAP_MS = 24 * 3_600_000, MINUTES_FROM_MS = 6 * 3_600_000;
@@ -48,6 +50,7 @@ export class DeltaPane extends TimePane {
   /** Each OI market's own flow per candle (NL/NS gives each market's change to its own takers). */
   #oiCaches = new Map<string, FlowCache>();
   #sync: (() => void)[] = [];
+  #marketsPanel: Panel | null = null;
   /** The candles drawn last. */
   candles: DeltaCandle[] = [];
   /** The price/CVD divergences in view, newest last (the map draws them too); none while the pane is not drawn. */
@@ -77,7 +80,13 @@ export class DeltaPane extends TimePane {
     select(t('Show'), t('Each candle\'s delta as a bar, the cumulative delta as candles, or NL/NS: the change of open interest given to the side that traded at market.'), [['candles', t('CVD candles')], ['bars', t('Delta bars')], ['nlns', 'NL/NS']], () => d().style, v => patch({ style: v === 'bars' || v === 'nlns' ? v : 'candles' }));
     // NL/NS as one net series or the longs' and shorts' sums apart; only while NL/NS is shown.
     const split = select(t('As'), t('NL/NS as one net series (bars and their running sum), or the running sums of the longs and of the shorts as two lines.'), [['net', t('Net')], ['split', t('Longs and shorts')]], () => d().nlns, v => patch({ nlns: v === 'split' ? 'split' : 'net' }));
-    const showSplit = (): void => { split.hidden = d().style !== 'nlns'; };
+    // Whose open interest NL/NS counts: the OI pane's markets, chosen here too so the OI pane need not be shown.
+    const markets = document.createElement('button'); markets.type = 'button'; markets.textContent = t('Markets…');
+    setTip(markets, t('Whose open interest NL/NS counts: the OI pane\'s markets, chosen here or in the OI pane.'));
+    const build = (_tools: HTMLElement, body: HTMLElement): void => buildOiMarketsPanel(this.store, this.hub.flow, body, () => this.#marketsPanel?.render(build));
+    markets.onclick = () => { this.#marketsPanel = togglePanel(markets, { title: t('Open interest markets'), width: 380, align: 'right', onClose: () => { this.#marketsPanel = null; } }, build); };
+    group.insertBefore(markets, split.nextSibling);
+    const showSplit = (): void => { split.hidden = d().style !== 'nlns'; markets.hidden = d().style !== 'nlns'; };
     showSplit(); this.#sync.push(showSplit);
     const box = document.createElement('label'); box.className = 'ctl'; setTip(box, t('Mark where the price made a higher high and the CVD a lower one, or the price a lower low and the CVD a higher one, here and on the map.'));
     const check = document.createElement('input'); check.type = 'checkbox'; check.checked = d().divergence; check.onchange = () => patch({ divergence: check.checked });

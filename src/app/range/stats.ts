@@ -50,7 +50,7 @@ export interface RangeInput {
    * The open interest of one market (the one the OI pane shows) around the selection, a sample a minute; 'asking' while it is asked for,
    * null when that market has none, undefined when it was not asked. `coin` is the unit it is counted in, `price` what a coin is worth now (for the dollar figure).
    */
-  oi?: { inst: string; bars: readonly OiBar[]; coin: string; price: number } | null | 'asking';
+  oi?: { inst: string; bars: readonly OiBar[]; coin: string; price: number; /** The markets the OI pane adds together, when more than this one. */ of?: number } | null | 'asking';
   /**
    * The order books on the map and whether each is counted (its exchange switched on, inside the Spot / Perp filter): with the recording's
    * answer they say which markets each section counts. Undefined when not known.
@@ -230,7 +230,10 @@ function oiLines(input: RangeInput, box: boolean): RangeLine[] {
   out.push({ key: 'oi-ends', kind: 'stat', cells: [t('At the start and the end'), `${amount(change.start)} → ${amount(change.end)}`] });
   out.push({ key: 'oi-change', kind: 'stat', cells: [t('Change'), `${sign}${amount(Math.abs(d))} · ${sign}${(Math.abs(rel) * 100).toFixed(2)}%${price > 0 ? ` · ${signed(d * price)}` : ''}`] });
   if (change.high > Math.max(change.start, change.end) || change.low < Math.min(change.start, change.end)) out.push({ key: 'oi-range', kind: 'stat', tone: 'muted', cells: [t('Lowest and highest'), `${amount(change.low)} / ${amount(change.high)}`] });
-  out.push({ key: 'oi-note', kind: 'note', tone: 'muted', cells: [box ? t('One market, the one the OI pane shows, and all of it, not only the box\'s prices. Rising: positions opened; falling: closed. Not who opened or closed them.') : t('One market, the one the OI pane shows. Rising: positions opened; falling: closed. Not who opened or closed them.')] });
+  const of = input.oi.of ?? 1;
+  out.push({ key: 'oi-note', kind: 'note', tone: 'muted', cells: [of > 1
+    ? (box ? t('One market, the largest of the {n} the OI pane adds together, and all of it, not only the box\'s prices. Rising: positions opened; falling: closed. Not who opened or closed them.', { n: of }) : t('One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.', { n: of }))
+    : (box ? t('One market, the one the OI pane shows, and all of it, not only the box\'s prices. Rising: positions opened; falling: closed. Not who opened or closed them.') : t('One market, the one the OI pane shows. Rising: positions opened; falling: closed. Not who opened or closed them.'))] });
   return out;
 }
 

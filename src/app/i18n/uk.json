@@ -1255,7 +1255,6 @@
  "{n} added together": "складено: {n}",
  "{n} venues added together": "складено бірж: {n}",
  "All perpetuals": "Усі безстрокові",
- "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "Чий відкритий інтерес рахують ця панель, статистика барів і NL/NS: безстрокові контракти всіх увімкнених бірж разом або лише ринок графіка.",
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "Коли «Біржі» панелі OI стоять на «Усі безстрокові» (типово), зміна відкритого інтересу кожної біржі віддається стороні, що торгувала за ринком на цій біржі, а потім біржі складаються: покупці однієї біржі нічого не кажуть про те, хто відкривав позиції на іншій.",
  "{n} more venues": {
   "one": "ще {n} біржа",
@@ -1300,5 +1299,24 @@
  "No long/short readings for this time.": "Немає значень лонг/шорт для цього часу.",
  "Reading the long/short ratios…": "Читаються співвідношення лонг/шорт…",
  "server only": "лише сервер",
- "long": "лонг"
+ "long": "лонг",
+ "Chosen markets": "Вибрані ринки",
+ "The markets ticked below are added together onto the chart market's candles, whatever the venue chips and the Spot / Perp filter say; with none ticked, none is counted. Each market's trades stay at its own prices, so a USD spot market can sit 10 basis points or more from the perpetuals. The bar statistics' oi chg row counts the OI pane's markets.": "Позначені нижче ринки додаються на свічках ринку графіка, хоч би що казали чипи бірж і фільтр Спот / Перп; якщо нічого не позначено, нічого не рахується. Угоди кожного ринку лишаються за його власними цінами, тож доларовий спот може стояти за 10 базисних пунктів і більше від перпетуалів. Рядок oi chg статистики рахує ринки панелі OI.",
+ "Count (in its panel) chooses whose market orders are added together: every market switched on (Aggregated), the chart market, or Chosen markets, ticked in a list whatever the venue chips and the Spot / Perp filter say. A choice is an exchange and a kind (Binance perpetual, Coinbase spot), so a layout made on one coin picks the same exchanges' markets on another; one the coin is not listed on counts nothing, and with none ticked nothing is counted.": "«Рахувати» (у її вікні) вибирає, чиї ринкові ордери додаються: усі ввімкнені ринки («Агреговано»), ринок графіка або «Вибрані ринки», позначені в списку, хоч би що казали чипи бірж і фільтр Спот / Перп. Вибір — це біржа й вид (перпетуал Binance, спот Coinbase), тож розкладка, зроблена на одній монеті, вибирає на іншій ринки тих самих бірж; біржа без цієї монети нічого не рахує, а якщо нічого не позначено, нічого не рахується.",
+ "Venues can also be Chosen markets: the perpetuals ticked in its panel (Choose…, or Markets… in the Delta pane with NL/NS shown), added together whatever the venue chips and the Spot / Perp filter say. NL/NS and the Long/Short pane count the same markets. With none ticked, nothing is counted.": "«Біржі» можуть бути й «Вибраними ринками»: перпетуали, позначені в її вікні («Вибрати…» або «Ринки…» в панелі дельти, коли показано NL/NS), додаються, хоч би що казали чипи бірж і фільтр Спот / Перп. NL/NS і панель Лонг/Шорт рахують ті самі ринки. Якщо нічого не позначено, нічого не рахується.",
+ "Perpetual": "Перпетуал",
+ "not listed for this coin here": "тут не торгується для цієї монети",
+ "No perpetual of an exchange whose open interest is read is listed yet.": "Поки немає перпетуала біржі, чий відкритий інтерес читається.",
+ "No market is listed yet.": "Поки немає жодного ринку.",
+ "Whose open interest the OI pane, the bar statistics, NL/NS and the Long/Short pane count.": "Чий відкритий інтерес рахують панель OI, статистика за свічками, NL/NS і панель Лонг/Шорт.",
+ "The perpetuals ticked below are added together whatever the venue chips and the Spot / Perp filter say. With none ticked, none is counted.": "Позначені нижче перпетуали додаються, хоч би що казали чипи бірж і фільтр Спот / Перп. Якщо нічого не позначено, нічого не рахується.",
+ "All perpetuals adds the perpetuals of every venue switched on, inside the Spot / Perp filter, on an exchange whose open interest is read.": "«Усі перпетуали» додає перпетуали кожної ввімкненої біржі в межах фільтра Спот / Перп на біржах, чий відкритий інтерес читається.",
+ "The chart market alone, or a reference market standing in where it has no open interest (the pane says which).": "Лише ринок графіка або опорний ринок замість нього там, де він не має відкритого інтересу (панель каже який).",
+ "Markets…": "Ринки…",
+ "Whose open interest NL/NS counts: the OI pane's markets, chosen here or in the OI pane.": "Чий відкритий інтерес рахує NL/NS: ринки панелі OI, вибрані тут або в панелі OI.",
+ "Open interest markets": "Ринки відкритого інтересу",
+ "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "Чий відкритий інтерес рахують ця панель, статистика за свічками, NL/NS і панель Лонг/Шорт: перпетуали кожної ввімкненої біржі разом, лише ринок графіка або вибрані вами ринки.",
+ "Pick the perpetuals whose open interest is added together.": "Виберіть перпетуали, чий відкритий інтерес додається.",
+ "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "Один ринок, найбільший із {n}, які додає панель OI, і весь його інтерес, а не лише ціни рамки. Росте — позиції відкрито; падає — закрито. Але не хто їх відкрив чи закрив.",
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "Один ринок, найбільший із {n}, які додає панель OI. Росте — позиції відкрито; падає — закрито. Але не хто їх відкрив чи закрив."
 }

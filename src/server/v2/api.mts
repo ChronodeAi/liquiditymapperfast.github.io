@@ -342,7 +342,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
   const footprintRoute = (url: URL, res: ServerResponse) => {
     // One instrument, or several (comma separated) added together: the aggregated footprint.
-    const id = url.searchParams.get('inst') ?? '', ids = id.split(',').filter(Boolean); const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);
+    const id = url.searchParams.get('inst') ?? '', ids = [...new Set(id.split(',').filter(Boolean))]; const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);
     if (!ids.length || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
     if (ids.length > MAX_PROFILE_INSTRUMENTS) return sendJson(res, { error: `inst must name 1 to ${MAX_PROFILE_INSTRUMENTS} instruments` }, 400);
     const span = windowOf(url, Date.now() + tfMs, 200 * tfMs); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);

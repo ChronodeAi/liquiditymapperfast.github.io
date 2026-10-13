@@ -5,12 +5,14 @@ import { t } from '../i18n.ts';
 import { scaledUsd, unscaledUsd } from '../coin.ts';
 import type { StatOptions } from '../stat-options.ts';
 import type { FootprintSettings } from './settings.ts';
+import type { FlowBook } from '../flow-book.ts';
+import { marketPicker } from '../market-picker.ts';
 
 /**
  * The Footprint panel: its first row shows or hides the footprint (and the bar statistics under the map); then what each row prints, and the
  * imbalances: whether diagonal ones are outlined, and the ratio, minimum, empty-row rule and stacked rows, which are the bar statistics' too.
  */
-export function buildFootprintPanel(store: Store, tools: HTMLElement, body: HTMLElement, rebuild: () => void): void {
+export function buildFootprintPanel(store: Store, flow: FlowBook | null, tools: HTMLElement, body: HTMLElement, rebuild: () => void): void {
   const fp = store.state.footprint, o = store.state.barStatOptions;
   const set = (change: Partial<FootprintSettings>): void => { store.set({ footprint: { ...store.state.footprint, ...change } }); };
   const setOptions = (change: Partial<StatOptions>): void => { store.set({ barStatOptions: { ...store.state.barStatOptions, ...change } }); };
@@ -18,8 +20,10 @@ export function buildFootprintPanel(store: Store, tools: HTMLElement, body: HTML
   body.append(
     switchRow(t('Show the footprint'), t('Zoom in on the candles to see, at each price, what was sold and bought at market; the bar statistics show under the map.'), store.state.show.footprint, on => { store.set({ show: { ...store.state.show, footprint: on } }); rebuild(); }),
     heading(t('Markets')),
-    selectRow(t('Count'), t('Whose market orders the footprint and the bar statistics count.'), [['all', t('Aggregated: every market switched on')], ['chart', t('The chart market')]], fp.markets, v => set({ markets: v === 'all' ? 'all' : 'chart' })),
-    note(t('Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market\'s candles. Each market\'s trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane\'s market.')),
+    selectRow(t('Count'), t('Whose market orders the footprint and the bar statistics count.'), [['all', t('Aggregated: every market switched on')], ['chart', t('The chart market')], ['custom', t('Chosen markets')]], fp.markets, v => { set({ markets: v === 'chart' || v === 'custom' ? v : 'all' }); rebuild(); }),
+    ...(fp.markets === 'custom'
+      ? [note(t('The markets ticked below are added together onto the chart market\'s candles, whatever the venue chips and the Spot / Perp filter say; with none ticked, none is counted. Each market\'s trades stay at its own prices, so a USD spot market can sit 10 basis points or more from the perpetuals. The bar statistics\' oi chg row counts the OI pane\'s markets.')), marketPicker(store, flow, 'footprint')]
+      : [note(t('Aggregated adds every market whose venue is switched on, inside the Spot / Perp filter, onto the chart market\'s candles. Each market\'s trades stay at its own prices: perpetuals trade within a few basis points of each other, but USD spot markets can sit 10 basis points or more away, so choose Perp in the filter to keep the rows sharp. Open interest in the bar statistics stays the OI pane\'s market.'))]),
     heading(t('Cells')),
     selectRow(t('Numbers'), t('What each row prints once the candles are wide enough.'), [['split', t('Sold × bought')], ['delta', t('Delta')], ['total', t('Total')], ['none', t('None')]], fp.text, v => set({ text: v === 'delta' || v === 'total' || v === 'none' ? v : 'split' })),
     heading(t('Imbalances')),

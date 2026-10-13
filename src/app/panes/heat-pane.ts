@@ -20,6 +20,7 @@ import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } fr
 import { tradedHeader, tradedLines, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
 import { flowIds, flowLoadIds } from '../cvd/ids.ts';
 import { aggregateIds } from '../cvd/model.ts';
+import { resolvePicks } from '../market-choice.ts';
 import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from '../absorption.ts';
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
 import { venueLabel } from '../venues.ts';
@@ -441,11 +442,17 @@ export class HeatPane {
    * the bar statistics' delta and the Delta pane's agree; at most MAX_PROFILE_INSTRUMENTS. Worked out again only when what it depends on changes.
    */
   footprintMarkets(state: AppState): string[] {
-    if (state.footprint.markets !== 'all') return [state.marketId];
+    if (state.footprint.markets === 'chart') return [state.marketId];
+    // Picked: the markets of the picks on this coin, whatever the chips and the filter say (an empty list counts none).
+    if (state.footprint.markets === 'custom') {
+      const key = [state.markets, state.customMarkets.footprint, this.hub.flow.ids.length, this.hub.flow.loads];
+      if (!this.#footprintIds || this.#footprintIds.key.length !== key.length || this.#footprintIds.key.some((k, i) => k !== key[i])) this.#footprintIds = { key, ids: resolvePicks(state, this.hub.flow, state.customMarkets.footprint, false) };
+      return this.#footprintIds.ids;
+    }
     // What the set depends on: the markets, the chips and the filter, which books are on the map, and the flow held (a load can make a market
     // with older minutes count, `FlowBook.loads`), compared by value where they are not replaced when they change.
     const key = [state.markets, state.disabledVenues, state.scope, state.levels ? state.levels.books.map(b => b.venue).join(',') : null, this.hub.flow.ids.length, this.hub.flow.loads];
-    if (!this.#footprintIds || this.#footprintIds.key.some((k, i) => k !== key[i])) this.#footprintIds = { key, ids: aggregateIds(this.hub.flow, flowIds(state, this.hub.flow.ids), id => kindOf(state.markets, id)).sort().slice(0, MAX_PROFILE_INSTRUMENTS) };
+    if (!this.#footprintIds || this.#footprintIds.key.length !== key.length || this.#footprintIds.key.some((k, i) => k !== key[i])) this.#footprintIds = { key, ids: aggregateIds(this.hub.flow, flowIds(state, this.hub.flow.ids), id => kindOf(state.markets, id)).sort().slice(0, MAX_PROFILE_INSTRUMENTS) };
     // None (every venue off, or none inside the filter) counts none: the chart market is not put in their place.
     return this.#footprintIds.ids;
   }

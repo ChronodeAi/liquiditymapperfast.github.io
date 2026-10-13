@@ -1190,7 +1190,6 @@
  "{n} added together": "{n} 个相加",
  "{n} venues added together": "{n} 个交易所相加",
  "All perpetuals": "所有永续",
- "Whose open interest this pane, the bar statistics and NL/NS count: the perpetuals of every venue switched on added together, or the chart market alone.": "此面板、柱状统计和 NL/NS 计算谁的持仓量：所有已开启交易所的永续合约相加，或仅图表市场。",
  "With the OI pane's Venues on All perpetuals (the default), each venue's change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue's buyers say nothing about who opened positions on another.": "当 OI 面板的“交易所”为“所有永续”（默认）时，每个交易所的持仓量变化分给在该交易所以市价成交的一方，然后再把各交易所相加：一个交易所的买方并不能说明谁在另一个交易所开了仓。",
  "{n} more venues": {
   "other": "另外 {n} 个交易所"
@@ -1232,5 +1231,24 @@
  "No long/short readings for this time.": "此时没有多空读数。",
  "Reading the long/short ratios…": "正在读取多空比…",
  "server only": "仅服务器",
- "long": "多头"
+ "long": "多头",
+ "Chosen markets": "所选市场",
+ "The markets ticked below are added together onto the chart market's candles, whatever the venue chips and the Spot / Perp filter say; with none ticked, none is counted. Each market's trades stay at its own prices, so a USD spot market can sit 10 basis points or more from the perpetuals. The bar statistics' oi chg row counts the OI pane's markets.": "下面勾选的市场会叠加到图表市场的K线上，无论交易所标签和现货/永续筛选如何；一个都不勾选则不计任何市场。各市场的成交保留在其自身价格上，所以美元现货市场可能与永续相差 10 个基点以上。柱状统计的 oi chg 行计入 OI 面板的市场。",
+ "Count (in its panel) chooses whose market orders are added together: every market switched on (Aggregated), the chart market, or Chosen markets, ticked in a list whatever the venue chips and the Spot / Perp filter say. A choice is an exchange and a kind (Binance perpetual, Coinbase spot), so a layout made on one coin picks the same exchanges' markets on another; one the coin is not listed on counts nothing, and with none ticked nothing is counted.": "计数（在其面板中）选择叠加哪些市价单：所有已开启的市场（汇总）、图表市场，或所选市场（在列表中勾选，无论交易所标签和现货/永续筛选如何）。选择的是交易所和类型（Binance 永续、Coinbase 现货），所以在一个币种上保存的布局在另一个币种上会选择相同交易所的市场；未上市该币种的交易所不计任何内容，一个都不勾选则不计任何内容。",
+ "Venues can also be Chosen markets: the perpetuals ticked in its panel (Choose…, or Markets… in the Delta pane with NL/NS shown), added together whatever the venue chips and the Spot / Perp filter say. NL/NS and the Long/Short pane count the same markets. With none ticked, nothing is counted.": "交易所也可以设为所选市场：在其面板中勾选的永续（选择…，或显示 NL/NS 时 Delta 面板中的市场…），无论交易所标签和现货/永续筛选如何都会相加。NL/NS 和多空比面板计入相同的市场。一个都不勾选则不计任何内容。",
+ "Perpetual": "永续",
+ "not listed for this coin here": "此处该币种未上市",
+ "No perpetual of an exchange whose open interest is read is listed yet.": "尚无可读取持仓量的交易所的永续合约。",
+ "No market is listed yet.": "尚无任何市场。",
+ "Whose open interest the OI pane, the bar statistics, NL/NS and the Long/Short pane count.": "OI 面板、柱状统计、NL/NS 和多空比面板计入谁的持仓量。",
+ "The perpetuals ticked below are added together whatever the venue chips and the Spot / Perp filter say. With none ticked, none is counted.": "下面勾选的永续会相加，无论交易所标签和现货/永续筛选如何。一个都不勾选则不计任何市场。",
+ "All perpetuals adds the perpetuals of every venue switched on, inside the Spot / Perp filter, on an exchange whose open interest is read.": "所有永续会把现货/永续筛选范围内每个已开启交易所中、可读取持仓量的交易所的永续相加。",
+ "The chart market alone, or a reference market standing in where it has no open interest (the pane says which).": "仅图表市场，或在其没有持仓量时代替它的参考市场（面板会说明是哪个）。",
+ "Markets…": "市场…",
+ "Whose open interest NL/NS counts: the OI pane's markets, chosen here or in the OI pane.": "NL/NS 计入谁的持仓量：OI 面板的市场，在此处或 OI 面板中选择。",
+ "Open interest markets": "持仓量市场",
+ "Whose open interest this pane, the bar statistics, NL/NS and the Long/Short pane count: the perpetuals of every venue switched on added together, the chart market alone, or the markets you choose.": "此面板、柱状统计、NL/NS 和多空比面板计入谁的持仓量：每个已开启交易所的永续相加、仅图表市场，或您选择的市场。",
+ "Pick the perpetuals whose open interest is added together.": "选择要相加持仓量的永续合约。",
+ "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个，且是其全部，不只是方框内的价格。上升：开仓；下降：平仓。不是谁开仓或平仓。",
+ "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个。上升：开仓；下降：平仓。不是谁开仓或平仓。"
 }
