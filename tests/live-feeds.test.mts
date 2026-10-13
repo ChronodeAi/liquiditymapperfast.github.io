@@ -933,7 +933,7 @@ test('oversized non-public feed messages retire their socket and enter backoff',
   }
 });
 
-test('Kraken invalidation releases adapter checksum maps before reconnect', async () => {
+test('Kraken invalidation releases the session levels before reconnect', async () => {
   const fake = makeFakeTransport();
   const messages: LiveFeedEvent[] = [];
   const manager = new LiveFeedManager({ networkEnabled: true, transportFactory: fake.factory, oiPollMs: 0, onMessage: item => messages.push(item) });
@@ -942,18 +942,18 @@ test('Kraken invalidation releases adapter checksum maps before reconnect', asyn
   const feed = manager.feeds.get('kraken-depth');
   const bids = [{ price: '100', qty: '2' }];
   const asks = [{ price: '101', qty: '3' }];
-  defined(socket).emit({ method: 'subscribe', success: true, result: { channel: 'book', symbol: ['BTC/USD'], depth: 100, snapshot: true } });
+  defined(socket).emit({ method: 'subscribe', success: true, result: { channel: 'book', symbol: ['BTC/USD'], depth: 1000, snapshot: true } });
   defined(socket).emit({ channel: 'book', type: 'snapshot', data: [{ symbol: 'BTC/USD', bids, asks, checksum: krakenBookChecksum({ bids, asks }), timestamp: 1_700_000_000 }] });
-  assert.equal(fieldMap(fields(defined(defined(feed).session)).bids).size, 1);
-  assert.equal(fieldMap(fields(defined(defined(feed).session)).asks).size, 1);
+  assert.equal((fields(defined(defined(feed).session)).bids as unknown[]).length, 1);
+  assert.equal((fields(defined(defined(feed).session)).asks as unknown[]).length, 1);
 
   defined(socket).closeWith('injected Kraken disconnect');
 
   assert.equal(defined(defined(defined(feed).session).book).complete, false);
   assert.equal(defined(defined(defined(feed).session).book).bids.length, 0);
   assert.equal(defined(defined(defined(feed).session).book).asks.length, 0);
-  assert.equal(fieldMap(fields(defined(defined(feed).session)).bids).size, 0);
-  assert.equal(fieldMap(fields(defined(defined(feed).session)).asks).size, 0);
+  assert.equal((fields(defined(defined(feed).session)).bids as unknown[]).length, 0);
+  assert.equal((fields(defined(defined(feed).session)).asks as unknown[]).length, 0);
   assert.equal(messages.filter(item => item.message.invalidated === true).length, 1);
   manager.stop();
 });

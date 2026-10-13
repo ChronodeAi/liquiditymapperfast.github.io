@@ -9,7 +9,7 @@ export interface CryptocomDepthSession extends DepthSessionIdentity { instrument
 export const CRYPTOCOM_REST_URL = 'https://api.crypto.com/exchange/v1';
 export const CRYPTOCOM_PUBLIC_WS_URL = 'wss://stream.crypto.com/exchange/v1/market';
 export const CRYPTOCOM_DEFAULT_INSTRUMENT = 'BTCUSD-PERP';
-export const CRYPTOCOM_DEFAULT_DEPTH = 10;
+export const CRYPTOCOM_DEFAULT_DEPTH = 50;
 export const CRYPTOCOM_DEFAULT_UPDATE_FREQUENCY = 100;
 export const CRYPTOCOM_BOOK_SUBSCRIPTION_TYPE = 'SNAPSHOT_AND_UPDATE';
 

@@ -3,7 +3,8 @@ import { AdapterTransportError, epochMs, finiteNumber, sideLevels } from './comm
 
 export interface KrakenRawLevel { price: string; qty: string; numericPrice: number; numericQty: number; }
 export type KrakenDepthMessage = ReturnType<typeof normalizeKrakenDepth>;
-export interface KrakenDepthSession extends DepthSessionIdentity { depth: number; book: AdapterDepthBook | null; bids: Map<string, KrakenRawLevel>; asks: Map<string, KrakenRawLevel>; }
+/** `bids` and `asks` best first, cut to `depth`; `pending`: the last update taken with `handOn: false`, when the levels have moved on from `book`. */
+export interface KrakenDepthSession extends DepthSessionIdentity { depth: number; book: AdapterDepthBook | null; bids: KrakenRawLevel[]; asks: KrakenRawLevel[]; pending: KrakenDepthMessage | null; }
 /** Kraken spot WebSocket v2 book descriptors, checksum helpers, and sessions. */
 export const KRAKEN_REST_URL = 'https://api.kraken.com/0/public';
 export const KRAKEN_PUBLIC_WS_URL = 'wss://ws.kraken.com/v2';
@@ -32,13 +33,6 @@ function decimalText(value: unknown, field: string) {
   const text = String(value ?? '').trim();
   if (!/^\d+(?:\.\d+)?$/.test(text)) throw new TypeError(`Invalid Kraken ${field}`);
   return text;
-}
-
-function canonicalDecimal(value: unknown, field: string) {
-  const text = decimalText(value, field); const [whole, fraction = ''] = text.split('.');
-  const normalizedWhole = whole.replace(/^0+(?=\d)/, '') || '0';
-  const normalizedFraction = fraction.replace(/0+$/, '');
-  return normalizedFraction ? `${normalizedWhole}.${normalizedFraction}` : normalizedWhole;
 }
 
 function rawLevels(values: unknown, field: string) {
@@ -161,33 +155,37 @@ export function normalizeKrakenDepth(payload: unknown, { symbol: pair, receivedA
   return { kind: 'depthDelta' as const, ...common, bids: sideLevels(bids.map(level => [level.price, level.qty]), 'bids'), asks: sideLevels(asks.map(level => [level.price, level.qty]), 'asks') };
 }
 
-function levelMap(rows: KrakenRawLevel[] = []) {
-  return new Map(arrayValue(rows).map((row) => [canonicalDecimal(row.price, 'price'), { price: row.price, qty: row.qty, numericPrice: row.numericPrice, numericQty: row.numericQty }]));
-}
-
-function applyRawRows(target: Map<string, KrakenRawLevel>, rows: KrakenRawLevel[] = []) {
-  for (const row of rows) {
-    const key = canonicalDecimal(row.price, 'price');
-    if (row.numericQty === 0) target.delete(key); else target.set(key, row);
-  }
-}
-
-/**
- * One side, best first, cut to `depth`: the levels past it leave the map. Sorted once per message and used for the prune, the checksum and the
- * book sent on. At depth 1 000 the three sorts this used to take (and the decimal text of every kept level parsed again) cost 2.7 ms an
- * update, more than Kraken's update rate leaves: the server fell behind for good (2026-10-12).
+/*
+ * A session keeps each side as one array, best first, and changes it in place: an update's few levels are found by binary search, and the
+ * side is cut to the subscribed depth (Kraken sends no removal for a level pushed past it). At depth 1 000 a session that copied, sorted and
+ * re-read the whole book on each of Kraken's 100 to 250 updates a second, and handed every result on, kept a core busy until the server
+ * stopped answering (2026-10-12); the work per update is now that of the levels it changes, and the book is built only when handed on.
  */
-function keptSide(target: Map<string, KrakenRawLevel>, descending: boolean, depth: number): KrakenRawLevel[] {
-  const entries = [...target.entries()].sort(([, a], [, b]) => descending ? b.numericPrice - a.numericPrice : a.numericPrice - b.numericPrice);
-  for (let i = depth; i < entries.length; i++) target.delete(entries[i]![0]);
-  return (entries.length > depth ? entries.slice(0, depth) : entries).map(([, row]) => row);
+
+/** Where `price` is, or would go, in a side best first. */
+function position(rows: readonly KrakenRawLevel[], price: number, descending: boolean): number {
+  let lo = 0, hi = rows.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1, p = rows[mid]!.numericPrice; if (descending ? p > price : p < price) lo = mid + 1; else hi = mid; }
+  return lo;
 }
 
-/** The levels Kraken's checksum covers: the first ten with a quantity, of a side already best first. */
-function checksumRows(rows: readonly KrakenRawLevel[]): KrakenRawLevel[] {
-  const out: KrakenRawLevel[] = [];
-  for (const row of rows) { if (row.numericQty > 0) out.push(row); if (out.length === 10) break; }
-  return out;
+/** Applies levels to a side best first (a quantity of 0 removes one), then cuts it to `depth`. */
+function applySide(rows: KrakenRawLevel[], changes: readonly KrakenRawLevel[], descending: boolean, depth: number): void {
+  for (const row of changes) {
+    const i = position(rows, row.numericPrice, descending), same = i < rows.length && rows[i]!.numericPrice === row.numericPrice;
+    if (row.numericQty === 0) { if (same) rows.splice(i, 1); }
+    else if (same) rows[i] = row;
+    else rows.splice(i, 0, row);
+  }
+  if (rows.length > depth) rows.length = depth;
+}
+
+/** Kraken's checksum of the first ten levels of each side (they hold no zero quantity), asks then bids. */
+function sessionChecksum(bids: readonly KrakenRawLevel[], asks: readonly KrakenRawLevel[]): number {
+  let text = '';
+  for (let i = 0; i < 10 && i < asks.length; i++) text += checksumPart(asks[i]!.price) + checksumPart(asks[i]!.qty);
+  for (let i = 0; i < 10 && i < bids.length; i++) text += checksumPart(bids[i]!.price) + checksumPart(bids[i]!.qty);
+  return krakenCrc32(text);
 }
 
 function invalidated(session: KrakenDepthSession, reason: string): DepthSessionResult<KrakenDepthSession> {
@@ -197,10 +195,15 @@ function invalidated(session: KrakenDepthSession, reason: string): DepthSessionR
 
 export function createKrakenDepthSession({ topic, instrumentId: id, sessionToken, depth = 100 }: AdapterOptions = {}): KrakenDepthSession {
   if (!topic || !id || !sessionToken) throw new TypeError('Kraken depth session topic, instrument, and token are required');
-  return { venue: 'kraken', topic: String(topic), instrumentId: String(id), sessionToken: String(sessionToken), depth: Math.max(10, Math.min(1_000, Math.trunc(Number(depth) || 100))), status: 'awaiting-snapshot', book: null, invalidated: false, bids: new Map<string, KrakenRawLevel>(), asks: new Map<string, KrakenRawLevel>() };
+  return { venue: 'kraken', topic: String(topic), instrumentId: String(id), sessionToken: String(sessionToken), depth: Math.max(10, Math.min(1_000, Math.trunc(Number(depth) || 100))), status: 'awaiting-snapshot', book: null, invalidated: false, bids: [], asks: [], pending: null };
 }
 
-export function applyKrakenDepthSessionMessage(session: KrakenDepthSession, { topic, sessionToken, update }: DepthSessionMessageOptions<KrakenDepthMessage> = {}): DepthSessionResult<KrakenDepthSession> {
+/**
+ * Takes a snapshot or an update and checks Kraken's checksum on it. An update changes the session's sides in place (a rejected one leaves
+ * them changed, but the session then wants a fresh snapshot and takes nothing else); a snapshot starts new ones. With `handOn: false` an
+ * update builds no book (`held`, kept as `pending`: `handOnKrakenDepthSession` builds it later); a snapshot always does.
+ */
+export function applyKrakenDepthSessionMessage(session: KrakenDepthSession, { topic, sessionToken, update, handOn = true }: DepthSessionMessageOptions<KrakenDepthMessage> = {}): DepthSessionResult<KrakenDepthSession> {
   if (!session || !update) throw new TypeError('Kraken depth session and update are required');
   if (topic !== session.topic) return { session, accepted: false, ignored: true, reason: 'wrong-topic' };
   if (sessionToken !== session.sessionToken) return { session, accepted: false, ignored: true, reason: 'cross-session' };
@@ -209,15 +212,29 @@ export function applyKrakenDepthSessionMessage(session: KrakenDepthSession, { to
   const isSnapshot = update.kind === 'depthSnapshot'; const isUpdate = update.kind === 'depthDelta';
   if (!isSnapshot && !isUpdate) throw new TypeError('unsupported Kraken depth update');
   if (isUpdate && (!session.book || session.status !== 'live' || session.invalidated)) return { session, accepted: false, ignored: true, reason: 'fresh-snapshot-required' };
-  const bids = isSnapshot ? levelMap(levels.bids) : new Map(session.bids); const asks = isSnapshot ? levelMap(levels.asks) : new Map(session.asks);
-  if (isUpdate) { applyRawRows(bids, levels.bids); applyRawRows(asks, levels.asks); }
-  const keptBids = keptSide(bids, true, session.depth), keptAsks = keptSide(asks, false, session.depth);
-  const calculated = krakenBookChecksum({ bids: checksumRows(keptBids), asks: checksumRows(keptAsks) });
-  if (calculated !== update.checksum) return invalidated(session, `Kraken checksum mismatch: expected ${calculated}, received ${update.checksum}`);
+  const bids = isSnapshot ? [] : session.bids, asks = isSnapshot ? [] : session.asks;
+  applySide(bids, levels.bids, true, session.depth); applySide(asks, levels.asks, false, session.depth);
+  const calculated = sessionChecksum(bids, asks);
+  if (calculated !== update.checksum) return invalidated({ ...session, bids, asks }, `Kraken checksum mismatch: expected ${calculated}, received ${update.checksum}`);
+  if (isUpdate && !handOn) {
+    session.pending = update;
+    return { session, accepted: true, ignored: false, reason: null, held: true };
+  }
+  return { session: handedOn({ ...session, bids, asks }, update), accepted: true, ignored: false, reason: null };
+}
+
+/** The session with its whole book built from its levels as of `update` (whose checksum they matched). */
+function handedOn(session: KrakenDepthSession, update: KrakenDepthMessage): KrakenDepthSession {
   // The session's whole book goes downstream, so it is labelled a snapshot even when an update produced it: the runtime state replaces a
   // snapshot but merges a delta, and merging a full book never removes a level that has left it (the book grew and crossed within minutes).
-  const nextBook = { ...update, kind: 'depthSnapshot' as const, coverage: 'partial' as const, checksum: calculated, checksumVerified: true, checksumLevels: undefined, sequence: undefined, complete: true, gap: false, invalidated: false, resyncRequired: false, continuity: 'checksum-verified', status: 'live', bids: keptBids.map(row => ({ price: row.numericPrice, amount: row.numericQty })), asks: keptAsks.map(row => ({ price: row.numericPrice, amount: row.numericQty })) };
-  return { session: { ...session, bids, asks, book: nextBook, status: 'live', invalidated: false }, accepted: true, ignored: false, reason: null };
+  const book = { ...update, kind: 'depthSnapshot' as const, coverage: 'partial' as const, checksumVerified: true, checksumLevels: undefined, sequence: undefined, complete: true, gap: false, invalidated: false, resyncRequired: false, continuity: 'checksum-verified', status: 'live', bids: session.bids.map(row => ({ price: row.numericPrice, amount: row.numericQty })), asks: session.asks.map(row => ({ price: row.numericPrice, amount: row.numericQty })) };
+  return { ...session, book, status: 'live', invalidated: false, pending: null };
+}
+
+/** Hands on the book an update held back (`pending`): null when there is none, or the session wants a fresh snapshot. */
+export function handOnKrakenDepthSession(session: KrakenDepthSession): DepthSessionResult<KrakenDepthSession> | null {
+  if (!session.pending || session.invalidated || session.status !== 'live') return null;
+  return { session: handedOn(session, session.pending), accepted: true, ignored: false, reason: null };
 }
 
 export class KrakenConnector {

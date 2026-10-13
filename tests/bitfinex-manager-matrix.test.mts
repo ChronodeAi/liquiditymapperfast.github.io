@@ -3,7 +3,7 @@ import type { LiveFeedTransportOptions, LiveFeedSocket, LiveFeedEvent, LiveFeedS
 import type { ExchangeRestRequest } from '../src/server/rest-transport.mts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LiveFeedManager } from '../src/server/live-feeds.mts';
+import { LiveFeedManager, WHOLE_BOOK_EVERY_MS } from '../src/server/live-feeds.mts';
 import {
   VENUE_TRANSPORT_POLICIES,
   applyBitfinexDepthSessionMessage,
@@ -11,6 +11,7 @@ import {
   buildBitfinexRequest,
   buildBitfinexSubscription,
   createBitfinexDepthSession,
+  handOnBitfinexDepthSession,
   normalizeBitfinexDepth,
   normalizeBitfinexSymbolsDetails,
 } from '../src/adapters/index.mts';
@@ -104,9 +105,38 @@ test('Bitfinex session applies signed updates, verifies checksums, and fences ma
   assert.equal(rejected.session.invalidated, true);
 });
 
+test('Bitfinex session: held updates change its levels, a checksum is checked against them, and the held book is handed on later', () => {
+  const options = { topic: 'book:tBTCUSD', sessionToken: 'bitfinex-depth:1', channelId: 42 };
+  const book = new Map<number, number[]>(initial.map(row => [row[0]!, row]));
+  const rowsNow = () => [...book.values()];
+  let session = applyBitfinexDepthSessionMessage(createBitfinexDepthSession({ topic: 'book:tBTCUSD', instrumentId: 'bitfinex:BTCUSD', sessionToken: 'bitfinex-depth:1' }), { ...options, update: normalizeBitfinexDepth(frame(), { symbol: 'BTCUSD' }) }).session;
+  let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 300; k++) {
+    // A bid below 100.5 or an ask above it; a count of 0 removes the level.
+    const bid = rnd() < 0.5, price = bid ? 100 - Math.floor(rnd() * 30) * 0.5 : 101 + Math.floor(rnd() * 30) * 0.5;
+    const row = rnd() < 0.3 && book.has(price) ? [price, 0, bid ? 1 : -1] : [price, 1 + Math.floor(rnd() * 3), (bid ? 1 : -1) * Number((0.1 + rnd()).toFixed(4))];
+    if (row[1] === 0) book.delete(price); else book.set(price, row);
+    const held = applyBitfinexDepthSessionMessage(session, { ...options, update: normalizeBitfinexDepth([42, row], { symbol: 'BTCUSD' }), handOn: false });
+    assert.equal(held.accepted && held.held, true);
+    session = held.session;
+    const verified = applyBitfinexDepthSessionMessage(session, { ...options, update: normalizeBitfinexDepth(checksumFrame(rowsNow()), { symbol: 'BTCUSD' }) });
+    assert.equal(verified.accepted, true, `update ${k}: the checksum is of the levels held, not of the book handed on`);
+    session = verified.session;
+  }
+  const bids = rowsNow().filter(row => row[2]! > 0).sort((a, b) => b[0]! - a[0]!).map(row => ({ price: row[0], amount: row[2] }));
+  const asks = rowsNow().filter(row => row[2]! < 0).sort((a, b) => a[0]! - b[0]!).map(row => ({ price: row[0], amount: -row[2]! }));
+  assert.notDeepEqual(defined(session.book).bids, bids, 'the book handed on is behind');
+  const flushed = defined(handOnBitfinexDepthSession(session));
+  assert.deepEqual(defined(flushed.session.book).bids, bids);
+  assert.deepEqual(defined(flushed.session.book).asks, asks);
+  assert.equal(defined(flushed.session.book).kind, 'depthSnapshot');
+  assert.equal(handOnBitfinexDepthSession(flushed.session), null);
+});
+
 test('Bitfinex manager requires exact ACK, sends checksum config, routes heartbeats, and fences reconnects', async () => {
   const fake = transport(); const rest = restTransport(); const messages:LiveFeedEvent[] = []; const timers:{fn:()=>unknown;delay:number}[] = [];
-  const manager = new LiveFeedManager({ networkEnabled: true, transportFactory: fake.factory, restTransport: rest, transportPolicies: policies(), oiPollMs: 0, reconnectBaseMs: 10, schedule: (fn, delay) => { const timer = { fn, delay }; timers.push(timer); return timer; }, cancel: () => {}, onMessage: message => messages.push(message) });
+  let clock = 1_000_000;
+  const manager = new LiveFeedManager({ networkEnabled: true, transportFactory: fake.factory, restTransport: rest, transportPolicies: policies(), oiPollMs: 0, reconnectBaseMs: 10, now: () => clock, schedule: (fn, delay) => { const timer = { fn, delay }; timers.push(timer); return timer; }, cancel: () => {}, onMessage: message => messages.push(message) });
   await manager.start({ selectedOrderbookVenues: ['bitfinex'], bitfinexEnabled: true, bitfinexSymbol: 'BTCUSD' });
   const socket = defined(fake.sockets.find(item => item.spec.id === 'bitfinex-depth'));
   assert.equal(socket.spec.request.url, 'wss://api-pub.bitfinex.com/ws/2');
@@ -124,6 +154,8 @@ test('Bitfinex manager requires exact ACK, sends checksum config, routes heartbe
   assert.equal(manager.status()['bitfinex-depth'].checksumVerified, true);
   socket.emit([99, [100, 2, 5]]);
   assert.equal(messages.filter(item => item.id === 'bitfinex-depth').length, initialMessages.length);
+  // A hand-on interval after the snapshot, so the update is handed on at once.
+  clock += WHOLE_BOOK_EVERY_MS;
   socket.emit([42, [100, 2, 4]]);
   socket.emit(checksumFrame([[100, 2, 4], [99, 1, 1], [101, 3, -2], [102, 1, -1]]));
   assert.equal(messages.filter(item => item.message.kind === 'depthDelta').length, 0, 'the whole book is delivered, so it is labelled a snapshot');

@@ -41,7 +41,7 @@ function restTransport({ instrumentRow = { symbol: 'BTCUSD-PERP', inst_type: 'PE
     request: async (request:ExchangeRestRequest) => {
       requests.push(request);
       if (request.url.includes('/public/get-instruments')) return { id: 1, method: 'public/get-instruments', code: 0, result: { data: [instrumentRow] } };
-      if (request.url.includes('/public/get-book')) return { code: 0, result: { depth: 10, instrument_name: 'BTCUSD-PERP', data: [{ asks: [['101', '2', 1]], bids: [['100', '3', 1]], t: 1_700_000_000_000 }] } };
+      if (request.url.includes('/public/get-book')) return { code: 0, result: { depth: 50, instrument_name: 'BTCUSD-PERP', data: [{ asks: [['101', '2', 1]], bids: [['100', '3', 1]], t: 1_700_000_000_000 }] } };
       if (request.url.includes('/instrument?')) return [];
       if (request.url.includes('/exchangeInfo')) return { symbols: [] };
       if ((typeof request.body === 'string' && request.body.includes('metaAndAssetCtxs'))) return [{ universe: [] }, []];
@@ -57,25 +57,25 @@ function policiesWithHeartbeat(interval = 60_000, timeout = 60_000) {
 }
 
 function snapshotFrame(sequence = 10) {
-  return { id: -1, method: 'subscribe', code: 0, result: { instrument_name: 'BTCUSD-PERP', subscription: 'book.BTCUSD-PERP.10', channel: 'book', depth: 10, data: [{ asks: [['101', '2', 1]], bids: [['100', '3', 1]], t: 1_700_000_000_000, tt: 1_700_000_000_001, u: sequence }] } };
+  return { id: -1, method: 'subscribe', code: 0, result: { instrument_name: 'BTCUSD-PERP', subscription: 'book.BTCUSD-PERP.50', channel: 'book', depth: 50, data: [{ asks: [['101', '2', 1]], bids: [['100', '3', 1]], t: 1_700_000_000_000, tt: 1_700_000_000_001, u: sequence }] } };
 }
 
 function updateFrame(sequence = 11, previous = 10) {
-  return { id: -1, method: 'subscribe', code: 0, result: { instrument_name: 'BTCUSD-PERP', subscription: 'book.BTCUSD-PERP.10', channel: 'book.update', depth: 10, data: [{ update: { asks: [['101', '0', 0]], bids: [['99', '1', 1]] }, t: 1_700_000_001_000, tt: 1_700_000_001_001, u: sequence, pu: previous }] } };
+  return { id: -1, method: 'subscribe', code: 0, result: { instrument_name: 'BTCUSD-PERP', subscription: 'book.BTCUSD-PERP.50', channel: 'book.update', depth: 50, data: [{ update: { asks: [['101', '0', 0]], bids: [['99', '1', 1]] }, t: 1_700_000_001_000, tt: 1_700_000_001_001, u: sequence, pu: previous }] } };
 }
 
-function subscribeAckFrame({ id = 1, channel = 'book.BTCUSD-PERP.10' } = {}) {
+function subscribeAckFrame({ id = 1, channel = 'book.BTCUSD-PERP.50' } = {}) {
   return { id, method: 'subscribe', code: 0, channel };
 }
 
 test('Crypto.com descriptors, metadata, REST snapshot, and provider envelope normalize exactly', () => {
   assert.equal(buildCryptocomRequest('instrument').url, 'https://api.crypto.com/exchange/v1/public/get-instruments');
-  assert.equal(buildCryptocomRequest('depth', { instrumentName: 'BTCUSD-PERP', depth: 10 }).url, 'https://api.crypto.com/exchange/v1/public/get-book?instrument_name=BTCUSD-PERP&depth=10');
+  assert.equal(buildCryptocomRequest('depth', { instrumentName: 'BTCUSD-PERP', depth: 50 }).url, 'https://api.crypto.com/exchange/v1/public/get-book?instrument_name=BTCUSD-PERP&depth=50');
   assert.throws(() => buildCryptocomRequest('depth', { depth: 25 }), /depth/);
-  assert.deepEqual(buildCryptocomSubscription('depth', { instrumentName: 'BTCUSD-PERP', depth: 10, updateFrequency: 100 }), {
+  assert.deepEqual(buildCryptocomSubscription('depth', { instrumentName: 'BTCUSD-PERP', depth: 50, updateFrequency: 100 }), {
     url: 'wss://stream.crypto.com/exchange/v1/market', method: 'subscribe', op: 'subscribe', id: 1,
-    params: { channels: ['book.BTCUSD-PERP.10'], book_subscription_type: 'SNAPSHOT_AND_UPDATE', book_update_frequency: 100 },
-    channel: 'book', topic: 'book.BTCUSD-PERP.10', instrumentName: 'BTCUSD-PERP', symbol: 'BTCUSD-PERP', depth: 10,
+    params: { channels: ['book.BTCUSD-PERP.50'], book_subscription_type: 'SNAPSHOT_AND_UPDATE', book_update_frequency: 100 },
+    channel: 'book', topic: 'book.BTCUSD-PERP.50', instrumentName: 'BTCUSD-PERP', symbol: 'BTCUSD-PERP', depth: 50,
     subscriptionType: 'SNAPSHOT_AND_UPDATE', updateFrequency: 100, snapshot: true,
   });
   const metadata = normalizeCryptocomInstrument({ result: { data: [{ symbol: 'BTCUSD-PERP', inst_type: 'PERPETUAL_SWAP', base_ccy: 'BTC', quote_ccy: 'USD', price_tick_size: '0.5', qty_tick_size: '0.001', tradable: true, product_type: 'PERPETUAL_SWAP' }] } }, { instrumentName: 'BTCUSD-PERP', receivedAt: 1_700_000_000_000 });
@@ -84,17 +84,17 @@ test('Crypto.com descriptors, metadata, REST snapshot, and provider envelope nor
   assert.deepEqual(metadata.assets[0], {
     instrumentId: 'cryptocom:BTCUSD-PERP', venue: 'cryptocom', nativeSymbol: 'BTCUSD-PERP', symbol: 'BTCUSD-PERP', base: 'BTC', quote: 'USD', marketType: 'perpetual', tickSize: 0.5, quantityUnit: 'base', isDelisted: false, status: 'online', lotSize: 0.001, quantityDecimals: undefined, expiryTimestamp: undefined, underlyingSymbol: undefined, instrumentType: 'PERPETUAL_SWAP', metadataSource: 'cryptocom-v1-get-instruments',
   });
-  const rest = normalizeCryptocomDepth({ code: 0, result: { depth: 10, instrument_name: 'BTCUSD-PERP', data: [{ asks: [['101', '2', 1]], bids: [['100', '3', 1]], t: 1_700_000_000_000 }] } }, { instrumentName: 'BTCUSD-PERP', depth: 10, receivedAt: 1_700_000_000_500 });
+  const rest = normalizeCryptocomDepth({ code: 0, result: { depth: 50, instrument_name: 'BTCUSD-PERP', data: [{ asks: [['101', '2', 1]], bids: [['100', '3', 1]], t: 1_700_000_000_000 }] } }, { instrumentName: 'BTCUSD-PERP', depth: 50, receivedAt: 1_700_000_000_500 });
   assert.equal(rest.kind, 'depthSnapshot');
   assert.equal(rest.sequence, null);
-  const snapshot = normalizeCryptocomDepth(snapshotFrame(), { instrumentName: 'BTCUSD-PERP', depth: 10, receivedAt: 1_700_000_000_500 });
+  const snapshot = normalizeCryptocomDepth(snapshotFrame(), { instrumentName: 'BTCUSD-PERP', depth: 50, receivedAt: 1_700_000_000_500 });
   assert.equal(snapshot.sequence, 10);
   assert.equal(snapshot.sourceTimestamp, 1_700_000_000_001);
   assert.equal(snapshot.market.base, 'BTC');
   const spot = normalizeCryptocomInstrument({ result: { data: [{ symbol: 'BTC_USDT', inst_type: 'CCY_PAIR', base_ccy: 'BTC', quote_ccy: 'USDT' }] } }, { instrumentName: 'BTC_USDT' });
   assert.equal(spot.assets[0].marketType, 'spot');
-  assert.equal(normalizeCryptocomDepth({ ...snapshotFrame(), result: { ...snapshotFrame().result, instrument_name: 'BTCUSD-260925', subscription: 'book.BTCUSD-260925.10' } }, { instrumentName: 'BTCUSD-260925', depth: 10 }).market.marketType, 'delivery');
-  const update = normalizeCryptocomDepth(updateFrame(), { instrumentName: 'BTCUSD-PERP', depth: 10 });
+  assert.equal(normalizeCryptocomDepth({ ...snapshotFrame(), result: { ...snapshotFrame().result, instrument_name: 'BTCUSD-260925', subscription: 'book.BTCUSD-260925.50' } }, { instrumentName: 'BTCUSD-260925', depth: 50 }).market.marketType, 'delivery');
+  const update = normalizeCryptocomDepth(updateFrame(), { instrumentName: 'BTCUSD-PERP', depth: 50 });
   assert.ok(update.kind === 'depthDelta');
   assert.equal(update.previousSequence, 10);
   assert.equal(update.asks[0].amount, 0);
@@ -102,20 +102,20 @@ test('Crypto.com descriptors, metadata, REST snapshot, and provider envelope nor
 });
 
 test('Crypto.com reducer replaces periodic snapshots, applies pu/u deltas, deletes zero levels, and fences gaps', () => {
-  const session = createCryptocomDepthSession({ topic: 'book.BTCUSD-PERP.10', instrumentId: 'cryptocom:BTCUSD-PERP', sessionToken: 'cryptocom-depth:1' });
-  const snapshot = normalizeCryptocomDepth(snapshotFrame(10), { instrumentName: 'BTCUSD-PERP', depth: 10 });
+  const session = createCryptocomDepthSession({ topic: 'book.BTCUSD-PERP.50', instrumentId: 'cryptocom:BTCUSD-PERP', sessionToken: 'cryptocom-depth:1' });
+  const snapshot = normalizeCryptocomDepth(snapshotFrame(10), { instrumentName: 'BTCUSD-PERP', depth: 50 });
   const accepted = applyCryptocomDepthSessionMessage(session, { topic: session.topic, sessionToken: session.sessionToken, update: snapshot });
   assert.equal(accepted.accepted, true);
-  const delta = normalizeCryptocomDepth(updateFrame(11, 10), { instrumentName: 'BTCUSD-PERP', depth: 10 });
+  const delta = normalizeCryptocomDepth(updateFrame(11, 10), { instrumentName: 'BTCUSD-PERP', depth: 50 });
   const changed = applyCryptocomDepthSessionMessage(accepted.session, { topic: session.topic, sessionToken: session.sessionToken, update: delta });
   assert.equal(changed.accepted, true);
   assert.equal(defined(changed.session.book).asks.length, 0);
   assert.equal(defined(changed.session.book).bids.some(row => row.price === 99), true);
-  const periodic = normalizeCryptocomDepth(snapshotFrame(30), { instrumentName: 'BTCUSD-PERP', depth: 10 });
+  const periodic = normalizeCryptocomDepth(snapshotFrame(30), { instrumentName: 'BTCUSD-PERP', depth: 50 });
   const replaced = applyCryptocomDepthSessionMessage(changed.session, { topic: session.topic, sessionToken: session.sessionToken, update: periodic });
   assert.equal(replaced.accepted, true);
   assert.equal(replaced.session.lastSequence, 30);
-  const gap = normalizeCryptocomDepth(updateFrame(32, 31), { instrumentName: 'BTCUSD-PERP', depth: 10 });
+  const gap = normalizeCryptocomDepth(updateFrame(32, 31), { instrumentName: 'BTCUSD-PERP', depth: 50 });
   const broken = applyCryptocomDepthSessionMessage(replaced.session, { topic: session.topic, sessionToken: session.sessionToken, update: gap });
   assert.equal(broken.reason, 'resync-required');
   assert.equal(broken.session.invalidated, true);
@@ -129,7 +129,7 @@ test('Crypto.com manager requires exact topic metadata, routes snapshots and del
   await manager.start({ cryptocomEnabled: true, cryptocomSymbol: 'BTCUSD-PERP' });
   const socket = defined(fake.sockets.find(item => item.spec.id === 'cryptocom-depth'));
   assert.equal(socket.spec.request.url, 'wss://stream.crypto.com/exchange/v1/market');
-  assert.deepEqual(JSON.parse(defined(socket.sent.at(-1))), { id: 1, method: 'subscribe', params: { channels: ['book.BTCUSD-PERP.10'], book_subscription_type: 'SNAPSHOT_AND_UPDATE', book_update_frequency: 100 } });
+  assert.deepEqual(JSON.parse(defined(socket.sent.at(-1))), { id: 1, method: 'subscribe', params: { channels: ['book.BTCUSD-PERP.50'], book_subscription_type: 'SNAPSHOT_AND_UPDATE', book_update_frequency: 100 } });
   socket.emit({ id: -1, method: 'subscribe', code: 0, result: { ...snapshotFrame().result, instrument_name: 'ETHUSD-PERP' } });
   assert.equal(manager.status()['cryptocom-depth'].subscriptionAcked, false);
   socket.emit(snapshotFrame(10));

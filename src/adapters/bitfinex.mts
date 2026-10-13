@@ -3,7 +3,9 @@ import { AdapterTransportError, finiteNumber, requireSymbol, sideLevels } from '
 
 export interface BitfinexRow { price: number; count: number; amount: number; priceText?: string; amountText?: string; side?: 'bid' | 'ask'; }
 export type BitfinexDepthMessage = ReturnType<typeof normalizeBitfinexDepth> & { checksum?: number };
-export interface BitfinexDepthSession extends DepthSessionIdentity { channelId: number | null; book: AdapterDepthBook | null; bids: Map<string, BitfinexRow>; asks: Map<string, BitfinexRow>; }
+type BitfinexDepthDelta = Extract<BitfinexDepthMessage, { kind: 'depthDelta' }>;
+/** `bids` and `asks` best first; `pending`: the last update taken with `handOn: false`, when the levels have moved on from `book`. */
+export interface BitfinexDepthSession extends DepthSessionIdentity { channelId: number | null; book: AdapterDepthBook | null; bids: BitfinexRow[]; asks: BitfinexRow[]; pending: BitfinexDepthDelta | null; }
 /** Bitfinex public v2 spot book descriptors, checksum helpers, and sessions. */
 export const BITFINEX_REST_URL = 'https://api-pub.bitfinex.com';
 export const BITFINEX_METADATA_URL = 'https://api.bitfinex.com';
@@ -157,19 +159,36 @@ export function normalizeBitfinexDepth(payload: unknown, { symbol = 'BTCUSD', ch
   return { kind: 'depthSnapshot' as const, ...common, complete: true, coverage: 'partial' as const, continuity: 'checksum-pending', checksumLevels: levels, bids: sideLevels(outputRows(levels, 'bid'), 'bids'), asks: sideLevels(outputRows(levels, 'ask'), 'asks') };
 }
 
-function mapRows(values: BitfinexRow[] = []) {
-  return new Map(arrayValue(values).filter((row) => row.count > 0).map((row) => [`${row.priceText ?? row.price}`, row]));
+/*
+ * A session keeps each side as one array, best first, and changes it in place: Bitfinex at `len` 250 sends about 170 single-level updates a
+ * second, and copying both sides, sorting them and building the whole book for each cost more than the update itself. The book is built
+ * only when handed on (`handOn`).
+ */
+
+/** Where `price` is, or would go, in a side best first. */
+function position(rows: readonly BitfinexRow[], price: number, descending: boolean): number {
+  let lo = 0, hi = rows.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1, p = rows[mid]!.price; if (descending ? p > price : p < price) lo = mid + 1; else hi = mid; }
+  return lo;
 }
 
-function applyRows(target: Map<string, BitfinexRow>, values: BitfinexRow[] = []) {
-  for (const row of values) {
-    const key = `${row.priceText ?? row.price}`;
-    if (row.count === 0) target.delete(key); else target.set(key, row);
-  }
+/** Applies one level to a side best first: a count of 0 removes it. */
+function applyRow(rows: BitfinexRow[], row: BitfinexRow, descending: boolean): void {
+  const i = position(rows, row.price, descending), same = i < rows.length && rows[i]!.price === row.price;
+  if (row.count === 0) { if (same) rows.splice(i, 1); }
+  else if (same) rows[i] = row;
+  else rows.splice(i, 0, row);
 }
 
-function bookRows(bids: Map<string, BitfinexRow>, asks: Map<string, BitfinexRow>) {
-  return { bids: [...bids.values()].sort((a, b) => b.price - a.price), asks: [...asks.values()].sort((a, b) => a.price - b.price) };
+function sideRows(values: BitfinexRow[], descending: boolean): BitfinexRow[] {
+  const out: BitfinexRow[] = [];
+  for (const row of values) if (row.count > 0) applyRow(out, row, descending);
+  return out;
+}
+
+/** Bitfinex's checksum covers the first 25 levels of each side. */
+function sessionChecksum(bids: readonly BitfinexRow[], asks: readonly BitfinexRow[]): number {
+  return bitfinexBookChecksum({ bids: bids.slice(0, 25), asks: asks.slice(0, 25) });
 }
 
 function invalidated(session: BitfinexDepthSession, reason: string): DepthSessionResult<BitfinexDepthSession> {
@@ -179,10 +198,14 @@ function invalidated(session: BitfinexDepthSession, reason: string): DepthSessio
 
 export function createBitfinexDepthSession({ topic, instrumentId: id, sessionToken, channelId = null }: AdapterOptions = {}): BitfinexDepthSession {
   if (!topic || !id || !sessionToken) throw new TypeError('Bitfinex depth session topic, instrument, and token are required');
-  return { venue: 'bitfinex', topic: String(topic), instrumentId: String(id), sessionToken: String(sessionToken), channelId: channelId == null ? null : Number(channelId), status: 'awaiting-snapshot', book: null, invalidated: false, bids: new Map<string, BitfinexRow>(), asks: new Map<string, BitfinexRow>() };
+  return { venue: 'bitfinex', topic: String(topic), instrumentId: String(id), sessionToken: String(sessionToken), channelId: channelId == null ? null : Number(channelId), status: 'awaiting-snapshot', book: null, invalidated: false, bids: [], asks: [], pending: null };
 }
 
-export function applyBitfinexDepthSessionMessage(session: BitfinexDepthSession, { topic, sessionToken, channelId, update }: DepthSessionMessageOptions<BitfinexDepthMessage> = {}): DepthSessionResult<BitfinexDepthSession> {
+/**
+ * Takes a snapshot, an update or a checksum. An update changes the session's sides in place; a snapshot starts new ones. With `handOn: false`
+ * an update builds no book (`held`, kept as `pending`: `handOnBitfinexDepthSession` builds it later); a snapshot always does. A checksum is checked against the levels held, whether or not the book is behind.
+ */
+export function applyBitfinexDepthSessionMessage(session: BitfinexDepthSession, { topic, sessionToken, channelId, update, handOn = true }: DepthSessionMessageOptions<BitfinexDepthMessage> = {}): DepthSessionResult<BitfinexDepthSession> {
   if (!session || !update) throw new TypeError('Bitfinex depth session and update are required');
   if (topic !== session.topic) return { session, accepted: false, ignored: true, reason: 'wrong-topic' };
   if (sessionToken !== session.sessionToken) return { session, accepted: false, ignored: true, reason: 'cross-session' };
@@ -191,28 +214,41 @@ export function applyBitfinexDepthSessionMessage(session: BitfinexDepthSession, 
   const channel = session.channelId ?? (channelId == null ? null : Number(channelId));
   if (update.kind === 'depthSnapshot') {
     const levels = update.checksumLevels ?? [];
-    const bids = mapRows(arrayValue(levels).filter((row) => row.side === 'bid')); const asks = mapRows(arrayValue(levels).filter((row) => row.side === 'ask'));
-    const calculated = bitfinexBookChecksum({ bids: [...bids.values()], asks: [...asks.values()] });
+    const bids = sideRows(arrayValue(levels).filter((row) => row.side === 'bid'), true); const asks = sideRows(arrayValue(levels).filter((row) => row.side === 'ask'), false);
+    const calculated = sessionChecksum(bids, asks);
     if (update.checksum != null && calculated !== Number(update.checksum)) return invalidated(session, `Bitfinex checksum mismatch: expected ${calculated}, received ${update.checksum}`);
-    const next = bookRows(bids, asks);
-    const book = { ...update, channelId: channel, bids: sideLevels(outputRows(next.bids, 'bid'), 'bids'), asks: sideLevels(outputRows(next.asks, 'ask'), 'asks'), checksumLevels: levels, checksum: update.checksum, checksumVerified: update.checksum != null, continuity: update.checksum != null ? 'checksum-verified' : 'checksum-pending', status: 'live', complete: true, gap: false, invalidated: false, resyncRequired: false };
-    return { session: { ...session, channelId: channel, bids, asks, book, status: 'live', invalidated: false }, accepted: true, ignored: false, reason: null };
+    const book = { ...update, channelId: channel, bids: sideLevels(outputRows(bids, 'bid'), 'bids'), asks: sideLevels(outputRows(asks, 'ask'), 'asks'), checksumLevels: levels, checksum: update.checksum, checksumVerified: update.checksum != null, continuity: update.checksum != null ? 'checksum-verified' : 'checksum-pending', status: 'live', complete: true, gap: false, invalidated: false, resyncRequired: false };
+    return { session: { ...session, channelId: channel, bids, asks, book, status: 'live', invalidated: false, pending: null }, accepted: true, ignored: false, reason: null };
   }
   if (update.kind === 'depthChecksum') {
     if (!session.book || session.status !== 'live' || session.invalidated) return { session, accepted: false, ignored: true, reason: 'fresh-snapshot-required' };
-    const calculated = bitfinexBookChecksum({ bids: [...session.bids.values()], asks: [...session.asks.values()] });
+    const calculated = sessionChecksum(session.bids, session.asks);
     if (calculated !== Number(update.checksum)) return invalidated(session, `Bitfinex checksum mismatch: expected ${calculated}, received ${update.checksum}`);
     const book = { ...session.book, checksum: Number(update.checksum), checksumVerified: true, continuity: 'checksum-verified', status: 'live' };
     return { session: { ...session, book, status: 'live', invalidated: false }, accepted: true, ignored: false, checksumOnly: true, reason: null };
   }
   if (update.kind !== 'depthDelta') return { session, accepted: false, ignored: true, reason: 'unsupported-update' };
   if (!session.book || session.status !== 'live' || session.invalidated) return { session, accepted: false, ignored: true, reason: 'fresh-snapshot-required' };
-  const bids = new Map(session.bids); const asks = new Map(session.asks); const levels = update.checksumLevels ?? [];
-  for (const row of levels) applyRows(row.side === 'bid' ? bids : asks, [row]);
-  const next = bookRows(bids, asks);
+  const { bids, asks } = session, levels = update.checksumLevels ?? [];
+  for (const row of levels) { if (row.side === 'bid') applyRow(bids, row, true); else applyRow(asks, row, false); }
+  if (!handOn) {
+    session.pending = update;
+    return { session, accepted: true, ignored: false, reason: null, held: true };
+  }
+  return { session: handedOn(session, update), accepted: true, ignored: false, reason: null };
+}
+
+/** The session with its whole book built from its levels as of `update`. */
+function handedOn(session: BitfinexDepthSession, update: BitfinexDepthDelta): BitfinexDepthSession {
   // The whole book goes downstream, so it is labelled a snapshot (a delta would be merged into the state and never drop a level that left the book).
-  const book = { ...session.book, ...update, kind: 'depthSnapshot' as const, bids: sideLevels(outputRows(next.bids, 'bid'), 'bids'), asks: sideLevels(outputRows(next.asks, 'ask'), 'asks'), checksumLevels: levels, checksumVerified: false, continuity: 'checksum-pending', status: 'live', complete: true, gap: false, invalidated: false, resyncRequired: false };
-  return { session: { ...session, bids, asks, book, status: 'live', invalidated: false }, accepted: true, ignored: false, reason: null };
+  const book = { ...session.book, ...update, kind: 'depthSnapshot' as const, bids: sideLevels(outputRows(session.bids, 'bid'), 'bids'), asks: sideLevels(outputRows(session.asks, 'ask'), 'asks'), checksumLevels: update.checksumLevels, checksumVerified: false, continuity: 'checksum-pending', status: 'live', complete: true, gap: false, invalidated: false, resyncRequired: false };
+  return { ...session, book, status: 'live', invalidated: false, pending: null };
+}
+
+/** Hands on the book an update held back (`pending`): null when there is none, or the session wants a fresh snapshot. */
+export function handOnBitfinexDepthSession(session: BitfinexDepthSession): DepthSessionResult<BitfinexDepthSession> | null {
+  if (!session.pending || !session.book || session.invalidated || session.status !== 'live') return null;
+  return { session: handedOn(session, session.pending), accepted: true, ignored: false, reason: null };
 }
 
 export function invalidateBitfinexDepthSession(session: BitfinexDepthSession, reason: string = 'disconnect'): BitfinexDepthSession {

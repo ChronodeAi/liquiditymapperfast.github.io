@@ -76,6 +76,7 @@ import {
   normalizeKrakenAssetPairs,
   createKrakenDepthSession,
   applyKrakenDepthSessionMessage,
+  handOnKrakenDepthSession,
   buildKucoinRequest,
   buildKucoinSubscription,
   buildKucoinWsUrl,
@@ -96,6 +97,7 @@ import {
   normalizeBitfinexSymbolsDetails,
   createBitfinexDepthSession,
   applyBitfinexDepthSessionMessage,
+  handOnBitfinexDepthSession,
   invalidateBitfinexDepthSession,
   buildBitmexRequest,
   buildBitmexSubscription,
@@ -220,7 +222,16 @@ export interface LiveFeed {
   connectionAcquired?: boolean; transportReleased?: boolean; subscriptionKey?: string; subscriptionAcked?: boolean;
   preAckFrames?: unknown[] | null; preAckBytes?: number; channelId?: unknown; serverHeartbeat?: boolean;
   heartbeat?: VenueHeartbeatDeadline; heartbeatTimer?: FeedTimer | null; heartbeatStarted?: boolean; transportMessages?: number; kucoinWelcome?: boolean; pool?: string | null;
+  /** When a session that keeps the whole book last handed it on (`WHOLE_BOOK_EVERY_MS`). */
+  wholeBookAt?: number; wholeBookTimer?: FeedTimer | null;
 }
+/**
+ * How often a session that keeps the whole book (Kraken, Bitfinex) hands it on. Each update is still taken and checked when it comes, but
+ * the book is built and given to the server's state at most this often: Kraken sends 100 to 250 updates a second and Bitfinex at `len` 250
+ * about 170, each changing a level or two, and a book handed on costs the state about 400 µs at 1 000 levels a side (2026-10-13). An update
+ * held back goes out with the next one after this interval, or on a timer when none comes (`#scheduleWholeBook`).
+ */
+export const WHOLE_BOOK_EVERY_MS = 250;
 /** Logical ownership allowances for opaque native/runtime resources. These are
  * shell estimates; process RSS is authoritative for native TLS/socket/timer
  * buffers and function closures. Never enumerate those resource graphs. */
@@ -463,6 +474,8 @@ function compactInvalidatedDepthSession<T extends LiveDepthSession>(session: T |
   const compact: T = { ...session, invalidated: true, status: 'resync-required', invalidReason: reason };
   for (const [key, value] of Object.entries(session)) {
     if (value instanceof Map) feedRecord(compact)[key] = new Map();
+    // A session that keeps its sides as arrays (Kraken) lets them go too.
+    else if ((key === 'bids' || key === 'asks') && Array.isArray(value)) feedRecord(compact)[key] = [];
   }
   if (session.book) {
     const book = { ...session.book };
@@ -856,10 +869,10 @@ export class LiveFeedManager {
       specs.push(['coinbase-depth', { venue: 'coinbase', channel: request.channel, symbol: request.productId, marketType: 'spot', topic: request.topic, instrumentId: `coinbase:${String(request.productId).toUpperCase()}`, request, decode: raw => this.#decodeCoinbaseDepth(raw, coinbaseSymbol), publicDepth: true }]);
     }
     if (krakenEnabled && krakenSymbol) {
-      // Depth 100, not the 1 000 Kraken offers: it sends about 250 book messages a second, and at 1 000 levels the depth session and the
-      // book handed on per message kept a core busy until the server stopped answering (2026-10-12). A deeper Kraken book needs the book
-      // built for the map less often than every message first.
-      const request = buildKrakenSubscription('depth', { symbol: krakenSymbol, depth: 100, snapshot: true });
+      // Depth 1 000, Kraken's deepest (about 380 bp a side). It sends 100 to 250 book messages a second: the session changes only the levels
+      // each one names and the book is handed on at most every WHOLE_BOOK_EVERY_MS. Before both, this depth kept a core busy until the server
+      // stopped answering (2026-10-12).
+      const request = buildKrakenSubscription('depth', { symbol: krakenSymbol, depth: 1_000, snapshot: true });
       specs.push(['kraken-depth', { venue: 'kraken', channel: request.channel, symbol: request.symbol, marketType: 'spot', topic: request.topic, instrumentId: `kraken:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeKrakenDepth(raw, String(request.symbol)), publicDepth: true }]);
     }
     if (kucoinEnabled && kucoinSymbol) {
@@ -883,7 +896,8 @@ export class LiveFeedManager {
       specs.push(['bitmex-depth', { venue: 'bitmex', channel: request.channel, symbol: request.symbol, marketType: 'perpetual', topic: request.topic, instrumentId: `bitmex:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeBitmexDepth(raw, bitmexSymbol, request), publicDepth: true }]);
     }
     if (cryptocomEnabled && cryptocomSymbol && cryptocomAllowed) {
-      const request = buildCryptocomSubscription('depth', { instrumentName: cryptocomSymbol, depth: 10, updateFrequency: 100 });
+      // 50 levels, Crypto.com's deepest: about 6 bp a side instead of 1 at 10, for 4 KB a second more and the same 8 or 9 messages (2026-10-13).
+      const request = buildCryptocomSubscription('depth', { instrumentName: cryptocomSymbol, depth: 50, updateFrequency: 100 });
       specs.push(['cryptocom-depth', { venue: 'cryptocom', channel: request.channel, symbol: request.symbol, marketType: 'perpetual', topic: request.topic, instrumentId: `cryptocom:${String(request.symbol).toUpperCase()}`, request, decode: raw => this.#decodeCryptocomDepth(raw, cryptocomSymbol, request), publicDepth: true }]);
     }
     if (bitstampEnabled && bitstampSymbol) {
@@ -2305,8 +2319,32 @@ export class LiveFeedManager {
     this.heartbeatTimers.set(feed.id, feed.heartbeatTimer);
   }
 
+  /** A book held back goes out `WHOLE_BOOK_EVERY_MS` after the last one even when no update follows it (a quiet market). */
+  #scheduleWholeBook(id: string, feed: LiveFeed, at: number) {
+    if (feed.wholeBookTimer != null) return;
+    const delay = Math.max(1, (feed.wholeBookAt ?? at) + WHOLE_BOOK_EVERY_MS - at);
+    feed.wholeBookTimer = this.schedule(() => { feed.wholeBookTimer = null; this.#flushWholeBook(id, feed); }, delay);
+    unrefTimer(feed.wholeBookTimer);
+  }
+
+  #flushWholeBook(id: string, feed: LiveFeed) {
+    if (!this.#isCurrentTransportFeed(feed) || !feed.session) return;
+    const routed = feed.spec.venue === 'kraken' ? handOnKrakenDepthSession(feedSession(feed, createKrakenDepthSession, 'kraken'))
+      : feed.spec.venue === 'bitfinex' ? handOnBitfinexDepthSession(feedSession(feed, createBitfinexDepthSession, 'bitfinex')) : null;
+    if (!routed?.session.book) return;
+    feed.wholeBookAt = this.now();
+    const delivered = routed.session.book, mutation = this.#stageRetainedDepthSession(id, feed, routed.session, delivered);
+    try {
+      if (this.#emit(id, feed.spec.venue, delivered, mutation) === false) { this.#fail(id, new Error('retained depth admission rejected'), feed.socket); return; }
+    } catch (error) { this.#fail(id, error, feed.socket); return; }
+    if (mutation && !mutation.committed) mutation.commit();
+    this.#setStatus(id, { state: 'live', lastSuccess: this.now(), lastError: null });
+  }
+
   #releaseTransport(feed: LiveFeed | null | undefined) {
     if (!feed || feed.transportReleased) return;
+    if (feed.wholeBookTimer != null) this.cancel(feed.wholeBookTimer);
+    feed.wholeBookTimer = null;
     if (Array.isArray(feed.preAckFrames)) { feed.preAckFrames.length = 0; feed.preAckBytes = 0; }
     if (feed.heartbeatTimer !== null && feed.heartbeatTimer !== undefined) this.heartbeatCancel(feed.heartbeatTimer);
     this.heartbeatTimers.delete(feed.id);
@@ -2777,19 +2815,24 @@ export class LiveFeedManager {
           this.#setStatus(id, { state: 'live', lastSuccess: this.now(), lastError: null });
         }
         if ((message.kind === 'depthSnapshot' || message.kind === 'depthDelta') && feed.spec.venue === 'kraken') {
-          const routed = applyKrakenDepthSessionMessage(feedSession(feed, createKrakenDepthSession, 'kraken'), { topic: feed.spec.topic, sessionToken: feed.sessionToken ?? undefined, update: message as NonNullable<Parameters<typeof applyKrakenDepthSessionMessage>[1]>['update'] });
+          const at = this.now(), handOn = !(at - (feed.wholeBookAt ?? -Infinity) < WHOLE_BOOK_EVERY_MS);
+          const routed = applyKrakenDepthSessionMessage(feedSession(feed, createKrakenDepthSession, 'kraken'), { topic: feed.spec.topic, sessionToken: feed.sessionToken ?? undefined, update: message as NonNullable<Parameters<typeof applyKrakenDepthSessionMessage>[1]>['update'], handOn });
           if (!routed.accepted) {
             if (routed.session !== feed.session && !this.#admitRetainedDepthSession(id, feed, routed.session, message, socket)) return;
             if (routed.reason === 'resync-required') { this.#recoverPublicDepth(id, feed, feed.session?.invalidReason ?? routed.reason); return; }
             continue;
           }
+          // Taken and checked in the session's own levels; the book goes out with a later update, or on a timer.
+          if (routed.held) { this.#scheduleWholeBook(id, feed, at); continue; }
           if (!routed.session.book) throw new TypeError('Accepted depth session has no book');
+          feed.wholeBookAt = at;
           delivered = routed.session.book;
           retainedSessionMutation = this.#stageRetainedDepthSession(id, feed, routed.session, delivered);
           this.#setStatus(id, { state: 'live', lastSuccess: this.now(), lastError: null, checksumVerified: true });
         }
         if ((message.kind === 'depthSnapshot' || message.kind === 'depthDelta' || message.kind === 'depthChecksum') && feed.spec.venue === 'bitfinex') {
-          const routed = applyBitfinexDepthSessionMessage(feedSession(feed, createBitfinexDepthSession, 'bitfinex'), { topic: feed.spec.topic, sessionToken: feed.sessionToken ?? undefined, channelId: feed.channelId, update: message as NonNullable<Parameters<typeof applyBitfinexDepthSessionMessage>[1]>['update'] });
+          const at = this.now(), handOn = !(at - (feed.wholeBookAt ?? -Infinity) < WHOLE_BOOK_EVERY_MS);
+          const routed = applyBitfinexDepthSessionMessage(feedSession(feed, createBitfinexDepthSession, 'bitfinex'), { topic: feed.spec.topic, sessionToken: feed.sessionToken ?? undefined, channelId: feed.channelId, update: message as NonNullable<Parameters<typeof applyBitfinexDepthSessionMessage>[1]>['update'], handOn });
           if (!routed.accepted) {
             if (routed.session !== feed.session && !this.#admitRetainedDepthSession(id, feed, routed.session, message, socket)) return;
             if (routed.reason === 'resync-required') { this.#recoverPublicDepth(id, feed, feed.session?.invalidReason ?? routed.reason); return; }
@@ -2800,7 +2843,10 @@ export class LiveFeedManager {
             this.#setStatus(id, { state: 'live', lastSuccess: this.now(), lastError: null, checksumVerified: true });
             continue;
           }
+          // Taken in the session's own levels; the book goes out with a later update, or on a timer.
+          if (routed.held) { this.#scheduleWholeBook(id, feed, at); continue; }
           if (!routed.session.book) throw new TypeError('Accepted depth session has no book');
+          feed.wholeBookAt = at;
           delivered = routed.session.book;
           retainedSessionMutation = this.#stageRetainedDepthSession(id, feed, routed.session, delivered);
           this.#setStatus(id, { state: 'live', lastSuccess: this.now(), lastError: null, checksumVerified: delivered?.checksumVerified === true });

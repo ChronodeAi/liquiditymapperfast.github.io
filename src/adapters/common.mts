@@ -179,8 +179,10 @@ export interface AdapterOptions {
 
 export interface BookSessionFlags { complete: boolean; gap?: boolean; invalidated?: boolean; resyncRequired?: boolean; ignored?: boolean; status?: string; invalidReason?: string; continuity?: string; sequenceBridge?: boolean; }
 export interface DepthSessionIdentity { venue?: string; topic: string; instrumentId: string; sessionToken: string; status: string; invalidated: boolean; invalidReason?: string; }
-export interface DepthSessionMessageOptions<T> { topic?: string; sessionToken?: string; update?: T; channelId?: unknown; }
-export interface DepthSessionResult<T> { session: T; accepted: boolean; ignored: boolean; reason: string | null; checksumOnly?: boolean; }
+/** `handOn: false` asks a session that keeps the whole book to take an update without building the book it hands on (see `held`). */
+export interface DepthSessionMessageOptions<T> { topic?: string; sessionToken?: string; update?: T; channelId?: unknown; handOn?: boolean; }
+/** `held`: the update was taken and checked, but no book was built for it; the session's `book` is behind its levels until the next one. */
+export interface DepthSessionResult<T> { session: T; accepted: boolean; ignored: boolean; reason: string | null; checksumOnly?: boolean; held?: boolean; }
 
 export interface AdapterDepthBook extends BookSessionFlags { kind: 'depthSnapshot' | 'depthDelta'; instrumentId: string; sourceTimestamp: number | null; receivedAt: number; sequence?: number | string | null; previousSequence?: number | string | null; bids: PriceAmount[]; asks: PriceAmount[]; coverage?: 'complete' | 'partial' | 'unknown'; table?: string; channel?: string; crossSequence?: number | string; sequenceJump?: boolean; checksum?: number; checksumVerified?: boolean; channelId?: number | null; checksumLevels?: unknown; }
 
