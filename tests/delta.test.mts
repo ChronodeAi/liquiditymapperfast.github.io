@@ -85,7 +85,7 @@ test('closed candles are worked out once; the one under way every time; new olde
 test('settings, and the popup of a candle', () => {
   assert.deepEqual(readDelta(undefined), DELTA_DEFAULTS);
   assert.deepEqual([DELTA_DEFAULTS.style, DELTA_DEFAULTS.reset, DELTA_DEFAULTS.divergence, DELTA_DEFAULTS.pivot], ['candles', 'none', true, 3]);
-  assert.deepEqual(readDelta({ style: 'bars', reset: 'week', divergence: false, pivot: 5 }), { style: 'bars', reset: 'week', divergence: false, pivot: 5 });
+  assert.deepEqual(readDelta({ style: 'bars', reset: 'week', divergence: false, pivot: 5, nlns: 'split' }), { style: 'bars', reset: 'week', divergence: false, pivot: 5, nlns: 'split' });
   assert.deepEqual(readDelta({ reset: 'year', pivot: 4 }), DELTA_DEFAULTS);
   const lines = deltaCardLines({ t: T, delta: -1_500_000, open: 2e6, high: 2.2e6, low: 4e5, close: 5e5, run: 0 }, '1h');
   assert.deepEqual(lines.slice(1).map(l => [l.label, l.text]), [['Delta', '−$1.5M'], ['CVD at the close', '+$500K'], ['CVD high and low', '+$2.2M / +$400K']]);

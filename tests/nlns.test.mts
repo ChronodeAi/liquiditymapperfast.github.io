@@ -87,4 +87,5 @@ test('the words: coins, signed and short; the popup gives the share of open inte
   assert.deepEqual(lines.slice(4, 7).map(l => [l.label, l.text]), [['Longs', '0 BTC · since the start 0 BTC'], ['Shorts', '+92 BTC · since the start +92 BTC'], ['Net', '−92 BTC · since the start −92 BTC']]);
   assert.match(lines[lines.length - 1]!.text, /Binance BTCUSDT/);
   assert.equal(readDelta({ style: 'nlns' }).style, 'nlns');
+  assert.deepEqual([readDelta({}).nlns, readDelta({ nlns: 'split' }).nlns, readDelta({ nlns: 'both' }).nlns], ['net', 'split', 'net'], 'net by default; split kept; anything else net');
 });

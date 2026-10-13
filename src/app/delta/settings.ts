@@ -7,10 +7,12 @@ export interface DeltaSettings {
   divergence: boolean;
   /** Candles each side a swing high or low needs to be confirmed (higher than its neighbours, or lower). */
   pivot: number;
+  /** NL/NS as one net series (longs less shorts, bars and their sum) or split: the longs' and the shorts' running sums as two lines. */
+  nlns: 'net' | 'split';
 }
 
 export const PIVOTS = [2, 3, 5, 8] as const;
-export const DELTA_DEFAULTS: Readonly<DeltaSettings> = { style: 'candles', reset: 'none', divergence: true, pivot: 3 };
+export const DELTA_DEFAULTS: Readonly<DeltaSettings> = { style: 'candles', reset: 'none', divergence: true, pivot: 3, nlns: 'net' };
 
 export function readDelta(saved: unknown): DeltaSettings {
   const s = (saved && typeof saved === 'object' ? saved : {}) as Partial<Record<keyof DeltaSettings, unknown>>, d = DELTA_DEFAULTS;
@@ -18,6 +20,7 @@ export function readDelta(saved: unknown): DeltaSettings {
     style: s.style === 'bars' || s.style === 'nlns' ? s.style : 'candles',
     reset: s.reset === 'day' || s.reset === 'week' ? s.reset : 'none',
     divergence: typeof s.divergence === 'boolean' ? s.divergence : d.divergence,
+    nlns: s.nlns === 'split' ? 'split' : 'net',
     pivot: typeof s.pivot === 'number' && (PIVOTS as readonly number[]).includes(s.pivot) ? s.pivot : d.pivot,
   };
 }

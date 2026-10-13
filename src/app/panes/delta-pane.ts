@@ -65,15 +65,20 @@ export class DeltaPane extends TimePane {
     const patch = (change: Partial<DeltaSettings>): void => this.store.set({ delta: { ...d(), ...change } });
     // One group, so the header's rule that puts its last control at the right edge moves them all together.
     const group = document.createElement('span'); group.className = 'ctl ctl-group'; this.head.append(group);
-    const select = (label: string, title: string, options: [string, string][], get: () => string, set: (value: string) => void): void => {
+    const select = (label: string, title: string, options: [string, string][], get: () => string, set: (value: string) => void): HTMLElement => {
       const wrap = document.createElement('label'); wrap.className = 'ctl'; setTip(wrap, title); wrap.append(label);
       const control = document.createElement('select');
       for (const [value, text] of options) control.append(new Option(text, value));
       control.value = get(); control.onchange = () => set(control.value);
       wrap.append(control); group.append(wrap);
       this.#sync.push(() => { if (control.value !== get()) control.value = get(); });
+      return wrap;
     };
     select(t('Show'), t('Each candle\'s delta as a bar, the cumulative delta as candles, or NL/NS: the change of open interest given to the side that traded at market.'), [['candles', t('CVD candles')], ['bars', t('Delta bars')], ['nlns', 'NL/NS']], () => d().style, v => patch({ style: v === 'bars' || v === 'nlns' ? v : 'candles' }));
+    // NL/NS as one net series or the longs' and shorts' sums apart; only while NL/NS is shown.
+    const split = select(t('As'), t('NL/NS as one net series (bars and their running sum), or the running sums of the longs and of the shorts as two lines.'), [['net', t('Net')], ['split', t('Longs and shorts')]], () => d().nlns, v => patch({ nlns: v === 'split' ? 'split' : 'net' }));
+    const showSplit = (): void => { split.hidden = d().style !== 'nlns'; };
+    showSplit(); this.#sync.push(showSplit);
     const box = document.createElement('label'); box.className = 'ctl'; setTip(box, t('Mark where the price made a higher high and the CVD a lower one, or the price a lower low and the CVD a higher one, here and on the map.'));
     const check = document.createElement('input'); check.type = 'checkbox'; check.checked = d().divergence; check.onchange = () => patch({ divergence: check.checked });
     box.append(check, t('Divergences'));
@@ -176,8 +181,13 @@ export class DeltaPane extends TimePane {
       ctx.fillText(!aggregated && (!oiInst || !state.oi.length) ? t('No open interest for this market.') : t('No change of open interest is held for these candles yet.'), 12, ph / 2);
       setHtml(readout, ''); return;
     }
+    // Split: the longs' and the shorts' running sums as two lines on one scale, no bars (what each candle added is in the popup).
+    const split = s.nlns === 'split';
     let lo = 0, hi = 0;
-    for (const c of visible) { lo = Math.min(lo, c.v, c.cum); hi = Math.max(hi, c.v, c.cum); }
+    for (const c of visible) {
+      if (split) { lo = Math.min(lo, c.cumLongs, c.cumShorts); hi = Math.max(hi, c.cumLongs, c.cumShorts); }
+      else { lo = Math.min(lo, c.v, c.cum); hi = Math.max(hi, c.v, c.cum); }
+    }
     const pad = (hi - lo) * 0.08 || 1, min = lo - pad, max = hi + pad, top = 6, bottom = ph - 6;
     const y = (value: number): number => top + (1 - (value - min) / (max - min)) * (bottom - top);
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
@@ -189,19 +199,30 @@ export class DeltaPane extends TimePane {
       const x = Math.round(v.xOf(c.t, pw)) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, ph);
     }
     ctx.stroke(); ctx.setLineDash([]);
-    // Bars: opened solid, closed hollow (or faint where a bar is too narrow to show an outline).
-    for (const c of visible) {
+    // A running sum, broken where it restarts.
+    const line = (value: (c: NlnsCandle) => number, color: string, width: number): void => {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+      let run = -1;
+      for (const c of visible) { const x = v.xOf(c.t + tf / 2, pw); if (c.run !== run) { ctx.moveTo(x, y(value(c))); run = c.run; } else ctx.lineTo(x, y(value(c))); }
+      ctx.stroke(); ctx.lineWidth = 1;
+    };
+    if (split) {
+      line(c => c.cumLongs, p.candleUp, 1.5); line(c => c.cumShorts, p.candleDown, 1.5);
+      // Each line named at its right end, the upper one above it and the lower one below.
+      const last = visible[visible.length - 1]!, x = Math.min(pw - 4, v.xOf(last.t + tf / 2, pw) - 4), up = last.cumLongs >= last.cumShorts ? 1 : -1;
+      // Inside the clip's save, so the font goes back with it.
+      ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'right';
+      ctx.fillStyle = p.candleUp; ctx.fillText(t('Longs'), x, Math.max(top + 6, Math.min(bottom - 6, y(last.cumLongs) - 8 * up)));
+      ctx.fillStyle = p.candleDown; ctx.fillText(t('Shorts'), x, Math.max(top + 6, Math.min(bottom - 6, y(last.cumShorts) + 8 * up)));
+    } else for (const c of visible) {
+      // Bars: opened solid, closed hollow (or faint where a bar is too narrow to show an outline).
       const x0 = v.xOf(c.t, pw), x1 = v.xOf(c.t + tf, pw), w = Math.max(1, Math.min((x1 - x0) * 0.7, 40)), xc = (x0 + x1) / 2;
       const y0 = y(0), y1 = y(c.v), color = c.v >= 0 ? p.candleUp : p.candleDown, h = Math.max(1, Math.abs(y1 - y0));
       if (c.dOi > 0) { ctx.fillStyle = color; ctx.fillRect(xc - w / 2, Math.min(y0, y1), w, h); }
       else if (w >= 4) { ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.strokeRect(Math.round(xc - w / 2) + 0.5, Math.round(Math.min(y0, y1)) + 0.5, Math.max(1, Math.round(w) - 1), Math.max(1, Math.round(h) - 1)); }
       else { ctx.globalAlpha = 0.45; ctx.fillStyle = color; ctx.fillRect(xc - w / 2, Math.min(y0, y1), w, h); ctx.globalAlpha = 1; }
     }
-    // The running sum, broken where it restarts.
-    ctx.strokeStyle = p.text; ctx.lineWidth = 1.25; ctx.beginPath();
-    let run = -1;
-    for (const c of visible) { const x = v.xOf(c.t + tf / 2, pw); if (c.run !== run) { ctx.moveTo(x, y(c.cum)); run = c.run; } else ctx.lineTo(x, y(c.cum)); }
-    ctx.stroke(); ctx.lineWidth = 1;
+    if (!split) line(c => c.cum, p.text, 1.25);
     ctx.restore();
     ctx.fillStyle = p.muted; ctx.textAlign = 'left';
     ctx.fillText(coinText(hi, coin), this.w - AXIS_W + 6, 10); ctx.fillText(coinText(lo, coin), this.w - AXIS_W + 6, ph - 10);
@@ -212,7 +233,10 @@ export class DeltaPane extends TimePane {
     if (hover && this.pointer) this.#lines = nlnsCardLines(shown, state.timeframe, coin, market, count);
     const tone = (x: number): string => x > 0 ? 'bid' : x < 0 ? 'ask' : '';
     const byPrice = visible.some(c => c.byPrice) ? ` · ${t('side by price where no flow is recorded')}` : '';
-    setHtml(readout, `NL/NS <b class="${tone(shown.v)}">${coinText(shown.v, coin)}</b> ${t('since the start')} <b class="${tone(shown.cum)}">${coinText(shown.cum, coin)}</b> <span class="muted">${aggregated ? market : t('from {venue}', { venue: market })}${byPrice}</span>`);
+    const where = `<span class="muted">${aggregated ? market : t('from {venue}', { venue: market })}${byPrice}</span>`;
+    // Split: the longs' sum is good for longs when it rises, the shorts' for shorts.
+    if (split) setHtml(readout, `NL/NS ${t('since the start')} ${t('Longs')} <b class="${tone(shown.cumLongs)}">${coinText(shown.cumLongs, coin)}</b> ${t('Shorts')} <b class="${tone(-shown.cumShorts)}">${coinText(shown.cumShorts, coin)}</b> ${where}`);
+    else setHtml(readout, `NL/NS <b class="${tone(shown.v)}">${coinText(shown.v, coin)}</b> ${t('since the start')} <b class="${tone(shown.cum)}">${coinText(shown.cum, coin)}</b> ${where}`);
   }
 
   #paint(): void {
