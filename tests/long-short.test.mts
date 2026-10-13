@@ -211,3 +211,11 @@ test('a good answer after a failure clears it: readings read back after a failed
   failOlder = false; now += 61_000;
   assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 4 * H, NOW - 3 * H)).status, 'ok');
 });
+
+test("the chart's period only where it fits the window, and an answer that lost its share fields fails", async () => {
+  const get = fake({ 'https://www.okx.com/': url => ({ code: '0', data: Array.from({ length: 100 }, (_, i) => [String(Number(url.searchParams.get('end')) - (i + 1) * (url.searchParams.get('period') === '1H' ? H : 5 * M)), '1.2']) }) });
+  const okx = await new LongShortCache(get, false, () => NOW).series('okx:BTC-USDT-SWAP', 'accounts', 30 * M, NOW - 15 * 24 * H, NOW);
+  assert.equal(okx.periodMs, H, 'fifteen days on OKX: hourly (its five-minute readings would be 4,320, past what a question reaches)');
+  const renamed = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ longShare: '0.6', timestamp: String(NOW - 5 * M) }] } }) });
+  await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, renamed, NOW), /unknown shape/);
+});

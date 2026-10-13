@@ -71,12 +71,12 @@ export function lsPopulationOf(venue: string, metric: LsMetric): LsPopulation | 
 const num = (value: unknown): number => typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
 const at = (value: unknown, ...path: (string | number)[]): unknown => path.reduce<unknown>((v, key) => (v !== null && typeof v === 'object' ? (v as Record<string | number, unknown>)[key] : undefined), value);
 /**
- * A venue's list of readings, checked for its shape: not a list, or rows none of which carries the time field the venue sends (a changed
- * API), fail the answer; a reading that is there but does not add up is left out later, one at a time.
+ * A venue's list of readings, checked for its shape: not a list, or rows none of which carries the time and share fields the venue sends (a
+ * changed API), fail the answer; a reading that is there but does not add up is left out later, one at a time.
  */
-function rows(value: unknown, what: string, time: string | number): unknown[] {
+function rows(value: unknown, what: string, time: string | number, share: string | number): unknown[] {
   if (!Array.isArray(value)) throw new Error(`${what}: not a list`);
-  if (value.length && !value.some(r => at(r, time) !== undefined)) throw new Error(`${what}: readings of an unknown shape`);
+  if (value.length && !value.some(r => at(r, time) !== undefined && at(r, share) !== undefined)) throw new Error(`${what}: readings of an unknown shape`);
   return value;
 }
 
@@ -107,7 +107,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   if (venue === 'binance') {
     const floor = Math.max(from, now - BINANCE_SPAN_MS + periodMs);
     for (end = Math.min(to, now); page < PAGES && end > floor; page++) {
-      const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp');
+      const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp', 'longAccount');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'longAccount')), num(at(r, 'shortAccount')), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
@@ -117,7 +117,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     for (; page < PAGES && end >= from; page++) {
       const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
       if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
-      const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp');
+      const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp', 'buyRatio');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'buyRatio')), num(at(r, 'sellRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
@@ -127,7 +127,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     for (; page < PAGES && end >= from; page++) {
       const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio-contract?instId=${s}&period=${name}&limit=100&end=${Math.floor(end)}`);
       if (String(at(answer, 'code')) !== '0') throw new Error(`okx: ${String(at(answer, 'msg'))}`);
-      const got = rows(at(answer, 'data'), 'okx', 0);
+      const got = rows(at(answer, 'data'), 'okx', 0, 1);
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 0)), ratio = num(at(r, 1)); take(Number.isFinite(ratio) && ratio > 0 ? lsReading(t, shareOfRatio(ratio)) : null); if (t < oldest) oldest = t; }
       if (got.length < 100 || !Number.isFinite(oldest)) break;
@@ -136,7 +136,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   } else if (venue === 'bitget') {
     const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
     if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
-    for (const r of rows(at(answer, 'data'), 'bitget', 'ts')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
+    for (const r of rows(at(answer, 'data'), 'bitget', 'ts', 'longAccountRatio')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
   }
   // Every page full: the venue may hold more before where the last one ended.
   return { points: [...out.values()].sort((a, b) => a.t - b.t), from: page >= PAGES && end > from ? end : from };
@@ -159,7 +159,9 @@ export class LongShortCache {
     // A window needs at most `windowReadings` readings: a long one on a fine chart takes a coarser period, so one question always reaches
     // across it and the series never holds more than it keeps (a month of five-minute readings is neither readable nor drawable).
     const population = colon > 0 && LS_VENUES.includes(venue) ? lsPopulationOf(venue, metric) : null;
-    const need = (to - from) / windowReadings(venue), periodMs = population ? (need > tfMs ? lsPeriodAtLeast(venue, need) : lsPeriodOf(venue, tfMs)) ?? 0 : 0;
+    // The chart's own period where that fits the window, else the shortest that does (OKX steps from five minutes straight to an hour).
+    const need = (to - from) / windowReadings(venue), fine = population ? lsPeriodOf(venue, tfMs) : null;
+    const periodMs = fine === null ? 0 : fine >= need ? fine : lsPeriodAtLeast(venue, need) ?? 0;
     const answer = (points: LsPoint[], status: LsStatus): LsSeries => ({ id, population, periodMs, points, status });
     if (!population || !periodMs) return answer([], 'unsupported');
     if (this.browser && venue === 'okx') return answer([], 'serverOnly');
