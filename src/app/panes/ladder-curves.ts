@@ -8,7 +8,7 @@ import type { Grouped } from './levels-data.ts';
 
 /**
  * The Compact book's venue lines: the running total from the mark outward drawn for each of the largest venues on its own, over the total's
- * area, on a log scale of their own (see LOG_DECADES). Which venues, and in what order, is the flow column's ranking applied
+ * area, on a linear scale of their own (`lineFraction`). Which venues, and in what order, is the flow column's ranking applied
  * to books: each book's traded volume over the column's ranking window, then (a book with no trades held) its liquidity in view. Everything
  * here is pure; the pane draws it.
  */
@@ -19,22 +19,18 @@ export const CURVE_HOLD_MS = 60_000;
 export const CURVE_HIT_PX = 5;
 
 /**
- * The lines' axis is logarithmic over this many decades below the largest running total in view: a running total starts small at the mark,
- * and on a linear axis every line hugged the column's left wall for most of its length (Karl, 2026-10-12). Less than a thousandth of the
- * largest is drawn on the wall.
+ * Where `v` sits across the lines' axis, 0 (the wall) to 1 (`full`, the largest of their running totals in view). The axis is linear: a log
+ * one (three decades) was tried first and crowded the lines against the right wall instead of the left (Karl, 2026-10-12).
  */
-export const LOG_DECADES = 3;
-/** Where `v` sits across the lines' axis, 0 (the wall) to 1 (`full`). */
-export function logFraction(v: number, full: number, decades = LOG_DECADES): number {
-  if (!(v > 0) || !(full > 0)) return 0;
-  const lo = full / 10 ** decades;
-  return v <= lo ? 0 : Math.min(1, Math.log10(v / lo) / decades);
+export function lineFraction(v: number, full: number): number {
+  return v > 0 && full > 0 ? Math.min(1, v / full) : 0;
 }
-/** The powers of ten on the lines' axis (inside it, not on the wall), smallest first: where its gridlines go. */
-export function decadeTicks(full: number, decades = LOG_DECADES): number[] {
+/** Round values on the lines' axis for its gridlines: steps of 1, 2 or 5 times a power of ten, at most `most` of them, all short of `full`. */
+export function lineTicks(full: number, most = 4): number[] {
   if (!(full > 0)) return [];
-  const lo = full / 10 ** decades, out: number[] = [];
-  for (let p = 10 ** Math.ceil(Math.log10(lo)); p <= full; p *= 10) if (p > lo) out.push(p);
+  const p = 10 ** Math.floor(Math.log10(full / most)), step = [1, 2, 5, 10].map(m => m * p).find(s => full / s <= most + 1)!;
+  const out: number[] = [];
+  for (let k = 1; k * step < full && out.length < most; k++) out.push(k * step);
   return out;
 }
 
@@ -143,7 +139,7 @@ export interface CurveFacts {
   venueCum: number; totalCum: number; venueLevel: number;
   /** Its traded volume over the ranking window (null: none held) and that window as words ("1 h"). */
   volume: number | null; window: string;
-  /** What the lines' full width stands for (they share a log scale of their own, not the total's). */
+  /** What the lines' full width stands for (they share a scale of their own, not the total's). */
   full: number;
 }
 
@@ -156,7 +152,7 @@ export function curveLines(f: CurveFacts): InfoLine[] {
     { label: t('Share of all venues'), text: `${f.totalCum > 0 ? Math.round(f.venueCum / f.totalCum * 100) : 0}%` },
     { label: t('At this price'), text: `$${usd(f.venueLevel)}` },
     { label: t('Distance'), text: distanceText(f.low + f.step / 2, f.mark) },
-    { label: t('Lines, full width (log scale)'), text: `$${usd(f.full)}`, color: 'muted' },
+    { label: t('Lines, full width'), text: `$${usd(f.full)}`, color: 'muted' },
     f.volume !== null
       ? { label: t('Traded, last {window}', { window: f.window }), text: `$${usd(f.volume)} · #${f.rank}`, rule: true }
       : { text: t('No trades held for this book: placed by its liquidity in view.'), color: 'muted', rule: true, wrap: true },

@@ -11,7 +11,7 @@ import { price as fmtPrice, usd } from '../format.ts';
 import { LADDER_CURVES, type Store, type AppState } from '../store.ts';
 import type { Hub } from '../hub.ts';
 import { RANK_MS } from '../cvd/settings.ts';
-import { CurveRanking, curveColors, curveLines, decadeTicks, logFraction, nearestCurve, rankCurveVenues, venueCumulative, CURVE_HIT_PX, type CurveVenue } from './ladder-curves.ts';
+import { CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, venueCumulative, CURVE_HIT_PX, type CurveVenue } from './ladder-curves.ts';
 import { beyondCover, coverage, cumulative, dominanceWeight, groupLevels, imbalanceByDistance, liquidityInView, type Cover, type Grouped } from './levels-data.ts';
 import { GROUPS, groupsFor, holdsMark, ladderWheel, offsetKeepingPrice, priceAtRow, stepBy } from './ladder-zoom.ts';
 import { currentCoin } from '../coin.ts';
@@ -585,9 +585,9 @@ export class LadderPane {
 
   /**
    * The venue lines' x on every row from the mark outward, as the total's outline steps (bids down, asks up), stopping where that venue's
-   * book stops reaching (`x(curve, bin)` is null where the line is not drawn). They share a log scale of their own, three decades up to the
-   * largest of their running totals on the rows in view (`full`, LOG_DECADES): on the total's scale each venue is a small part of it, and on
-   * a linear one a running total, small near the mark, hugged the left wall for most of its length.
+   * book stops reaching (`x(curve, bin)` is null where the line is not drawn). They share a linear scale of their own, full width being the
+   * largest of their running totals on the rows in view (`full`): on the total's scale each venue is a small part of it and they crowded into
+   * its first fifth.
    */
   #curveX(g: Grouped, curves: readonly Curve[], o: { rows: number; centerBin: number; markBin: number; step: number }, barX: number, barW: number): { x: (c: Curve, bin: number) => number | null; full: number } {
     const half = Math.floor(o.rows / 2), markAsk = (g.totalAsk[o.markBin] ?? 0) > (g.totalBid[o.markBin] ?? 0);
@@ -601,7 +601,7 @@ export class LadderPane {
     let full = 0;
     for (const c of curves) for (let bin = top - o.rows + 1; bin <= top; bin++) { const v = value(c, bin); if (v !== null && v > full) full = v; }
     full = Math.max(full, 1);
-    return { x: (c, bin) => { const v = value(c, bin); return v === null ? null : barX + logFraction(v, full) * barW; }, full };
+    return { x: (c, bin) => { const v = value(c, bin); return v === null ? null : barX + lineFraction(v, full) * barW; }, full };
   }
 
   /** The venue lines, over the bars: each a crisp step outline in its colour; with one under the pointer, that one stronger and the rest faded. */
@@ -710,9 +710,9 @@ export class LadderPane {
     let maxPull = 1;
     if (pullRows) for (let i = 0; i < g.nBins; i++) if (!pullRows.touched[i]) for (const v of [pullRows.bid[i]!, pullRows.ask[i]!]) if (v === v) maxPull = Math.max(maxPull, Math.abs(v));
     if (state.ladderShow !== 'levels') this.#paintCumulative(ctx, g, cum, o, barX, barW, maxCum, weight, !o.curves?.length);
-    // The venue lines' scale, and its powers of ten as faint gridlines behind the bars (a log axis cannot be read without them).
+    // The venue lines' scale, and round values on it as faint gridlines behind the bars (it is not the bars' scale, so it needs its own).
     const curves = o.curves ?? [], scale = curves.length ? this.#curveX(g, curves, o, barX, barW) : null, xAt = scale?.x ?? null;
-    const ticks = scale ? decadeTicks(scale.full).map(v => ({ v, x: Math.round(barX + logFraction(v, scale.full) * barW) + 0.5 })) : [];
+    const ticks = scale ? lineTicks(scale.full).map(v => ({ v, x: Math.round(barX + lineFraction(v, scale.full) * barW) + 0.5 })) : [];
     if (ticks.length) {
       ctx.save(); ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.35; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
       for (const tick of ticks) { ctx.beginPath(); ctx.moveTo(tick.x, o.head); ctx.lineTo(tick.x, o.head + rows * ROW_H); ctx.stroke(); }
@@ -779,7 +779,9 @@ export class LadderPane {
       // The gridlines' values on the bottom row, each on a patch of the background so the bars under it do not hide it.
       ctx.save(); ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.textAlign = 'center';
       const ly = o.head + rows * ROW_H - ROW_H / 2;
-      for (const tick of ticks) { const text = `$${usd(tick.v)}`, tw = ctx.measureText(text).width + 6; ctx.globalAlpha = 0.85; ctx.fillStyle = p.bg; ctx.fillRect(tick.x - tw / 2, ly - 6, tw, 12); ctx.globalAlpha = 1; ctx.fillStyle = p.muted; ctx.fillText(text, tick.x, ly + 0.5); }
+      // A label that would overlap the one before it (a narrow column) is left out; its gridline stays.
+      let right = -Infinity;
+      for (const tick of ticks) { const text = `$${usd(tick.v)}`, tw = ctx.measureText(text).width + 6; if (tick.x - tw / 2 < right + 2) continue; right = tick.x + tw / 2; ctx.globalAlpha = 0.85; ctx.fillStyle = p.bg; ctx.fillRect(tick.x - tw / 2, ly - 6, tw, 12); ctx.globalAlpha = 1; ctx.fillStyle = p.muted; ctx.fillText(text, tick.x, ly + 0.5); }
       ctx.restore();
       // The key again over the faded lines' entries, so the one under the pointer stands out there too.
       if (this.hoveredCurve !== null && keySpans.length) { ctx.fillStyle = p.bg; ctx.fillRect(barX, keyLine - 7, keySpans[keySpans.length - 1]!.x1 - barX, 14); this.#paintCurveKey(ctx, curves, barX, keyLine, barW - (maxShown ? 96 : 0), this.hoveredCurve); }

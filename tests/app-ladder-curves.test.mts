@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CURVE_HOLD_MS, CurveRanking, curveColors, curveLines, decadeTicks, logFraction, nearestCurve, rankCurveVenues, venueCumulative } from '../src/app/panes/ladder-curves.ts';
+import { CURVE_HOLD_MS, CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, venueCumulative } from '../src/app/panes/ladder-curves.ts';
 import { cumulative, type Grouped } from '../src/app/panes/levels-data.ts';
 import { PALETTES, contrastRatio } from '../src/app/theme.ts';
 import { nearDirection } from '../src/app/cvd/colors.ts';
@@ -77,20 +77,24 @@ test('venue lines: the popup says the venue\'s running total, its share of every
   assert.ok(text.includes('Share of all venues|25%'));
   assert.ok(text.includes('At this price|$400K'));
   assert.ok(text.includes('Traded, last 1 h|$1.2B · #2'));
-  assert.ok(text.includes('Lines, full width (log scale)|$9M'), 'the lines\' own scale');
+  assert.ok(text.includes('Lines, full width|$9M'), 'the lines\' own scale');
   const unranked = curveLines({ id: 'x:Y', name: 'X Y', rank: 4, low: 1, step: 1, ask: true, mark: 1, venueCum: 0, totalCum: 0, venueLevel: 0, volume: null, window: '1 h', full: 1 });
   assert.match(unranked.at(-1)!.text, /liquidity in view/);
   assert.ok(unranked.some(l => l.text === '0%'), 'no share when nothing rests');
 });
 
-test('venue lines: a log axis over three decades below the largest, with its powers of ten for gridlines', () => {
-  assert.equal(logFraction(300_000_000, 300_000_000), 1);
-  assert.equal(logFraction(300_000, 300_000_000), 0, 'a thousandth of the largest is on the wall');
-  assert.equal(logFraction(100_000, 300_000_000), 0, 'and anything less');
-  assert.ok(Math.abs(logFraction(3_000_000, 300_000_000) - 1 / 3) < 1e-12, 'each decade a third of the width');
-  assert.equal(logFraction(0, 1), 0);
-  assert.equal(logFraction(5, 0), 0);
-  assert.deepEqual(decadeTicks(300_000_000), [1_000_000, 10_000_000, 100_000_000]);
-  assert.deepEqual(decadeTicks(1_000_000), [10_000, 100_000, 1_000_000], 'the largest itself when it is a power of ten');
-  assert.deepEqual(decadeTicks(0), []);
+test('venue lines: a linear axis up to the largest, with round values for gridlines', () => {
+  assert.equal(lineFraction(300_000_000, 300_000_000), 1);
+  assert.equal(lineFraction(75_000_000, 300_000_000), 0.25);
+  assert.equal(lineFraction(400_000_000, 300_000_000), 1, 'never past the column');
+  assert.equal(lineFraction(0, 1), 0);
+  assert.equal(lineFraction(5, 0), 0);
+  assert.deepEqual(lineTicks(9_000_000), [2_000_000, 4_000_000, 6_000_000, 8_000_000]);
+  assert.deepEqual(lineTicks(1_000_000), [200_000, 400_000, 600_000, 800_000], 'none on the right wall itself');
+  assert.deepEqual(lineTicks(300_000_000), [100_000_000, 200_000_000]);
+  assert.deepEqual(lineTicks(0), []);
+  for (const full of [1, 7, 13, 99, 1234, 55_555, 2.5e6, 3e9]) {
+    const ticks = lineTicks(full);
+    assert.ok(ticks.length >= 1 && ticks.length <= 4 && ticks.every(v => v > 0 && v < full), `${full}: ${ticks}`);
+  }
 });
