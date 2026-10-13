@@ -3,7 +3,7 @@ import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
 import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar } from '../store.ts';
-import { oiChangeByTime, oiDeltas, oiSumOf, type OiPart } from '../oi-change.ts';
+import { oiChangeByTime, oiDeltas, oiPartsUntil, oiSumOf, type OiPart } from '../oi-change.ts';
 import { anomalies, type HighlightOptions } from '../anomaly.ts';
 import { venueLabel } from '../venues.ts';
 import { activeIds, emptyScopeMessage, marketIds } from '../scope.ts';
@@ -373,11 +373,13 @@ export class OiPane extends TimePane {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state: AppState = this.store.state;
     // Replay: the bar under way at its moment would carry what came after; only bars that ended by then.
     if (this.#venues.value !== state.oiMarkets) this.#venues.value = state.oiMarkets;
-    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, oi = this.#oiAt(state.oi, tf), highlight = state.highlight;
+    // Venues added together: the sum is made of the bars that ended by the replay's moment (oiPartsUntil), as NL/NS makes its own.
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, parts = oiPartsUntil(state.oiParts, tf, replaying() ? Math.floor(pageNow() / tf) * tf : Infinity);
+    const oi = parts.length > 1 ? oiSumOf(parts, tf).bars : this.#oiAt(state.oi, tf), highlight = state.highlight;
     const readout = this.head.querySelector('.readout');
     const say = (html: string): void => setHtml(readout, html);
     if (!oi.length) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('No open-interest history for this market yet.'), 12, ph / 2); say(''); return; }
-    const analysis = this.#analysis(oi, highlight, state.oiParts, tf);
+    const analysis = this.#analysis(oi, highlight, parts, tf);
     const visible: number[] = [];
     for (let i = 0; i < oi.length; i++) if (oi[i]![0] + tf >= v.t0 && oi[i]![0] <= v.t1) visible.push(i);
     if (!visible.length) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('No open-interest samples in view.'), 12, ph / 2); say(''); return; }
@@ -422,7 +424,7 @@ export class OiPane extends TimePane {
     ctx.lineWidth = 1.6; ctx.strokeStyle = p.accent;
     // Venues added together: where fewer of them have a reading than elsewhere in view (a recording gap), the sum is drawn dashed and faint,
     // so a gap does not read as positions opened or closed.
-    const venues = state.oiParts.length > 1 ? oiSumOf(state.oiParts, tf).venues : null, most = venues ? Math.max(...visible.map(i => venues[i] ?? 0)) : 0;
+    const venues = parts.length > 1 ? oiSumOf(parts, tf).venues : null, most = venues ? Math.max(...visible.map(i => venues[i] ?? 0)) : 0;
     if (venues && visible.some(i => (venues[i] ?? 0) < most)) {
       const full = (i: number): boolean => (venues[i] ?? 0) >= most;
       for (let i = first; i <= last; i++) {
@@ -684,7 +686,7 @@ export class BarStatsPane extends TimePane {
     const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity;
     const all = [...data.bars.values()].filter(b => b.t + tfMs <= until && b.t + 2 * tfMs > v.t0 && b.t < v.t1 + tfMs).sort((a, b) => a.t - b.t);
     if (!all.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once the footprint has executions for the visible candles.'), 12, ph / 2); return; }
-    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles: new Map(state.candles.map(c => [c[0], c] as const)), oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, state.oiParts, tfMs) };
+    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles: new Map(state.candles.map(c => [c[0], c] as const)), oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(pageNow() / tfMs) * tfMs : Infinity), tfMs) };
     // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.
     const labelOf = new Map(defs.map(def => [def.id, def.approx?.(input) ? `≈${def.label}` : def.label]));
     const slot = pw * tfMs / (v.t1 - v.t0), top = 3, rowH = Math.max(15, (ph - 6) / defs.length), filled = options.cells === 'filled';

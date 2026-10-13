@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { heldOiAt, oiChangeByTime, sumOi, type OiPart } from '../src/app/oi-change.ts';
+import { heldOiAt, oiChangeByTime, oiPartsUntil, sumOi, type OiPart } from '../src/app/oi-change.ts';
 import { carriedOiDeltas, nlnsSumCandles } from '../src/app/delta/nlns.ts';
 import { fetchOiSample, fetchOiHistory, OI_SAMPLE_VENUES } from '../src/shared/history.ts';
 import { readSettings } from '../src/app/store.ts';
@@ -98,4 +98,13 @@ test('a venue\x27s hourly history holds until its next reading, a gap longer tha
   // On a 15 minute chart an hourly venue beside a 15 minute one is counted in every bar, not every other half hour.
   const sum = sumOi([{ id: 'a', bars: hourly.slice(0, 3) }, { id: 'b', bars: Array.from({ length: 9 }, (_, i) => bar(i * 15 * M, 50)) }], 15 * M);
   assert.ok(sum.venues.every(n => n === 2), JSON.stringify(sum.venues));
+});
+
+test('in replay the sum is made of the bars that ended by the moment: a reading after it holds nothing up', () => {
+  const Q = 15 * M, parts: OiPart[] = [{ id: 'a', bars: [bar(0, 100), bar(60 * M, 120)] }, { id: 'b', bars: [0, 1, 2, 3, 4, 5].map(i => bar(i * Q, 10)) }];
+  const cut = oiPartsUntil(parts, Q, 65 * M);
+  assert.equal(oiPartsUntil(parts, Q, 65 * M), cut, 'worked out once per moment');
+  const sum = sumOi(cut, Q);
+  assert.deepEqual(sum.bars.map(b => [b[0] / M, b[4]]), [[0, 110], [15, 110], [30, 110], [45, 10]], 'a is held for the short carry only: its next reading has not happened yet');
+  assert.equal(oiPartsUntil(parts, Q, Infinity), parts, 'live: as they are');
 });

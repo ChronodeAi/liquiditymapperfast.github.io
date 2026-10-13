@@ -71,6 +71,20 @@ export function sumOi(parts: readonly OiPart[], tfMs: number, carryMs = Math.max
   return { bars, venues, change, counted };
 }
 
+const cuts = new WeakMap<readonly OiPart[], { tfMs: number; until: number; parts: OiPart[] }>();
+/**
+ * The venues' bars that ended by `until` (replay; Infinity: as they are), worked out once per moment: the sum must be made of these, not cut
+ * after it is made, or a reading held until its next would stand on a reading after the moment shown. NL/NS cuts its parts the same way.
+ */
+export function oiPartsUntil(parts: readonly OiPart[], tfMs: number, until: number): readonly OiPart[] {
+  if (!Number.isFinite(until)) return parts;
+  const held = cuts.get(parts);
+  if (held && held.tfMs === tfMs && held.until === until) return held.parts;
+  const out = parts.map(part => ({ id: part.id, bars: part.bars.filter(b => b[0] + tfMs <= until) }));
+  cuts.set(parts, { tfMs, until, parts: out });
+  return out;
+}
+
 const sums = new WeakMap<readonly OiPart[], { tfMs: number; sum: OiSum }>();
 /** `sumOi` worked out once per set of parts and timeframe (what the store holds is replaced, never changed, so its reference says when). */
 export function oiSumOf(parts: readonly OiPart[], tfMs: number): OiSum {
