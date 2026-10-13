@@ -1337,7 +1337,7 @@ export class HeatPane {
     // As many of the row's venues by name as the pane has room for (a short map, a phone with another pane open): the rest go together.
     const markets = this.footprintMarkets(state).length;
     let venueLines = VENUE_LINES, lines = rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, markets, venueLines);
-    while (venueLines > 0 && layoutInfo(() => 0, lines).height > ph - 8) lines = rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, markets, --venueLines);
+    while (venueLines >= 0 && layoutInfo(() => 0, lines).height > ph - 8) lines = rowCellLines(hit.cell, hit.bar, this.footprintData.step, state.timeframe, diagonal, markets, --venueLines);
     paintInfoBox(ctx, lines, x, y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
   }
 

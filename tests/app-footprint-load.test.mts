@@ -131,4 +131,6 @@ test('a row only one market traded still says whose it is, and a short pane name
   const short = rowCellLines(rowCellAt(many, 5, 101)!, many, 5, '1h', undefined, 4, 1);
   assert.deepEqual(short.filter(l => l.mark).map(l => l.mark), ['a:X']);
   assert.ok(short.some(l => l.label === '3 more venues'), 'the rest together');
+  const none = rowCellLines(rowCellAt(many, 5, 101)!, many, 5, '1h', undefined, 4, -1);
+  assert.equal(none.length, rowCellLines({ ...rowCellAt(many, 5, 101)!, parts: undefined }, many, 5, '1h', undefined, 4).length, 'too short even for that: the box as it was before venues');
 });

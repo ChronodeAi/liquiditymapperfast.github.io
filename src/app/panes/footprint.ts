@@ -425,7 +425,7 @@ const ratioText = (ratio: number): string => Number.isFinite(ratio) ? `${ratio.t
  */
 /**
  * `markets`: how many markets the footprint adds together (1: the chart market's own); `venueLines`: how many of the row's venues are named one
- * by one (the rest together), fewer where the pane is too short for the box.
+ * by one (the rest together), fewer where the pane is too short for the box, and none (below zero) where even their summary does not fit.
  */
 export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, diagonal?: { sell?: number; buy?: number }, markets = 1, venueLines = VENUE_LINES): InfoLine[] {
   const side = imbalance(cell.buy, cell.sell), delta = cell.buy - cell.sell, big = Math.max(cell.buy, cell.sell), small = Math.min(cell.buy, cell.sell);
@@ -444,7 +444,8 @@ export function rowCellLines(cell: RowCell, bar: Bar, step: number, tf: string, 
   if (diagonal?.buy !== undefined) lines.push({ label: t('Diagonal'), text: Number.isFinite(diagonal.buy) ? t('buys {ratio} the sells one row down', { ratio: ratioText(diagonal.buy) }) : t('buys, none sold one row down'), color: 'buy' });
   if (cell.poc) lines.push({ text: t('Point of control: the busiest row of this candle'), color: 'muted', wrap: true });
   // The row's markets, the most volume first: each one's mark, sold × bought and its delta; past eight, the rest together.
-  if (cell.parts?.length) {
+  // Below zero: no venue lines at all (a pane too short even for the summary line).
+  if (cell.parts?.length && venueLines >= 0) {
     const ranked = [...cell.parts].sort((a, b) => b[1] + b[2] - a[1] - a[2]), shown = ranked.slice(0, Math.max(0, venueLines)), rest = ranked.slice(Math.max(0, venueLines));
     shown.forEach(([id, buy, sell], i) => lines.push({ mark: id, label: venueLabel(venueOfInstrument(id)), text: `${volText(sell)} × ${volText(buy)} · ${signed(buy - sell)}`, color: buy > sell ? 'buy' : buy < sell ? 'sell' : 'text', ...(i === 0 ? { rule: true } : {}) }));
     if (rest.length) {
