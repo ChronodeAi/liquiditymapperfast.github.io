@@ -356,7 +356,12 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const rawBudget = url.searchParams.get('budget'), budget = rawBudget === null ? Infinity : Number(rawBudget);
     if (!(budget > 0)) return sendJson(res, { error: 'budget must be a positive number' }, 400);
     // `venues=1`: each row's markets too (the footprint's bars split by venue); only a page that draws them asks.
-    sendJson(res, { instrumentId: id, tf, ...footprint.queryMany(ids, span.from, span.to, tfMs, rows, cuts, budget, url.searchParams.get('venues') === '1') });
+    // Bars of whole hours: the hours the answer reads are added together first, a few at a time (`prepare`), and the answer then merges one
+    // entry an hour on the request path rather than every minute (a daily bar of fourteen markets read back from the store took seconds).
+    // It may go to four budgets: it lets the event loop go every few milliseconds, and fewer answers is fewer round trips for the page.
+    footprint.prepare(ids, span.from, span.to, tfMs, 4 * budget)
+      .then(() => sendJson(res, { instrumentId: id, tf, ...footprint.queryMany(ids, span.from, span.to, tfMs, rows, cuts, budget, url.searchParams.get('venues') === '1') }))
+      .catch(error => { console.error('v2 /api/v2/footprint failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); else res.end(); });
   };
   const liquidationsRoute = (url: URL, res: ServerResponse) => {
     // As the prints: a window longer than what is kept is cut to its last eight days, never refused.

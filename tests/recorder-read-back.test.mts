@@ -508,3 +508,50 @@ test('a footprint minute the store has not taken stays in memory past the hours 
   store.failing = false; back.flush();
   assert.ok(Math.abs(bought() - base - 50_000) < 1e-6, 'and, once written, from the store');
 });
+
+test('bars of whole hours read each ended hour added together, and answer as the minutes added one by one do', async () => {
+  const NOW = T0 + 2 * DAY + 7 * MIN, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  const ids = ['a:BTC', 'b:BTC'], now = () => NOW;
+  const back = new FootprintRecorder(store, now, 7 * DAY, 1, 6 * HOUR), all = new FootprintRecorder(holdingRows(store), now, 7 * DAY);
+  for (const tf of [HOUR, 4 * HOUR, DAY]) {
+    // The same answer read back or held, asked twice (the second time from the hours held), with the venues apart.
+    for (const round of [1, 2]) assert.deepEqual(back.queryMany(ids, T0, NOW + MIN, tf, 10, [50_000], Infinity, true), all.queryMany(ids, T0, NOW + MIN, tf, 10, [50_000], Infinity, true), `${tf / HOUR} h, round ${round}`);
+  }
+  // Against half-hour bars (minutes added one by one), put together by the hour: the same rows, sums and statistics.
+  const hourly = all.queryMany(ids, T0, NOW + MIN, HOUR, 10, [50_000]), halves = all.queryMany(ids, T0, NOW + MIN, 30 * MIN, 10, [50_000]);
+  assert.equal(hourly.bars.length, 49);
+  for (const bar of hourly.bars) {
+    const parts = halves.bars.filter(b => Math.floor(b.t / HOUR) * HOUR === bar.t), rows = new Map<number, [number, number]>();
+    for (const p of parts) for (const [price, buy, sell] of p.rows) { const r = rows.get(price) ?? [0, 0]; r[0] += buy; r[1] += sell; rows.set(price, r); }
+    assert.deepEqual(bar.rows.map(r => r[0]), [...rows.keys()].sort((a, b) => a - b), 'the same rows');
+    for (const [price, buy, sell] of bar.rows) { const r = rows.get(price)!; assert.ok(Math.abs(r[0] - buy) < 1e-6 && Math.abs(r[1] - sell) < 1e-6); }
+    assert.equal(bar.minutes, parts.reduce((s, p) => s + (p.minutes ?? 0), 0));
+    assert.equal(bar.stats?.buyN, parts.reduce((s, p) => s + (p.stats?.buyN ?? 0), 0));
+  }
+});
+
+test('an hour held added together lets go when a late trade lands in it, and an hour held costs a question almost nothing', async () => {
+  const NOW = T0 + 2 * DAY, store = new MemoryFootprintStore();
+  recordTrades(store, NOW);
+  const ids = ['a:BTC', 'b:BTC'], back = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
+  const hour = T0 + 10 * HOUR, volume = () => { const bar = back.queryMany(['a:BTC'], hour, hour + HOUR, HOUR, 10).bars[0]!; return bar.buyUsd + bar.sellUsd; };
+  const before = volume();
+  back.ingest([{ instrumentId: 'a:BTC', tradeId: 'late', side: 'buy', price: 85_555, notionalUsd: 123_456, sourceTimestamp: hour + 3 * MIN + 30_000 }]);
+  assert.ok(Math.abs(volume() - before - 123_456) < 1e-6, 'the late trade is in the hour');
+  // Two days of two markets read back cost four a minute: a budget of 5,000 reaches about fifteen hours. Prepared, the hours are held and
+  // one question reaches across both days.
+  const first = back.queryMany(ids, T0, NOW, HOUR, 10, [], 5_000).from;
+  assert.ok(first > T0 + 20 * HOUR, `unprepared, the answer starts later: ${(first - T0) / HOUR} h`);
+  await back.prepare(ids, T0, NOW, HOUR, Infinity);
+  assert.equal(back.queryMany(ids, T0, NOW, HOUR, 10, [], 5_000).from, T0, 'prepared: one question for both days');
+  // A prepare with a budget builds the newest bar whole, then stops at a bar's end.
+  const fresh = new FootprintRecorder(store, () => NOW, 7 * DAY, 1, 6 * HOUR);
+  await fresh.prepare(ids, T0, NOW, DAY, 1);
+  let reads = store.reads;
+  fresh.queryMany(ids, T0 + DAY, NOW, DAY, 10);
+  assert.equal(store.reads, reads, 'the newest day was prepared whole: nothing read back for it');
+  reads = store.reads;
+  fresh.queryMany(ids, T0, T0 + DAY, DAY, 10);
+  assert.ok(store.reads > reads, 'and the day before it was not');
+});
