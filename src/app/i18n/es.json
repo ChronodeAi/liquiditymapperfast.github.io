@@ -1318,5 +1318,7 @@
  "Border: contrasting": "Borde: en contraste",
  "No border": "Sin borde",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "El borde de la flecha: de su color, una línea en contraste o ninguno (haz clic para cambiar)",
- "Fill": "Relleno"
+ "Fill": "Relleno",
+ "side unknown": "lado desconocido",
+ "Side unknown": "Lado desconocido"
 }

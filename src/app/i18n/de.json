@@ -1305,5 +1305,7 @@
  "Border: contrasting": "Rand: kontrastierend",
  "No border": "Kein Rand",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Der Rand des Pfeils: in seiner Farbe, als kontrastierende Linie oder keiner (klicken zum Wechseln)",
- "Fill": "Füllung"
+ "Fill": "Füllung",
+ "side unknown": "Seite unbekannt",
+ "Side unknown": "Seite unbekannt"
 }

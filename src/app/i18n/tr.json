@@ -1305,5 +1305,7 @@
  "Border: contrasting": "Kenar: zıt renk",
  "No border": "Kenar yok",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Okun kenarı: kendi renginde, zıt bir çizgi ya da hiç (değiştirmek için tıklayın)",
- "Fill": "Dolgu"
+ "Fill": "Dolgu",
+ "side unknown": "taraf bilinmiyor",
+ "Side unknown": "Taraf bilinmiyor"
 }

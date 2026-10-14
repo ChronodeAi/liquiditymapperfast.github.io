@@ -1268,5 +1268,7 @@
  "Border: contrasting": "테두리: 대비 색",
  "No border": "테두리 없음",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "화살표의 가장자리: 같은 색, 대비되는 선 또는 없음(클릭하여 변경)",
- "Fill": "채우기"
+ "Fill": "채우기",
+ "side unknown": "방향 알 수 없음",
+ "Side unknown": "방향 알 수 없음"
 }

@@ -1268,5 +1268,7 @@
  "Border: contrasting": "边框：对比色",
  "No border": "无边框",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "箭头的边缘：同色、对比线或无（点击切换）",
- "Fill": "填充"
+ "Fill": "填充",
+ "side unknown": "方向未知",
+ "Side unknown": "方向未知"
 }

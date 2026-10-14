@@ -23,8 +23,11 @@ export interface NlnsCandle {
   t: number;
   /** The change of open interest attributed in this candle (coins) and what it was before, over the markets counted. */
   dOi: number; oiStart: number;
-  /** The four parts (coins, none negative), and changes that went to neither side (the takers came out even). */
-  longOpened: number; longClosed: number; shortOpened: number; shortClosed: number; unassigned: number;
+  /**
+   * The four parts (coins, none negative); changes that went to neither side because the takers came out even (`unassigned`), and because
+   * nothing said which way they went (`unknown`: the flow did not cover the whole stretch and the chart's price could not stand in).
+   */
+  longOpened: number; longClosed: number; shortOpened: number; shortClosed: number; unassigned: number; unknown: number;
   /** Longs opened less closed, shorts opened less closed, and the net of the two (`v = longs − shorts`). */
   longs: number; shorts: number; v: number;
   /** The largest part, or `mixed` when parts pulled both ways (new longs or shorts closed beside new shorts or longs closed); null when nothing was attributed. */
@@ -51,7 +54,7 @@ export function nlnsModel(starts: readonly number[], markets: readonly NlnsMarke
   // Bars a candle apart are consecutive readings however long the candle (a 4-hour or daily chart's bars are 4 h or a day apart).
   holdMs = Math.max(holdMs, tfMs);
   const index = new Map(starts.map((s, i) => [s, i] as const));
-  const parts = starts.map(() => ({ dOi: 0, oiStart: 0, lo: 0, lc: 0, so: 0, sc: 0, un: 0, byPrice: false, coarse: false, counted: 0 }));
+  const parts = starts.map(() => ({ dOi: 0, oiStart: 0, lo: 0, lc: 0, so: 0, sc: 0, un: 0, unknown: 0, byPrice: false, coarse: false, counted: 0 }));
   const carry = Math.max(2 * tfMs, 10 * 60_000), covered = new Array<number>(starts.length).fill(0);
   const closeAt = (time: number): number | undefined => { let best: number | undefined; for (let s = time; s >= time - holdMs; s -= tfMs) { best = closes.get(s); if (best !== undefined) break; } return best; };
   for (const market of markets) {
@@ -64,13 +67,16 @@ export function nlnsModel(starts: readonly number[], markets: readonly NlnsMarke
       p.counted++; p.dOi += d; p.oiStart += before[4];
       if (now[0] - before[0] > tfMs) p.coarse = true;
       if (d === 0) continue;
-      // The market's takers over the whole stretch since its reading before (the candles after it, up to and including this one).
-      let delta = 0, seen = false;
-      for (let j = i; j >= 0 && starts[j]! > before[0]; j--) { const f = market.flows[j]; if (f) { delta += f.delta; seen = true; } }
-      let side = seen ? Math.sign(delta) : 0;
-      if (!seen) { const a = closeAt(before[0]), b = closeAt(now[0]); if (a !== undefined && b !== undefined) { side = Math.sign(b - a); if (side) p.byPrice = true; } }
+      // The market's takers over the whole stretch since its reading before (the candles after it, up to and including this one), only when
+      // every one of them is recorded: flow over part of the stretch (a start or a gap inside it) says nothing of the rest, which could turn it.
+      let delta = 0, whole = true, first = i;
+      for (let j = i; j >= 0 && starts[j]! > before[0]; j--) { const f = market.flows[j]; first = j; if (f) delta += f.delta; else whole = false; }
+      if (starts[first]! - tfMs > before[0]) whole = false;
+      let side = whole ? Math.sign(delta) : 0, known = whole;
+      if (!whole) { const a = closeAt(before[0]), b = closeAt(now[0]); if (a !== undefined && b !== undefined) { side = Math.sign(b - a); known = true; if (side) p.byPrice = true; } }
       const size = Math.abs(d);
-      if (side === 0) p.un += size;
+      if (!known) p.unknown += size;
+      else if (side === 0) p.un += size;
       else if (d > 0) { if (side > 0) p.lo += size; else p.so += size; }
       else if (side < 0) p.lc += size; else p.sc += size;
     }
@@ -85,7 +91,7 @@ export function nlnsModel(starts: readonly number[], markets: readonly NlnsMarke
     const nonzero = named.filter(([, x]) => x > 0), bothWays = (p.lo + p.sc > 0) && (p.so + p.lc > 0);
     const kind: NlnsCandle['kind'] = !nonzero.length ? null : bothWays ? 'mixed' : nonzero.sort((a, b) => b[1] - a[1])[0]![0];
     cum += v; cumLongs += longs; cumShorts += shorts;
-    out.push({ t: s, dOi: p.dOi, oiStart: p.oiStart, longOpened: p.lo, longClosed: p.lc, shortOpened: p.so, shortClosed: p.sc, unassigned: p.un, longs, shorts, v, kind,
+    out.push({ t: s, dOi: p.dOi, oiStart: p.oiStart, longOpened: p.lo, longClosed: p.lc, shortOpened: p.so, shortClosed: p.sc, unassigned: p.un, unknown: p.unknown, longs, shorts, v, kind,
       side: Math.sign(v) as 1 | -1 | 0, byPrice: p.byPrice, coarse: p.coarse, covered: covered[i]!, counted: p.counted, cum, cumLongs, cumShorts, run });
   });
   return out;
@@ -121,11 +127,13 @@ export function nlnsCardLines(c: NlnsCandle, tf: string, coin: string, market: s
   const lines: InfoLine[] = [
     { text: `${clock(c.t, true)} · ${tf}`, bold: true },
     { label: t('Open interest'), text: `${coinText(c.dOi, coin)}${share}`, bold: true },
-    { label: t('Read as'), text: c.kind ? KIND_TEXT[c.kind]() : c.unassigned > 0 ? t('takers even') : t('no change'), color: c.v > 0 ? 'buy' : c.v < 0 ? 'sell' : 'text' },
+    { label: t('Read as'), text: c.kind ? KIND_TEXT[c.kind]() : c.unassigned > 0 ? t('takers even') : c.unknown > 0 ? t('side unknown') : t('no change'), color: c.v > 0 ? 'buy' : c.v < 0 ? 'sell' : 'text' },
   ];
   for (const [label, x, color] of [[t('New longs'), c.longOpened, 'buy'], [t('Longs closed'), -c.longClosed, 'sell'], [t('New shorts'), c.shortOpened, 'sell'], [t('Shorts closed'), -c.shortClosed, 'buy']] as const)
     if (x !== 0) lines.push({ label, text: coinText(x, coin), color });
   if (c.unassigned > 0) lines.push({ label: t('Takers even'), text: coinText(c.unassigned, coin), color: 'muted' });
+  // Neither the flow (not recorded over the whole stretch) nor the price (another market's candles) said which way.
+  if (c.unknown > 0) lines.push({ label: t('Side unknown'), text: coinText(c.unknown, coin), color: 'muted' });
   lines.push(
     { label: t('Longs'), text: `${coinText(c.longs, coin)} · ${t('since the start')} ${coinText(c.cumLongs, coin)}`, color: c.longs > 0 ? 'buy' : c.longs < 0 ? 'sell' : 'text', rule: true },
     { label: t('Shorts'), text: `${coinText(c.shorts, coin)} · ${t('since the start')} ${coinText(c.cumShorts, coin)}`, color: c.shorts > 0 ? 'sell' : c.shorts < 0 ? 'buy' : 'text' },

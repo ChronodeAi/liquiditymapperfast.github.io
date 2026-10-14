@@ -46,8 +46,24 @@ test('recorded flow that came out even goes to neither side; flow not recorded l
   const c = nlnsModel(starts, [{ bars, flows: [null, flow(0), null] }], closes, keys(starts), H);
   assert.deepEqual(c.map(x => [x.kind, x.unassigned, x.v, x.byPrice]), [[null, 0, 0, false], [null, 10, 0, false], ['newLongs', 0, 5, true]]);
   assert.equal(nlnsCardLines(c[1]!, '1h', 'BTC', 'Binance BTCUSDT')[2]!.text, 'takers even');
-  // No flow and no closes (the chart's candles are another market's): neither side.
-  assert.deepEqual(nlnsModel(starts, [{ bars, flows: [null, null, null] }], none, keys(starts), H).map(x => x.unassigned), [0, 10, 5]);
+  // No flow and no closes (the chart's candles are another market's): neither side, and not taken for takers even.
+  const blind = nlnsModel(starts, [{ bars, flows: [null, null, null] }], none, keys(starts), H);
+  assert.deepEqual(blind.map(x => [x.unassigned, x.unknown]), [[0, 0], [0, 10], [0, 5]]);
+  assert.equal(nlnsCardLines(blind[1]!, '1h', 'BTC', 'Binance BTCUSDT')[2]!.text, 'side unknown');
+});
+
+test('flow over only part of a reading\'s stretch does not decide it: the price does, or no side', () => {
+  // An hourly reading on a 15-minute chart, flow recorded for the first quarter only (buyers) and selling as the price fell.
+  const Q = H / 4, starts = [T, T + Q, T + 2 * Q, T + 3 * Q, T + H];
+  const bars = [bar(T, 100), bar(T + H, 110)], flows = [null, flow(50), null, null, null];
+  const closes = new Map([[T, 50_000], [T + H, 49_000]]);
+  const [byPrice] = nlnsModel(starts, [{ bars, flows }], closes, keys(starts), Q, H).slice(-1);
+  assert.deepEqual([byPrice!.kind, byPrice!.byPrice], ['newShorts', true], 'the price fell: new shorts, not the first quarter\'s buyers');
+  const [blind] = nlnsModel(starts, [{ bars, flows }], none, keys(starts), Q, H).slice(-1);
+  assert.deepEqual([blind!.kind, blind!.unknown], [null, 10]);
+  // Recorded over the whole stretch, the takers decide.
+  const [whole] = nlnsModel(starts, [{ bars, flows: [null, flow(50), flow(-10), flow(5), flow(1)] }], closes, keys(starts), Q, H).slice(-1);
+  assert.deepEqual([whole!.kind, whole!.byPrice], ['newLongs', false]);
 });
 
 test('a venue read hourly on a one-minute chart: its change lands in the candle of its new reading, given to its takers over the whole hour', () => {

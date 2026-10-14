@@ -1318,5 +1318,7 @@
  "Border: contrasting": "Bordo: a contrasto",
  "No border": "Nessun bordo",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Il bordo della freccia: nel suo colore, una linea a contrasto o nessuno (clic per cambiare)",
- "Fill": "Riempimento"
+ "Fill": "Riempimento",
+ "side unknown": "lato sconosciuto",
+ "Side unknown": "Lato sconosciuto"
 }

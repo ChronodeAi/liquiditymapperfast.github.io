@@ -1336,5 +1336,7 @@
  "Border: contrasting": "Контур: контрастний",
  "No border": "Без контуру",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Край стрілки: її кольору, контрастна лінія або жодного (натисніть, щоб змінити)",
- "Fill": "Заливка"
+ "Fill": "Заливка",
+ "side unknown": "сторона невідома",
+ "Side unknown": "Сторона невідома"
 }

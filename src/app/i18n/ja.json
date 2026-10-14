@@ -1268,5 +1268,7 @@
  "Border: contrasting": "枠：コントラスト",
  "No border": "枠なし",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "矢印の枠：同じ色、コントラストの線、またはなし（クリックで切り替え）",
- "Fill": "塗り"
+ "Fill": "塗り",
+ "side unknown": "方向不明",
+ "Side unknown": "方向不明"
 }

@@ -1318,5 +1318,7 @@
  "Border: contrasting": "Borda: em contraste",
  "No border": "Sem borda",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "A borda da seta: na sua cor, uma linha em contraste ou nenhuma (clique para mudar)",
- "Fill": "Preenchimento"
+ "Fill": "Preenchimento",
+ "side unknown": "lado desconhecido",
+ "Side unknown": "Lado desconhecido"
 }

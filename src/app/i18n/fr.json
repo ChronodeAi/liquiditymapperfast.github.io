@@ -1318,5 +1318,7 @@
  "Border: contrasting": "Bordure : contrastée",
  "No border": "Sans bordure",
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Le bord de la flèche : de sa couleur, une ligne contrastée ou aucun (cliquez pour changer)",
- "Fill": "Remplissage"
+ "Fill": "Remplissage",
+ "side unknown": "côté inconnu",
+ "Side unknown": "Côté inconnu"
 }
