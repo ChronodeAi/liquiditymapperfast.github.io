@@ -1257,5 +1257,16 @@
  "In proportion": "比例",
  "Square root": "平方根",
  "Logarithmic": "対数",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "ポジション基準：上位トレーダーのポジションサイズのうちロングの割合で、口座数ではありません。L/S 1.25 は彼らの中でロングがショートの 1.25 倍保有されていることを意味します。市場全体では両側は常に等しくなります。"
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "ポジション基準：上位トレーダーのポジションサイズのうちロングの割合で、口座数ではありません。L/S 1.25 は彼らの中でロングがショートの 1.25 倍保有されていることを意味します。市場全体では両側は常に等しくなります。",
+ "Block arrow": "太い矢印",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "根元から先端へドラッグ：塗りつぶし・半透明・空のいずれかで、枠ありまたは枠なしの太い矢印",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "矢印の塗りつぶしの量：なし（輪郭のみ）、半透明、または不透明",
+ "Arrow fill": "矢印の塗りつぶし",
+ "How wide the arrow is": "矢印の太さ",
+ "Arrow width": "矢印の太さ",
+ "Border: its colour": "枠：同じ色",
+ "Border: contrasting": "枠：コントラスト",
+ "No border": "枠なし",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "矢印の枠：同じ色、コントラストの線、またはなし（クリックで切り替え）",
+ "Fill": "塗り"
 }

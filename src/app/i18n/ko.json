@@ -1257,5 +1257,16 @@
  "In proportion": "비례",
  "Square root": "제곱근",
  "Logarithmic": "로그",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "포지션 기준: 상위 트레이더 포지션 규모 중 롱의 비율이며, 계정 수가 아닙니다. L/S 1.25는 그들 사이에서 롱이 숏의 1.25배 보유되었다는 뜻입니다. 시장 전체로는 양쪽이 항상 같습니다."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "포지션 기준: 상위 트레이더 포지션 규모 중 롱의 비율이며, 계정 수가 아닙니다. L/S 1.25는 그들 사이에서 롱이 숏의 1.25배 보유되었다는 뜻입니다. 시장 전체로는 양쪽이 항상 같습니다.",
+ "Block arrow": "굵은 화살표",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "꼬리에서 끝으로 드래그: 채우기, 반투명 또는 비어 있는 넓은 화살표, 테두리 있음 또는 없음",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "화살표를 얼마나 채울지: 없음(윤곽선), 반투명, 또는 불투명",
+ "Arrow fill": "화살표 채우기",
+ "How wide the arrow is": "화살표의 너비",
+ "Arrow width": "화살표 너비",
+ "Border: its colour": "테두리: 같은 색",
+ "Border: contrasting": "테두리: 대비 색",
+ "No border": "테두리 없음",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "화살표의 가장자리: 같은 색, 대비되는 선 또는 없음(클릭하여 변경)",
+ "Fill": "채우기"
 }

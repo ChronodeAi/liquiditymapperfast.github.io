@@ -1294,5 +1294,16 @@
  "In proportion": "Orantılı",
  "Square root": "Karekök",
  "Logarithmic": "Logaritmik",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Pozisyonlara göre: en iyi traderların pozisyon büyüklüğünün long olan payı, hesapların değil. L/S 1,25, aralarında long tutulanın short tutulanın 1,25 katı olduğu anlamına gelir; tüm piyasada iki taraf her zaman eşittir."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Pozisyonlara göre: en iyi traderların pozisyon büyüklüğünün long olan payı, hesapların değil. L/S 1,25, aralarında long tutulanın short tutulanın 1,25 katı olduğu anlamına gelir; tüm piyasada iki taraf her zaman eşittir.",
+ "Block arrow": "Kalın ok",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Kuyruktan uca sürükleyin: dolu, yarı saydam ya da boş, kenarlı veya kenarsız geniş bir ok",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "Okun ne kadar dolu olduğu: hiç (yalnızca dış çizgi), yarı saydam ya da tam",
+ "Arrow fill": "Ok dolgusu",
+ "How wide the arrow is": "Okun genişliği",
+ "Arrow width": "Ok genişliği",
+ "Border: its colour": "Kenar: kendi rengi",
+ "Border: contrasting": "Kenar: zıt renk",
+ "No border": "Kenar yok",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Okun kenarı: kendi renginde, zıt bir çizgi ya da hiç (değiştirmek için tıklayın)",
+ "Fill": "Dolgu"
 }

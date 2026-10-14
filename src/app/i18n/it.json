@@ -1307,5 +1307,16 @@
  "In proportion": "Proporzionale",
  "Square root": "Radice quadrata",
  "Logarithmic": "Logaritmica",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Per posizioni: la quota della dimensione delle posizioni dei top trader che è long, non dei conti. L/S 1,25 è 1,25 volte tanto tenuto long quanto short tra loro; sull’intero mercato i due lati sono sempre uguali."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Per posizioni: la quota della dimensione delle posizioni dei top trader che è long, non dei conti. L/S 1,25 è 1,25 volte tanto tenuto long quanto short tra loro; sull’intero mercato i due lati sono sempre uguali.",
+ "Block arrow": "Freccia piena",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Trascina dalla coda alla punta: una freccia larga, piena, trasparente o vuota, con o senza bordo",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "Quanto è riempita la freccia: per niente (solo il contorno), trasparente o piena",
+ "Arrow fill": "Riempimento della freccia",
+ "How wide the arrow is": "Quanto è larga la freccia",
+ "Arrow width": "Larghezza della freccia",
+ "Border: its colour": "Bordo: il suo colore",
+ "Border: contrasting": "Bordo: a contrasto",
+ "No border": "Nessun bordo",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Il bordo della freccia: nel suo colore, una linea a contrasto o nessuno (clic per cambiare)",
+ "Fill": "Riempimento"
 }

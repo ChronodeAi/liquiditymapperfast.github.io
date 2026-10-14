@@ -1320,5 +1320,16 @@
  "In proportion": "Пропорционально",
  "Square root": "Квадратный корень",
  "Logarithmic": "Логарифмически",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "По позициям: доля размера позиций топ-трейдеров, открытая в лонг, а не доля счетов. L/S 1,25 означает, что у них в лонг держится в 1,25 раза больше, чем в шорт; по всему рынку стороны всегда равны."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "По позициям: доля размера позиций топ-трейдеров, открытая в лонг, а не доля счетов. L/S 1,25 означает, что у них в лонг держится в 1,25 раза больше, чем в шорт; по всему рынку стороны всегда равны.",
+ "Block arrow": "Широкая стрелка",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Протяните от хвоста к острию: широкая стрелка, залитая, полупрозрачная или пустая, с контуром или без",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "Насколько стрелка залита: никак (только контур), полупрозрачно или полностью",
+ "Arrow fill": "Заливка стрелки",
+ "How wide the arrow is": "Ширина стрелки",
+ "Arrow width": "Ширина стрелки",
+ "Border: its colour": "Контур: её цвет",
+ "Border: contrasting": "Контур: контрастный",
+ "No border": "Без контура",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Край стрелки: её цвета, контрастная линия или никакого (нажмите, чтобы сменить)",
+ "Fill": "Заливка"
 }

@@ -1307,5 +1307,16 @@
  "In proportion": "Proporcional",
  "Square root": "Raiz quadrada",
  "Logarithmic": "Logarítmica",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Por posições: a parte do tamanho das posições dos principais traders que está comprada, não das contas. L/S 1,25 é 1,25 vez mais mantido comprado do que vendido entre eles; no mercado inteiro os dois lados são sempre iguais."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Por posições: a parte do tamanho das posições dos principais traders que está comprada, não das contas. L/S 1,25 é 1,25 vez mais mantido comprado do que vendido entre eles; no mercado inteiro os dois lados são sempre iguais.",
+ "Block arrow": "Seta larga",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Arraste da cauda até a ponta: uma seta larga, preenchida, translúcida ou vazia, com ou sem borda",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "Quanto a seta é preenchida: nada (só o contorno), translúcida ou sólida",
+ "Arrow fill": "Preenchimento da seta",
+ "How wide the arrow is": "Qual a largura da seta",
+ "Arrow width": "Largura da seta",
+ "Border: its colour": "Borda: sua cor",
+ "Border: contrasting": "Borda: em contraste",
+ "No border": "Sem borda",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "A borda da seta: na sua cor, uma linha em contraste ou nenhuma (clique para mudar)",
+ "Fill": "Preenchimento"
 }

@@ -1307,5 +1307,16 @@
  "In proportion": "Proportionnel",
  "Square root": "Racine carrée",
  "Logarithmic": "Logarithmique",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Par positions : la part de la taille des positions des meilleurs traders qui est longue, pas des comptes. L/S 1,25 signifie 1,25 fois plus détenu à la hausse qu'à la baisse parmi eux ; sur l'ensemble du marché, les deux côtés sont toujours égaux."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Par positions : la part de la taille des positions des meilleurs traders qui est longue, pas des comptes. L/S 1,25 signifie 1,25 fois plus détenu à la hausse qu'à la baisse parmi eux ; sur l'ensemble du marché, les deux côtés sont toujours égaux.",
+ "Block arrow": "Flèche pleine",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Faites glisser de la queue à la pointe : une flèche large, pleine, translucide ou vide, avec ou sans bordure",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "À quel point la flèche est remplie : pas du tout (un contour), translucide ou pleine",
+ "Arrow fill": "Remplissage de la flèche",
+ "How wide the arrow is": "La largeur de la flèche",
+ "Arrow width": "Largeur de la flèche",
+ "Border: its colour": "Bordure : sa couleur",
+ "Border: contrasting": "Bordure : contrastée",
+ "No border": "Sans bordure",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Le bord de la flèche : de sa couleur, une ligne contrastée ou aucun (cliquez pour changer)",
+ "Fill": "Remplissage"
 }

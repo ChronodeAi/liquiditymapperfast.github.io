@@ -203,6 +203,9 @@ dialog.shot::backdrop { background: transparent; }
 .shot-group:first-child { border-left: 0; padding-left: 0; }
 .shot-group[hidden] { display: none; }
 .shot-label { color: rgba(255, 255, 255, .6); font-size: 11px; margin-right: 6px; }
+.shot-group input[type=range] + .shot-label { margin-left: 6px; }
+.shot-toggle { height: 28px; padding: 0 8px; border-radius: var(--radius); color: #e6e9ee; font-size: 11px; white-space: nowrap; background: rgba(255, 255, 255, .08); }
+.shot-toggle:hover { background: rgba(255, 255, 255, .16); }
 .shot-bar input[type=range] { width: 96px; accent-color: #4da3ff; }
 .shot-bar button { font: inherit; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .shot-btn { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: var(--radius); color: #e6e9ee; }

@@ -1257,5 +1257,16 @@
  "In proportion": "按比例",
  "Square root": "平方根",
  "Logarithmic": "对数",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "按持仓：顶级交易者持仓规模中做多的比例，而非账户数。L/S 1.25 表示他们中做多持有量是做空的 1.25 倍；就整个市场而言，多空两边总是相等。"
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "按持仓：顶级交易者持仓规模中做多的比例，而非账户数。L/S 1.25 表示他们中做多持有量是做空的 1.25 倍；就整个市场而言，多空两边总是相等。",
+ "Block arrow": "粗箭头",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "从尾部拖到尖端：一个宽箭头，可填充、半透明或空心，带边框或不带",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "箭头填充多少：不填充（仅轮廓）、半透明或实心",
+ "Arrow fill": "箭头填充",
+ "How wide the arrow is": "箭头有多宽",
+ "Arrow width": "箭头宽度",
+ "Border: its colour": "边框：同色",
+ "Border: contrasting": "边框：对比色",
+ "No border": "无边框",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "箭头的边缘：同色、对比线或无（点击切换）",
+ "Fill": "填充"
 }

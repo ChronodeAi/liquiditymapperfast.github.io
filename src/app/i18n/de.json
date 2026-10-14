@@ -1294,5 +1294,16 @@
  "In proportion": "Proportional",
  "Square root": "Quadratwurzel",
  "Logarithmic": "Logarithmisch",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Nach Positionen: der Anteil der Positionsgröße der Top-Trader, der long ist, nicht der Konten. L/S 1,25 heißt 1,25-mal so viel long wie short gehalten; über den ganzen Markt sind beide Seiten immer gleich."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Nach Positionen: der Anteil der Positionsgröße der Top-Trader, der long ist, nicht der Konten. L/S 1,25 heißt 1,25-mal so viel long wie short gehalten; über den ganzen Markt sind beide Seiten immer gleich.",
+ "Block arrow": "Blockpfeil",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Vom Ende zur Spitze ziehen: ein breiter Pfeil, gefüllt, durchscheinend oder leer, mit Rand oder ohne",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "Wie stark der Pfeil gefüllt ist: gar nicht (nur Umriss), durchscheinend oder voll",
+ "Arrow fill": "Füllung des Pfeils",
+ "How wide the arrow is": "Wie breit der Pfeil ist",
+ "Arrow width": "Breite des Pfeils",
+ "Border: its colour": "Rand: seine Farbe",
+ "Border: contrasting": "Rand: kontrastierend",
+ "No border": "Kein Rand",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Der Rand des Pfeils: in seiner Farbe, als kontrastierende Linie oder keiner (klicken zum Wechseln)",
+ "Fill": "Füllung"
 }

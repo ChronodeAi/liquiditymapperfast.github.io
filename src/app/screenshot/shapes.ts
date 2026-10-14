@@ -75,13 +75,42 @@ export function arrowHead(a: Pt, b: Pt, width: number): [Pt, Pt] {
   return [{ x: b.x - length * Math.cos(angle - spread), y: b.y - length * Math.sin(angle - spread) }, { x: b.x - length * Math.cos(angle + spread), y: b.y - length * Math.sin(angle + spread) }];
 }
 
+/**
+ * A block arrow from `a` (the tail) to `b` (the point), `size` px wide across its shaft, as its outline: the shaft, then a head 1.9 times as
+ * wide and up to 1.25 times as long (never more than half the arrow, so a short one is mostly head). Empty for a zero length.
+ */
+export function blockArrow(a: Pt, b: Pt, size: number): Pt[] {
+  const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy);
+  if (!(length > 0) || !(size > 0)) return [];
+  const ux = dx / length, uy = dy / length, half = size / 2, headHalf = size * 0.95, head = Math.min(length * 0.5, size * 1.25 + 4), neck = length - head;
+  const at = (along: number, across: number): Pt => ({ x: a.x + ux * along - uy * across, y: a.y + uy * along + ux * across });
+  return [at(0, half), at(neck, half), at(neck, headHalf), at(length, 0), at(neck, -headHalf), at(neck, -half), at(0, -half)];
+}
+
+/** A closed outline with its corners rounded by `radius` (kept small enough for the shortest edge). */
+function roundedOutline(ctx: CanvasRenderingContext2D, points: readonly Pt[], radius: number): void {
+  const n = points.length, last = points[n - 1]!, first = points[0]!;
+  ctx.beginPath(); ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+  for (let i = 0; i < n; i++) { const p = points[i]!, q = points[(i + 1) % n]!; ctx.arcTo(p.x, p.y, q.x, q.y, radius); }
+  ctx.closePath();
+}
+
+/** The block arrow's edge: none, in its own colour, or a dark (or, on the dark colour, light) line that sets it off whatever it is filled with. */
+export type BlockBorder = 'none' | 'color' | 'contrast';
+export const BLOCK_BORDERS: readonly BlockBorder[] = ['color', 'contrast', 'none'];
+/** How wide a block arrow's shaft can be set (px), and how much of it can be filled (0: an outline, 1: solid). */
+export const BLOCK_SIZE = { min: 12, max: 120, start: 36 } as const;
+export const BLOCK_FILL_START = 0.2;
+
 export const COLORS: readonly string[] = ['#ff3b30', '#ff9f0a', '#ffd60a', '#30d158', '#0a84ff', '#ffffff', '#111111'];
 export const WIDTHS: readonly number[] = [2, 4, 8];
 
-export type Tool = 'move' | 'pen' | 'line' | 'arrow' | 'rect' | 'marker' | 'text' | 'pixelate' | 'blur';
+export type Tool = 'move' | 'pen' | 'line' | 'arrow' | 'block' | 'rect' | 'marker' | 'text' | 'pixelate' | 'blur';
 export type Shape =
   | { kind: 'pen' | 'marker'; points: Pt[]; color: string; width: number }
   | { kind: 'line' | 'arrow' | 'rect'; a: Pt; b: Pt; color: string; width: number }
+  /** A block arrow: `size` its shaft's width, `fill` how much of its colour fills it (0 to 1), `width` its border's. */
+  | { kind: 'block'; a: Pt; b: Pt; color: string; width: number; size: number; fill: number; border: BlockBorder }
   | { kind: 'text'; at: Pt; text: string; color: string; size: number }
   | { kind: 'pixelate' | 'blur'; rect: Rect; strength: number };
 
@@ -90,6 +119,7 @@ export function worthKeeping(shape: Shape): boolean {
   switch (shape.kind) {
     case 'pen': case 'marker': return shape.points.length > 1;
     case 'line': case 'arrow': return Math.hypot(shape.b.x - shape.a.x, shape.b.y - shape.a.y) >= 4;
+    case 'block': return Math.hypot(shape.b.x - shape.a.x, shape.b.y - shape.a.y) >= 8;
     case 'rect': return Math.abs(shape.b.x - shape.a.x) >= 3 && Math.abs(shape.b.y - shape.a.y) >= 3;
     case 'text': return shape.text.trim().length > 0;
     case 'pixelate': case 'blur': return shape.rect.w >= 4 && shape.rect.h >= 4;
@@ -122,6 +152,15 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, base: Can
         ctx.beginPath(); ctx.moveTo(shape.b.x, shape.b.y); ctx.lineTo(l.x, l.y); ctx.lineTo(r.x, r.y); ctx.closePath(); ctx.fill();
         ctx.stroke();
       }
+      break;
+    }
+    case 'block': {
+      const outline = blockArrow(shape.a, shape.b, shape.size); if (outline.length < 3) break;
+      roundedOutline(ctx, outline, Math.min(6, shape.size * 0.12));
+      if (shape.fill > 0) { ctx.globalAlpha = Math.min(1, shape.fill); ctx.fillStyle = shape.color; ctx.fill(); ctx.globalAlpha = 1; }
+      // An arrow with no fill keeps its edge, or there would be nothing to see.
+      const border = shape.fill > 0 ? shape.border : shape.border === 'none' ? 'color' : shape.border;
+      if (border !== 'none') { ctx.strokeStyle = border === 'color' ? shape.color : shape.color === '#111111' ? 'rgba(255,255,255,.9)' : 'rgba(0,0,0,.7)'; ctx.lineWidth = shape.width; ctx.stroke(); }
       break;
     }
     case 'rect': {

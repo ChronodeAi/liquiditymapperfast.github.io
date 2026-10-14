@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arrowHead, clampRect, fileName, hitHandle, inside, markPlacement, markText, rectFrom, resizeRect, snapAngle, squareTo, toolbarPlacement, worthKeeping, type Shape } from '../src/app/screenshot/shapes.ts';
+import { arrowHead, blockArrow, clampRect, fileName, hitHandle, inside, markPlacement, markText, rectFrom, resizeRect, snapAngle, squareTo, toolbarPlacement, worthKeeping, type Shape } from '../src/app/screenshot/shapes.ts';
 import { splitTop } from '../src/app/screenshot/capture.ts';
 
 const screen = { w: 1200, h: 800 };
@@ -93,4 +93,21 @@ test('a picture too small to carry the mark without covering what is in it gets 
   assert.equal(markPlacement({ w: 200, h: 500 }, 150), null, 'too narrow');
   assert.equal(markPlacement({ w: 800, h: 50 }, 150), null, 'too short');
   assert.ok(markPlacement({ w: 400, h: 200 }, 150));
+});
+
+test('a block arrow points at where the drag ended, its shaft as wide as set and its head wider, in any direction', () => {
+  const outline = blockArrow({ x: 0, y: 0 }, { x: 200, y: 0 }, 40);
+  assert.equal(outline.length, 7);
+  assert.deepEqual(outline[3], { x: 200, y: 0 }, 'the point');
+  assert.deepEqual([outline[0]!.y, outline[6]!.y], [20, -20], 'the shaft is 40 wide at the tail');
+  assert.ok(Math.abs(outline[2]!.y - outline[4]!.y - 76) < 1e-9, 'the head is 1.9 times as wide');
+  assert.ok(Math.abs(outline[2]!.x - (200 - 54)) < 1e-9, 'the head is 1.25 times the width long, plus 4');
+  // A short arrow is at most half head; a diagonal one is the same shape turned.
+  const short = blockArrow({ x: 0, y: 0 }, { x: 40, y: 0 }, 40);
+  assert.equal(short[1]!.x, 20);
+  const diagonal = blockArrow({ x: 10, y: 10 }, { x: 110, y: 110 }, 20), tip = diagonal[3]!;
+  assert.ok(Math.abs(tip.x - 110) < 1e-9 && Math.abs(tip.y - 110) < 1e-9);
+  assert.deepEqual(blockArrow({ x: 5, y: 5 }, { x: 5, y: 5 }, 20), [], 'nothing for no length');
+  assert.ok(!worthKeeping({ kind: 'block', a: { x: 0, y: 0 }, b: { x: 5, y: 0 }, color: '#f00', width: 4, size: 36, fill: 0.2, border: 'color' }));
+  assert.ok(worthKeeping({ kind: 'block', a: { x: 0, y: 0 }, b: { x: 50, y: 0 }, color: '#f00', width: 4, size: 36, fill: 0.2, border: 'color' }));
 });

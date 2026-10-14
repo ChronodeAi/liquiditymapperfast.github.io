@@ -1307,5 +1307,16 @@
  "In proportion": "En proporción",
  "Square root": "Raíz cuadrada",
  "Logarithmic": "Logarítmica",
- "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Por posiciones: la parte del tamaño de posición de los principales traders que está en largo, no de cuentas. L/S 1,25 es 1,25 veces más en largo que en corto entre ellos; en todo el mercado los dos lados siempre son iguales."
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Por posiciones: la parte del tamaño de posición de los principales traders que está en largo, no de cuentas. L/S 1,25 es 1,25 veces más en largo que en corto entre ellos; en todo el mercado los dos lados siempre son iguales.",
+ "Block arrow": "Flecha gruesa",
+ "Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without": "Arrastra desde la cola hasta la punta: una flecha ancha, rellena, translúcida o vacía, con borde o sin él",
+ "How much the arrow is filled: none (an outline), see-through, or solid": "Cuánto se rellena la flecha: nada (solo el contorno), translúcida o sólida",
+ "Arrow fill": "Relleno de la flecha",
+ "How wide the arrow is": "Qué tan ancha es la flecha",
+ "Arrow width": "Ancho de la flecha",
+ "Border: its colour": "Borde: su color",
+ "Border: contrasting": "Borde: en contraste",
+ "No border": "Sin borde",
+ "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "El borde de la flecha: de su color, una línea en contraste o ninguno (haz clic para cambiar)",
+ "Fill": "Relleno"
 }

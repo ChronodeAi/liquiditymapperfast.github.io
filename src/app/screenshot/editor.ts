@@ -5,8 +5,8 @@ import { setTip } from '../tip.ts';
 import { timeZone } from '../format.ts';
 import { capturePage, type Snapshot } from './capture.ts';
 import {
-  COLORS, CURSORS, WIDTHS, clampRect, drawShape, fileName, hitHandle, inside, markText, paintMark, rectFrom, resizeRect, textSize, toolbarPlacement, worthKeeping,
-  HANDLES, handlePoint, snapAngle, squareTo, type Handle, type Pt, type Rect, type Shape, type Tool,
+  BLOCK_BORDERS, BLOCK_FILL_START, BLOCK_SIZE, COLORS, CURSORS, WIDTHS, clampRect, drawShape, fileName, hitHandle, inside, markText, paintMark, rectFrom, resizeRect, textSize, toolbarPlacement, worthKeeping,
+  HANDLES, handlePoint, snapAngle, squareTo, type BlockBorder, type Handle, type Pt, type Rect, type Shape, type Tool,
 } from './shapes.ts';
 import { t } from '../i18n.ts';
 
@@ -22,6 +22,7 @@ const ICONS: Readonly<Record<Tool | 'undo' | 'redo' | 'copy' | 'save' | 'share' 
   pen: '<path d="M4 20l1-4L16.5 4.5a2 2 0 013 3L8 19z"/><path d="M14.5 6.5l3 3"/>',
   line: '<path d="M5 19L19 5"/>',
   arrow: '<path d="M5 19L18 6"/><path d="M10 6h8v8"/>',
+  block: '<path d="M3.5 9.5h9V5.5l8 6.5-8 6.5v-4h-9z"/>',
   rect: '<rect x="4" y="6" width="16" height="12" rx="1.5"/>',
   marker: '<path d="M9 14l6-6 3 3-6 6z"/><path d="M9 14l-2 4 4-1"/><path d="M4 21h16" stroke-width="3" opacity=".45"/>',
   text: '<path d="M5 6h14M12 6v13M9 19h6"/>',
@@ -42,6 +43,7 @@ const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   { tool: 'pen', label: t('Pen'), key: 'P', hint: t('Draw freehand') },
   { tool: 'line', label: t('Line'), key: 'L', hint: t('Drag to draw a straight line') },
   { tool: 'arrow', label: t('Arrow'), key: 'A', hint: t('Drag from the tail to the point') },
+  { tool: 'block', label: t('Block arrow'), key: 'F', hint: t('Drag from the tail to the point: a wide arrow, filled, see-through or empty, with a border or without') },
   { tool: 'rect', label: t('Rectangle'), key: 'R', hint: t('Drag to outline an area') },
   { tool: 'marker', label: t('Highlighter'), key: 'H', hint: t('Draw over something to highlight it') },
   { tool: 'text', label: t('Text'), key: 'T', hint: t('Click where the text should go; Enter to place it') },
@@ -95,6 +97,8 @@ function openEditor(snap: Snapshot): { close(): void } {
   const MARK_KEY = 'hlm-shot-mark', address = markText(AUTHOR.site);
   let withMark = (() => { try { return window.localStorage.getItem(MARK_KEY) !== 'off'; } catch { return true; } })();
   let tool: Tool = 'move', color = COLORS[0]!, width = WIDTHS[1]!, strength = 12;
+  // The block arrow's own settings: how wide, how much it is filled, and its edge.
+  let blockSize: number = BLOCK_SIZE.start, blockFill = BLOCK_FILL_START, blockBorder: BlockBorder = 'color';
   const shapes: Shape[] = [], redo: Shape[] = [];
   let draft: Shape | null = null, effectFrom: Pt = { x: 0, y: 0 };
   let hover: Pt | null = null, hoverTarget: { rect: Rect; label: string } | null = null;
@@ -165,19 +169,25 @@ function openEditor(snap: Snapshot): { close(): void } {
   const widths = group(...WIDTHS.map((w, i) => { const b = el('button', { type: 'button', class: 'shot-width', tip: [t('Thin stroke'), t('Medium stroke'), t('Thick stroke')][i]!, ariaLabel: [t('Thin stroke'), t('Medium stroke'), t('Thick stroke')][i]!, onclick: () => { width = w; syncBar(); } }); b.style.setProperty('--w', `${2 + i * 2.5}px`); widthDots.push(b); return b; }));
   const strengthInput = el('input', { type: 'range', min: '4', max: '40', step: '1', value: String(strength), tip: t('How strong the effect is'), ariaLabel: t('Effect strength'), oninput: () => { strength = Number(strengthInput.value); } });
   const strengthGroup = group(el('span', { class: 'shot-label', textContent: t('Strength') }), strengthInput);
+  const fillInput = el('input', { type: 'range', min: '0', max: '100', step: '5', value: String(Math.round(blockFill * 100)), tip: t('How much the arrow is filled: none (an outline), see-through, or solid'), ariaLabel: t('Arrow fill'), oninput: () => { blockFill = Number(fillInput.value) / 100; } });
+  const sizeInput = el('input', { type: 'range', min: String(BLOCK_SIZE.min), max: String(BLOCK_SIZE.max), step: '2', value: String(blockSize), tip: t('How wide the arrow is'), ariaLabel: t('Arrow width'), oninput: () => { blockSize = Number(sizeInput.value); } });
+  const borderNames: Readonly<Record<BlockBorder, string>> = { color: t('Border: its colour'), contrast: t('Border: contrasting'), none: t('No border') };
+  const borderButton = el('button', { type: 'button', class: 'shot-toggle', tip: t('The arrow\'s edge: in its colour, a contrasting line, or none (click to change)'), onclick: () => { blockBorder = BLOCK_BORDERS[(BLOCK_BORDERS.indexOf(blockBorder) + 1) % BLOCK_BORDERS.length]!; syncBar(); } });
+  const blockGroup = group(el('span', { class: 'shot-label', textContent: t('Fill') }), fillInput, el('span', { class: 'shot-label', textContent: t('Size') }), sizeInput, borderButton);
   const undoButton = iconButton('undo', t('Undo (Ctrl+Z)'), () => undo()), redoButton = iconButton('redo', t('Redo (Ctrl+Shift+Z)'), () => redoShape());
   const copyButton = el('button', { type: 'button', class: 'shot-primary', tip: t('Copy the picture to the clipboard (Enter)'), onclick: () => void copy() }); copyButton.innerHTML = `${icon('copy')}<span>${t('Copy')}</span>`;
   const markButton = iconButton('link', '', () => { withMark = !withMark; try { window.localStorage.setItem(MARK_KEY, withMark ? 'on' : 'off'); } catch { /* storage unavailable */ } syncBar(); redraw(); });
   const saveButton = iconButton('save', t('Save as a PNG file (Ctrl+S)'), () => void save()), closeButton = iconButton('close', t('Cancel (Esc)'), () => close(), 'shot-close');
   // A phone shares a picture through its own sheet (Messages, Photos, Files...); that is better than a download no one can find there.
   const shareButton = canShareFiles() ? iconButton('share', t('Share the picture with another app'), () => void share()) : null;
-  bar.append(tools, colors, widths, strengthGroup, group(undoButton, redoButton), group(markButton, copyButton, ...(shareButton ? [shareButton] : []), saveButton, closeButton));
+  bar.append(tools, colors, widths, blockGroup, strengthGroup, group(undoButton, redoButton), group(markButton, copyButton, ...(shareButton ? [shareButton] : []), saveButton, closeButton));
 
   const syncBar = (): void => {
     for (const [t, b] of toolButtons) b.classList.toggle('on', t === tool);
     colorDots.forEach((b, i) => b.classList.toggle('on', COLORS[i] === color)); widthDots.forEach((b, i) => b.classList.toggle('on', WIDTHS[i] === width));
     const draws = tool !== 'move' && tool !== 'pixelate' && tool !== 'blur', effect = tool === 'pixelate' || tool === 'blur';
-    colors.hidden = !draws; widths.hidden = !draws; strengthGroup.hidden = !effect;
+    colors.hidden = !draws; widths.hidden = !draws; strengthGroup.hidden = !effect; blockGroup.hidden = tool !== 'block';
+    borderButton.textContent = borderNames[blockBorder]; borderButton.setAttribute('aria-label', borderNames[blockBorder]);
     undoButton.disabled = shapes.length === 0; redoButton.disabled = redo.length === 0;
     markButton.classList.toggle('on', withMark);
     setTip(markButton, withMark ? t('Put {address} in a corner of the picture (on): click to leave it out', { address }) : t('Leave the address out of the picture (off): click to put {address} in a corner', { address }));
@@ -274,7 +284,7 @@ function openEditor(snap: Snapshot): { close(): void } {
       case 'pen': case 'marker': d.points.push(q); return;
       case 'pixelate': case 'blur': d.rect = rectFrom(effectFrom, q); return;
       case 'rect': d.b = shift ? squareTo(d.a, q) : q; return;
-      case 'line': case 'arrow': d.b = shift ? snapAngle(d.a, q) : q; return;
+      case 'line': case 'arrow': case 'block': d.b = shift ? snapAngle(d.a, q) : q; return;
       case 'text': return;
     }
   };
@@ -289,6 +299,7 @@ function openEditor(snap: Snapshot): { close(): void } {
       const first = { ...p }; effectFrom = first;
       draft = tool === 'pen' || tool === 'marker' ? { kind: tool, points: [first], color, width }
         : tool === 'pixelate' || tool === 'blur' ? { kind: tool, rect: { x: p.x, y: p.y, w: 0, h: 0 }, strength }
+        : tool === 'block' ? { kind: 'block', a: first, b: first, color, width, size: blockSize, fill: blockFill, border: blockBorder }
         : { kind: tool as 'line' | 'arrow' | 'rect', a: first, b: first, color, width };
       return;
     }
