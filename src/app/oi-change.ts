@@ -83,7 +83,8 @@ export function oiPartsUntil(parts: readonly OiPart[], tfMs: number, until: numb
   if (!Number.isFinite(until)) return parts;
   const held = cuts.get(parts);
   if (held && held.tfMs === tfMs && held.until === until) return held.parts;
-  const out = parts.map(part => ({ id: part.id, bars: part.bars.filter(b => b[0] + tfMs <= until) }));
+  // Each part as it is (an inverse market's `usdAt` too), its bars cut.
+  const out = parts.map(part => ({ ...part, bars: part.bars.filter(b => b[0] + tfMs <= until) }));
   cuts.set(parts, { tfMs, until, parts: out });
   return out;
 }

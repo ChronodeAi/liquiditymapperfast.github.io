@@ -301,6 +301,10 @@ test('an aggregated footprint is the row-by-row sum of its markets, its minutes 
   const started = performance.now(), wide = recorder.queryMany(['a:BTC', 'b:BTC'], 0, 1e15, COLUMN_MS, 20, [], 3);
   assert.ok(performance.now() - started < 1_000, 'bounded to the recording');
   assert.deepEqual(wide.bars.map(bar => bar.t), [T0 + COLUMN_MS, T0 + 3 * COLUMN_MS]);
+  // Bars of whole hours too: the hours walked are those the retention can hold, whatever the window says.
+  const hourly = performance.now(), wideHours = recorder.queryMany(['a:BTC', 'b:BTC'], 0, 1e14, 3_600_000, 20, [], 5_000);
+  assert.ok(performance.now() - hourly < 1_000, 'hours bounded to the retention');
+  assert.deepEqual(wideHours.bars.map(bar => bar.t), recorder.queryMany(['a:BTC', 'b:BTC'], T0 - 3_600_000, T0 + 3_600_000, 3_600_000, 20).bars.map(bar => bar.t));
   recorder.close();
 });
 

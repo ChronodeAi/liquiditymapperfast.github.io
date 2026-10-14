@@ -865,14 +865,18 @@ export class FootprintRecorder {
       // Bars of whole hours read each ended hour inside the window added together (`#hourRows`), and the minutes of the rest.
       const rest: [number, number][] = [];
       if (tfMs % HOUR === 0) {
-        const sums = this.#sums.get(id);
-        for (let h = Math.floor(from / HOUR) * HOUR; h < to; h += HOUR) {
+        // Only the hours the retention can hold are walked: a window reaching years back or ahead (a question may) is read as minutes there,
+        // of which none are held, rather than visited an hour at a time on the request path.
+        const sums = this.#sums.get(id), lo = Math.max(from, Math.floor((this.now() - this.#retentionMs) / HOUR) * HOUR), hi = Math.min(to, Math.ceil(this.now() / HOUR) * HOUR + HOUR);
+        if (lo > from) rest.push([from, Math.min(lo, to)]);
+        for (let h = Math.floor(lo / HOUR) * HOUR; h < hi; h += HOUR) {
           const held = h >= from && h + HOUR <= to ? this.#hourRows(id, h, true) : null;
           if (!held) { const a = Math.max(h, from), b = Math.min(h + HOUR, to), last = rest[rest.length - 1]; if (last && last[1] === a) last[1] = b; else rest.push([a, b]); continue; }
           let rows: Map<number, [number, number, Float64Array | null]> | null = null;
           if (sums) for (let t = h; t < h + HOUR; t += MINUTE) if (sums.has(t)) rows = take(t);
           if (rows) for (let i = 0; i < held.cells.length; i += 3) add(rows, held.cells[i]!, held.cells[i + 1]!, held.cells[i + 2]!);
         }
+        if (hi < to) { const a = Math.max(hi, from), last = rest[rest.length - 1]; if (last && last[1] === a) last[1] = to; else rest.push([a, to]); }
       } else rest.push([from, to]);
       for (const [a, b] of rest) for (const [t, bins] of this.#rowsIn(id, a, b)) { const rows = take(t); for (const [bin, [buy, sell]] of bins) add(rows, bin, buy, sell); }
     }

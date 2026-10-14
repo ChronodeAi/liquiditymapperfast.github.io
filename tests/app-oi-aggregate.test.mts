@@ -110,4 +110,8 @@ test('a change of open interest in USD is a linear market\x27s at the close, an 
   assert.equal(both.get(2 * H), -50_000);
   assert.deepEqual([...oiUsdChangeByTime(inverse.bars, [], H, closeAt, 100_000)], [[H, 100_000], [2 * H, 0]], 'one inverse market');
   assert.deepEqual([...oiUsdChangeByTime(linear.bars, [], H, closeAt)], [[H, 100_000], [2 * H, -50_000]], 'one linear market');
+  // Replay cuts the parts' bars and keeps the price an inverse market's coins were put at.
+  const cut = oiPartsUntil([inverse, linear], H, 2 * H);
+  assert.equal(cut[0]!.usdAt, 100_000);
+  assert.equal(oiUsdChangeByTime([], cut, H, closeAt).get(H), 100_000 + 2 * 50_000);
 });
