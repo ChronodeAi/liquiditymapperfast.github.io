@@ -17,6 +17,12 @@ export const readPullWindow = (value: unknown): PullWindow => (PULL_WINDOWS as r
 
 /** How many snapshots a window holds, and the shortest time between two. */
 export const RING = 60, MIN_SPACING_MS = 1_000;
+/**
+ * The shortest pause between snapshots that starts the window again (at least three spacings). The book is drawn when a new book arrives,
+ * and a server can send none for three seconds now and then: with the one-minute window's 1 s spacing that threw the window away every few
+ * minutes (Karl, 2026-10-14). A shorter pause is no book news, not a hidden book; the price in it is known only at its two ends.
+ */
+export const GAP_MS = 15_000;
 /** How far from the mark a snapshot reaches: this share of the price, and at most this many base bins each side. */
 export const REACH = 0.02, MAX_HALF_BINS = 2_999;
 
@@ -123,7 +129,7 @@ export type PullView = { kind: 'off' } | { kind: 'filling'; waitS: number; share
 
 /**
  * The snapshots of one book over one window: taken once per `window / RING` (never more often than once a second) while the book is drawn,
- * started again for another coin, grid or window, or after a gap (the book was hidden: what happened then is not known).
+ * started again for another coin, grid or window, or after a gap of `GAP_MS` (the book was hidden: what happened then is not known).
  */
 export class PullHistory {
   #ring: BookSnap[] = [];
@@ -143,7 +149,7 @@ export class PullHistory {
   /** Take a snapshot when one is due; `key` names the coin, grid and window, and a new one starts again. */
   step(kernels: Kernels, frame: LevelsFrame, mark: number, now: number, windowS: number, base: number, key: string): void {
     const spacing = Math.max(MIN_SPACING_MS, windowS * 1000 / RING), last = this.#ring[this.#ring.length - 1];
-    if (key !== this.#key || (last && now - last.t > 3 * spacing)) { this.#key = key; this.#ring = []; this.#cache.clear(); }
+    if (key !== this.#key || (last && now - last.t > Math.max(3 * spacing, GAP_MS))) { this.#key = key; this.#ring = []; this.#cache.clear(); }
     else if (last && now - last.t < spacing) return;
     this.#ring.push(snapshot(kernels, frame, base, mark, now, ++this.#seq, this.#lo, this.#hi));
     this.#lo = Infinity; this.#hi = -Infinity;

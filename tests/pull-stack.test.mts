@@ -98,7 +98,7 @@ test("a grouped venue's split top groups are not read as its pulls or stacks; th
   assert.ok(pull(false).bid[at(81_970)]! > 500, 'the same bands from a book that is not grouped are taken at their word');
 });
 
-test('the window fills before it shows, snapshots keep their spacing, a gap starts again, and a view is worked out once per snapshot', async () => {
+test('the window fills before it shows, snapshots keep their spacing, a pause of GAP_MS starts again, and a view is worked out once per snapshot', async () => {
   const kernels = await loadWasm();
   const h = new PullHistory(), f = frame(wide('a:BTC', [[81_950, 81_950, 100]]));
   const take = (t: number) => h.step(kernels, f, MARK, t, 15, BASE, 'BTC|0.5|15');
@@ -112,7 +112,9 @@ test('the window fills before it shows, snapshots keep their spacing, a gap star
   assert.equal(first.kind, 'rows');
   assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15), first, 'the same snapshots and rows: the same answer');
   assert.equal(h.view(['a:BTC'], 0.2, Math.floor(81_900 / 0.2), 20, 15).kind, 'fine');
-  take(30_000); // 14 s after the last, over three spacings: the book was not drawn meanwhile
+  take(19_500); // 3.5 s after the last: a server that sent no book for a moment, not a hidden book
+  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15).kind, 'rows', 'a short pause keeps the window');
+  take(40_000); // 20.5 s after the last, over GAP_MS: the book was not drawn meanwhile
   assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15, share: 0 });
   assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 0).kind, 'off');
 });
