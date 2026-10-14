@@ -16,9 +16,9 @@ test('the server samples the venues the feed manager does not read, writing thei
     asked.push(url);
     if (url.includes('api.bybit.com/v5/market/open-interest')) {
       const end = Number(new URL(url).searchParams.get('endTime')), step = url.includes('intervalTime=1h') ? 3_600_000 : 300_000;
-      return { result: { list: Array.from({ length: 3 }, (_, i) => ({ timestamp: String(end - (end % step) - i * step), openInterest: '100' })) } };
+      return { result: { list: Array.from({ length: 3 }, (_, i) => ({ timestamp: String(end - (end % step) - i * step), openInterest: '200', singleOpenInterest: '100' })) } };
     }
-    if (url.includes('api.bybit.com/v5/market/tickers')) return { result: { list: [{ openInterest: '123' }] } };
+    if (url.includes('api.bybit.com/v5/market/tickers')) return { result: { list: [{ openInterest: '246', singleOpenInterest: '123' }] } };
     if (url.includes('deribit.com')) return { result: [{ open_interest: 85_000_000, mark_price: 85_000 }] };
     throw new Error(`not expected: ${url}`);
   };
@@ -51,8 +51,8 @@ test('each instrument is read with its own listing, a spot book is never sampled
   const asked: string[] = [], recorded: OiSampleMessage[] = [], applied: OiSampleMessage[] = [];
   const get = async (url: string): Promise<unknown> => {
     asked.push(url);
-    if (url.includes('open-interest?category')) { if (failing) throw new Error('HTTP 429'); return { result: { list: [{ timestamp: String(clock - (clock % 300_000)), openInterest: '900' }] } }; }
-    if (url.includes('tickers')) return { result: { list: [{ openInterest: '10' }] } };
+    if (url.includes('open-interest?category')) { if (failing) throw new Error('HTTP 429'); return { result: { list: [{ timestamp: String(clock - (clock % 300_000)), openInterest: '1800', singleOpenInterest: '900' }] } }; }
+    if (url.includes('tickers')) return { result: { list: [{ openInterest: '20', singleOpenInterest: '10' }] } };
     throw new Error(url);
   };
   const sampler = new OiSampler(m => applied.push(m), m => recorded.push(m), get, () => clock, 3_600_000);
@@ -73,8 +73,8 @@ test('history the store refuses (over its budget) is read again later, not taken
   let clock = NOW, refusing = true;
   const recorded: OiSampleMessage[] = [];
   const get = async (url: string): Promise<unknown> => {
-    if (url.includes('open-interest?category')) return { result: { list: [{ timestamp: String(clock - (clock % 300_000)), openInterest: '900' }] } };
-    if (url.includes('tickers')) return { result: { list: [{ openInterest: '10' }] } };
+    if (url.includes('open-interest?category')) return { result: { list: [{ timestamp: String(clock - (clock % 300_000)), openInterest: '1800', singleOpenInterest: '900' }] } };
+    if (url.includes('tickers')) return { result: { list: [{ openInterest: '20', singleOpenInterest: '10' }] } };
     throw new Error(url);
   };
   const sampler = new OiSampler(() => {}, m => { if (refusing) return false; recorded.push(m); return true; }, get, () => clock, 3_600_000);
@@ -105,9 +105,26 @@ test('Bybit\x27s coin-margined perpetual reads its open interest in USD with its
   assert.deepEqual(oiListingOf('bybit:BTCUSD'), { symbol: 'BTCUSD', unit: 1, inverse: true });
   assert.equal(inverseOi('bybit:BTCUSD'), true); assert.equal(inverseOi('bybit:BTCUSDT'), false);
   const asked: string[] = [];
-  const get = async (url: string): Promise<unknown> => { asked.push(url); return { retCode: 0, result: { list: [{ symbol: 'BTCUSD', openInterest: '514454290', openInterestValue: '6252.35', markPrice: '82281.8' }] } }; };
+  const get = async (url: string): Promise<unknown> => { asked.push(url); return { retCode: 0, result: { list: [{ symbol: 'BTCUSD', openInterest: '1028908580', openInterestValue: '12504.7', singleOpenInterest: '514454290', singleOpenInterestValue: '6252.35', markPrice: '82281.8' }] } }; };
   assert.deepEqual(await fetchOiReading('bybit', get, oiListingOf('bybit:BTCUSD')!), { base: 6252.35, quote: 514454290 });
   assert.match(asked[0]!, /category=inverse/);
   assert.deepEqual(await fetchOiHistory('bybit:BTCUSD', 300_000, 0, 86_400_000, get, oiListingOf('bybit:BTCUSD')!), []);
   assert.equal(asked.length, 1, 'no history asked');
+});
+
+test('Bybit open interest stored as both sides is halved once, and only once', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bybit-oi-')), filePath = join(dir, 'history.sqlite');
+  const at = 1_700_000_000_000, row = (instrumentId: string, base: number, t: number): OiSampleMessage => ({ kind: 'openInterest', instrumentId, sourceTimestamp: t, observationTimestamp: t, receivedAt: t + 1, base, quality: 'sampled' });
+  const before = new HistoryStore({ filePath });
+  before.recordOi({ ...row('bybit:BTCUSDT', 60_000, at) }); before.recordOi({ ...row('binance:BTCUSDT', 90_000, at) });
+  // A store written before the fix: no mark that the migration ran.
+  before.db.exec("DELETE FROM migration_state WHERE key = 'bybit-oi-single'"); before.close();
+  const close = (store: HistoryStore, id: string): number => Number((store.listOi(id, { from: 0 }) as { close?: number; base?: number }[]).at(-1)?.close ?? NaN);
+  const once = new HistoryStore({ filePath });
+  assert.equal(close(once, 'bybit:BTCUSDT'), 30_000, 'halved');
+  assert.equal(close(once, 'binance:BTCUSDT'), 90_000, 'other venues untouched');
+  once.close();
+  const twice = new HistoryStore({ filePath });
+  assert.equal(close(twice, 'bybit:BTCUSDT'), 30_000, 'not halved again');
+  twice.close(); rmSync(dir, { recursive: true, force: true });
 });

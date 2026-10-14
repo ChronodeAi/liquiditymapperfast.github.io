@@ -45,7 +45,8 @@ test('every venue\'s open interest reads in coins: Deribit\'s USD at its own mar
   const get = async (url: string): Promise<unknown> => {
     asked.push(url);
     if (url.includes('fapi.binance.com/fapi/v1/openInterest')) return { openInterest: '94000.5' };
-    if (url.includes('api.bybit.com/v5/market/tickers')) return { result: { list: [{ openInterest: '56000' }] } };
+    // Bybit's openInterest counts both sides: the single side is what every other venue reports.
+    if (url.includes('api.bybit.com/v5/market/tickers')) return { result: { list: [{ openInterest: '112000', singleOpenInterest: '56000' }] } };
     if (url.includes('okx.com/api/v5/public/open-interest')) return { data: [{ oi: '2940000', oiCcy: '29400', ts: '1' }] };
     if (url.includes('api.bitget.com')) return { data: { openInterestList: [{ symbol: 'BTCUSDT', size: '32000' }] } };
     if (url.includes('deribit.com')) return { result: [{ open_interest: 850_000_000, mark_price: 85_000 }] };
@@ -62,6 +63,16 @@ test('every venue\'s open interest reads in coins: Deribit\'s USD at its own mar
   assert.ok(rows.length >= 576 && rows.length <= 578, `two days of five-minute bars over pages of 200: ${rows.length}`);
   assert.ok(rows.every((r, i) => i === 0 || Number(r.start) > Number(rows[i - 1]!.start)), 'oldest first, no bar twice');
   assert.deepEqual(await fetchOiHistory('bitget:BTCUSDT', 300_000, 0, to, get), [], 'a venue without a history');
+});
+
+test('Bybit\'s open interest is read as one side: its single field, or half of the two-sided one where an answer has none', async () => {
+  const H = 3_600_000;
+  const rows = (single: boolean) => ({ retCode: 0, result: { list: [{ timestamp: String(2 * H), openInterest: '60000', ...(single ? { singleOpenInterest: '30000' } : {}) }] } });
+  for (const single of [true, false]) {
+    const got = await fetchOiHistory('bybit:BTCUSDT', 300_000, H, 3 * H, async () => rows(single));
+    assert.deepEqual(got.map(r => r.close), [30000], single ? 'the single field' : 'half of the two-sided one');
+    assert.equal(await fetchOiSample('bybit', async () => ({ retCode: 0, result: { list: [{ openInterest: '60000', ...(single ? { singleOpenInterest: '30000' } : {}) }] } })), 30000);
+  }
 });
 
 test('an OKX history row is put at the end of its period, the one under way at the time asked', async () => {

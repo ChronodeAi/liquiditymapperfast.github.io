@@ -187,7 +187,8 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
       const answer = await get(`https://api.bybit.com/v5/market/open-interest?category=linear&symbol=${market.symbol}&intervalTime=${BYBIT_OI_PERIODS[period]}&limit=200&endTime=${Math.floor(end)}`);
       const got = rowsOf(answer, at(answer, 'retCode') === undefined || num(at(answer, 'retCode')) === 0, ['result', 'list']);
       let oldest = Infinity;
-      for (const r of got) { const t = num(at(r, 'timestamp')); take(t, num(at(r, 'openInterest'))); if (t < oldest) oldest = t; }
+      // `openInterest` counts both sides of every contract (Bybit, 2026); `singleOpenInterest` is one side, as every other venue reports.
+      for (const r of got) { const t = num(at(r, 'timestamp')); take(t, bybitSingle(r, 'openInterest')); if (t < oldest) oldest = t; }
       if (got.length < 200 || !Number.isFinite(oldest)) break;
       end = oldest - 1;
     }
@@ -206,6 +207,16 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
     }
   }
   return [...rows.values()].sort((a, b) => Number(a.start) - Number(b.start));
+}
+
+/**
+ * One side of Bybit's open interest: its `openInterest` and `openInterestValue` count both sides of every contract (twice what the other
+ * venues report; measured 2026-10-14, 59,682 against `singleOpenInterest` 29,841 BTC), so the `single…` field is read, and half of the
+ * two-sided one where an answer has no `single…` field.
+ */
+function bybitSingle(row: unknown, field: 'openInterest' | 'openInterestValue'): number {
+  const single = at(row, `single${field[0]!.toUpperCase()}${field.slice(1)}`);
+  return single !== undefined && single !== null && single !== '' ? num(single) : num(at(row, field)) / 2;
 }
 
 /** A live open-interest reading, in coins, of a venue's perpetual (null where it has none, or no listing for the coin). */
@@ -233,9 +244,10 @@ async function readOiSample(venue: string, get: Fetcher, listing?: HistoryListin
   }
   if (venue === 'bybit') {
     const ticker = at(await get(`https://api.bybit.com/v5/market/tickers?category=${market.inverse ? 'inverse' : 'linear'}&symbol=${market.symbol}`), 'result', 'list', 0);
-    if (!market.inverse) return coins(num(at(ticker, 'openInterest')));
+    // One side, as every other venue reports (Bybit's `openInterest` counts both: `singleOpenInterest` is half of it).
+    if (!market.inverse) return coins(bybitSingle(ticker, 'openInterest'));
     // An inverse perpetual: open interest in USD, and its value in coins at the mark of the moment.
-    const usd = num(at(ticker, 'openInterest')), base = coins(num(at(ticker, 'openInterestValue')));
+    const usd = bybitSingle(ticker, 'openInterest'), base = coins(bybitSingle(ticker, 'openInterestValue'));
     return base !== null && usd > 0 ? { base, quote: usd * market.unit } : null;
   }
   if (venue === 'okx') return coins(num(at(await get(`https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=${market.symbol}`), 'data', 0, 'oiCcy')));
