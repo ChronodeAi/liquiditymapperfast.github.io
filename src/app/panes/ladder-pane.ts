@@ -555,7 +555,7 @@ export class LadderPane {
    * side's colour along its edge, behind the level bars. It stops where a venue's feed stops reaching (those rows are shaded).
    */
   #paintCumulative(ctx: CanvasRenderingContext2D, g: Grouped, cum: ReturnType<typeof cumulative>,
-    o: { head: number; rows: number; centerBin: number; markBin: number; step: number; cover: Cover | null }, barX: number, barW: number, maxCum: number, weight: (bin: number, bidSide: boolean) => number, outlined = true): void {
+    o: { head: number; rows: number; centerBin: number; markBin: number; step: number; cover: Cover | null }, barX: number, barW: number, maxCum: number, weight: (bin: number, bidSide: boolean) => number): void {
     const p = this.#palette, { head, rows, centerBin, markBin, step } = o, half = Math.floor(rows / 2);
     const markAsk = (g.totalAsk[markBin] ?? 0) > (g.totalBid[markBin] ?? 0);
     const outline = (up: boolean, startBin: number, color: string, values: Float32Array) => {
@@ -572,8 +572,7 @@ export class LadderPane {
       ctx.save();
       ctx.beginPath(); ctx.moveTo(barX, steps[0]![1]);
       for (const [x, near, far] of steps) { ctx.lineTo(x, near); ctx.lineTo(x, far); }
-      // With the venue lines on, the total keeps only its fill: its outline is on another scale than theirs and would be read as one of them.
-      if (outlined) { ctx.globalAlpha = 0.92; ctx.strokeStyle = color; ctx.lineWidth = 1.25; ctx.lineJoin = 'miter'; ctx.stroke(); }
+      ctx.globalAlpha = 0.92; ctx.strokeStyle = color; ctx.lineWidth = 1.25; ctx.lineJoin = 'miter'; ctx.stroke();
       // The area behind the outline is filled row by row so its strength can follow which side dominates at that distance.
       ctx.fillStyle = color;
       for (const [x, near, far, bin] of steps) { ctx.globalAlpha = Math.min(0.4, 0.16 * weight(bin, !up)); ctx.fillRect(barX, Math.min(near, far), Math.max(0, x - barX), Math.abs(far - near)); }
@@ -646,6 +645,23 @@ export class LadderPane {
   }
 
   /**
+   * The pull/stack column while its window fills (nothing to compare until a snapshot one window old exists: 15 s, a minute or five): the
+   * column shaded, a bar along its left edge rising with the share of the window held, and "Loading… 42 s" running up the column, centred
+   * on the price row (the column is too narrow for the words across).
+   */
+  #paintPullFilling(ctx: CanvasRenderingContext2D, share: number, waitS: number, x: number, top: number, rows: number, markRow: number): void {
+    const p = this.#palette, h = rows * ROW_H; if (!(h > 0)) return;
+    ctx.save();
+    ctx.globalAlpha = 0.35; ctx.fillStyle = p.line; ctx.fillRect(x + 3, top, PS_W - 6, h);
+    ctx.globalAlpha = 0.9; ctx.fillStyle = p.ui; ctx.fillRect(x + 4, top + h * (1 - share), 3, h * share);
+    const row = markRow >= 0 && markRow < rows ? markRow : Math.floor(rows / 2), cy = Math.min(Math.max(top + (row + 0.5) * ROW_H, top + 60), top + h - 60);
+    ctx.globalAlpha = 1; ctx.fillStyle = p.muted; ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.translate(x + PS_W / 2 + 2, cy); ctx.rotate(-Math.PI / 2);
+    ctx.fillText(`${t('Loading…')} ${t('{n} s', { n: waitS })}`, 0, 0);
+    ctx.restore();
+  }
+
+  /**
    * A slim bar under the header: the cumulative bid and ask liquidity within the visible range, as shares of their sum, so which side
    * is more dominant (and by how much) reads at a glance. The strength of each row below follows the same comparison at its own distance.
    */
@@ -711,9 +727,10 @@ export class LadderPane {
     if (pullRows) for (let i = 0; i < g.nBins; i++) if (!pullRows.touched[i]) for (const v of [pullRows.bid[i]!, pullRows.ask[i]!]) if (v === v) maxPull = Math.max(maxPull, Math.abs(v));
     // The venue lines' scale, and round values on it as faint gridlines behind the bars (it is not the bars' scale, so it needs its own).
     const curves = o.curves ?? [], scale = curves.length ? this.#curveX(g, curves, o, barX, barW) : null, xAt = scale?.x ?? null;
-    // With the lines on, the whole book's area is on their scale too, filling the width where it passes it: on a scale of its own a
-    // venue's line could stand beyond the total it is part of (Karl, 2026-10-13), and the gridlines would hold for only one of them.
-    if (state.ladderShow !== 'levels') this.#paintCumulative(ctx, g, cum, o, barX, barW, scale ? scale.full : maxCum, weight, !o.curves?.length);
+    // With the lines on they are the running totals and the whole book's area is left out: on their scale it filled the width a few rows
+    // from the mark (the total is several times the largest venue: Karl, 2026-10-14), and on a scale of its own a venue's line stood beyond
+    // the total it is part of (2026-10-13).
+    if (state.ladderShow !== 'levels' && !scale) this.#paintCumulative(ctx, g, cum, o, barX, barW, maxCum, weight);
     const ticks = scale ? lineTicks(scale.full).map(v => ({ v, x: Math.round(barX + lineFraction(v, scale.full) * barW) + 0.5 })) : [];
     if (ticks.length) {
       ctx.save(); ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.35; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
@@ -788,6 +805,7 @@ export class LadderPane {
       // The key again over the faded lines' entries, so the one under the pointer stands out there too.
       if (this.hoveredCurve !== null && keySpans.length) { ctx.fillStyle = p.bg; ctx.fillRect(barX, keyLine - 7, keySpans[keySpans.length - 1]!.x1 - barX, 14); this.#paintCurveKey(ctx, curves, barX, keyLine, barW - (maxShown ? 96 : 0), this.hoveredCurve); }
     }
+    if (pull?.kind === 'filling') this.#paintPullFilling(ctx, pull.share, pull.waitS, x0 + priceW + USD_W, o.head, rows, centerBin + Math.floor(rows / 2) - g.bin0 - markBin);
     const cell = curveHit ? null : this.#cellUnder(state, g, cum, o, { priceW, usdW, cw, barX, barW, maxLevel, pull: pullRows });
     // On a venue line the Mirror comparison is left out: its dimming would wash out the lines being looked at.
     if (!curveHit) this.#paintMirror(ctx, state, g, cum, o, o.head, rows, cell !== null);

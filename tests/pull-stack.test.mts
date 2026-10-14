@@ -103,17 +103,17 @@ test('the window fills before it shows, snapshots keep their spacing, a gap star
   const h = new PullHistory(), f = frame(wide('a:BTC', [[81_950, 81_950, 100]]));
   const take = (t: number) => h.step(kernels, f, MARK, t, 15, BASE, 'BTC|0.5|15');
   take(0);
-  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15 });
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15, share: 0 });
   take(400); // too soon after the last: not taken
   for (let t = 1_000; t <= 10_000; t += 1_000) take(t);
-  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 5 });
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 5, share: 10 / 15 }, 'two thirds of the window held: the column draws it');
   for (let t = 11_000; t <= 16_000; t += 1_000) take(t);
   const first = h.view(['a:BTC'], 10, 8_190, 20, 15);
   assert.equal(first.kind, 'rows');
   assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15), first, 'the same snapshots and rows: the same answer');
   assert.equal(h.view(['a:BTC'], 0.2, Math.floor(81_900 / 0.2), 20, 15).kind, 'fine');
   take(30_000); // 14 s after the last, over three spacings: the book was not drawn meanwhile
-  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15 });
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15, share: 0 });
   assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 0).kind, 'off');
 });
 

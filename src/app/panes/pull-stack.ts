@@ -115,8 +115,11 @@ export function pullRows(then: BookSnap, now: BookSnap, between: readonly BookSn
   return { bid, ask, touched };
 }
 
-/** What the column shows: nothing (off), how long until the window is filled, that the step is too fine, or the rows. */
-export type PullView = { kind: 'off' } | { kind: 'filling'; waitS: number } | { kind: 'fine' } | { kind: 'rows'; rows: PullRows };
+/**
+ * What the column shows: nothing (off), how long until the window is filled and how much of it is (`share`, 0 to 1: the column draws it, so a
+ * blank column is not taken for a broken one), that the step is too fine, or the rows.
+ */
+export type PullView = { kind: 'off' } | { kind: 'filling'; waitS: number; share: number } | { kind: 'fine' } | { kind: 'rows'; rows: PullRows };
 
 /**
  * The snapshots of one book over one window: taken once per `window / RING` (never more often than once a second) while the book is drawn,
@@ -152,11 +155,11 @@ export class PullHistory {
   view(ids: readonly string[], step: number, bin0: number, n: number, windowS: number): PullView {
     if (!windowS) return { kind: 'off' };
     const ring = this.#ring, now = ring[ring.length - 1];
-    if (!now) return { kind: 'filling', waitS: windowS };
+    if (!now) return { kind: 'filling', waitS: windowS, share: 0 };
     const spacing = Math.max(MIN_SPACING_MS, windowS * 1000 / RING), target = now.t - windowS * 1000;
     let at = -1;
     for (let i = ring.length - 2; i >= 0; i--) if (ring[i]!.t <= target + spacing / 2) { at = i; break; }
-    if (at < 0) return { kind: 'filling', waitS: Math.max(1, Math.ceil((ring[0]!.t + windowS * 1000 - now.t) / 1000)) };
+    if (at < 0) return { kind: 'filling', waitS: Math.max(1, Math.ceil((ring[0]!.t + windowS * 1000 - now.t) / 1000)), share: Math.max(0, Math.min(1, (now.t - ring[0]!.t) / (windowS * 1000))) };
     const then = ring[at]!, key = `${then.seq}|${now.seq}|${step}|${bin0}|${n}|${ids.join(',')}`;
     if (this.#cacheSeq !== now.seq || this.#cache.size > 32) { this.#cache.clear(); this.#cacheSeq = now.seq; }
     const held = this.#cache.get(key);
