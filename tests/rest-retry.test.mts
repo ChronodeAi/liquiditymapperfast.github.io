@@ -72,3 +72,28 @@ test('late local admission failure cannot refund a newer provider budget window'
   await firstFailure;
   assert.equal(coordinator.budgetSnapshot().default.attempts, 1);
 });
+
+// The attempt deadline's timer is unref'd (it must not hold a process open), so these hold the loop themselves.
+test('an attempt that never answers times out, so its key is not held for good', async () => {
+  let calls = 0; const hold = setInterval(() => {}, 1_000);
+  const coordinator = createRestRequestCoordinator({
+    transport: () => { calls += 1; return calls === 1 ? new Promise(() => {}) : Promise.resolve({ ok: true }); },
+    schedule: (resolve) => { resolve(); },
+    policies: { binance: { maxAttempts: 1, maxAttemptsPerWindow: 10, windowMs: 60_000, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0, attemptTimeoutMs: 30 } },
+  });
+  await assert.rejects(coordinator.request(request, { venue: 'binance' }), (error: Error & { code?: string; retryable?: boolean }) => error.code === 'REST_ATTEMPT_TIMEOUT' && error.retryable === true);
+  assert.equal(coordinator.inFlight, 0);
+  assert.deepEqual(await coordinator.request(request, { venue: 'binance' }), { ok: true });
+  assert.equal(calls, 2); clearInterval(hold);
+});
+
+test('a timed-out attempt is retried within the attempts allowed', async () => {
+  let calls = 0; const hold = setInterval(() => {}, 1_000);
+  const coordinator = createRestRequestCoordinator({
+    transport: () => { calls += 1; return calls === 1 ? new Promise(() => {}) : Promise.resolve({ ok: true }); },
+    schedule: (resolve) => { resolve(); },
+    policies: { binance: { maxAttempts: 2, maxAttemptsPerWindow: 10, windowMs: 60_000, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0, attemptTimeoutMs: 30 } },
+  });
+  assert.deepEqual(await coordinator.request(request, { venue: 'binance' }), { ok: true });
+  assert.equal(calls, 2); clearInterval(hold);
+});

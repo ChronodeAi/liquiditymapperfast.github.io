@@ -64,6 +64,15 @@ test('every venue\'s open interest reads in coins: Deribit\'s USD at its own mar
   assert.deepEqual(await fetchOiHistory('bitget:BTCUSDT', 300_000, 0, to, get), [], 'a venue without a history');
 });
 
+test('an OKX history row is put at the end of its period, the one under way at the time asked', async () => {
+  const H = 3_600_000, to = 10 * H + 20 * M;
+  // OKX stamps the start of a period with the reading at its end: newest first, the hour under way (10 H) included.
+  const get = async (url: string): Promise<unknown> => url.includes('rubik/stat/contracts/open-interest-history')
+    ? { code: '0', data: [[String(10 * H), '1', '300', '0'], [String(9 * H), '1', '200', '0'], [String(8 * H), '1', '100', '0']] } : {};
+  const rows = await fetchOiHistory('okx:BTC-USDT-SWAP', H, 8 * H, to, get);
+  assert.deepEqual(rows.map(r => [r.start, r.close]), [[9 * H, 100], [10 * H, 200], [to, 300]]);
+});
+
 test('the OI pane adds venues together unless the chart market is chosen', () => {
   assert.equal(readSettings({}).oiMarkets, 'all');
   assert.equal(readSettings({ oiMarkets: 'chart' }).oiMarkets, 'chart');

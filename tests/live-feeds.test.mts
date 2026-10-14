@@ -1254,6 +1254,30 @@ test('live startup performs one bounded Binance OI history load when current OI 
   manager.stop();
 });
 
+test('a Binance open interest poll that fails is logged and shown in the diagnostics, and polling goes on', async () => {
+  const fake = makeFakeTransport(); const timers: { fn: () => unknown; delay: number }[] = []; const logs: string[] = []; let failing = false, clock = 1_700_000_000_000;
+  const manager = new LiveFeedManager({ networkEnabled: true, transportFactory: fake.factory, oiPollMs: 60_000, oiHistoryLimit: 0, now: () => clock, log: message => logs.push(message),
+    schedule: (fn, delay) => { timers.push({ fn, delay }); return timers.length; }, cancel: () => {},
+    restTransport: { request: async request => {
+      if (request.url.includes('/fapi/v1/openInterest')) { if (failing) throw Object.assign(new Error('HTTP 400'), { status: 400 }); return { symbol: 'BTCUSDT', openInterest: '12', time: clock }; }
+      if (request.url.includes('/fapi/v1/depth')) return { lastUpdateId: 1, bids: [['100', '1']], asks: [['101', '1']] };
+      if (request.url.includes('/fapi/v1/klines')) return [];
+      if (request.url.includes('/info')) return { universe: [], assetCtxs: [] };
+      return {};
+    } } });
+  await manager.start({ coin: 'BTC', binanceSymbol: 'BTCUSDT' });
+  const poll = async () => { const index = timers.findLastIndex(timer => timer.delay === 60_000); const [timer] = timers.splice(index, 1); clock += 60_000; await defined(timer).fn(); };
+  failing = true;
+  await poll(); await poll();
+  const diagnostics = manager.startDiagnostics().openInterest;
+  assert.equal(diagnostics.failures, 2); assert.equal(diagnostics.scheduled, true); assert.equal(diagnostics.pollingForMs, null); assert.match(String(diagnostics.lastError), /400/);
+  assert.equal(logs.filter(line => /open interest poll failed/.test(line)).length, 1, 'logged once in ten minutes');
+  failing = false;
+  await poll();
+  assert.equal(manager.startDiagnostics().openInterest.failures, 0); assert.equal(manager.startDiagnostics().openInterest.state, 'live');
+  manager.stop();
+});
+
 test('spot Binance feeds use distinct IDs and skip OI polling', async () => {
   const fake = makeFakeTransport(); let calls = 0; const manager = new LiveFeedManager({ networkEnabled: true, transportFactory: fake.factory, restTransport: { request: async () => { calls += 1; return {}; } }, oiPollMs: 0 });
   const sample = await manager.pollOpenInterest({ symbol: 'BTCUSDT', marketType: 'spot' });

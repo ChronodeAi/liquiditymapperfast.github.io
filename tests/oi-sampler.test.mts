@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OiSampler, oiListingOf, type OiSampleMessage } from '../src/server/v2/oi-sampler.mts';
+import { OiSampler, oiListingOf, oiHistoryWriter, type OiSampleMessage } from '../src/server/v2/oi-sampler.mts';
+import { HistoryStore } from '../src/server/history.mts';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const NOW = 20 * 86_400_000;
 
@@ -78,4 +82,19 @@ test('history the store refuses (over its budget) is read again later, not taken
   refusing = false; clock += 61_000; await sampler.round();
   assert.ok(recorded.length > 0, 'written once the store takes rows again');
   sampler.close();
+});
+
+test('a history row the store already holds is not a refusal; a store that stopped writing is', () => {
+  // A restart: the rows written before come back from the file, and the store turns the same row away.
+  const dir = mkdtempSync(join(tmpdir(), 'oi-writer-')), filePath = join(dir, 'history.sqlite');
+  const row: OiSampleMessage = { kind: 'openInterest', instrumentId: 'bybit:BTCUSDT', sourceTimestamp: 1_700_000_000_000, observationTimestamp: 1_700_000_000_000, receivedAt: 1_700_000_100_000, base: 50_000, quality: 'sampled' };
+  const before = new HistoryStore({ filePath });
+  assert.equal(oiHistoryWriter(before)(row), true);
+  before.close();
+  const history = new HistoryStore({ filePath }), write = oiHistoryWriter(history);
+  assert.equal(history.recordOi({ ...row }), false, 'the store turns the same row away');
+  assert.equal(write(row), true, 'which the sampler does not take as refused');
+  history.persistenceSuspended = true;
+  assert.equal(write({ ...row, observationTimestamp: row.observationTimestamp! + 60_000, sourceTimestamp: row.sourceTimestamp! + 60_000 }), false);
+  history.close(); rmSync(dir, { recursive: true, force: true });
 });

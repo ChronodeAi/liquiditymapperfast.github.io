@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { createLocalServer } from '../http.mts';
 import { MAX_CROSSED_BP, crossedByBp, valueBook, withFar, type ValuedBook } from './levels.mts';
 import { FarPoller, farSource, freshFar, type FarBook } from '../../shared/far-book.ts';
-import { OiSampler } from './oi-sampler.mts';
+import { OiSampler, oiHistoryWriter } from './oi-sampler.mts';
 import { LS_METRICS, LongShortCache, type LsMetric } from '../../shared/long-short.ts';
 import { webGet } from '../../shared/history.ts';
 import { TOUCH_HINT_MS } from '../../shared/levels.ts';
@@ -146,7 +146,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   // Open interest of Bybit, OKX, Bitget and Deribit while their books are live (Binance's and Hyperliquid's come from the feed manager).
   // Only a market the registry calls a perpetual (a spot book of a venue that has perpetuals too has no open interest).
   const perpetual = (id: string): boolean => (app.state.markets ?? []).some(m => String((m as { instrumentId?: unknown; id?: unknown }).instrumentId ?? (m as { id?: unknown }).id) === id && (m as { marketType?: unknown }).marketType === 'perpetual');
-  const oiSampler = oiSampling ? new OiSampler((message, venue) => { app.applyMessage(message, venue); }, message => app.history.recordOi({ ...message })) : null;
+  const oiSampler = oiSampling ? new OiSampler((message, venue) => { app.applyMessage(message, venue); }, oiHistoryWriter(app.history)) : null;
   const farBooks = new Map<string, FarPoller>();
   const syncFar = (ids: readonly string[]): void => {
     const wanted = new Set<string>();

@@ -32,6 +32,15 @@ export function oiListingOf(id: string): HistoryListing | null {
   return { symbol, unit: unitOf(base, venue as CoinVenue)[1], ...(venue === 'deribit' && /^[A-Z]+-PERPETUAL$/.test(symbol) ? { inverse: true } : {}) };
 }
 
+/**
+ * The sampler's `record` for a history store: false only while the store has stopped writing (over its budget), so the history is read again
+ * later. A row the store already holds is turned away too (a restart reads the history again over what it wrote before), and that is no
+ * refusal: taking it as one stopped the read at its oldest row, so the stretch the server was down was never filled in.
+ */
+export function oiHistoryWriter(history: { persistenceSuspended: boolean; recordOi(message: Record<string, unknown>): unknown }): (message: OiSampleMessage) => boolean {
+  return message => { if (history.persistenceSuspended) return false; history.recordOi({ ...message }); return !history.persistenceSuspended; };
+}
+
 export class OiSampler {
   #ids: string[] = [];
   #timer: ReturnType<typeof setInterval> | null = null;

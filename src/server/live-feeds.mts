@@ -232,6 +232,10 @@ export interface LiveFeed {
  * held back goes out with the next one after this interval, or on a timer when none comes (`#scheduleWholeBook`).
  */
 export const WHOLE_BOOK_EVERY_MS = 250;
+/** A Binance open interest poll that keeps failing is logged at most this often. */
+const OI_LOG_EVERY_MS = 10 * 60_000;
+/** The parts of a feed status the diagnostics route shows. */
+const pickStatus = (status: LiveFeedStatus | undefined) => ({ state: status?.state ?? null, lastSuccess: status?.lastSuccess ?? null, lastError: status?.lastError ?? null });
 /** Logical ownership allowances for opaque native/runtime resources. These are
  * shell estimates; process RSS is authoritative for native TLS/socket/timer
  * buffers and function closures. Never enumerate those resource graphs. */
@@ -744,6 +748,9 @@ export class LiveFeedManager {
       running: this.running, feeds: this.feeds.size, specs: this.specs.size,
       startingForMs: this.#startInFlight ? this.now() - this.#startInFlight.at : null,
       lastStart: this.#lastStart, recoveryPending: this.#recoveryTimer !== null, recoveries: this.#recoveries, lastRecovery: this.#lastRecovery,
+      // Binance's open interest poll: its last outcome, whether the next one is set, and how long the one under way has run (a poll that
+      // stops shows here; it froze once with nothing saying so, 2026-10-14).
+      openInterest: { ...pickStatus(this.#statuses.get('binance-openInterest')), scheduled: this.oiTimer !== null, pollingForMs: this.#oiPollStarted === null ? null : this.now() - this.#oiPollStarted, failures: this.#oiFailures },
     };
   }
 
@@ -3403,12 +3410,22 @@ export class LiveFeedManager {
     this.#setStatus(id, { state: 'backoff', lastError: invalidReason });
     this.#scheduleReconnect(id);
   }
+  #oiPollStarted: number | null = null; #oiFailures = 0; #oiLoggedAt = -Infinity;
   #scheduleOiPoll(params: AdapterOptions, generation = this.configurationGeneration) {
     if (!this.running || generation !== this.configurationGeneration || !(this.oiPollMs > 0)) return;
     this.oiTimer = this.schedule(async () => {
       if (!this.running || generation !== this.configurationGeneration) return;
-      this.oiTimer = null;
-      try { await this.pollOpenInterest(params); } catch (error) { if (error instanceof FeedConfigurationRetired) return; throw error; }
+      this.oiTimer = null; this.#oiPollStarted = this.now();
+      let message: unknown = null;
+      try { message = await this.pollOpenInterest(params); }
+      catch (error) { if (error instanceof FeedConfigurationRetired) return; throw error; }
+      finally { this.#oiPollStarted = null; }
+      if (generation !== this.configurationGeneration) return;
+      // A poll that fails says so in the log, at most every ten minutes (the status alone was nowhere a person would see it).
+      if (message === null) {
+        this.#oiFailures++;
+        if (this.now() - this.#oiLoggedAt >= OI_LOG_EVERY_MS) { this.#oiLoggedAt = this.now(); this.#log(`Binance open interest poll failed (${this.#oiFailures} in a row): ${this.#statuses.get('binance-openInterest')?.lastError ?? 'no reading'}`); }
+      } else this.#oiFailures = 0;
       this.#scheduleOiPoll(params, generation);
     }, this.oiPollMs);
   }

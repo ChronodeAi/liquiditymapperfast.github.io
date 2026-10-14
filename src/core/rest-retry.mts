@@ -1,5 +1,5 @@
 export interface RestRequest { method?: unknown; url?: unknown; body?: unknown; [key: string]: unknown }
-export interface RestRetryPolicy { maxAttempts: number; maxAttemptsPerWindow: number; windowMs: number; baseDelayMs: number; maxDelayMs: number; jitterRatio: number }
+export interface RestRetryPolicy { maxAttempts: number; maxAttemptsPerWindow: number; windowMs: number; baseDelayMs: number; maxDelayMs: number; jitterRatio: number; attemptTimeoutMs?: number }
 export interface RestAttemptContext { venue: string; key: string; attempt: number }
 export interface RestRetryErrorFields { retryable?: unknown; status?: unknown; statusCode?: unknown; retryAfterMs?: unknown; code?: unknown; providerRequestStarted?: unknown }
 export interface RestBudgetWindow { startedAt: number; attempts: number }
@@ -27,6 +27,18 @@ export const DEFAULT_REST_POLICIES: Readonly<Record<string, Readonly<RestRetryPo
   bitget: Object.freeze({ maxAttempts: 3, maxAttemptsPerWindow: 12, windowMs: 60_000, baseDelayMs: 250, maxDelayMs: 4_000, jitterRatio: .2 }),
   default: Object.freeze({ maxAttempts: 2, maxAttemptsPerWindow: 8, windowMs: 60_000, baseDelayMs: 250, maxDelayMs: 2_000, jitterRatio: .2 }),
 });
+
+/**
+ * The longest one attempt may take before it counts as failed (retryable). The transport has its own timeout; this one is what keeps a key
+ * from being held for good: a request shares the flight of its key until that settles, so one transport promise that never did froze every
+ * later request with that key (Binance's open interest poll, for one).
+ */
+export const REST_ATTEMPT_TIMEOUT_MS = 30_000;
+
+export class RestAttemptTimeoutError extends Error {
+  declare code: string; declare retryable: boolean;
+  constructor(venue: string, ms: number) { super(`${venue} REST attempt gave no answer in ${Math.round(ms / 1000)} s`); this.name = 'RestAttemptTimeoutError'; this.code = 'REST_ATTEMPT_TIMEOUT'; this.retryable = true; }
+}
 
 export class RestBudgetError extends Error {
   declare code: string; declare venue: string; declare policy: RestRetryPolicy; declare retryable: boolean;
@@ -79,6 +91,16 @@ function wait(schedule: (callback: () => void, delay: number) => unknown, delay:
 }
 
 /**
+ * `attempt` or, after `ms`, a timeout; the attempt's late answer is dropped. A real timer, not the injected `schedule` (a test's fake runs
+ * its callback at once), cleared as soon as the attempt settles.
+ */
+function within<T>(attempt: Promise<T>, ms: number, venue: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new RestAttemptTimeoutError(venue, ms)), ms); timer.unref?.(); });
+  return Promise.race([attempt, deadline]).finally(() => clearTimeout(timer));
+}
+
+/**
  * @param {{transport:(request:object, context?:object)=>Promise<unknown>, policies?:object, random?:()=>number, schedule?:(fn:Function,delay:number)=>unknown, now?:()=>number, onAttempt?:(info:object)=>void}} options
  */
 export function createRestRequestCoordinator<T = unknown>({ transport, policies = DEFAULT_REST_POLICIES, random = Math.random, schedule = (fn, delay) => setTimeout(fn, delay), now = () => Date.now(), onAttempt = () => {} }: RestCoordinatorOptions<T> = {}) {
@@ -109,7 +131,7 @@ export function createRestRequestCoordinator<T = unknown>({ transport, policies 
       if (!spentWindow) throw new RestBudgetError(venue, policy);
       onAttempt({ venue, key, attempt, budget: policy.maxAttemptsPerWindow });
       try {
-        return await transport!(request, { venue, key, attempt });
+        return await within(Promise.resolve(transport!(request, { venue, key, attempt })), policy.attemptTimeoutMs ?? REST_ATTEMPT_TIMEOUT_MS, venue);
       } catch (error) {
         lastError = error;
         // A local process-memory admission failure happens before fetch, so it

@@ -193,11 +193,13 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
   } else if (venue === 'okx') {
     const period = nativeInterval({ intervals: OKX_OI_PERIODS }, Math.max(tfMs, 300_000)) ?? 300_000;
     for (let end = to, page = 0; page < OI_PAGES && end >= from; page++) {
-      // Rows of [ts, contracts, coins, USD], newest first, 100 a page.
+      // Rows of [ts, contracts, coins, USD], newest first, 100 a page. A row is stamped with the start of its period but holds the reading at
+      // its end (it matches a live sample a period after its stamp, measured 2026-10-14 on 5m and 1H; Binance's and Bybit's match at their
+      // stamp), so it is put at the end, the period still under way at `to`.
       const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/open-interest-history?instId=${market.symbol}&period=${OKX_OI_PERIODS[period]}&limit=100&end=${Math.floor(end)}`);
       const got = rowsOf(answer, at(answer, 'code') === undefined || String(at(answer, 'code')) === '0', ['data']);
       let oldest = Infinity;
-      for (const r of got) { const t = num(at(r, 0)); take(t, num(at(r, 2))); if (t < oldest) oldest = t; }
+      for (const r of got) { const t = num(at(r, 0)); take(Math.min(t + period, to), num(at(r, 2))); if (t < oldest) oldest = t; }
       if (got.length < 100 || !Number.isFinite(oldest)) break;
       end = oldest - 1;
     }
