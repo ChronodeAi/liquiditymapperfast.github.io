@@ -1338,5 +1338,6 @@
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Край стрілки: її кольору, контрастна лінія або жодного (натисніть, щоб змінити)",
  "Fill": "Заливка",
  "side unknown": "сторона невідома",
- "Side unknown": "Сторона невідома"
+ "Side unknown": "Сторона невідома",
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "Коли біржі складено, лінія теж будується з цих змін: вона закінчується на поточній сумі бірж і відступає назад на зміну кожної свічки, тож рухається точно як стовпчики. Там, де частина бірж ще не мала значення, вона пунктирна."
 }

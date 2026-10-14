@@ -1307,5 +1307,6 @@
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Der Rand des Pfeils: in seiner Farbe, als kontrastierende Linie oder keiner (klicken zum Wechseln)",
  "Fill": "Füllung",
  "side unknown": "Seite unbekannt",
- "Side unknown": "Seite unbekannt"
+ "Side unknown": "Seite unbekannt",
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "Mit zusammengezählten Börsen wird auch die Linie aus diesen Änderungen gezeichnet: Sie endet bei der jetzigen Summe der Börsen und geht pro Kerze um deren Änderung zurück, bewegt sich also genau wie die Balken. Wo einige Börsen noch keinen Wert hatten, ist sie gestrichelt."
 }

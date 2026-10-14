@@ -1307,5 +1307,6 @@
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Okun kenarı: kendi renginde, zıt bir çizgi ya da hiç (değiştirmek için tıklayın)",
  "Fill": "Dolgu",
  "side unknown": "taraf bilinmiyor",
- "Side unknown": "Taraf bilinmiyor"
+ "Side unknown": "Taraf bilinmiyor",
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "Borsalar toplandığında çizgi de bu değişimlerden çizilir: borsaların şimdiki toplamında biter ve her mumda o mumun değişimi kadar geri gider, böylece çubuklarla tam olarak aynı hareket eder. Bazı borsaların henüz okuması olmadığı yerlerde kesiklidir."
 }

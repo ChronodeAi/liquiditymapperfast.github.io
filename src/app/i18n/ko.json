@@ -1270,5 +1270,6 @@
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "화살표의 가장자리: 같은 색, 대비되는 선 또는 없음(클릭하여 변경)",
  "Fill": "채우기",
  "side unknown": "방향 알 수 없음",
- "Side unknown": "방향 알 수 없음"
+ "Side unknown": "방향 알 수 없음",
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "거래소를 합산할 때는 선도 이 변화들로 그려집니다. 선은 현재 거래소 합계에서 끝나고 캔들마다 그 변화만큼 거슬러 올라가므로 막대와 정확히 같이 움직입니다. 일부 거래소에 아직 값이 없던 구간은 점선입니다."
 }

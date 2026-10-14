@@ -179,6 +179,7 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
     tip: t('Open interest is the number of contracts currently open (not volume). The line is its level, the small bars below are its change per candle.'),
     body: [t('Open interest counts the contracts that exist right now. It rises when new positions are opened and falls when positions are closed. It does not say who is long or who is short.'),
       t('By default (Venues) the perpetuals of every venue switched on are added together, in coins: Binance, Bybit, OKX, Bitget, Deribit and Hyperliquid. Binance and Bybit publish days of history and OKX a day or two; the others only a reading now and then, so their part builds up while they are recorded. A candle\'s change is each venue\'s own change added up, so a venue whose readings start or stop is not counted as positions opened or closed. With The chart market, a labelled reference market stands in when the market on screen has no open interest.'),
+      t('With venues added together the line is drawn from those changes too: it ends at the venues\' total now and steps back by each candle\'s change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.'),
       t('Venues can also be Chosen markets: the perpetuals ticked in its panel (Choose…, or Markets… in the Delta pane with NL/NS shown), added together whatever the venue chips and the Spot / Perp filter say. NL/NS and the Long/Short pane count the same markets. With none ticked, nothing is counted.')],
   },
   ltPane: {

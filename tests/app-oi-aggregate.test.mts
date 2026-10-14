@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { heldOiAt, oiChangeByTime, oiPartsUntil, oiUsdChangeByTime, sumOi, type OiPart } from '../src/app/oi-change.ts';
+import { chainedOi, heldOiAt, oiChangeByTime, oiPartsUntil, oiUsdChangeByTime, sumOi, type OiPart } from '../src/app/oi-change.ts';
 import { fetchOiSample, fetchOiHistory, OI_SAMPLE_VENUES } from '../src/shared/history.ts';
 import { readSettings } from '../src/app/store.ts';
 import type { OiBar } from '../src/app/store.ts';
@@ -125,4 +125,15 @@ test('a change of open interest in USD is a linear market\x27s at the close, an 
   const cut = oiPartsUntil([inverse, linear], H, 2 * H);
   assert.equal(cut[0]!.usdAt, 100_000);
   assert.equal(oiUsdChangeByTime([], cut, H, closeAt).get(H), 100_000 + 2 * 50_000);
+});
+
+test('the pane\x27s level with venues added together moves exactly as the bars do and ends at the total now', () => {
+  const H = 60 * M;
+  // B's readings start at 2 h: the sum jumps by its whole open interest there; the bars (each venue's own change) do not.
+  const a: OiPart = { id: 'a', bars: [bar(0, 100), bar(H, 110), bar(2 * H, 120)] }, b: OiPart = { id: 'b', bars: [bar(2 * H, 50), bar(3 * H, 55)] };
+  const sum = sumOi([a, b], H), chained = chainedOi(sum);
+  assert.deepEqual(sum.bars.map(x => x[4]), [100, 110, 170, 175], 'the sum steps where B starts');
+  assert.deepEqual(chained.map(x => x[4]), [150, 160, 170, 175], 'the chained level does not, and ends at the total');
+  for (let i = 1; i < chained.length; i++) assert.equal(chained[i]![4] - chained[i - 1]![4], sum.change.get(chained[i]![0]) ?? 0);
+  assert.equal(chainedOi(sum), chained, 'worked out once per sum');
 });

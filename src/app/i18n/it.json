@@ -1320,5 +1320,6 @@
  "The arrow's edge: in its colour, a contrasting line, or none (click to change)": "Il bordo della freccia: nel suo colore, una linea a contrasto o nessuno (clic per cambiare)",
  "Fill": "Riempimento",
  "side unknown": "lato sconosciuto",
- "Side unknown": "Lato sconosciuto"
+ "Side unknown": "Lato sconosciuto",
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "Con gli exchange sommati anche la linea è disegnata da queste variazioni: termina al totale attuale degli exchange e torna indietro candela per candela della loro variazione, quindi si muove esattamente come le barre. Dove alcuni exchange non avevano ancora una lettura è tratteggiata."
 }

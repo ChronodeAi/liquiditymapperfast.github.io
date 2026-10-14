@@ -112,6 +112,22 @@ export function atOnePrice(bars: readonly OiBar[], candles: readonly CandleRow[]
   return out;
 }
 
+const chains = new WeakMap<OiSum, OiBar[]>();
+/**
+ * The level the OI pane draws with venues added together: chained from each bar's change (`OiSum.change`, each venue's own, as the bars
+ * below it count it), ending at the venues' total at the newest bar. The sum itself steps whenever a venue's readings start or stop (on the
+ * website most venues start when the page opens), which drew a jump the bars, rightly, did not show (Karl, 2026-10-14); the chained level
+ * moves exactly as the bars do, and is the total now. Worked out once per sum.
+ */
+export function chainedOi(sum: OiSum): OiBar[] {
+  const held = chains.get(sum); if (held) return held;
+  const bars = sum.bars, out: OiBar[] = new Array<OiBar>(bars.length);
+  let level = bars[bars.length - 1]?.[4] ?? 0;
+  for (let i = bars.length - 1; i >= 0; i--) { const t = bars[i]![0]; out[i] = [t, level, level, level, level]; level -= sum.change.get(t) ?? 0; }
+  chains.set(sum, out);
+  return out;
+}
+
 const sums = new WeakMap<readonly OiPart[], { tfMs: number; sum: OiSum }>();
 /** `sumOi` worked out once per set of parts and timeframe (what the store holds is replaced, never changed, so its reference says when). */
 export function oiSumOf(parts: readonly OiPart[], tfMs: number): OiSum {

@@ -3,7 +3,7 @@ import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
 import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar, type CandleRow } from '../store.ts';
-import { oiChangeByTime, oiDeltas, oiPartsUntil, oiSumOf, oiUsdChangeByTime, type OiPart } from '../oi-change.ts';
+import { chainedOi, oiChangeByTime, oiDeltas, oiPartsUntil, oiSumOf, oiUsdChangeByTime, type OiPart } from '../oi-change.ts';
 import { anomalies, type HighlightOptions } from '../anomaly.ts';
 import { venueLabel } from '../venues.ts';
 import { activeIds, emptyScopeMessage, marketIds } from '../scope.ts';
@@ -388,7 +388,9 @@ export class OiPane extends TimePane {
     this.#choose.hidden = state.oiMarkets !== 'custom';
     // Venues added together: the sum is made of the bars that ended by the replay's moment (oiPartsUntil), as NL/NS makes its own.
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, parts = oiPartsUntil(state.oiParts, tf, replaying() ? Math.floor(pageNow() / tf) * tf : Infinity);
-    const oi = parts.length > 1 ? oiSumOf(parts, tf).bars : this.#oiAt(state.oi, tf), highlight = state.highlight;
+    // Venues added together: the level chained from the bars' changes (it ends at the total now), so a venue whose readings start or stop
+    // makes no step the bars do not show.
+    const oi = parts.length > 1 ? chainedOi(oiSumOf(parts, tf)) : this.#oiAt(state.oi, tf), highlight = state.highlight;
     const readout = this.head.querySelector('.readout');
     const say = (html: string): void => setHtml(readout, html);
     if (!oi.length) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('No open-interest history for this market yet.'), 12, ph / 2); say(''); return; }
