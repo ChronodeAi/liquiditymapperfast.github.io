@@ -106,16 +106,21 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   let end = to, page = 0;
   if (venue === 'binance') {
     const floor = Math.max(from, now - BINANCE_SPAN_MS + periodMs);
+    // A COIN-M perpetual (BTCUSD_PERP) is read from the COIN-M statistics, by its pair.
+    const coinM = /^([A-Z0-9]+)_PERP$/.exec(symbol), market = coinM ? `https://dapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?pair=${encodeURIComponent(coinM[1]!)}` : `https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}`;
     for (end = Math.min(to, now); page < PAGES && end > floor; page++) {
-      const got = rows(await get(`https://fapi.binance.com/futures/data/${BINANCE_PATHS[metric]}?symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp', 'longAccount');
+      // COIN-M names its top traders' position shares longPosition and shortPosition (USD-M calls them longAccount and shortAccount).
+      const [longKey, shortKey] = coinM && metric === 'topPositions' ? ['longPosition', 'shortPosition'] : ['longAccount', 'shortAccount'];
+      const got = rows(await get(`${market}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp', longKey);
       let oldest = Infinity;
-      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'longAccount')), num(at(r, 'shortAccount')), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
+      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, longKey)), num(at(r, shortKey)), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
       end = oldest - 1;
     }
   } else if (venue === 'bybit') {
     for (; page < PAGES && end >= from; page++) {
-      const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=linear&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
+      // A coin-margined perpetual (BTCUSD) is in Bybit's inverse category.
+      const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=${/^[A-Z0-9]+USD$/.test(symbol) ? 'inverse' : 'linear'}&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
       if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
       const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp', 'buyRatio');
       let oldest = Infinity;

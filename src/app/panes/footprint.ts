@@ -235,9 +235,10 @@ export class FootprintData {
     let ask: { from: number; to: number; kind: 'whole' | 'tail' | 'older' | 'redo' };
     if (!h || h.grid !== grid || want.to <= h.from || want.from >= h.to) ask = { ...want, kind: 'whole' };
     // From the first bar that can still change, but never past what is held (panning right through the past, the bars after it are not held yet).
-    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS)) {
-      // Every few minutes the tail reaches back an hour into the settled bars: a trade a venue sends late (after a reconnect) lands in a
-      // minute already settled here, and is otherwise only seen when the view is loaded again.
+    // Every few minutes the tail reaches back an hour into the settled bars: a trade a venue sends late (after a reconnect) lands in a
+    // minute already settled here, and is otherwise only seen when the view is loaded again. A view that ends in that hour is rechecked
+    // too, with no bar still under way in it (panned a few minutes behind the live edge).
+    else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS) || (clock - h.rechecked >= RECHECK_MS && want.to > h.settled - RECHECK_SPAN_MS)) {
       const recheck = clock - h.rechecked >= RECHECK_MS;
       if (recheck) h.rechecked = clock;
       ask = { from: Math.min(Math.max(recheck ? h.settled - RECHECK_SPAN_MS : h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };

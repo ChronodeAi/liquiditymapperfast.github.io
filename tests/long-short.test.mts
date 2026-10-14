@@ -219,3 +219,16 @@ test("the chart's period only where it fits the window, and an answer that lost 
   const renamed = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ longShare: '0.6', timestamp: String(NOW - 5 * M) }] } }) });
   await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, renamed, NOW), /unknown shape/);
 });
+
+test('a coin-margined market is read where its venue publishes it: Binance COIN-M by its pair, Bybit inverse by its category', async () => {
+  const t = NOW - 10 * M;
+  const get = fake({
+    'https://dapi.binance.com/futures/data/topLongShortPositionRatio': () => [{ pair: 'BTCUSD', longPosition: '0.6811', shortPosition: '0.3189', longShortRatio: '2.1358', timestamp: t }],
+    'https://api.bybit.com/v5/market/account-ratio': url => ({ retCode: 0, result: { list: url.searchParams.get('category') === 'inverse' ? [{ symbol: 'BTCUSD', buyRatio: '0.6547', sellRatio: '0.3453', timestamp: String(t) }] : [] } }),
+  });
+  const binance = await fetchLongShort('binance', 'BTCUSD_PERP', 'topPositions', 5 * M, t - H, t + M, get, NOW);
+  assert.deepEqual(binance.points, [{ t, long: 0.6811 }]);
+  assert.equal(new URL(get.asked[0]!).searchParams.get('pair'), 'BTCUSD');
+  const bybit = await fetchLongShort('bybit', 'BTCUSD', 'accounts', 5 * M, t - H, t + M, get, NOW);
+  assert.deepEqual(bybit.points, [{ t, long: 0.6547 }]);
+});

@@ -85,8 +85,8 @@ export function oiPartsUntil(parts: readonly OiPart[], tfMs: number, until: numb
   return out;
 }
 
-/** A market whose open interest is counted in USD (Deribit's BTC and ETH perpetuals): its readings come as coins at each reading's price. */
-export const inverseOi = (id: string): boolean => /^deribit:[A-Z]+-PERPETUAL$/.test(id);
+/** A market whose open interest is counted in USD (Deribit's BTC and ETH perpetuals, Bybit's coin-margined ones): its readings come as coins at each reading's price. */
+export const inverseOi = (id: string): boolean => /^deribit:[A-Z]+-PERPETUAL$/.test(id) || /^bybit:[A-Z0-9]+USD$/.test(id);
 /**
  * An inverse market's bars in coins at one price, the newest close of `candles` (oldest first): read as coins at each reading's price, its
  * open interest would move with the price while no contract opened or closed (a 2 % move would read as 2 % of it opened or closed). Each

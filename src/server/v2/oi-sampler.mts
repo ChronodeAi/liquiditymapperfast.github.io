@@ -28,8 +28,10 @@ export function oiListingOf(id: string): HistoryListing | null {
   const parts = id.split(':'); if (parts.length !== 2 || !parts[1]) return null;
   const [venue, symbol] = parts as [string, string];
   // The market's name for the base, then its unit as the coin list reads it (1000PEPE, Bybit's SHIB1000).
-  const base = venue === 'okx' ? symbol.split('-')[0]! : venue === 'deribit' ? symbol.replace(/-PERPETUAL$/, '').replace(/_USDC$/, '') : symbol.replace(/(USDT|USDC)$/, '');
-  return { symbol, unit: unitOf(base, venue as CoinVenue)[1], ...(venue === 'deribit' && /^[A-Z]+-PERPETUAL$/.test(symbol) ? { inverse: true } : {}) };
+  // Bybit's coin-margined perpetuals (BTCUSD, a server's BYBIT_CATEGORY=inverse) count open interest in USD, as Deribit's do.
+  const bybitInverse = venue === 'bybit' && /^[A-Z0-9]+USD$/.test(symbol);
+  const base = venue === 'okx' ? symbol.split('-')[0]! : venue === 'deribit' ? symbol.replace(/-PERPETUAL$/, '').replace(/_USDC$/, '') : symbol.replace(/(USDT|USDC|USD)$/, '');
+  return { symbol, unit: unitOf(base, venue as CoinVenue)[1], ...((venue === 'deribit' && /^[A-Z]+-PERPETUAL$/.test(symbol)) || bybitInverse ? { inverse: true } : {}) };
 }
 
 /**

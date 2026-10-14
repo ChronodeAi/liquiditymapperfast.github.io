@@ -195,3 +195,18 @@ test('every few minutes the refresh reaches back an hour into the settled bars, 
     assert.equal(asked.at(-1)!.from, 10 * H);
   } finally { time.restore(); }
 });
+
+test('a view a little behind the live edge, with no bar still under way, is rechecked for late trades too', async () => {
+  const time = clock(20_000_000);
+  try {
+    const { asked, load } = source(50), data = new FootprintData(), view = { t0: 0, t1: 8.5 * H, p0: 0, p1: 1 };
+    const sourceNow = 10 * H + 30 * 60_000;
+    const step = async () => { data.ensure('a', '1h', view, 5, load, () => {}, [], sourceNow); await turn(); };
+    await step();
+    const first = asked.length;
+    time.advance(FOOTPRINT_REFRESH_MS); await step();
+    assert.equal(asked.length, first, 'every bar of the view is settled: nothing to refresh');
+    time.advance(5 * 60_000); await step();
+    assert.deepEqual([asked.at(-1)!.from, asked.at(-1)!.to], [9 * H, 10 * H], 'five minutes on: the last hour of settled bars');
+  } finally { time.restore(); }
+});

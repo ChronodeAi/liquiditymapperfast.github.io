@@ -5,6 +5,8 @@ import { HistoryStore } from '../src/server/history.mts';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fetchOiHistory, fetchOiReading } from '../src/shared/history.ts';
+import { inverseOi } from '../src/app/oi-change.ts';
 
 const NOW = 20 * 86_400_000;
 
@@ -97,4 +99,15 @@ test('a history row the store already holds is not a refusal; a store that stopp
   history.persistenceSuspended = true;
   assert.equal(write({ ...row, observationTimestamp: row.observationTimestamp! + 60_000, sourceTimestamp: row.sourceTimestamp! + 60_000 }), false);
   history.close(); rmSync(dir, { recursive: true, force: true });
+});
+
+test('Bybit\x27s coin-margined perpetual reads its open interest in USD with its value in coins, and has no history', async () => {
+  assert.deepEqual(oiListingOf('bybit:BTCUSD'), { symbol: 'BTCUSD', unit: 1, inverse: true });
+  assert.equal(inverseOi('bybit:BTCUSD'), true); assert.equal(inverseOi('bybit:BTCUSDT'), false);
+  const asked: string[] = [];
+  const get = async (url: string): Promise<unknown> => { asked.push(url); return { retCode: 0, result: { list: [{ symbol: 'BTCUSD', openInterest: '514454290', openInterestValue: '6252.35', markPrice: '82281.8' }] } }; };
+  assert.deepEqual(await fetchOiReading('bybit', get, oiListingOf('bybit:BTCUSD')!), { base: 6252.35, quote: 514454290 });
+  assert.match(asked[0]!, /category=inverse/);
+  assert.deepEqual(await fetchOiHistory('bybit:BTCUSD', 300_000, 0, 86_400_000, get, oiListingOf('bybit:BTCUSD')!), []);
+  assert.equal(asked.length, 1, 'no history asked');
 });

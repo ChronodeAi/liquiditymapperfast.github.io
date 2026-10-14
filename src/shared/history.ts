@@ -179,7 +179,8 @@ export async function fetchOiHistory(instrumentId: string, tfMs: number, from: n
     const period = nativeInterval({ intervals: BINANCE_OI_PERIODS }, Math.max(tfMs, 300_000)) ?? 300_000;
     for (const r of rowsOf(await get(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${market.symbol}&period=${BINANCE_OI_PERIODS[period]}&limit=500&endTime=${to}`), true, []))
       take(num(at(r, 'timestamp')), num(at(r, 'sumOpenInterest')));
-  } else if (venue === 'bybit') {
+  } else if (venue === 'bybit' && !market.inverse) {
+    // (An inverse perpetual's history is in USD with no price to put it in coins at: its part starts when sampling does, as Deribit's.)
     const period = nativeInterval({ intervals: BYBIT_OI_PERIODS }, Math.max(tfMs, 300_000)) ?? 300_000;
     // Newest first, 200 a page; each next page ends before the oldest of the last.
     for (let end = to, page = 0; page < OI_PAGES && end >= from; page++) {
@@ -230,7 +231,13 @@ async function readOiSample(venue: string, get: Fetcher, listing?: HistoryListin
     const universe = list(at(result, 0, 'universe')), index = universe.findIndex(u => at(u, 'name') === market.symbol);
     return index >= 0 ? coins(num(at(result, 1, index, 'openInterest'))) : null;
   }
-  if (venue === 'bybit') return coins(num(at(await get(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${market.symbol}`), 'result', 'list', 0, 'openInterest')));
+  if (venue === 'bybit') {
+    const ticker = at(await get(`https://api.bybit.com/v5/market/tickers?category=${market.inverse ? 'inverse' : 'linear'}&symbol=${market.symbol}`), 'result', 'list', 0);
+    if (!market.inverse) return coins(num(at(ticker, 'openInterest')));
+    // An inverse perpetual: open interest in USD, and its value in coins at the mark of the moment.
+    const usd = num(at(ticker, 'openInterest')), base = coins(num(at(ticker, 'openInterestValue')));
+    return base !== null && usd > 0 ? { base, quote: usd * market.unit } : null;
+  }
   if (venue === 'okx') return coins(num(at(await get(`https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=${market.symbol}`), 'data', 0, 'oiCcy')));
   if (venue === 'bitget') return coins(num(at(await get(`https://api.bitget.com/api/v2/mix/market/open-interest?symbol=${market.symbol}&productType=usdt-futures`), 'data', 'openInterestList', 0, 'size')));
   if (venue === 'deribit') {
