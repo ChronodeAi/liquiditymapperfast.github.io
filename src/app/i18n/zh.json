@@ -1256,5 +1256,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "每一行都有一根条形，长度按其成交量相对于视图中成交量最大的一行：按比例、按平方根（小行可见，最大的行不会长太多）或按对数（小行最明显）。",
  "In proportion": "按比例",
  "Square root": "平方根",
- "Logarithmic": "对数"
+ "Logarithmic": "对数",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "按持仓：顶级交易者持仓规模中做多的比例，而非账户数。L/S 1.25 表示他们中做多持有量是做空的 1.25 倍；就整个市场而言，多空两边总是相等。"
 }

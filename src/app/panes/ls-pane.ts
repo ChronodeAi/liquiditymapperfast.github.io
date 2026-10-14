@@ -67,7 +67,9 @@ export function lsCardLines(series: readonly LsSeries[], time: number, tf: strin
   const groups = new Map<LsPopulation, string[]>();
   for (const s of series) if (s.population) groups.set(s.population, [...(groups.get(s.population) ?? []), venueLabel(s.id)]);
   if (groups.size) lines.push({ text: [...groups].map(([population, venues]) => `${venues.join(', ')}: ${populationText(population)}`).join(' · '), color: 'muted', wrap: true, rule: true });
-  lines.push({ text: t('Accounts as each exchange counts them, not coins: L/S 1.25 is 1.25 long accounts for each short one, not 25 % more BTC long. In coins the two sides are always equal.'), color: 'muted', wrap: true });
+  // What a ratio means follows who is counted: accounts, or (Binance's top traders by positions) the size they hold.
+  if (series.some(s => s.population && s.population !== 'topPositions')) lines.push({ text: t('Accounts as each exchange counts them, not coins: L/S 1.25 is 1.25 long accounts for each short one, not 25 % more BTC long. In coins the two sides are always equal.'), color: 'muted', wrap: true });
+  if (series.some(s => s.population === 'topPositions')) lines.push({ text: t('By positions: the share of the top traders\' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.'), color: 'muted', wrap: true });
   return lines;
 }
 

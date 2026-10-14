@@ -2,8 +2,8 @@ import { PALETTES } from '../theme.ts';
 import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
-import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar } from '../store.ts';
-import { oiChangeByTime, oiDeltas, oiPartsUntil, oiSumOf, type OiPart } from '../oi-change.ts';
+import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar, type CandleRow } from '../store.ts';
+import { oiChangeByTime, oiDeltas, oiPartsUntil, oiSumOf, oiUsdChangeByTime, type OiPart } from '../oi-change.ts';
 import { anomalies, type HighlightOptions } from '../anomaly.ts';
 import { venueLabel } from '../venues.ts';
 import { activeIds, emptyScopeMessage, marketIds } from '../scope.ts';
@@ -623,6 +623,16 @@ export class BarStatsPane extends TimePane {
   #cell: StatCell | null = null;
   #button = document.createElement('button');
   #panel: Panel | null = null;
+  /** The open interest's change in USD, worked out once per set of bars, parts and candles (the pane paints on every pointer move), and only in USD. */
+  #usd: { oi: unknown; parts: unknown; candles: unknown; price: number; tfMs: number; map: Map<number, number> } | null = null;
+  #oiUsd(state: AppState, parts: readonly OiPart[], tfMs: number, candles: ReadonlyMap<number, CandleRow>): Map<number, number> | undefined {
+    if (state.barStatOptions.oiUnits !== 'usd') return undefined;
+    const held = this.#usd;
+    if (held && held.oi === state.oi && held.parts === parts && held.candles === state.candles && held.price === state.oiPrice && held.tfMs === tfMs) return held.map;
+    const map = oiUsdChangeByTime(state.oi, parts, tfMs, t => candles.get(t)?.[4], state.oiPrice);
+    this.#usd = { oi: state.oi, parts, candles: state.candles, price: state.oiPrice, tfMs, map };
+    return map;
+  }
   constructor(host: HTMLElement, store: Store, view: View, private heat: HeatPane) {
     super(host, store, view, 'bars');
     this.head.innerHTML = `<strong>${t('Bar stats')}</strong><span class="readout"></span>`;
@@ -699,7 +709,8 @@ export class BarStatsPane extends TimePane {
     const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity;
     const all = [...data.bars.values()].filter(b => b.t + tfMs <= until && b.t + 2 * tfMs > v.t0 && b.t < v.t1 + tfMs).sort((a, b) => a.t - b.t);
     if (!all.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once the footprint has executions for the visible candles.'), 12, ph / 2); return; }
-    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles: new Map(state.candles.map(c => [c[0], c] as const)), oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(pageNow() / tfMs) * tfMs : Infinity), tfMs) };
+    const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(pageNow() / tfMs) * tfMs : Infinity), candles = new Map(state.candles.map(c => [c[0], c] as const));
+    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles, oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
     // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.
     const labelOf = new Map(defs.map(def => [def.id, def.approx?.(input) ? `≈${def.label}` : def.label]));
     const slot = pw * tfMs / (v.t1 - v.t0), top = 3, rowH = Math.max(15, (ph - 6) / defs.length), filled = options.cells === 'filled';

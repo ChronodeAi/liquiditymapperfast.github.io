@@ -19,8 +19,11 @@ export function oiDeltaByTime(bars: Iterable<OiBar>): Map<number, number> {
   return out;
 }
 
-/** One venue's open-interest bars (its perpetual, in coins) on the chart's timeframe. */
-export interface OiPart { id: string; bars: readonly OiBar[] }
+/**
+ * One venue's open-interest bars (its perpetual, in coins) on the chart's timeframe. `usdAt`: an inverse market's coins are its USD over this
+ * one price (`Hub.oiSeries`), so its change in USD is its change in coins times it.
+ */
+export interface OiPart { id: string; bars: readonly OiBar[]; usdAt?: number }
 
 /**
  * Up to this long a venue's reading holds until its next one: open interest is a level, and the history some venues keep is hourly (Bybit's
@@ -115,6 +118,32 @@ export function oiSumOf(parts: readonly OiPart[], tfMs: number): OiSum {
   if (held && held.tfMs === tfMs) return held.sum;
   const sum = sumOi(parts, tfMs); sums.set(parts, { tfMs, sum });
   return sum;
+}
+
+/**
+ * Each bar's change of open interest in USD, by bar time: each venue's own change (as `sumOi` counts it) at the bar's close (`closeAt`), an
+ * inverse market's at the one price its coins were put at (`usdAt`; `usdAt` for one market's `bars`), so it is its change in its own USD and
+ * not that put at another candle's price. A bar a linear market's change is in with no close has none.
+ */
+export function oiUsdChangeByTime(bars: readonly OiBar[], parts: readonly OiPart[], tfMs: number, closeAt: (t: number) => number | undefined, usdAt = 0): Map<number, number> {
+  const out = new Map<number, number>();
+  if (parts.length <= 1) {
+    for (const [t, change] of oiDeltaByTime(bars)) { const price = usdAt > 0 ? usdAt : closeAt(t); if (price !== undefined) out.set(t, change * price); }
+    return out;
+  }
+  const carryMs = Math.max(2 * tfMs, 10 * 60_000), sorted = parts.map(part => ({ usdAt: part.usdAt, bars: [...part.bars].sort((a, b) => a[0] - b[0]) }));
+  for (const t of [...new Set(parts.flatMap(p => p.bars.map(b => b[0])))].sort((a, b) => a - b)) {
+    let usd = 0, any = false, known = true;
+    for (const series of sorted) {
+      const now = heldOiAt(series.bars, t, carryMs), before = heldOiAt(series.bars, t - tfMs, carryMs);
+      if (!now || !before) continue;
+      const price = series.usdAt !== undefined && series.usdAt > 0 ? series.usdAt : closeAt(t);
+      if (price === undefined) { known = false; break; }
+      usd += (now[4] - before[4]) * price; any = true;
+    }
+    if (any && known) out.set(t, usd);
+  }
+  return out;
 }
 
 /**

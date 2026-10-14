@@ -1293,5 +1293,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "Her satırın, görünümdeki en yoğun satıra göre hacmi kadar uzun bir çubuğu vardır: orantılı, karekökle (küçük satırlar görünür, en büyüğü çok daha uzun olmaz) ya da logaritmayla (küçük satırlar en çok görünür).",
  "In proportion": "Orantılı",
  "Square root": "Karekök",
- "Logarithmic": "Logaritmik"
+ "Logarithmic": "Logaritmik",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Pozisyonlara göre: en iyi traderların pozisyon büyüklüğünün long olan payı, hesapların değil. L/S 1,25, aralarında long tutulanın short tutulanın 1,25 katı olduğu anlamına gelir; tüm piyasada iki taraf her zaman eşittir."
 }

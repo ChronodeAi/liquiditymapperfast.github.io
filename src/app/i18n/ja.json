@@ -1256,5 +1256,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "どの行にも、表示中で最も出来高の多い行に対する出来高の長さのバーがあります。比例、平方根（小さい行も見え、最大の行が長すぎない）、対数（小さい行が最もよく見える）から選べます。",
  "In proportion": "比例",
  "Square root": "平方根",
- "Logarithmic": "対数"
+ "Logarithmic": "対数",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "ポジション基準：上位トレーダーのポジションサイズのうちロングの割合で、口座数ではありません。L/S 1.25 は彼らの中でロングがショートの 1.25 倍保有されていることを意味します。市場全体では両側は常に等しくなります。"
 }

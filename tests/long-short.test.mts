@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LongShortCache, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
-import { lsAt, stepEnd } from '../src/app/panes/ls-pane.ts';
+import { lsAt, lsCardLines, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
 import { atOnePrice } from '../src/app/oi-change.ts';
@@ -231,4 +231,14 @@ test('a coin-margined market is read where its venue publishes it: Binance COIN-
   assert.equal(new URL(get.asked[0]!).searchParams.get('pair'), 'BTCUSD');
   const bybit = await fetchLongShort('bybit', 'BTCUSD', 'accounts', 5 * M, t - H, t + M, get, NOW);
   assert.deepEqual(bybit.points, [{ t, long: 0.6547 }]);
+});
+
+test('the popup explains a ratio by who it counts: accounts, or the top traders\x27 position size', async () => {
+
+  const point = [{ t: NOW - 5 * M, long: 0.6 }];
+  const text = (series: Parameters<typeof lsCardLines>[0]) => lsCardLines(series, NOW, '5m').map(l => l.text).join('\n');
+  const positions = text([{ id: 'binance:BTCUSDT', population: 'topPositions', periodMs: 5 * M, points: point, status: 'ok' }]);
+  assert.match(positions, /position size/); assert.doesNotMatch(positions, /long accounts for each short one/);
+  const accounts = text([{ id: 'bybit:BTCUSDT', population: 'accounts', periodMs: 5 * M, points: point, status: 'ok' }]);
+  assert.match(accounts, /long accounts for each short one/); assert.doesNotMatch(accounts, /position size/);
 });

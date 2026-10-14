@@ -10,7 +10,7 @@ import type { CellShare } from './cell-sources.ts';
 import type { Bounds } from './view.ts';
 import type { LtParams, LtSeries } from './lt.ts';
 import { pickOi, weakOi, type OiCandidate } from './oi-source.ts';
-import { atOnePrice, inverseOi, oiSumOf } from './oi-change.ts';
+import { atOnePrice, inverseOi, oiSumOf, type OiPart } from './oi-change.ts';
 import { oiMarketIds } from './market-choice.ts';
 import { t } from './i18n.ts';
 import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
@@ -365,22 +365,22 @@ export class Hub {
     // picked ('custom', whatever the chips say). With one answering its own bars are shown, with none nothing (never a market left out
     // standing in, never the chart market in place of an empty list).
     if (added) {
-      const parts = (await Promise.all(venues.map(async id => ({ id, bars: await this.oiBars(id, timeframe, from, to).catch((): OiBar[] => []) })))).filter(part => part.bars.length);
+      const parts: OiPart[] = (await Promise.all(venues.map(async id => ({ id, ...await this.oiSeries(id, timeframe, from, to).catch(() => ({ bars: [] as OiBar[] })) })))).filter(part => part.bars.length);
       if (this.#oiKey !== key || generation !== this.#oiGen) return;
-      if (parts.length > 1) this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts });
-      else this.store.set({ oi: parts[0]?.bars ?? [], oiInstrument: parts[0]?.id ?? '', oiParts: [] });
+      if (parts.length > 1) this.store.set({ oi: oiSumOf(parts, tf).bars, oiInstrument: '', oiParts: parts, oiPrice: 0 });
+      else this.store.set({ oi: [...(parts[0]?.bars ?? [])], oiInstrument: parts[0]?.id ?? '', oiParts: [], oiPrice: parts[0]?.usdAt ?? 0 });
       return;
     }
     const ids = [...new Set([own, this.#reference, ...this.#oiReferences].filter(Boolean))];
-    const candidates: OiCandidate[] = [];
+    const candidates: OiCandidate[] = [], prices = new Map<string, number>();
     for (const inst of ids) {
-      const bars = await this.oiBars(inst, timeframe, from, to).catch((): OiBar[] => []);
-      candidates.push({ inst, bars });
+      const { bars, usdAt } = await this.oiSeries(inst, timeframe, from, to).catch(() => ({ bars: [] as OiBar[], usdAt: undefined }));
+      candidates.push({ inst, bars }); if (usdAt) prices.set(inst, usdAt);
       if (!weakOi(bars, now, tf)) break;
     }
     if (this.#oiKey !== key || generation !== this.#oiGen) return;
     const chosen = pickOi(candidates, now, tf);
-    if (chosen) this.store.set({ oi: chosen.bars, oiInstrument: chosen.inst, oiParts: [] });
+    if (chosen) this.store.set({ oi: chosen.bars, oiInstrument: chosen.inst, oiParts: [], oiPrice: prices.get(chosen.inst) ?? 0 });
   }
 
   /**
@@ -390,12 +390,16 @@ export class Hub {
    * put back into USD at each candle's close (`atOnePrice`), which is off by what the price moved between a reading and its candle's close.
    * `at`: the one price (the Range tool's, the price at its selection's end, so its dollar figure is the USD change itself).
    */
-  async oiBars(id: string, tf: string, from: number, to: number, at?: number): Promise<OiBar[]> {
-    if (!inverseOi(id)) return this.source.oi(id, tf, from, to);
+  async oiBars(id: string, tf: string, from: number, to: number, at?: number): Promise<OiBar[]> { return (await this.oiSeries(id, tf, from, to, at)).bars; }
+  /** The same with, for an inverse market, the one price its coins were put at (`usdAt`): its change in USD is its change in coins times it. */
+  async oiSeries(id: string, tf: string, from: number, to: number, at?: number): Promise<{ bars: OiBar[]; usdAt?: number }> {
+    if (!inverseOi(id)) return { bars: await this.source.oi(id, tf, from, to) };
     const candles = this.store.state.candles, price = at ?? candles[candles.length - 1]?.[4] ?? 0;
     const usd = price > 0 ? await this.source.oi(id, tf, from, to, true).catch((): OiBar[] => []) : [];
-    if (usd.length) return usd.map(b => [b[0], b[1] / price, b[2] / price, b[3] / price, b[4] / price]);
-    return [...atOnePrice(await this.source.oi(id, tf, from, to), candles, at)];
+    if (usd.length) return { bars: usd.map(b => [b[0], b[1] / price, b[2] / price, b[3] / price, b[4] / price]), usdAt: price };
+    // Without candles the coins are left at each reading's own price: no one price to name.
+    const bars = [...atOnePrice(await this.source.oi(id, tf, from, to), candles, at)];
+    return price > 0 && candles.length ? { bars, usdAt: price } : { bars };
   }
 
   /**

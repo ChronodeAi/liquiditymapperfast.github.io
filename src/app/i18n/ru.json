@@ -1319,5 +1319,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "У каждой строки есть полоса по её объёму относительно самой активной строки на экране: пропорционально, по квадратному корню (малые строки видны, самая большая не намного длиннее) или по логарифму (малые видны лучше всего).",
  "In proportion": "Пропорционально",
  "Square root": "Квадратный корень",
- "Logarithmic": "Логарифмически"
+ "Logarithmic": "Логарифмически",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "По позициям: доля размера позиций топ-трейдеров, открытая в лонг, а не доля счетов. L/S 1,25 означает, что у них в лонг держится в 1,25 раза больше, чем в шорт; по всему рынку стороны всегда равны."
 }

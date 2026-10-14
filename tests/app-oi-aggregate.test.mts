@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { heldOiAt, oiChangeByTime, oiPartsUntil, sumOi, type OiPart } from '../src/app/oi-change.ts';
+import { heldOiAt, oiChangeByTime, oiPartsUntil, oiUsdChangeByTime, sumOi, type OiPart } from '../src/app/oi-change.ts';
 import { fetchOiSample, fetchOiHistory, OI_SAMPLE_VENUES } from '../src/shared/history.ts';
 import { readSettings } from '../src/app/store.ts';
 import type { OiBar } from '../src/app/store.ts';
@@ -98,4 +98,16 @@ test('in replay the sum is made of the bars that ended by the moment: a reading 
   const sum = sumOi(cut, Q);
   assert.deepEqual(sum.bars.map(b => [b[0] / M, b[4]]), [[0, 110], [15, 110], [30, 110], [45, 10]], 'a is held for the short carry only: its next reading has not happened yet');
   assert.equal(oiPartsUntil(parts, Q, Infinity), parts, 'live: as they are');
+});
+
+test('a change of open interest in USD is a linear market\x27s at the close, an inverse market\x27s at the price its coins were put at', () => {
+  const H = 60 * M, closes = new Map([[H, 50_000], [2 * H, 50_000]]), closeAt = (t: number) => closes.get(t);
+  // An inverse market whose coins are its USD over 100,000: one more coin is $100,000 more, whatever a candle closed at.
+  const inverse: OiPart = { id: 'deribit:BTC-PERPETUAL', bars: [bar(0, 10), bar(H, 11), bar(2 * H, 11)], usdAt: 100_000 };
+  const linear: OiPart = { id: 'binance:BTCUSDT', bars: [bar(0, 100), bar(H, 102), bar(2 * H, 101)] };
+  const both = oiUsdChangeByTime([], [inverse, linear], H, closeAt);
+  assert.equal(both.get(H), 100_000 + 2 * 50_000);
+  assert.equal(both.get(2 * H), -50_000);
+  assert.deepEqual([...oiUsdChangeByTime(inverse.bars, [], H, closeAt, 100_000)], [[H, 100_000], [2 * H, 0]], 'one inverse market');
+  assert.deepEqual([...oiUsdChangeByTime(linear.bars, [], H, closeAt)], [[H, 100_000], [2 * H, -50_000]], 'one linear market');
 });

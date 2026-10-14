@@ -1256,5 +1256,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "모든 행에는 화면에서 가장 거래량이 많은 행에 대한 거래량만큼의 막대가 있습니다. 비례, 제곱근(작은 행도 보이고 가장 큰 행이 지나치게 길지 않음), 로그(작은 행이 가장 잘 보임) 중에서 고릅니다.",
  "In proportion": "비례",
  "Square root": "제곱근",
- "Logarithmic": "로그"
+ "Logarithmic": "로그",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "포지션 기준: 상위 트레이더 포지션 규모 중 롱의 비율이며, 계정 수가 아닙니다. L/S 1.25는 그들 사이에서 롱이 숏의 1.25배 보유되었다는 뜻입니다. 시장 전체로는 양쪽이 항상 같습니다."
 }

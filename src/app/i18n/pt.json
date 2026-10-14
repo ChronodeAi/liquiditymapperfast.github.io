@@ -1306,5 +1306,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "Cada linha tem uma barra tão longa quanto o seu volume face à linha mais movimentada à vista: em proporção, pela raiz quadrada (as linhas pequenas aparecem e a maior não é muito mais longa) ou pelo logaritmo (as pequenas aparecem mais).",
  "In proportion": "Proporcional",
  "Square root": "Raiz quadrada",
- "Logarithmic": "Logarítmica"
+ "Logarithmic": "Logarítmica",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Por posições: a parte do tamanho das posições dos principais traders que está comprada, não das contas. L/S 1,25 é 1,25 vez mais mantido comprado do que vendido entre eles; no mercado inteiro os dois lados são sempre iguais."
 }

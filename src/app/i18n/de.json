@@ -1293,5 +1293,6 @@
  "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "Jede Zeile hat einen Balken so lang wie ihr Volumen gegenüber der umsatzstärksten Zeile im Bild: proportional, nach der Quadratwurzel (kleine Zeilen sind sichtbar, die größte ist nicht viel länger) oder nach dem Logarithmus (kleine Zeilen am deutlichsten).",
  "In proportion": "Proportional",
  "Square root": "Quadratwurzel",
- "Logarithmic": "Logarithmisch"
+ "Logarithmic": "Logarithmisch",
+ "By positions: the share of the top traders' position size that is long, not of accounts. L/S 1.25 is 1.25 times as much held long as short among them; across the whole market the two sides are always equal.": "Nach Positionen: der Anteil der Positionsgröße der Top-Trader, der long ist, nicht der Konten. L/S 1,25 heißt 1,25-mal so viel long wie short gehalten; über den ganzen Markt sind beide Seiten immer gleich."
 }

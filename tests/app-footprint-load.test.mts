@@ -210,3 +210,16 @@ test('a view a little behind the live edge, with no bar still under way, is rech
     assert.deepEqual([asked.at(-1)!.from, asked.at(-1)!.to], [9 * H, 10 * H], 'five minutes on: the last hour of settled bars');
   } finally { time.restore(); }
 });
+
+test('on bars longer than the hour, the late-trade recheck starts on a bar\x27s own start', async () => {
+  const time = clock(20_000_000);
+  try {
+    const { asked, load } = source(50), data = new FootprintData(), view = { t0: 0, t1: 10 * H, p0: 0, p1: 1 };
+    const sourceNow = 10 * H + 30 * 60_000;
+    const step = async () => { data.ensure('a', '4h', view, 5, load, () => {}, [], sourceNow); await turn(); };
+    await step();
+    time.advance(5 * 60_000); await step();
+    // The bar under way starts at 8 h; an hour before it is inside the bar from 4 h, which is asked whole.
+    assert.equal(asked.at(-1)!.from, 4 * H);
+  } finally { time.restore(); }
+});

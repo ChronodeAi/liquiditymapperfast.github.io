@@ -32,6 +32,8 @@ export interface StatInput {
   oi: ReadonlyMap<number, OiBar>;
   /** Each bar's change of open interest by time, as the OI pane counts it (oi-change.ts `oiChangeByTime`); from `oi` when absent. */
   oiChange?: ReadonlyMap<number, number>;
+  /** The same in USD (oi-change.ts `oiUsdChangeByTime`: an inverse market's in its own USD); from the change times the close when absent. */
+  oiUsd?: ReadonlyMap<number, number>;
   options: StatOptions;
   /** The size lines the bars were loaded with (the coin's USD, see `FootprintData.cuts`): a bar's `over` holds their sums. */
   cuts?: readonly number[];
@@ -169,7 +171,7 @@ export const BAR_STATS: readonly StatDef[] = [
   { id: 'range', label: 'range', group: 'market', title: t('High minus low of the candle'), scale: 'sequential', format: value => fmtPrice(value),
     compute: ({ bars, candles }) => bars.map(bar => { const c = candles.get(bar.t); return c ? c[2] - c[3] : null; }) },
   { id: 'oiChange', label: t('oi chg'), group: 'market', title: t('Open-interest change over the bar (its close minus the close of the bar before); USD or base coin in the options'), scale: 'diverging', format: signedVol,
-    compute: ({ bars, oi, oiChange, candles, options }) => { const delta = oiChange ?? oiDeltaByTime(oi.values()); return bars.map(bar => { const change = delta.get(bar.t); if (change === undefined) return null; if (options.oiUnits === 'base') return change; const c = candles.get(bar.t); return c ? change * c[4] : null; }); } },
+    compute: ({ bars, oi, oiChange, oiUsd, candles, options }) => { const delta = oiChange ?? oiDeltaByTime(oi.values()); return bars.map(bar => { const change = delta.get(bar.t); if (change === undefined) return null; if (options.oiUnits === 'base') return change; if (oiUsd) return oiUsd.get(bar.t) ?? null; const c = candles.get(bar.t); return c ? change * c[4] : null; }); } },
 ];
 
 /** Starting selections offered by the presets. */

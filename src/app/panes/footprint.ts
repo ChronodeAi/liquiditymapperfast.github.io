@@ -256,7 +256,9 @@ export class FootprintData {
     else if (want.to > h.to || (h.settled < want.to && clock - h.at >= FOOTPRINT_REFRESH_MS) || (clock - h.rechecked >= RECHECK_MS && want.to > h.settled - RECHECK_SPAN_MS)) {
       const recheck = clock - h.rechecked >= RECHECK_MS;
       if (recheck) h.rechecked = clock;
-      ask = { from: Math.min(Math.max(recheck ? h.settled - RECHECK_SPAN_MS : h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };
+      // From the start of the bar an hour back is in (on 4 h or 1 d bars an hour back is inside the bar before): an answer's bars that start
+      // before where it was asked are not taken, so a recheck begun inside a bar would leave that bar as it was.
+      ask = { from: Math.min(Math.max(recheck ? Math.floor((h.settled - RECHECK_SPAN_MS) / tfMs) * tfMs : h.settled, h.from), h.to), to: Math.max(want.to, h.to), kind: 'tail' };
     }
     else if (want.from < h.from) ask = { from: want.from, to: h.from, kind: 'older' };
     // Settled bars without the sums of the size lines asked (minutes whose lists the server fills in after it starts) are asked again, once
