@@ -15,10 +15,15 @@ export interface FootprintSettings {
    * (`customMarkets.footprint`, market-choice.ts), whatever the chips and the filter say.
    */
   markets: 'chart' | 'all' | 'custom';
+  /**
+   * How a row's bar length follows its volume (every row has one, as long as its volume against the busiest row in view): in proportion, by
+   * its square root, or by its logarithm (`barFraction`). The venue pieces of a bar keep their shares of it.
+   */
+  widths: 'linear' | 'sqrt' | 'log';
 }
 
 /** Diagonal imbalances outlined, the numbers as before; zones and naked points of control off until chosen; every venue added together (2026-10-13). */
-export const FOOTPRINT_DEFAULTS: Readonly<FootprintSettings> = { text: 'split', diagonal: true, zones: false, nakedPoc: false, markets: 'all' };
+export const FOOTPRINT_DEFAULTS: Readonly<FootprintSettings> = { text: 'split', diagonal: true, zones: false, nakedPoc: false, markets: 'all', widths: 'sqrt' };
 
 const flag = (value: unknown, fallback: boolean): boolean => typeof value === 'boolean' ? value : fallback;
 
@@ -28,5 +33,6 @@ export function readFootprint(saved: unknown): FootprintSettings {
     text: s.text === 'delta' || s.text === 'total' || s.text === 'none' ? s.text : 'split',
     diagonal: flag(s.diagonal, d.diagonal), zones: flag(s.zones, d.zones), nakedPoc: flag(s.nakedPoc, d.nakedPoc),
     markets: s.markets === 'chart' || s.markets === 'custom' ? s.markets : 'all',
+    widths: s.widths === 'linear' || s.widths === 'log' ? s.widths : d.widths,
   };
 }

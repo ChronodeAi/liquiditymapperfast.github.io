@@ -1018,7 +1018,7 @@
  "Count against an empty row": "空の行との比較も数える",
  "A row beside one where nothing traded, inside the candle, counts as imbalanced however small it is (from the minimum).": "ローソク足の中で、何も取引されなかった行の隣の行は、小さくても（最小値以上なら）インバランスとして数えます。",
  "The ratio, the minimum and the stacked rows are the bar statistics' too. Imbalances are read on the rows shown: zooming changes the row size, and with it which rows stand out.": "比率・最小値・連続行数は足ごとの統計と共通です。インバランスは表示中の行で判定されるため、拡大縮小で行の大きさが変わると目立つ行も変わります。",
- "A row's bar is tinted by the side that traded more at that price. A diagonal imbalance compares across rows, as footprint traders read it: a row's sells against the buys one row up (while the bid is at one price, the offer is a row above it), and its buys against the sells one row down. Where one is at least the ratio times the other (3 by default), that half of the row is outlined in its side's colour; hover a row for the ratio.": "行のバーは、その価格でより多く取引された側の色になります。斜めのインバランスは、フットプリントのトレーダーが読むように行をまたいで比べます。ある行の売りを 1 行上の買いと（ビッドがある価格にあるとき、オファーは 1 行上にあります）、買いを 1 行下の売りと比べます。一方が他方の比率倍（既定は 3）以上なら、行のその半分をその側の色で囲みます。比率は行にカーソルを合わせると表示されます。",
+ "Every row has a bar as long as its volume, in the colour of the side that traded at least 1.15 times the other there, grey where neither did; the panel's Bar width sets how length follows volume. A diagonal imbalance compares across rows, as footprint traders read it: a row's sells against the buys one row up (while the bid is at one price, the offer is a row above it), and its buys against the sells one row down. Where one is at least the ratio times the other (3 by default), that half of the row is outlined in its side's colour; hover a row for the ratio.": "どの行にも出来高に応じた長さのバーがあり、その行で一方が他方の 1.15 倍以上取引された側の色、どちらでもなければ灰色です。パネルの「バーの幅」で長さと出来高の関係を選べます。斜めのインバランスは、フットプリントのトレーダーが読むように行をまたいで比べます。ある行の売りを 1 行上の買いと（ビッドがある価格にあるとき、オファーは 1 行上にあります）、買いを 1 行下の売りと比べます。一方が他方の比率倍（既定は 3）以上なら、行のその半分をその側の色で囲みます。比率は行にカーソルを合わせると表示されます。",
  "Imbalances are read on the rows shown, and the rows grow as you zoom out, so zooming changes which rows stand out. The ratio, the minimum size and the number of stacked rows are the bar statistics' too, so the strip under the map counts what the cells show.": "インバランスは表示中の行で判定され、縮小すると行が大きくなるため、拡大縮小で目立つ行が変わります。比率・最小サイズ・連続行数は足ごとの統計と共通なので、マップ下の帯はセルに表示されたものを数えます。",
  "Diagonal": "斜め",
  "sells {ratio} the buys one row up": "売りが 1 行上の買いの {ratio}",
@@ -1251,5 +1251,10 @@
  "Pick the perpetuals whose open interest is added together.": "建玉を合算する無期限を選びます。",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "1つの市場（OIペインが合算する{n}市場のうち最大のもの）で、ボックスの価格だけでなく全体です。増加：ポジションが建てられた、減少：決済された。誰が建てたり決済したかではありません。",
  "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "1つの市場（OIペインが合算する{n}市場のうち最大のもの）。増加：ポジションが建てられた、減少：決済された。誰が建てたり決済したかではありません。",
- "{venue}: the last update could not be read; these are its earlier readings.": "{venue}：最新の更新を読み取れませんでした。これは以前の値です。"
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}：最新の更新を読み取れませんでした。これは以前の値です。",
+ "Bar width": "バーの幅",
+ "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "どの行にも、表示中で最も出来高の多い行に対する出来高の長さのバーがあります。比例、平方根（小さい行も見え、最大の行が長すぎない）、対数（小さい行が最もよく見える）から選べます。",
+ "In proportion": "比例",
+ "Square root": "平方根",
+ "Logarithmic": "対数"
 }

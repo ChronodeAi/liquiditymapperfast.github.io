@@ -1018,7 +1018,7 @@
  "Count against an empty row": "与空行比较也计入",
  "A row beside one where nothing traded, inside the candle, counts as imbalanced however small it is (from the minimum).": "K 线内与无成交的行相邻的行，无论多小（达到最小值即可）都算作失衡。",
  "The ratio, the minimum and the stacked rows are the bar statistics' too. Imbalances are read on the rows shown: zooming changes the row size, and with it which rows stand out.": "比率、最小值和堆叠行数与 K 线统计共用。失衡按显示的行判断：缩放会改变行的大小，也会改变哪些行突出。",
- "A row's bar is tinted by the side that traded more at that price. A diagonal imbalance compares across rows, as footprint traders read it: a row's sells against the buys one row up (while the bid is at one price, the offer is a row above it), and its buys against the sells one row down. Where one is at least the ratio times the other (3 by default), that half of the row is outlined in its side's colour; hover a row for the ratio.": "行的条形按该价格成交较多的一方着色。对角失衡像足迹图交易者那样跨行比较：某行的卖出与上一行的买入比较（买价在某个价格时，卖价在其上一行），买入则与下一行的卖出比较。若一方至少是另一方的比率倍（默认 3），该行的那一半会以其一方的颜色描边；悬停在行上可看到比率。",
+ "Every row has a bar as long as its volume, in the colour of the side that traded at least 1.15 times the other there, grey where neither did; the panel's Bar width sets how length follows volume. A diagonal imbalance compares across rows, as footprint traders read it: a row's sells against the buys one row up (while the bid is at one price, the offer is a row above it), and its buys against the sells one row down. Where one is at least the ratio times the other (3 by default), that half of the row is outlined in its side's colour; hover a row for the ratio.": "每一行都有一根长度对应其成交量的条形；某一方成交至少是另一方 1.15 倍时用该方的颜色，否则为灰色；面板中的「条形宽度」决定长度如何随成交量变化。对角失衡像足迹图交易者那样跨行比较：某行的卖出与上一行的买入比较（买价在某个价格时，卖价在其上一行），买入则与下一行的卖出比较。若一方至少是另一方的比率倍（默认 3），该行的那一半会以其一方的颜色描边；悬停在行上可看到比率。",
  "Imbalances are read on the rows shown, and the rows grow as you zoom out, so zooming changes which rows stand out. The ratio, the minimum size and the number of stacked rows are the bar statistics' too, so the strip under the map counts what the cells show.": "失衡按显示的行判断，缩小时行会变大，所以缩放会改变哪些行突出。比率、最小规模和堆叠行数与 K 线统计共用，因此地图下方的条带统计的正是单元格显示的内容。",
  "Diagonal": "对角",
  "sells {ratio} the buys one row up": "卖出为上一行买入的 {ratio}",
@@ -1251,5 +1251,10 @@
  "Pick the perpetuals whose open interest is added together.": "选择要相加持仓量的永续合约。",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个，且是其全部，不只是方框内的价格。上升：开仓；下降：平仓。不是谁开仓或平仓。",
  "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "一个市场，OI 面板相加的 {n} 个市场中最大的那个。上升：开仓；下降：平仓。不是谁开仓或平仓。",
- "{venue}: the last update could not be read; these are its earlier readings.": "{venue}：最近一次更新无法读取；这些是之前的读数。"
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}：最近一次更新无法读取；这些是之前的读数。",
+ "Bar width": "条形宽度",
+ "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "每一行都有一根条形，长度按其成交量相对于视图中成交量最大的一行：按比例、按平方根（小行可见，最大的行不会长太多）或按对数（小行最明显）。",
+ "In proportion": "按比例",
+ "Square root": "平方根",
+ "Logarithmic": "对数"
 }

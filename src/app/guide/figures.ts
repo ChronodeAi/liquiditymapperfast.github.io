@@ -457,11 +457,12 @@ const footprint: Scene = {
     g.strokeStyle = th.text; g.lineWidth = 1.5; g.beginPath(); g.moveTo(candleX, yRow(12) + rowH / 2); g.lineTo(candleX, yRow(0) + rowH / 2); g.stroke(); g.lineWidth = 1;
     g.fillStyle = th.ask; g.fillRect(candleX - 9, yRow(6), 18, yRow(1) - yRow(6) + rowH);
     // rows
-    const colL = left + 56, colW = slotW - 64, maxSide = 3.4;
+    const colL = left + 56, colW = slotW - 64, maxSide = 3.4, maxTotal = Math.max(...FOOT_ROWS.map(r => r.buy + r.sell));
     font(g, 10.5, 500);
     for (let r = 0; r < rowsN; r++) {
       const { buy, sell } = FOOT_ROWS[r]!, y = yRow(r), dominant = buy >= 1.15 * sell && buy > 0.45 ? 'buy' : sell >= 1.15 * buy ? 'sell' : null;
-      if (zoom > 0.5 && bars > 0) { const side = dominant; if (side) { g.globalAlpha = 0.65 * bars; g.fillStyle = side === 'buy' ? th.bid : th.ask; g.fillRect(colL, y + 1, Math.max(3, colW * Math.max(buy, sell) / maxSide * 0.78), rowH - 2); g.globalAlpha = 1; } }
+      // Every row has a bar as long as its volume (square root, the page's default), coloured where one side was at least 15% bigger.
+      if (zoom > 0.5 && bars > 0) { const side = dominant; g.globalAlpha = (side ? 0.65 : 0.3) * bars; g.fillStyle = side === 'buy' ? th.bid : side === 'sell' ? th.ask : th.muted; g.fillRect(colL, y + 1, Math.max(3, colW * Math.sqrt((buy + sell) / maxTotal) * 0.78), rowH - 2); g.globalAlpha = 1; }
       if (numbers > 0.02 && slotW > 200) { g.globalAlpha = numbers; g.fillStyle = th.text; g.textBaseline = 'middle'; g.textAlign = 'right'; g.fillText(`${(sell * 2.1).toFixed(1)}M`, colL + 42, y + rowH / 2); g.textAlign = 'left'; g.fillText(`${(buy * 2.1).toFixed(1)}M`, colL + 50, y + rowH / 2); g.globalAlpha = 1; }
     }
     // the trap: the busiest wick cells glow and pulse
@@ -470,7 +471,7 @@ const footprint: Scene = {
       for (let r = 9; r <= 11; r++) { const { buy } = FOOT_ROWS[r]!, y = yRow(r), len = Math.max(3, colW * buy / maxSide * 0.78); g.fillStyle = `rgba(245, 165, 36, ${(0.15 + 0.3 * pulse) * trap})`; g.fillRect(colL - 1, y, len + 2, rowH); g.strokeStyle = `rgba(245, 165, 36, ${(0.4 + 0.5 * pulse) * trap})`; g.strokeRect(colL - 0.5, y + 0.5, len + 1, rowH - 1); }
       g.globalAlpha = trap; note(g, tg('Rejected aggressive buying'), left + slotW - 10, yRow(7) + rowH / 2, th, 'right', '#f5a524', 12.5, 700); note(g, tg('net buying in the wick, then a close far below'), left + slotW - 10, yRow(7) + rowH / 2 + 18, th, 'right', th.muted, 11); g.globalAlpha = 1;
     }
-    badge(g, zoom < 0.5 ? tg('Zoomed out') : numbers < 0.8 ? tg('Zooming in…') : bars < 0.8 ? tg('Sell | Buy volume per price') : trap < 0.8 ? tg('Bars: one side at least 15% bigger') : tg('Rejected buying'), 10, 4, th, 1);
+    badge(g, zoom < 0.5 ? tg('Zoomed out') : numbers < 0.8 ? tg('Zooming in…') : bars < 0.8 ? tg('Sell | Buy volume per price') : trap < 0.8 ? tg('Colour: one side at least 15% bigger') : tg('Rejected buying'), 10, 4, th, 1);
     note(g, tg('sell'), colL + 42, h - 8, th, 'right', th.muted, 10); note(g, tg('buy'), colL + 50, h - 8, th, 'left', th.muted, 10);
   },
 };

@@ -1018,7 +1018,7 @@
  "Count against an empty row": "빈 행과의 비교도 셈",
  "A row beside one where nothing traded, inside the candle, counts as imbalanced however small it is (from the minimum).": "캔들 안에서 아무것도 거래되지 않은 행 옆의 행은 작더라도(최소값 이상이면) 불균형으로 셉니다.",
  "The ratio, the minimum and the stacked rows are the bar statistics' too. Imbalances are read on the rows shown: zooming changes the row size, and with it which rows stand out.": "비율, 최소값, 연속 행 수는 봉별 통계와 공유합니다. 불균형은 표시된 행에서 판단하므로 확대·축소로 행 크기가 바뀌면 눈에 띄는 행도 바뀝니다.",
- "A row's bar is tinted by the side that traded more at that price. A diagonal imbalance compares across rows, as footprint traders read it: a row's sells against the buys one row up (while the bid is at one price, the offer is a row above it), and its buys against the sells one row down. Where one is at least the ratio times the other (3 by default), that half of the row is outlined in its side's colour; hover a row for the ratio.": "행의 막대는 그 가격에서 더 많이 거래된 쪽의 색입니다. 대각선 불균형은 풋프린트 트레이더가 읽듯이 행을 건너 비교합니다. 한 행의 매도는 한 행 위의 매수와(매수 호가가 한 가격에 있을 때 매도 호가는 한 행 위에 있습니다), 매수는 한 행 아래의 매도와 비교합니다. 한쪽이 다른 쪽의 비율 배(기본 3) 이상이면 행의 그쪽 절반을 그 색으로 테두리합니다. 비율은 행에 마우스를 올리면 보입니다.",
+ "Every row has a bar as long as its volume, in the colour of the side that traded at least 1.15 times the other there, grey where neither did; the panel's Bar width sets how length follows volume. A diagonal imbalance compares across rows, as footprint traders read it: a row's sells against the buys one row up (while the bid is at one price, the offer is a row above it), and its buys against the sells one row down. Where one is at least the ratio times the other (3 by default), that half of the row is outlined in its side's colour; hover a row for the ratio.": "모든 행에는 거래량만큼 긴 막대가 있으며, 그 행에서 한쪽이 다른 쪽의 1.15배 이상 거래되면 그쪽 색, 아니면 회색입니다. 패널의 막대 너비가 길이가 거래량을 따르는 방식을 정합니다. 대각선 불균형은 풋프린트 트레이더가 읽듯이 행을 건너 비교합니다. 한 행의 매도는 한 행 위의 매수와(매수 호가가 한 가격에 있을 때 매도 호가는 한 행 위에 있습니다), 매수는 한 행 아래의 매도와 비교합니다. 한쪽이 다른 쪽의 비율 배(기본 3) 이상이면 행의 그쪽 절반을 그 색으로 테두리합니다. 비율은 행에 마우스를 올리면 보입니다.",
  "Imbalances are read on the rows shown, and the rows grow as you zoom out, so zooming changes which rows stand out. The ratio, the minimum size and the number of stacked rows are the bar statistics' too, so the strip under the map counts what the cells show.": "불균형은 표시된 행에서 판단하며, 축소하면 행이 커지므로 확대·축소에 따라 눈에 띄는 행이 바뀝니다. 비율, 최소 크기, 연속 행 수는 봉별 통계와 공유하므로 맵 아래 띠는 셀에 보이는 것을 셉니다.",
  "Diagonal": "대각선",
  "sells {ratio} the buys one row up": "매도가 한 행 위 매수의 {ratio}",
@@ -1251,5 +1251,10 @@
  "Pick the perpetuals whose open interest is added together.": "미결제약정을 합산할 무기한을 고릅니다.",
  "One market, the largest of the {n} the OI pane adds together, and all of it, not only the box's prices. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것)이며, 상자의 가격뿐 아니라 전체입니다. 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다.",
  "One market, the largest of the {n} the OI pane adds together. Rising: positions opened; falling: closed. Not who opened or closed them.": "하나의 시장(OI 패널이 합산하는 {n}개 중 가장 큰 것). 증가: 포지션이 열림, 감소: 닫힘. 누가 열거나 닫았는지는 아닙니다.",
- "{venue}: the last update could not be read; these are its earlier readings.": "{venue}: 마지막 업데이트를 읽지 못했습니다. 이전 값입니다."
+ "{venue}: the last update could not be read; these are its earlier readings.": "{venue}: 마지막 업데이트를 읽지 못했습니다. 이전 값입니다.",
+ "Bar width": "막대 너비",
+ "Every row has a bar as long as its volume against the busiest row in view: in proportion, by the square root (small rows show, the busiest is not far longer) or by the logarithm (small rows show most).": "모든 행에는 화면에서 가장 거래량이 많은 행에 대한 거래량만큼의 막대가 있습니다. 비례, 제곱근(작은 행도 보이고 가장 큰 행이 지나치게 길지 않음), 로그(작은 행이 가장 잘 보임) 중에서 고릅니다.",
+ "In proportion": "비례",
+ "Square root": "제곱근",
+ "Logarithmic": "로그"
 }

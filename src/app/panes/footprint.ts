@@ -88,8 +88,23 @@ export const FOOTPRINT_POLICY = Object.freeze({
   textEnterFactor: 0.56, textLeaveFactor: 0.44, fadeMs: 500, coarsenHeight: 12, refineHeight: 16, maxLevel: 24,
 });
 
-/** A row gets a bar only when one side is at least this many times the other (or the other side is empty). */
+/** A row's bar takes the colour of a side at least this many times the other (or with the other empty); grey where neither is. */
 export const IMBALANCE_RATIO = 1.15;
+
+/** The decades of volume a logarithmic bar spans: a row a ten-thousandth of the busiest is at the start. */
+const LOG_DECADES = 4;
+/**
+ * A row's bar length as a fraction of the column: its volume against the busiest row in view, in proportion, by the square root or by the
+ * logarithm (over LOG_DECADES decades below the busiest, so a row ten times smaller is a quarter shorter). Every row with volume has one.
+ */
+export function barFraction(volume: number, busiest: number, widths: 'linear' | 'sqrt' | 'log'): number {
+  if (!(volume > 0) || !(busiest > 0)) return 0;
+  const share = Math.min(1, volume / busiest);
+  if (widths === 'linear') return share;
+  if (widths === 'sqrt') return Math.sqrt(share);
+  const unit = busiest / 10 ** LOG_DECADES;
+  return Math.log1p(volume / unit) / Math.log1p(busiest / unit);
+}
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 export const easeOutQuint = (t: number) => 1 - (1 - clamp01(t)) ** 5;
@@ -331,10 +346,11 @@ export function paintFootprint(ctx: CanvasRenderingContext2D, data: FootprintDat
   const tfMs = TIMEFRAMES[tf] ?? 3_600_000, step = data.step;
   if (!(step > 0) || lod.barAlpha <= 0.005) return;
   const slot = pw * tfMs / (view.t1 - view.t0), rowPx = Math.abs(view.yOf(0, ph) - view.yOf(step, ph)), layout = footprintLayout(slot);
-  let maxSide = 0;
-  const until = look?.until ?? Infinity;
-  for (const bar of data.bars.values()) if (bar.t + tfMs >= view.t0 && bar.t <= view.t1 && bar.t + tfMs <= until) for (const r of bar.rows) maxSide = Math.max(maxSide, r[1], r[2]);
-  if (!(maxSide > 0)) return;
+  // The busiest row in view (sold and bought together) is a full column.
+  let busiest = 0;
+  const until = look?.until ?? Infinity, widths = look?.settings.widths ?? 'sqrt';
+  for (const bar of data.bars.values()) if (bar.t + tfMs >= view.t0 && bar.t <= view.t1 && bar.t + tfMs <= until) for (const r of bar.rows) busiest = Math.max(busiest, r[1] + r[2]);
+  if (!(busiest > 0)) return;
   ctx.font = FONT; ctx.textBaseline = 'middle';
   const numberWidth = ctx.measureText('999.9M').width, textColor = p.dark ? '#f1f1f1' : p.text, mode = look?.settings.text ?? 'split';
   const diagonal = look?.settings.diagonal !== false ? look?.marks ?? null : null;
@@ -349,20 +365,22 @@ export function paintFootprint(ctx: CanvasRenderingContext2D, data: FootprintDat
       const [low, buy, sell] = bar.rows[r]!;
       const yTop = view.yOf(low + step, ph), h = Math.max(1, rowPx - 1);
       if (yTop + h < 0 || yTop > ph) continue;
-      const side = imbalance(buy, sell);
-      if (side) {
-        const alpha = (p.dark ? 0.9 : 0.62) * lod.barAlpha; ctx.fillStyle = side === 'buy' ? p.candleUp : p.candleDown;
-        const barWidth = Math.max(2, Math.min(layout.colWidth, layout.colWidth * Math.max(buy, sell) / maxSide));
+      // Every row with volume has a bar as long as its volume (sold and bought), in the colour of a side that traded at least
+      // IMBALANCE_RATIO times the other, grey where neither did: a bar only on imbalanced rows left gaps that moved as the rows regrouped.
+      const side = imbalance(buy, sell), fraction = barFraction(buy + sell, busiest, widths);
+      if (fraction > 0) {
+        const alpha = (side ? (p.dark ? 0.9 : 0.62) : (p.dark ? 0.42 : 0.3)) * lod.barAlpha; ctx.fillStyle = side === 'buy' ? p.candleUp : side === 'sell' ? p.candleDown : p.muted;
+        const barWidth = Math.max(2, Math.min(layout.colWidth, layout.colWidth * fraction));
         const parts = bar.parts?.[r];
         // Every row of markets added together says whose it is, a row only one of them traded included.
         if (parts?.length && data.venueOrder.length) {
           const spans = !numbers ? [] : mode === 'split'
             ? [[split - 3 - ctx.measureText(volText(sell)).width, split - 2], [split + 2, split + 3 + ctx.measureText(volText(buy)).width]]
             : (w => [[(left + right - w) / 2 - 2, (left + right + w) / 2 + 2]])(ctx.measureText(mode === 'delta' ? signed(buy - sell) : volText(buy + sell)).width);
-          paintPieces(ctx, data.venueOrder, parts, side, maxSide, left, layout.colWidth, yTop, h, ctx.fillStyle as string, alpha, lod.barAlpha, spans);
+          paintPieces(ctx, data.venueOrder, parts, buy + sell, left, barWidth, yTop, h, ctx.fillStyle as string, alpha, lod.barAlpha, spans);
         }
         else { ctx.globalAlpha = alpha; ctx.fillRect(left, yTop, barWidth, h); }
-        if (marks?.wants(bar.t, low + step / 2, side)) marks.add(left, yTop, barWidth, h, bar.t);
+        if (side && marks?.wants(bar.t, low + step / 2, side)) marks.add(left, yTop, barWidth, h, bar.t);
       }
       const flag = flags?.get(low);
       if (flag && h >= 3) {
@@ -396,15 +414,15 @@ export const VENUE_LINES = 8;
 const PIECE_MARK = 9;
 
 /**
- * A row's bar split by venue (the Compact book's pieces, `barPieces`): each market's part of the dominant side, in `order` (the same on every
- * row, so a venue keeps its place), in the side's colour with the shade alternating by that place; parts too narrow to see make one piece at
- * the end. The pieces add up to the bar as it is drawn whole. A piece wide enough and a row tall enough carry the venue's mark, never over
- * the row's printed numbers (`texts`, the span across of each).
+ * A row's bar split by venue (the Compact book's pieces, `barPieces`): each market's share of the row's volume (`total`, sold and bought), in
+ * `order` (the same on every row, so a venue keeps its place), in the bar's colour with the shade alternating by that place; parts too narrow
+ * to see make one piece at the end. The pieces fill the bar as it is drawn whole (`width`). A piece wide enough and a row tall enough carry
+ * the venue's mark, never over the row's printed numbers (`texts`, the span across of each).
  */
-function paintPieces(ctx: CanvasRenderingContext2D, order: readonly string[], parts: readonly VenuePart[], side: 'buy' | 'sell', maxSide: number, left: number, width: number,
+function paintPieces(ctx: CanvasRenderingContext2D, order: readonly string[], parts: readonly VenuePart[], total: number, left: number, width: number,
   yTop: number, h: number, color: string, alpha: number, markAlpha: number, texts: readonly (readonly number[])[]): void {
-  const values = order.map(id => { for (const part of parts) if (part[0] === id) return side === 'buy' ? part[1] : part[2]; return 0; });
-  for (const piece of barPieces(order, values, maxSide, left, width, 3)) {
+  const values = order.map(id => { for (const part of parts) if (part[0] === id) return part[1] + part[2]; return 0; });
+  for (const piece of barPieces(order, values, total, left, width, 3)) {
     const w = Math.max(1, piece.w - (piece.w >= 3 ? 1 : 0));
     ctx.globalAlpha = alpha * (piece.rank < 0 ? 0.45 : piece.rank % 2 === 0 ? 1 : 0.62); ctx.fillStyle = color;
     ctx.fillRect(piece.x, yTop, w, h);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { IMBALANCE_RATIO, candleBody, footprintLayout, heatmapShare, imbalance, readBar, validStats, volText, type Bar } from '../src/app/panes/footprint.ts';
+import { IMBALANCE_RATIO, barFraction, candleBody, footprintLayout, heatmapShare, imbalance, readBar, validStats, volText, type Bar } from '../src/app/panes/footprint.ts';
 
 test('a row gets a bar only when one side dominates, on the dominant side', () => {
   assert.equal(imbalance(5.9e6, 13.4e6), 'sell', 'left number (sell) larger');
@@ -57,4 +57,15 @@ test('the heatmap fades out completely once the footprint is dominant, and not b
   assert.equal(heatmapShare(1), 0);
   let last = 1;
   for (let a = 0; a <= 1; a += 0.05) { const s = heatmapShare(a); assert.ok(s <= last + 1e-12, 'never brightens as the footprint grows'); last = s; }
+});
+
+test('every row with volume has a bar, its length following the scale chosen', () => {
+  assert.equal(barFraction(0, 100, 'sqrt'), 0, 'no volume, no bar');
+  assert.equal(barFraction(100, 100, 'linear'), 1); assert.equal(barFraction(100, 100, 'sqrt'), 1); assert.equal(barFraction(100, 100, 'log'), 1);
+  assert.equal(barFraction(25, 100, 'linear'), 0.25);
+  assert.equal(barFraction(25, 100, 'sqrt'), 0.5);
+  // A row ten times smaller than the busiest is about a quarter shorter on the logarithm (four decades), far longer than in proportion.
+  assert.ok(Math.abs(barFraction(10, 100, 'log') - 0.75) < 0.01);
+  assert.ok(barFraction(1e-3, 100, 'log') < 0.05, 'a row far below the four decades is at the start');
+  for (const w of ['linear', 'sqrt', 'log'] as const) assert.ok(barFraction(20, 100, w) < barFraction(40, 100, w), `${w}: more volume, a longer bar`);
 });
