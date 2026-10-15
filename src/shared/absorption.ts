@@ -332,7 +332,7 @@ export class AbsorptionRecorder {
     const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity])), split = Math.max(from, this.#memoryFrom);
     const found: AbsorptionGroup[] = [];
     // One more than the limit, so an instrument with exactly `limit` groups is not reported as cut.
-    if (this.#store && from < this.#memoryFrom) found.push(...await this.#store.query(ids, mins, from, Math.min(to, this.#memoryFrom), limit + 1));
+    if (this.#store && from < this.#memoryFrom) for (const g of await this.#store.query(ids, mins, from, Math.min(to, this.#memoryFrom), limit + 1)) found.push(g);
     for (const g of this.#memoryGroups) if (g.t0 >= split && g.t0 < to && peakOf(g) >= (min.get(g.id) ?? Infinity)) found.push(g);
     // A group found again (trades sent again after a restart) is one group: the store keeps one row, and memory may hold both.
     const byId = new Map<string, AbsorptionGroup[]>(), keys = new Set<string>();
@@ -351,7 +351,9 @@ export class AbsorptionRecorder {
 
   async #minutesOf(ids: readonly string[], from: number, to: number): Promise<AbsorptionMinute[]> {
     const out: AbsorptionMinute[] = [];
-    if (this.#store && from < this.#memoryFrom) out.push(...await this.#store.minutes(ids, from, Math.min(to, this.#memoryFrom)));
+    // Pushed one by one: a week of stored minutes over many instruments spread into one call overflowed the stack (the first questions
+    // after a restart, when memory holds nothing yet; Karl, 2026-10-15).
+    if (this.#store && from < this.#memoryFrom) for (const m of await this.#store.minutes(ids, from, Math.min(to, this.#memoryFrom))) out.push(m);
     for (const id of ids) for (const [t, m] of this.#memoryMinutes.get(id) ?? []) if (t >= Math.max(from, this.#memoryFrom) && t < to) out.push(m);
     return out.sort((a, b) => a.t - b.t);
   }
