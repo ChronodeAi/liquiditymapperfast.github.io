@@ -316,6 +316,31 @@ test('the pane draws nothing, and says why, when no step of the readings held is
   assert.equal(lsRange([], 0, H), null);
 });
 
+test('a window that ended a little before the live edge is read on at once for one that reaches past it, not a period later', async () => {
+  // Five-minute readings, each published once its five minutes are over; it is 18:51.
+  const now = Date.UTC(2026, 9, 13, 18, 51), at = (h: number, m: number, s = 0) => Date.UTC(2026, 9, 13, h, m, s);
+  const get = fake({ 'https://api.bybit.com/': url => {
+    const last = Math.floor(Math.min(Number(url.searchParams.get('endTime')), now - 5 * M) / (5 * M)) * 5 * M;
+    return { retCode: 0, result: { list: Array.from({ length: 60 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(last - i * 5 * M) })) } };
+  } });
+  const cache = new LongShortCache(get, false, () => now);
+  await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, at(17, 50), at(18, 42, 30));
+  const next = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, at(18, 46), at(18, 49));
+  assert.ok(next.points.some(p => p.t === at(18, 45)), 'the 18:45 reading, out since 18:50, is given (it was "empty" until the next period)');
+  const asked = get.asked.length;
+  await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, at(18, 46), at(18, 56));
+  assert.equal(get.asked.length, asked, 'at the live edge, once a period still');
+});
+
+test('an answer that lost a field its readings are checked with fails as a changed API, rather than reading as none', async () => {
+  const bybit = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ buyRatio: '0.6', sellRat: '0.4', timestamp: String(NOW - 5 * M) }] } }) });
+  await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, bybit, NOW), /unknown shape/);
+  const binance = fake({ 'https://fapi.binance.com/': () => [{ longAccount: '0.6', shortAccount: '0.4', ratio: '1.5', timestamp: NOW - 5 * M }] });
+  await assert.rejects(fetchLongShort('binance', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, binance, NOW), /unknown shape/);
+  const bitget = fake({ 'https://api.bitget.com/': () => ({ code: '00000', data: [{ longAccountRatio: '0.6', longShortAccountRatio: '1.5', ts: String(NOW - 5 * M) }] }) });
+  await assert.rejects(fetchLongShort('bitget', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, bitget, NOW), /unknown shape/);
+});
+
 test('a failure pauses the series for a minute from when it failed, however long its pages took', async () => {
   let now = NOW, calls = 0;
   // Each page takes a minute and a quarter of the clock, and the second never answers.

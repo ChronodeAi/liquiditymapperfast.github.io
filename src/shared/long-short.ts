@@ -83,12 +83,14 @@ export function lsPopulationOf(venue: string, metric: LsMetric): LsPopulation | 
 const num = (value: unknown): number => typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
 const at = (value: unknown, ...path: (string | number)[]): unknown => path.reduce<unknown>((v, key) => (v !== null && typeof v === 'object' ? (v as Record<string | number, unknown>)[key] : undefined), value);
 /**
- * A venue's list of readings, checked for its shape: not a list, or rows none of which carries the time and share fields the venue sends (a
- * changed API), fail the answer; a reading that is there but does not add up is left out later, one at a time.
+ * A venue's list of readings, checked for its shape: not a list, or rows none of which carries every field the venue sends and the reading is
+ * checked with (`fields`: its time, its share and the short share or ratio it is checked against), fail the answer as a changed API: a
+ * renamed cross-check field would otherwise leave every reading out and read as no readings. A reading that is there but does not add up is
+ * left out later, one at a time.
  */
-function rows(value: unknown, what: string, time: string | number, share: string | number): unknown[] {
+function rows(value: unknown, what: string, ...fields: (string | number)[]): unknown[] {
   if (!Array.isArray(value)) throw new Error(`${what}: not a list`);
-  if (value.length && !value.some(r => at(r, time) !== undefined && at(r, share) !== undefined)) throw new Error(`${what}: readings of an unknown shape`);
+  if (value.length && !value.some(r => fields.every(field => at(r, field) !== undefined))) throw new Error(`${what}: readings of an unknown shape`);
   return value;
 }
 
@@ -123,7 +125,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     for (end = Math.min(to, now); page < PAGES && end > floor; page++) {
       // COIN-M names its top traders' position shares longPosition and shortPosition (USD-M calls them longAccount and shortAccount).
       const [longKey, shortKey] = coinM && metric === 'topPositions' ? ['longPosition', 'shortPosition'] : ['longAccount', 'shortAccount'];
-      const got = rows(await get(`${market}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp', longKey);
+      const got = rows(await get(`${market}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp', longKey, shortKey, 'longShortRatio');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, longKey)), num(at(r, shortKey)), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
@@ -134,7 +136,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       // A coin-margined perpetual (BTCUSD) is in Bybit's inverse category.
       const answer = await get(`https://api.bybit.com/v5/market/account-ratio?category=${/^[A-Z0-9]+USD$/.test(symbol) ? 'inverse' : 'linear'}&symbol=${s}&period=${name}&limit=500&endTime=${Math.floor(end)}`);
       if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
-      const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp', 'buyRatio');
+      const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp', 'buyRatio', 'sellRatio');
       let oldest = Infinity;
       for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'buyRatio')), num(at(r, 'sellRatio')))); if (t < oldest) oldest = t; }
       if (got.length < 500 || !Number.isFinite(oldest)) break;
@@ -153,7 +155,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   } else if (venue === 'bitget') {
     const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
     if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
-    for (const r of rows(at(answer, 'data'), 'bitget', 'ts', 'longAccountRatio')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
+    for (const r of rows(at(answer, 'data'), 'bitget', 'ts', 'longAccountRatio', 'shortAccountRatio', 'longShortAccountRatio')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
   }
   // Every page full: the venue may hold more before where the last one ended.
   return { points: [...out.values()].sort((a, b) => a.t - b.t), from: page >= PAGES && end > from ? end : from };
@@ -204,8 +206,9 @@ export class LongShortCache {
       // Never read (or started again); a stretch that ends before it starts is held all the same (see below).
       if (h.from === Infinity) { start = from; end = want; kind = 'whole'; }
       else if (from < h.from) { start = from; end = h.from; kind = 'older'; }
-      // Past what is held: at once where that ends before the live edge, at the live edge at most once a period (and once a minute).
-      else if (want > h.to && (h.to < now - 2 * periodMs || now - h.checked >= Math.max(periodMs, MINUTE))) { start = h.to - 2 * periodMs; end = want; kind = 'newer'; }
+      // Past what is held: at once where that ends before the live edge (now's, or the one at the last read: a window that ended a little
+      // before it was not held up to it, and its newest readings were not read), at the live edge at most once a period (and once a minute).
+      else if (want > h.to && (h.to < now - 2 * periodMs || h.to < h.checked - periodMs || now - h.checked >= Math.max(periodMs, MINUTE))) { start = h.to - 2 * periodMs; end = want; kind = 'newer'; }
       else { covered = true; break; }
       if (reads++ >= 4) break;
       // Too far from what is held for one question to join them without a hole: the series starts again at this window.
