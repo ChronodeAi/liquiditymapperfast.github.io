@@ -11,8 +11,8 @@ import type { CandleRow, OiBar } from './store.ts';
 import type { BootstrapState, FootprintResponse, LayersMessage, LiquidationsMessage, LiveHandlers, PrintsMessage, TickMessage } from './source.ts';
 import { t } from './i18n.ts';
 
-async function request(path: string): Promise<Response> {
-  const response = await fetch(path, { cache: 'no-store' });
+async function request(path: string, signal?: AbortSignal): Promise<Response> {
+  const response = await fetch(path, { cache: 'no-store', ...(signal ? { signal } : {}) });
   if (!response.ok) throw new Error(`${path} failed: ${response.status}`);
   return response;
 }
@@ -51,9 +51,9 @@ export async function getOi(inst: string, tf: string, from: number, to: number, 
   // A server from before USD readings ignores the flag and answers coins: none, rather than coins read as dollars.
   return usd && body.usd !== true ? [] : body.bars;
 }
-/** A venue's long/short readings for one market (the server reads them from the venue when asked, see shared/long-short.ts). */
-export async function getLongShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries> {
-  return parseLsSeries(await (await request(`/api/v2/long-short?inst=${encodeURIComponent(inst)}&metric=${metric}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`)).json());
+/** A venue's long/short readings for one market (the server reads them from the venue when asked, see shared/long-short.ts); `signal` cancels. */
+export async function getLongShort(inst: string, metric: LsMetric, tf: string, from: number, to: number, signal?: AbortSignal): Promise<LsSeries> {
+  return parseLsSeries(await (await request(`/api/v2/long-short?inst=${encodeURIComponent(inst)}&metric=${metric}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`, signal)).json());
 }
 /** Taker flow per second for the instruments, as the server records it. */
 export async function getFlow(ids: string[], from: number, to: number): Promise<FlowFrame> {

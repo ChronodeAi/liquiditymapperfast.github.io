@@ -200,7 +200,10 @@ export class BrowserSource implements DataSource, VenueControl {
   }
 
   async candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> { return this.#call({ method: 'candles', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to }); }
-  /** Read from the venues by the page itself (each answers with CORS headers but OKX, which a page cannot read), kept in memory. */
+  /**
+   * Read from the venues by the page itself (each answers with CORS headers but OKX, which a page cannot read), kept in memory. A cancelled
+   * question is not cancelled here: the request is the series', shared with every question for it, and the cache bounds its wait.
+   */
   #longShort = new LongShortCache(webGet, true);
   longShort(inst: string, metric: LsMetric, tf: string, from: number, to: number): Promise<LsSeries> { return this.#longShort.series(inst, metric, TIMEFRAMES[tf] ?? 3_600_000, from, to); }
   async oi(inst: string, tf: string, from: number, to: number, usd = false): Promise<OiBar[]> { return this.#call({ method: 'oi', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to, ...(usd ? { usd } : {}) }); }

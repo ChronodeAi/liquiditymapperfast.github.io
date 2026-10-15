@@ -212,6 +212,39 @@ test('a good answer after a failure clears it: readings read back after a failed
   assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 4 * H, NOW - 3 * H)).status, 'ok');
 });
 
+test('a page that never answers fails its request at the deadline, so the series is never stuck: the questions after it are answered', async () => {
+  // On the live server two series' one request never settled (2026-10-15): every later question for Bybit's and OKX's hourly BTC readings waited for good.
+  let now = NOW, hang = true;
+  const asked: string[] = [];
+  const get: Fetcher = async raw => {
+    asked.push(raw);
+    if (hang) return new Promise<never>(() => {});
+    return { retCode: 0, result: { list: [{ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(NOW - 2 * H) }] } };
+  };
+  const cache = new LongShortCache(get, false, () => now, 48, 10_000, 30);
+  const started = Date.now();
+  const [a, b] = await Promise.all([cache.series('bybit:BTCUSDT', 'accounts', H, NOW - 24 * H, NOW + H), cache.series('bybit:BTCUSDT', 'accounts', H, NOW - 24 * H, NOW + H)]);
+  assert.deepEqual([a.status, b.status, asked.length], ['failed', 'failed', 1], 'both questions answered, one request');
+  assert.ok(Date.now() - started < 2_000, 'at the deadline, not never');
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', H, NOW - 24 * H, NOW + H)).status, 'failed', 'within a minute of the failure: answered at once');
+  assert.equal(asked.length, 1);
+  hang = false; now += 61_000;
+  const after = await cache.series('bybit:BTCUSDT', 'accounts', H, NOW - 24 * H, NOW + H);
+  assert.deepEqual([after.status, after.points.length, asked.length], ['ok', 1, 2], 'a minute on, read again');
+});
+
+test('a window inside the period under way is held: asked again at once, the venue is not', async () => {
+  const get = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: [{ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(Math.floor(NOW / H) * H - H) }] } }) });
+  const cache = new LongShortCache(get, false, () => NOW);
+  // A chart zoomed in on the last minutes: the window asked begins inside the hour under way.
+  const from = Math.floor(NOW / H) * H;
+  await cache.series('bybit:BTCUSDT', 'accounts', H, from, NOW + H);
+  const first = get.asked.length;
+  assert.equal(first, 1, 'one request for the first question');
+  await Promise.all([1, 2, 3].map(() => cache.series('bybit:BTCUSDT', 'accounts', H, from, NOW + H)));
+  assert.equal(get.asked.length, first, 'none for the next ones (each asked the venue again, twice, before)');
+});
+
 test("the chart's period only where it fits the window, and an answer that lost its share fields fails", async () => {
   const get = fake({ 'https://www.okx.com/': url => ({ code: '0', data: Array.from({ length: 100 }, (_, i) => [String(Number(url.searchParams.get('end')) - (i + 1) * (url.searchParams.get('period') === '1H' ? H : 5 * M)), '1.2']) }) });
   const okx = await new LongShortCache(get, false, () => NOW).series('okx:BTC-USDT-SWAP', 'accounts', 30 * M, NOW - 15 * 24 * H, NOW);

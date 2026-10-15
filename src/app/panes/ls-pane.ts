@@ -12,7 +12,7 @@ import { venueLabel } from '../venues.ts';
 import { drawVenueMark } from '../venue-marks.ts';
 import { AXIS_W } from './heat-pane.ts';
 import { TimePane, setHtml } from './lower-panes.ts';
-import { lsWindow, type LsHeld } from './ls-window.ts';
+import { LS_ROUND_MS, lsLanded, lsWindow, type LsHeld } from './ls-window.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { LS_VENUES, type LsMetric, type LsPoint, type LsPopulation, type LsSeries } from '../../shared/long-short.ts';
 
@@ -86,6 +86,10 @@ export class LsPane extends TimePane {
   /** What the series held are of (markets, series, timeframe), the window last asked for and when it was answered; and a round under way. */
   #held: LsHeld | null = null;
   #loading = false; #generation = 0;
+  /** Which Binance series and timeframe `#series` are of (each market's lines are kept while those stay, whatever other markets come and go). */
+  #seriesOf = '';
+  /** Cancels the requests of the round under way that have not answered. */
+  #round: AbortController | null = null;
   #sync: (() => void)[] = [];
 
   constructor(host: HTMLElement, store: Store, view: View, private hub: Hub) {
@@ -104,28 +108,43 @@ export class LsPane extends TimePane {
     this.#sync.push(() => { if (control.value !== this.store.state.lsMetric) control.value = this.store.state.lsMetric; });
   }
 
-  /** Reflect the settings in the header and read again. */
-  settingsChanged(): void { for (const sync of this.#sync) sync(); this.#held = null; this.#loading = false; this.invalidate(); }
+  /** Reflect the settings in the header and read again (a round under way is for what was shown: dropped). */
+  settingsChanged(): void { for (const sync of this.#sync) sync(); this.#generation++; this.#round?.abort(); this.#round = null; this.#held = null; this.#loading = false; this.invalidate(); }
 
   /**
    * Ask for the readings when `lsWindow` says so (ls-window.ts). What is held stays drawn while the next answer comes (the readings of a wider
-   * or narrower window are the same readings); only other markets, another series or another timeframe clear it. One round at a time: a view
-   * that moved meanwhile is looked at again when it lands.
+   * or narrower window are the same readings); only another series or another timeframe clear it, and a market no longer shown is not drawn.
+   * One round at a time: a view that moved meanwhile is looked at again when it lands. Each venue is drawn as it answers (`lsLanded`), and the
+   * round ends when all have or after `LS_ROUND_MS`: a venue that never answers costs its own line, never the others'.
    */
   #load(state: AppState, ids: readonly string[], tfMs: number): void {
-    const now = Date.now(), ident = `${ids.join(',')}|${state.lsMetric}|${state.timeframe}`;
+    const now = Date.now(), of = `${state.lsMetric}|${state.timeframe}`, ident = `${ids.join(',')}|${of}`;
     const ask = lsWindow(this.#held, this.#loading, ident, this.view, tfMs, now);
     if (!ask) return;
     const { from, to } = ask, generation = ++this.#generation, source = this.hub.source;
-    if (this.#held?.ident !== ident) this.#series = [];
+    // Another round (other markets, series or timeframe) cancels what the last one still waits for.
+    this.#round?.abort();
+    const round = this.#round = new AbortController(), answers = new Map<string, LsSeries>();
+    if (this.#seriesOf !== of) { this.#series = []; this.#seriesOf = of; }
     this.#held = { ident, from, to, at: now }; this.#loading = true;
-    void Promise.all(ids.map(id => source.longShort(id, state.lsMetric, state.timeframe, from, to).catch((): LsSeries => ({ id, population: null, periodMs: 0, points: [], status: 'failed' }))))
-      .then(series => {
-        if (generation !== this.#generation) return;
-        this.#series = series; this.#loading = false;
+    let over = false;
+    const land = (final: boolean): void => {
+      if (over || generation !== this.#generation) return;
+      this.#series = lsLanded(ids, this.#series, answers, final);
+      if (final) {
+        over = true; window.clearTimeout(deadline); round.abort();
+        if (this.#round === round) this.#round = null;
+        this.#loading = false;
         if (this.#held) this.#held.at = Date.now();
-        this.invalidate();
-      });
+      }
+      this.invalidate();
+    };
+    const deadline = window.setTimeout(() => land(true), LS_ROUND_MS);
+    for (const id of ids) {
+      void source.longShort(id, state.lsMetric, state.timeframe, from, to, round.signal)
+        .catch((): LsSeries => ({ id, population: null, periodMs: 0, points: [], status: 'failed' }))
+        .then(series => { if (over || generation !== this.#generation) return; answers.set(id, series); land(answers.size === ids.length); });
+    }
   }
 
   protected draw(): void {

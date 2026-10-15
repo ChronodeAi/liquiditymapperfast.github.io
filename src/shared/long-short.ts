@@ -48,6 +48,18 @@ const PAGES = 12;
 const PAGE_ROWS: Readonly<Record<string, number>> = { binance: 500, bybit: 500, okx: 100, bitget: 30 };
 /** The most readings one window takes from a venue: well inside what one question's pages reach, and far below what a series keeps. */
 const windowReadings = (venue: string): number => Math.min(2_000, Math.floor(PAGES * (PAGE_ROWS[venue] ?? 30) * 0.8));
+/**
+ * The longest the cache waits for one page. `webGet` gives up at 15 s, but a request on the live server once never settled at all: the series'
+ * one request never ended, and every later question for it (Bybit's and OKX's hourly BTC readings) waited for good (2026-10-15).
+ */
+export const LS_PAGE_DEADLINE_MS = 20_000;
+
+/** `promise`, or an error once `ms` have passed without it settling. */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer in ${ms / 1000} s`)), ms); });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
 
 /** The venue's longest period no longer than the chart's candle (five minutes at the least): readings at least as fine as the candles where it can. */
 export function lsPeriodOf(venue: string, tfMs: number): number | null {
@@ -152,12 +164,13 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
  * `maxPoints` readings, and nothing on disk. A series holds [from, to): a window older than that is read back to it, one reaching past it
  * (the newest, at most once a period and never more than once a minute) from where it ends, so a pane hidden for an hour gets the hour; a
  * window further from what is held than one question reaches starts the series again there. Past `maxPoints` the readings furthest from the
- * window asked go. One request at a time per series: a question that waited for another's looks again once it is answered. Bitget publishes
- * only its newest 30 periods, so its series grows only while it is asked for.
+ * window asked go. One request at a time per series: a question that waited for another's looks again once it is answered, and a page that
+ * has not come in `pageDeadlineMs` fails that request, so no series waits for good. Bitget publishes only its newest 30 periods, so its series
+ * grows only while it is asked for.
  */
 export class LongShortCache {
   #series = new Map<string, { points: Map<number, LsPoint>; from: number; to: number; checked: number; failed: number; busy: Promise<void> | null }>();
-  constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000) {}
+  constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000, private pageDeadlineMs = LS_PAGE_DEADLINE_MS) {}
 
   async series(id: string, metric: LsMetric, tfMs: number, from: number, to: number): Promise<LsSeries> {
     const colon = id.indexOf(':'), venue = id.slice(0, colon), symbol = id.slice(colon + 1);
@@ -177,12 +190,14 @@ export class LongShortCache {
     this.#series.set(key, held);
     while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
     const reach = PAGES * PAGE_ROWS[venue]! * periodMs * 0.9;
+    const get: Fetcher = (url, init) => withDeadline(this.get(url, init), this.pageDeadlineMs);
     for (let round = 0; round < 4; round++) {
       if (held.busy) { await held.busy; continue; }
       const h = held, now = this.now(), want = Math.min(to, now + periodMs);
       if (now - h.failed < MINUTE) break;
       let start: number, end: number, kind: 'whole' | 'older' | 'newer';
-      if (!(h.from < h.to)) { start = from; end = want; kind = 'whole'; }
+      // Nothing held yet (an empty stretch is held: a window inside the period under way holds none, and asking again would not change that).
+      if (!(h.from <= h.to)) { start = from; end = want; kind = 'whole'; }
       else if (from < h.from) { start = from; end = h.from; kind = 'older'; }
       // Past what is held: at once where that ends before the live edge, at the live edge at most once a period (and once a minute).
       else if (want > h.to && (h.to < now - 2 * periodMs || now - h.checked >= Math.max(periodMs, MINUTE))) { start = h.to - 2 * periodMs; end = want; kind = 'newer'; }
@@ -190,13 +205,14 @@ export class LongShortCache {
       // Too far from what is held for one question to join them without a hole: the series starts again at this window.
       if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
-      h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, this.get, now).then(({ points, from: reached }) => {
+      h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, get, now).then(({ points, from: reached }) => {
         h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
         // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
-        // period before now: the reading of the period under way comes later.
+        // period before now: the reading of the period under way comes later. A window that starts inside that period holds an empty stretch,
+        // not one that ends before it starts (which read as nothing held, and every question asked the venue again).
         const until = Math.min(end, now - periodMs);
-        if (kind === 'whole') { h.from = reached; h.to = until; h.checked = now; }
+        if (kind === 'whole') { h.from = reached; h.to = Math.max(reached, until); h.checked = now; }
         else if (kind === 'older') h.from = Math.min(h.from, reached);
         else { h.to = Math.max(h.to, until); h.checked = now; }
         if (h.points.size > this.maxPoints) {
