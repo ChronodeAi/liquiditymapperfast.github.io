@@ -9,10 +9,10 @@ data/runtime/
 build/
 .tmp/
 
-# Reference screenshots stay on this machine (not in git, not in history)
+# Screenshots for visual checks stay on this machine
 example_images/
 
-# Private research (the offline validation study of the trapped-traders cue): scripts, results and notes stay out of git
+# Research (scripts, outputs, write-ups) stays out of git: AGENTS.md says where it goes
 Research_Files/
 Research_Results/
 Research_Findings.md
