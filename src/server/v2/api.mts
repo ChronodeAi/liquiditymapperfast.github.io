@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { createLocalServer } from '../http.mts';
 import { MAX_CROSSED_BP, crossedByBp, valueBook, withFar, type ValuedBook } from './levels.mts';
-import { FarPoller, farSource, freshFar, type FarBook } from '../../shared/far-book.ts';
+import { FAR_STALE_MS, FarPoller, farSource, freshFar, type FarBook } from '../../shared/far-book.ts';
 import { OiSampler, oiHistoryWriter } from './oi-sampler.mts';
 import { LS_METRICS, LongShortCache, type LsMetric } from '../../shared/long-short.ts';
 import { webGet } from '../../shared/history.ts';
@@ -55,6 +55,8 @@ const TAPE_SKIP_BYTES = 2_000_000;
 const HEARTBEAT_MS = 5_000;
 /** Books with at least this many raw levels are re-valued no more often than the interval below. */
 const DEEP_BOOK_LEVELS = 2_000, DEEP_BOOK_INTERVAL_MS = 1_000;
+/** A far book without a snapshot for this long while its book is live has its reader replaced (three times the age it stops being used at). */
+const FAR_RESTART_MS = 3 * FAR_STALE_MS;
 
 function sendJson(res: ServerResponse, value: unknown, status = 200) {
   const body = JSON.stringify(value);
@@ -157,10 +159,14 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   const oiSampler = oiSampling ? new OiSampler((message, venue) => { app.applyMessage(message, venue); }, oiHistoryWriter(app.history)) : null;
   const farBooks = new Map<string, FarPoller>();
   const syncFar = (ids: readonly string[]): void => {
-    const wanted = new Set<string>();
+    const wanted = new Set<string>(), now = Date.now();
     for (const id of ids) {
       const source = farSource(id); if (!source) continue;
       wanted.add(id);
+      // A reader that has held no snapshot for several reads while its book was live is replaced, whatever stopped it: the live server
+      // once went on for hours without OKX's and Aster's deep books, which a fresh server read at once (2026-10-15).
+      const held = farBooks.get(id);
+      if (held && held.staleMs(now) > FAR_RESTART_MS) { console.warn(`${id}: no far book for ${Math.round(held.staleMs(now) / 1000)} s, reading it again`); held.stop(); farBooks.delete(id); }
       if (!farBooks.has(id)) { const poller = new FarPoller(source, () => app.state.books?.[id] != null); farBooks.set(id, poller); poller.start(); }
     }
     for (const [id, poller] of farBooks) if (!wanted.has(id)) { poller.stop(); farBooks.delete(id); }

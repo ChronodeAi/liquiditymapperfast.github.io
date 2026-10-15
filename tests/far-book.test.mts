@@ -76,6 +76,24 @@ test('far book reader: reads only while wanted, keeps the last book through a fa
   } finally { poller.stop(); }
 });
 
+test('far book reader: a read that never settles is given up after its deadline, and the next one is still made', async () => {
+  const source: FarSource = { url: 'https://example.invalid/depth', parse: body => (body as { bids: [number, number][]; asks: [number, number][] } | null) };
+  let asked = 0, hang = true;
+  // The headers come, the body never does, and the abort is not heard (the live server lost its far books to such a read for good).
+  const poller = new FarPoller(source, () => true, () => {}, () => { asked++; return hang ? Promise.resolve({ ok: true, json: () => new Promise<unknown>(() => {}) }) : answer({ bids: [[1, 1]], asks: [[2, 1]] }); }, () => 7_000, 20);
+  poller.start();
+  try {
+    const started = Date.now();
+    await poller.poll();
+    assert.ok(Date.now() - started < 5_000, 'the read was given up');
+    assert.equal(poller.latest, null);
+    hang = false;
+    await poller.poll();
+    assert.deepEqual([asked, (poller.latest as { at: number } | null)?.at], [2, 7_000], 'a second read was made and kept');
+    assert.equal(poller.staleMs(7_500), 500);
+  } finally { poller.stop(); }
+});
+
 /** A socket that never opens: the connector's book is fed by hand. */
 class QuietSocket { binaryType = ''; onopen: unknown = null; onmessage: unknown = null; onerror: unknown = null; onclose: unknown = null; constructor(_url: string) {} send() {} close() {} }
 

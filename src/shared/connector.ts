@@ -257,7 +257,7 @@ export abstract class BookConnector {
       const mid = (bids.lo[0]! + asks.lo[0]!) / 2, step = gridStep && gridStep > 0 ? gridStep : gridStepFor(mid);
       bids = mergeByDistance(bids, mid, step, true); asks = mergeByDistance(asks, mid, step, false);
     }
-    const cap = (s: SideLevels): SideLevels => s.usd.length <= MAX_LEVELS ? s : { lo: s.lo.subarray(0, MAX_LEVELS), hi: s.lo.subarray(0, MAX_LEVELS), usd: s.usd.subarray(0, MAX_LEVELS) };
+    const cap = (s: SideLevels): SideLevels => s.usd.length <= MAX_LEVELS ? s : { lo: s.lo.subarray(0, MAX_LEVELS), hi: s.hi.subarray(0, MAX_LEVELS), usd: s.usd.subarray(0, MAX_LEVELS) };
     bids = cap(bids); asks = cap(asks);
     if (!bids.usd.length || !asks.usd.length || bids.lo[0]! >= asks.lo[0]!) { this.#cached = null; return null; }
     this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: false, bids, asks };
