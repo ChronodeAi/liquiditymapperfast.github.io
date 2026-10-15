@@ -90,7 +90,28 @@ test('far book reader: a read that never settles is given up after its deadline,
     hang = false;
     await poller.poll();
     assert.deepEqual([asked, (poller.latest as { at: number } | null)?.at], [2, 7_000], 'a second read was made and kept');
-    assert.equal(poller.staleMs(7_500), 500);
+    assert.equal(poller.idleMs(7_500), 500, 'it ticked when the read ended');
+  } finally { poller.stop(); }
+});
+
+test('far book reader: a failing exchange still ticks (never replaced for it), and a stop ends a read in flight at once', async () => {
+  const source: FarSource = { url: 'https://example.invalid/depth', parse: body => (body as { bids: [number, number][]; asks: [number, number][] } | null) };
+  let now = 1_000, aborted = false;
+  const poller = new FarPoller(source, () => true, () => {}, (_url, init) => {
+    if (now < 2_000) return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    init.signal.addEventListener('abort', () => { aborted = true; });
+    return new Promise(() => {});
+  }, () => now, 60_000);
+  poller.start();
+  try {
+    now = 1_500; await poller.poll();
+    assert.equal(poller.idleMs(1_600), 100, 'a failed read is still a tick');
+    now = 2_500;
+    const started = Date.now(), inFlight = poller.poll();
+    poller.stop();
+    await inFlight;
+    assert.ok(Date.now() - started < 1_000, 'the read ended with the stop, not at its 61 s give-up');
+    assert.ok(aborted, 'its request was aborted');
   } finally { poller.stop(); }
 });
 

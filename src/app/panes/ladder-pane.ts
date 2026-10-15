@@ -265,6 +265,8 @@ export class LadderPane {
     this.#pull.noteMark(mark);
     this.#pull.step(this.kernels, frame, mark, Date.now(), windowS, base, `${state.marketId}|${base}|${windowS}`);
   }
+  /** The price moved: pull/stack notes it between snapshots (a row the price crossed and left between two frames is still marked touched). */
+  markMoved(): void { const state = this.store.state; if (state.pullStack && !replaying()) this.#pull.noteMark(state.mark.price); }
   /** The saved grouping when it is one of this coin's steps (it may have been chosen on another coin), else Auto. */
   #grouping(saved: AppState['grouping']): AppState['grouping'] { return saved !== 'auto' && this.#groups.includes(saved) ? saved : 'auto'; }
 

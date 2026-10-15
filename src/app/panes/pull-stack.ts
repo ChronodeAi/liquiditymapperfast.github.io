@@ -159,11 +159,13 @@ export class PullHistory {
   }
 
   /** The column for rows [bin0, bin0 + n) of `step` over `ids`: worked out once per new snapshot and view, then kept. */
-  view(ids: readonly string[], step: number, bin0: number, n: number, windowS: number): PullView {
+  view(ids: readonly string[], step: number, bin0: number, n: number, windowS: number, clock = Date.now()): PullView {
     if (!windowS) return { kind: 'off' };
     const ring = this.#ring, now = ring[ring.length - 1];
     if (!now) return { kind: 'filling', waitS: windowS, share: 0 };
     const spacing = Math.max(MIN_SPACING_MS, windowS * 1000 / RING), target = now.t - windowS * 1000;
+    // No frames for longer than a gap (the stream is down): the newest snapshot is no longer now, and the next one starts the window again.
+    if (clock - now.t > Math.max(3 * spacing, GAP_MS)) return { kind: 'filling', waitS: windowS, share: 0 };
     let at = -1;
     for (let i = ring.length - 2; i >= 0; i--) if (ring[i]!.t <= target + spacing / 2) { at = i; break; }
     if (at < 0) return { kind: 'filling', waitS: Math.max(1, Math.ceil((ring[0]!.t + windowS * 1000 - now.t) / 1000)), share: Math.max(0, Math.min(1, (now.t - ring[0]!.t) / (windowS * 1000))) };

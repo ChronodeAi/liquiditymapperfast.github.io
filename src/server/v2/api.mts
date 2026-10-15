@@ -55,7 +55,7 @@ const TAPE_SKIP_BYTES = 2_000_000;
 const HEARTBEAT_MS = 5_000;
 /** Books with at least this many raw levels are re-valued no more often than the interval below. */
 const DEEP_BOOK_LEVELS = 2_000, DEEP_BOOK_INTERVAL_MS = 1_000;
-/** A far book without a snapshot for this long while its book is live has its reader replaced (three times the age it stops being used at). */
+/** A far book reader that has done nothing for this long while its book is live is replaced (a working one ticks every FAR_EVERY_MS). */
 const FAR_RESTART_MS = 3 * FAR_STALE_MS;
 
 function sendJson(res: ServerResponse, value: unknown, status = 200) {
@@ -163,10 +163,11 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     for (const id of ids) {
       const source = farSource(id); if (!source) continue;
       wanted.add(id);
-      // A reader that has held no snapshot for several reads while its book was live is replaced, whatever stopped it: the live server
-      // once went on for hours without OKX's and Aster's deep books, which a fresh server read at once (2026-10-15).
+      // A reader that has stopped reading (no read begun or ended for several rounds; a read that fails still counts) is replaced,
+      // whatever stopped it: the live server once went on for hours without OKX's and Aster's deep books, which a fresh server read at
+      // once (2026-10-15). An exchange that is down keeps its reader, so this never loops.
       const held = farBooks.get(id);
-      if (held && held.staleMs(now) > FAR_RESTART_MS) { console.warn(`${id}: no far book for ${Math.round(held.staleMs(now) / 1000)} s, reading it again`); held.stop(); farBooks.delete(id); }
+      if (held && held.idleMs(now) > FAR_RESTART_MS) { console.warn(`${id}: the far book reader did nothing for ${Math.round(held.idleMs(now) / 1000)} s, starting a new one`); held.stop(); farBooks.delete(id); }
       if (!farBooks.has(id)) { const poller = new FarPoller(source, () => app.state.books?.[id] != null); farBooks.set(id, poller); poller.start(); }
     }
     for (const [id, poller] of farBooks) if (!wanted.has(id)) { poller.stop(); farBooks.delete(id); }

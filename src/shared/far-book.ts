@@ -80,19 +80,24 @@ type Fetch = (url: string, init: { signal: AbortSignal }) => Promise<{ ok: boole
  */
 export class FarPoller {
   latest: FarBook | null = null;
-  /** When it was started: with `latest`, how long it has gone without a snapshot (`staleMs`). */
-  startedAt = 0;
+  /** When the reader last did anything: started, looked whether it was wanted, or finished a read (well or not). See `idleMs`. */
+  #lastTick = 0;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #busy = false; #stopped = true;
   /** Bumped by every start and stop, so a read begun before them neither keeps its answer nor schedules a second round of reads. */
   #run = 0;
+  /** Ends the read in flight at once (its request aborted, its timers cleared): `stop` calls it. */
+  #cancel: (() => void) | null = null;
   constructor(private readonly source: FarSource, private readonly wanted: () => boolean, private readonly onFresh: () => void = () => {},
     private readonly fetcher: Fetch = (url, init) => fetch(url, init), private readonly clock: () => number = Date.now, private readonly timeoutMs = FAR_TIMEOUT_MS) {}
 
-  start(): void { if (!this.#stopped) return; this.#stopped = false; this.#run++; this.startedAt = this.clock(); this.#schedule(FAR_FIRST_MS, this.#run); }
-  /** How long since the last snapshot (or the start, before the first): a server says so when it grows past a few reads. */
-  staleMs(now: number): number { return now - (this.latest?.at ?? this.startedAt); }
-  stop(): void { this.#stopped = true; this.#run++; this.latest = null; if (this.#timer) clearTimeout(this.#timer); this.#timer = null; }
+  start(): void { if (!this.#stopped) return; this.#stopped = false; this.#run++; this.#lastTick = this.clock(); this.#schedule(FAR_FIRST_MS, this.#run); }
+  /**
+   * How long since the reader last did anything. A working reader ticks at least every `FAR_EVERY_MS` (a read that fails ticks too, so
+   * an exchange that is down does not count); one whose reads stopped grows without end, and the server replaces it.
+   */
+  idleMs(now: number): number { return now - this.#lastTick; }
+  stop(): void { this.#stopped = true; this.#run++; this.latest = null; if (this.#timer) clearTimeout(this.#timer); this.#timer = null; this.#cancel?.(); this.#cancel = null; }
 
   #schedule(ms: number, run: number): void {
     if (this.#stopped || run !== this.#run) return;
@@ -103,22 +108,26 @@ export class FarPoller {
   async poll(): Promise<void> {
     const run = this.#run;
     if (this.#stopped) return;
-    if (this.#busy || !this.wanted()) { this.#schedule(this.#busy ? FAR_EVERY_MS : FAR_FIRST_MS, run); return; }
+    if (this.#busy) { this.#schedule(FAR_EVERY_MS, run); return; }
+    this.#lastTick = this.clock();
+    if (!this.wanted()) { this.#schedule(FAR_FIRST_MS, run); return; }
     this.#busy = true;
     // One deadline for the whole read, body included, and the read given up a second after it whatever it does: a read that never
-    // settled kept `#busy` set for good, so no further read was ever made and the far book was gone until a restart (the live
-    // server lost OKX's and Aster's deep books that way, 2026-10-15; a fresh server read them).
+    // settled would keep `#busy` set for good, so no further read was made (the live server went hours without OKX's and Aster's deep
+    // books, 2026-10-15, while a fresh one read them; the cause was not proven). The request is aborted however the read ends, so an
+    // error answer whose body is never read does not hold its connection.
     const abort = new AbortController();
-    let deadline: ReturnType<typeof setTimeout> | undefined, giveUp: ReturnType<typeof setTimeout> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined, giveUp: ReturnType<typeof setTimeout> | undefined, end: (v: null) => void = () => {};
+    this.#cancel = () => { abort.abort(); end(null); };
     try {
       deadline = setTimeout(() => abort.abort(), this.timeoutMs); (deadline as { unref?: () => void }).unref?.();
       const read = (async () => { const response = await this.fetcher(this.source.url, { signal: abort.signal }); return response.ok ? this.source.parse(await response.json()) : null; })();
       read.catch(() => { /* a read given up may still fail later: never an unhandled rejection */ });
-      // Not unref'd: while a read is out this timer is what ends it, so it holds the process for that second.
-      const parsed = await Promise.race([read, new Promise<null>(resolve => { giveUp = setTimeout(() => resolve(null), this.timeoutMs + 1_000); })]);
+      // Not unref'd: while a read is out this timer is what ends it, so it holds the process for that second (`stop` ends it sooner).
+      const parsed = await Promise.race([read, new Promise<null>(resolve => { end = resolve; giveUp = setTimeout(() => resolve(null), this.timeoutMs + 1_000); })]);
       if (parsed && run === this.#run) { this.latest = { ...parsed, at: this.clock() }; this.onFresh(); }
     } catch { /* the last snapshot stands until it ages out */ }
-    finally { clearTimeout(deadline); clearTimeout(giveUp); this.#busy = false; }
+    finally { abort.abort(); clearTimeout(deadline); clearTimeout(giveUp); this.#busy = false; if (run === this.#run) { this.#cancel = null; this.#lastTick = this.clock(); } }
     this.#schedule(FAR_EVERY_MS, run);
   }
 }

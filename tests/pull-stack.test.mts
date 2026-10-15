@@ -101,31 +101,35 @@ test("a grouped venue's split top groups are not read as its pulls or stacks; th
 test('the window fills before it shows, snapshots keep their spacing, a pause of GAP_MS starts again, and a view is worked out once per snapshot', async () => {
   const kernels = await loadWasm();
   const h = new PullHistory(), f = frame(wide('a:BTC', [[81_950, 81_950, 100]]));
-  const take = (t: number) => h.step(kernels, f, MARK, t, 15, BASE, 'BTC|0.5|15');
+  let at = 0;
+  const take = (t: number) => { at = t; h.step(kernels, f, MARK, t, 15, BASE, 'BTC|0.5|15'); };
   take(0);
-  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15, share: 0 });
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15, at), { kind: 'filling', waitS: 15, share: 0 });
   take(400); // too soon after the last: not taken
   for (let t = 1_000; t <= 10_000; t += 1_000) take(t);
-  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 5, share: 10 / 15 }, 'two thirds of the window held: the column draws it');
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15, at), { kind: 'filling', waitS: 5, share: 10 / 15 }, 'two thirds of the window held: the column draws it');
   for (let t = 11_000; t <= 16_000; t += 1_000) take(t);
-  const first = h.view(['a:BTC'], 10, 8_190, 20, 15);
+  const first = h.view(['a:BTC'], 10, 8_190, 20, 15, at);
   assert.equal(first.kind, 'rows');
-  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15), first, 'the same snapshots and rows: the same answer');
-  assert.equal(h.view(['a:BTC'], 0.2, Math.floor(81_900 / 0.2), 20, 15).kind, 'fine');
+  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15, at), first, 'the same snapshots and rows: the same answer');
+  assert.equal(h.view(['a:BTC'], 0.2, Math.floor(81_900 / 0.2), 20, 15, at).kind, 'fine');
   take(19_500); // 3.5 s after the last: a server that sent no book for a moment, not a hidden book
-  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15).kind, 'rows', 'a short pause keeps the window');
+  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15, at).kind, 'rows', 'a short pause keeps the window');
   take(40_000); // 20.5 s after the last, over GAP_MS: the book was not drawn meanwhile
-  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), { kind: 'filling', waitS: 15, share: 0 });
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15, at), { kind: 'filling', waitS: 15, share: 0 });
   assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 0).kind, 'off');
+  for (let t = 41_000; t <= 56_000; t += 1_000) take(t);
+  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15, at).kind, 'rows');
+  assert.deepEqual(h.view(['a:BTC'], 10, 8_190, 20, 15, at + 15_001), { kind: 'filling', waitS: 15, share: 0 }, 'no frames for over GAP_MS: no rows from the old window');
 });
 
 test('each book of Single mode keeps its own view until the next snapshot', async () => {
   const kernels = await loadWasm();
   const h = new PullHistory(), f = frame(wide('a:BTC', [[81_950, 81_950, 100]]), wide('b:BTC'));
   for (let t = 0; t <= 16_000; t += 1_000) h.step(kernels, f, MARK, t, 15, BASE, 'BTC|0.5|15');
-  const a = h.view(['a:BTC'], 10, 8_190, 20, 15), b = h.view(['b:BTC'], 10, 8_190, 20, 15);
-  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15), a);
-  assert.equal(h.view(['b:BTC'], 10, 8_190, 20, 15), b);
+  const a = h.view(['a:BTC'], 10, 8_190, 20, 15, 16_000), b = h.view(['b:BTC'], 10, 8_190, 20, 15, 16_000);
+  assert.equal(h.view(['a:BTC'], 10, 8_190, 20, 15, 16_000), a);
+  assert.equal(h.view(['b:BTC'], 10, 8_190, 20, 15, 16_000), b);
   h.step(kernels, f, MARK, 17_000, 15, BASE, 'BTC|0.5|15');
-  assert.notEqual(h.view(['a:BTC'], 10, 8_190, 20, 15), a, 'a new snapshot: worked out again');
+  assert.notEqual(h.view(['a:BTC'], 10, 8_190, 20, 15, 17_000), a, 'a new snapshot: worked out again');
 });
