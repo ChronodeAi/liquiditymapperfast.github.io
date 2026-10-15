@@ -1,18 +1,49 @@
 import type { AppState } from '../store.ts';
+import type { LevelsFrame } from '../wire.ts';
 import { inScope } from '../scope.ts';
 import { familyKey, venueOfInstrument } from './families.ts';
 import { venueLabel } from '../venues.ts';
 
 /**
- * The instruments the flow views count: every market the page knows and everything that has flow, on a venue that has a book on the map,
- * with its chip left on, and inside the Spot / Perp / Both filter.
+ * How long a venue whose book left the map still counts in the flow views. A feed that reconnects drops its book for a minute or more
+ * (Binance spot: 105 s at 21:07 UTC on 2026-10-15; every venue at once for 6 min that evening), and taking its flow out each time made its
+ * line vanish from the flow column and moved the ALL VENUES lines, the Delta pane and the footprint's markets with it (Karl, 2026-10-15).
  */
-export function flowIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels'>, withFlow: readonly string[]): string[] {
+export const BOOK_HOLD_MS = 10 * 60_000;
+
+/** `gone` after `next` replaces `prev`: a venue that left the map is kept with the time of the last frame it was on, until `BOOK_HOLD_MS` later; one back on the map leaves it. The same object when nothing changed. */
+export function nextBookGone(prev: LevelsFrame | null, next: LevelsFrame, gone: Readonly<Record<string, number>>): Readonly<Record<string, number>> {
+  const now = new Set(next.books.map(b => b.venue));
+  let out: Record<string, number> | null = null;
+  const edit = (): Record<string, number> => (out ??= { ...gone });
+  for (const venue of Object.keys(gone)) if (now.has(venue) || next.asOf - gone[venue]! > BOOK_HOLD_MS) delete edit()[venue];
+  if (prev) for (const b of prev.books) if (!now.has(b.venue)) edit()[b.venue] = prev.asOf;
+  return out ?? gone;
+}
+
+/**
+ * The venues the flow views count as on the map: those with a book in the last frame and those whose book left it less than `BOOK_HOLD_MS`
+ * ago. Null before the first frame (nothing is known, so nothing is left out).
+ */
+export function mapVenues(state: MapState): Set<string> | null {
+  if (!state.levels) return null;
+  const out = new Set(state.levels.books.map(b => b.venue)), asOf = state.levels.asOf;
+  for (const [venue, at] of Object.entries(state.bookGone ?? {})) if (asOf - at <= BOOK_HOLD_MS) out.add(venue);
+  return out;
+}
+/** What `mapVenues` reads; `bookGone` absent is none held. */
+export type MapState = Pick<AppState, 'levels'> & Partial<Pick<AppState, 'bookGone'>>;
+
+/**
+ * The instruments the flow views count: every market the page knows and everything that has flow, on a venue that has a book on the map
+ * (or had one moments ago: `mapVenues`), with its chip left on, and inside the Spot / Perp / Both filter.
+ */
+export function flowIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope'> & MapState, withFlow: readonly string[]): string[] {
   const known = new Set<string>(withFlow);
   for (const m of state.markets) { const id = m.instrumentId ?? m.id; if (id) known.add(id); }
   // A venue with no book on the map (not chosen, or left off as faulty) is not counted, however much of its flow was recorded earlier.
   // No frame yet means nothing is known (every market stands); a frame that lists no books means nothing is on the map (the last book expired).
-  const drawn = state.levels ? new Set(state.levels.books.map(b => b.venue)) : null;
+  const drawn = mapVenues(state);
   return [...known].filter(id => !state.disabledVenues.includes(venueOfInstrument(id)) && (drawn === null || drawn.has(venueOfInstrument(id))) && inScope(state.scope, state.markets, id));
 }
 

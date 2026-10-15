@@ -62,6 +62,8 @@ export interface AppState {
   seriesInstrument: string;
   mark: { price: number; asOf: number };
   levels: LevelsFrame | null;
+  /** Venues whose book has left the map, with the frame time (`asOf`) they were last on it, for `BOOK_HOLD_MS` (`cvd/ids.ts`). */
+  bookGone: Readonly<Record<string, number>>;
   timeframe: string;
   layer: Layer;
   layers: Record<string, LayerLevel[]>;
@@ -216,7 +218,7 @@ export function readSettings(saved: Partial<Record<keyof AppState, unknown>>): S
 export function initialState(): AppState {
   const saved = readSaved();
   const state: AppState = {
-    connected: false, status: t('connecting'), markets: [], marketId: '', seriesInstrument: '', mark: { price: 0, asOf: 0 }, levels: null,
+    connected: false, status: t('connecting'), markets: [], marketId: '', seriesInstrument: '', mark: { price: 0, asOf: 0 }, levels: null, bookGone: {},
     layers: {}, candles: [], oi: [], oiInstrument: '', oiParts: [], oiPrice: 0, sounds: { ...DEFAULT_SOUNDS }, soundState: 'locked', lastSound: 0, vwapAnchoring: false, heatmapSource: 'aggregated', disabledVenues: [],
     ladderVenue: '', ladderVenues: [], replay: null, theme: 'light', followLive: true, keepAwake: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
     ...saved, ...readSettings(saved),

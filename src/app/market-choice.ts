@@ -1,6 +1,6 @@
 import type { AppState } from './store.ts';
 import type { FlowBook } from './flow-book.ts';
-import { flowIds } from './cvd/ids.ts';
+import { flowIds, type MapState } from './cvd/ids.ts';
 import { aggregateIds } from './cvd/model.ts';
 import { buildFamilies, familyKey, venueOfInstrument } from './cvd/families.ts';
 import { kindOf } from './scope.ts';
@@ -75,7 +75,7 @@ export function resolvePicks(state: Pick<AppState, 'markets'>, flow: FlowBook | 
 }
 
 /** The perpetuals the ALL VENUES lines count on an exchange whose open interest is read: the OI pane's markets with venues added together. */
-export function oiVenueIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels'>, flow: FlowBook): string[] {
+export function oiVenueIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope'> & MapState, flow: FlowBook): string[] {
   return aggregateIds(flow, flowIds(state, flow.ids), id => kindOf(state.markets, id)).filter(id => kindOf(state.markets, id) === 'perp' && OI_SAMPLE_VENUES.includes(familyKey(venueOfInstrument(id)))).sort();
 }
 
@@ -83,6 +83,6 @@ export function oiVenueIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 
  * The open-interest markets that are added together: the ALL VENUES perpetuals ('all'), the picked ones ('custom'); null for 'chart', which
  * is the chart market alone (or the reference market standing in for it, as the pane says).
  */
-export function oiMarketIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels' | 'oiMarkets' | 'customMarkets'>, flow: FlowBook): string[] | null {
+export function oiMarketIds(state: Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'oiMarkets' | 'customMarkets'> & MapState, flow: FlowBook): string[] | null {
   return state.oiMarkets === 'all' ? oiVenueIds(state, flow) : state.oiMarkets === 'custom' ? resolvePicks(state, flow, state.customMarkets.oi, true) : null;
 }

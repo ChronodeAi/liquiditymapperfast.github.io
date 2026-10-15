@@ -18,7 +18,7 @@ import { cumulative, groupLevels, type Grouped } from './levels-data.ts';
 import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.ts';
 import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } from '../prints.ts';
 import { tradedHeader, tradedLines, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
-import { flowIds, flowLoadIds } from '../cvd/ids.ts';
+import { flowIds, flowLoadIds, mapVenues } from '../cvd/ids.ts';
 import { aggregateIds } from '../cvd/model.ts';
 import { resolvePicks } from '../market-choice.ts';
 import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from '../absorption.ts';
@@ -503,7 +503,7 @@ export class HeatPane {
     }
     // What the set depends on: the markets, the chips and the filter, which books are on the map, and the flow held (a load can make a market
     // with older minutes count, `FlowBook.loads`), compared by value where they are not replaced when they change.
-    const key = [state.markets, state.disabledVenues, state.scope, state.levels ? state.levels.books.map(b => b.venue).join(',') : null, this.hub.flow.ids.length, this.hub.flow.loads];
+    const onMap = mapVenues(state), key = [state.markets, state.disabledVenues, state.scope, onMap ? [...onMap].sort().join(',') : null, this.hub.flow.ids.length, this.hub.flow.loads];
     if (!this.#footprintIds || this.#footprintIds.key.length !== key.length || this.#footprintIds.key.some((k, i) => k !== key[i])) this.#footprintIds = { key, ids: aggregateIds(this.hub.flow, flowIds(state, this.hub.flow.ids), id => kindOf(state.markets, id)).sort().slice(0, MAX_PROFILE_INSTRUMENTS) };
     // None (every venue off, or none inside the filter) counts none: the chart market is not put in their place.
     return this.#footprintIds.ids;

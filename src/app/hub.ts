@@ -12,6 +12,7 @@ import type { LtParams, LtSeries } from './lt.ts';
 import { pickOi, weakOi, type OiCandidate } from './oi-source.ts';
 import { atOnePrice, inverseOi, oiSumOf, type OiPart } from './oi-change.ts';
 import { oiMarketIds } from './market-choice.ts';
+import { nextBookGone } from './cvd/ids.ts';
 import { t } from './i18n.ts';
 import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
 import { AbsorptionBook } from './absorption.ts';
@@ -265,7 +266,8 @@ export class Hub {
       },
       onClose: (failures, host) => { this.#connection++; this.#dropped = true; this.store.set({ connected: false, status: connectionStatus(failures, host) }); },
       onLevels: frame => {
-        this.store.set({ levels: frame });
+        const s = this.store.state, bookGone = nextBookGone(s.levels, frame, s.bookGone);
+        this.store.set(bookGone === s.bookGone ? { levels: frame } : { levels: frame, bookGone });
         this.#post({ type: 'live', books: frame.books, now: Date.now() });
       },
       onTick: tick => this.#tick(tick),

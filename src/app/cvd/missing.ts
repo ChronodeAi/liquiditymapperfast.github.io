@@ -1,6 +1,7 @@
 import type { AppState, Scope } from '../store.ts';
 import { inScope } from '../scope.ts';
 import { familyKey, venueOfInstrument } from './families.ts';
+import { mapVenues, type MapState } from './ids.ts';
 import { t } from '../i18n.ts';
 
 /**
@@ -11,7 +12,7 @@ import { t } from '../i18n.ts';
 export type MissingWhy = 'filter' | 'off' | 'nobook' | 'quiet';
 export interface Missing { key: string; why: MissingWhy; /** The venues of this exchange, for switching them back on. */ venues: string[] }
 
-type State = Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels'>;
+type State = Pick<AppState, 'markets' | 'disabledVenues' | 'scope'> & MapState;
 
 /**
  * The exchanges in `withFlow` (instrument ids that have recorded flow) that are not among the `shown` family keys, each with its reason.
@@ -19,7 +20,7 @@ type State = Pick<AppState, 'markets' | 'disabledVenues' | 'scope' | 'levels'>;
  * to undo: the filter, then the chip, then the missing book.
  */
 export function explainMissing(state: State, withFlow: readonly string[], shown: ReadonlySet<string>, volume: (id: string) => number): Missing[] {
-  const drawn = state.levels ? new Set(state.levels.books.map(book => book.venue)) : null;
+  const drawn = mapVenues(state);
   const families = new Map<string, string[]>();
   for (const id of withFlow) { const key = familyKey(venueOfInstrument(id)), list = families.get(key); if (list) list.push(id); else families.set(key, [id]); }
   const out: Missing[] = [];
