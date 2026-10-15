@@ -288,6 +288,20 @@ test('a window inside or after the period under way claims nothing before it: a 
   assert.equal(get.asked.length, asked);
 });
 
+test('five questions at once for different windows each get their own window read', async () => {
+  // Five-minute readings for years, full pages of 500 (about 42 hours) back from endTime, each answered a little later: every window two
+  // days further back needs a request of its own.
+  const get = fake({ 'https://api.bybit.com/': async url => {
+    await new Promise(r => setTimeout(r, 2));
+    const last = Math.floor(Math.min(Number(url.searchParams.get('endTime')), NOW - 5 * M) / (5 * M)) * 5 * M;
+    return { retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(last - i * 5 * M) })) } };
+  } });
+  const cache = new LongShortCache(get, false, () => NOW), D = 24 * H;
+  const windows = [0, 2, 4, 6, 8].map(k => ({ from: NOW - (k + 1) * D, to: NOW - k * D }));
+  const answers = await Promise.all(windows.map(w => cache.series('bybit:BTCUSDT', 'accounts', 5 * M, w.from, w.to)));
+  answers.forEach((a, i) => assert.ok(a.status === 'ok' && a.points.some(p => p.t >= windows[i]!.from && p.t < windows[i]!.to), `window ${i + 1} read (it was answered empty without being read)`));
+});
+
 test('the pane draws nothing, and says why, when no step of the readings held is in view', () => {
   const s = { points: [{ t: 0, long: 0.6 }, { t: H, long: 0.62 }], periodMs: H };
   assert.deepEqual(lsRange([s], 0, 30 * M), { lo: 0.6, hi: 0.6 });

@@ -191,8 +191,10 @@ export class LongShortCache {
     while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
     const reach = PAGES * PAGE_ROWS[venue]! * periodMs * 0.9;
     const get: Fetcher = (url, init) => withDeadline(this.get(url, init), this.pageDeadlineMs);
-    for (let round = 0; round < 4; round++) {
-      if (held.busy) { await held.busy; continue; }
+    // At most four requests of its own; waiting for another question's request is not one of them (up to a bound), or five questions at once
+    // for different windows left the last answered from what the others read, empty, without its window ever read.
+    for (let reads = 0, waits = 0; reads < 4 && waits < 64;) {
+      if (held.busy) { waits++; await held.busy; continue; }
       const h = held, now = this.now(), want = Math.min(to, now + periodMs);
       if (now - h.failed < MINUTE) break;
       let start: number, end: number, kind: 'whole' | 'older' | 'newer';
@@ -205,6 +207,7 @@ export class LongShortCache {
       // Too far from what is held for one question to join them without a hole: the series starts again at this window.
       if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
+      reads++;
       h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, get, now).then(({ points, from: reached }) => {
         h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
