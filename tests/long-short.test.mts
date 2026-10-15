@@ -300,6 +300,12 @@ test('five questions at once for different windows each get their own window rea
   const windows = [0, 2, 4, 6, 8].map(k => ({ from: NOW - (k + 1) * D, to: NOW - k * D }));
   const answers = await Promise.all(windows.map(w => cache.series('bybit:BTCUSDT', 'accounts', 5 * M, w.from, w.to)));
   answers.forEach((a, i) => assert.ok(a.status === 'ok' && a.points.some(p => p.t >= windows[i]!.from && p.t < windows[i]!.to), `window ${i + 1} read (it was answered empty without being read)`));
+  // Past what a question waits for (64 requests), a window not read says it could not be read: never "no readings".
+  const many = new LongShortCache(get, false, () => NOW);
+  const far = Array.from({ length: 70 }, (_, k) => ({ from: NOW - (2 * k + 1) * D, to: NOW - 2 * k * D }));
+  const got = await Promise.all(far.map(w => many.series('bybit:BTCUSDT', 'accounts', 5 * M, w.from, w.to)));
+  assert.ok(got.every((a, i) => a.status === 'failed' || (a.status === 'ok' && a.points.some(p => p.t >= far[i]!.from && p.t < far[i]!.to))), 'read, or said to be unread');
+  assert.ok(got.some(a => a.status === 'failed') && !got.some(a => a.status === 'empty'));
 });
 
 test('the pane draws nothing, and says why, when no step of the readings held is in view', () => {

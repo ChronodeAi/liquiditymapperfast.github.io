@@ -191,10 +191,13 @@ export class LongShortCache {
     while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
     const reach = PAGES * PAGE_ROWS[venue]! * periodMs * 0.9;
     const get: Fetcher = (url, init) => withDeadline(this.get(url, init), this.pageDeadlineMs);
-    // At most four requests of its own; waiting for another question's request is not one of them (up to a bound), or five questions at once
-    // for different windows left the last answered from what the others read, empty, without its window ever read.
-    for (let reads = 0, waits = 0; reads < 4 && waits < 64;) {
-      if (held.busy) { waits++; await held.busy; continue; }
+    // At most four requests of its own; waiting for a request (another question's or its own) is not one of them, or five questions at once for
+    // different windows left the last answered from what the others read, empty, without its window ever read. Waiting is bounded too (each
+    // request is at most `PAGES` pages, each page at most `pageDeadlineMs`); a question that runs out of either before its window is read says
+    // it could not be read (`covered`), never that there are no readings.
+    let covered = false;
+    for (let reads = 0, waits = 0; ;) {
+      if (held.busy) { if (waits++ >= 64) break; await held.busy; continue; }
       const h = held, now = this.now(), want = Math.min(to, now + periodMs);
       if (now - h.failed < MINUTE) break;
       let start: number, end: number, kind: 'whole' | 'older' | 'newer';
@@ -203,11 +206,11 @@ export class LongShortCache {
       else if (from < h.from) { start = from; end = h.from; kind = 'older'; }
       // Past what is held: at once where that ends before the live edge, at the live edge at most once a period (and once a minute).
       else if (want > h.to && (h.to < now - 2 * periodMs || now - h.checked >= Math.max(periodMs, MINUTE))) { start = h.to - 2 * periodMs; end = want; kind = 'newer'; }
-      else break;
+      else { covered = true; break; }
+      if (reads++ >= 4) break;
       // Too far from what is held for one question to join them without a hole: the series starts again at this window.
       if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
-      reads++;
       h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, get, now).then(({ points, from: reached }) => {
         h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
@@ -232,10 +235,9 @@ export class LongShortCache {
         h.failed = this.now();
       }).finally(() => { h.busy = null; });
     }
-    if (held.busy) await held.busy;
     const points = [...held.points.values()].filter(p => p.t >= from - periodMs && p.t < to).sort((a, b) => a.t - b.t);
-    // The last request failing after the last success says so, with what is held from before.
-    const failing = held.failed > 0 && held.failed >= held.checked;
+    // The last request failing after the last success says so, with what is held from before; so does a window not read in its turns.
+    const failing = !covered || (held.failed > 0 && held.failed >= held.checked);
     if (points.length) return answer(points, failing ? 'stale' : 'ok');
     return answer([], failing ? 'failed' : 'empty');
   }
