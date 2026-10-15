@@ -12,10 +12,11 @@ import { venueLabel } from '../venues.ts';
 import { drawVenueMark } from '../venue-marks.ts';
 import { AXIS_W } from './heat-pane.ts';
 import { TimePane, setHtml } from './lower-panes.ts';
+import { lsWindow, type LsHeld } from './ls-window.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { LS_VENUES, type LsMetric, type LsPoint, type LsPopulation, type LsSeries } from '../../shared/long-short.ts';
 
-const MINUTE = 60_000, HOUR = 3_600_000;
+const HOUR = 3_600_000;
 /** One colour per venue, apart from each other on either theme (the brands' own are black on two of them); the venue's mark ends its line. */
 const LINE_COLORS: Readonly<Record<string, string>> = { binance: '#d4a106', bybit: '#e8590c', okx: '#7a5af8', bitget: '#0ca5b8' };
 /** A reading stands until the next one, or for this many of its periods after it when none follows (a gap past that breaks the line). */
@@ -82,7 +83,9 @@ export class LsPane extends TimePane {
   #card = new HoverCard();
   #lines: InfoLine[] | null = null;
   #series: LsSeries[] = [];
-  #key = ''; #asked = 0; #generation = 0;
+  /** What the series held are of (markets, series, timeframe), the window last asked for and when it was answered; and a round under way. */
+  #held: LsHeld | null = null;
+  #loading = false; #generation = 0;
   #sync: (() => void)[] = [];
 
   constructor(host: HTMLElement, store: Store, view: View, private hub: Hub) {
@@ -102,19 +105,27 @@ export class LsPane extends TimePane {
   }
 
   /** Reflect the settings in the header and read again. */
-  settingsChanged(): void { for (const sync of this.#sync) sync(); this.#key = ''; this.invalidate(); }
+  settingsChanged(): void { for (const sync of this.#sync) sync(); this.#held = null; this.#loading = false; this.invalidate(); }
 
-  /** Ask for the readings of the view (and half a view before it), again when what is shown changed or a minute after the last time. */
+  /**
+   * Ask for the readings when `lsWindow` says so (ls-window.ts). What is held stays drawn while the next answer comes (the readings of a wider
+   * or narrower window are the same readings); only other markets, another series or another timeframe clear it. One round at a time: a view
+   * that moved meanwhile is looked at again when it lands.
+   */
   #load(state: AppState, ids: readonly string[], tfMs: number): void {
-    const v = this.view, span = v.t1 - v.t0, from = Math.floor((v.t0 - span / 2) / HOUR) * HOUR, to = Math.ceil((v.t1 + tfMs) / MINUTE) * MINUTE;
-    // The view's own window (an old view is not read up to now: a question reaches only so far), by the hour.
-    const key = `${ids.join(',')}|${state.lsMetric}|${state.timeframe}|${from}|${Math.ceil(to / HOUR)}`;
-    if (key === this.#key && Date.now() - this.#asked < MINUTE) return;
-    const stale = key !== this.#key, generation = ++this.#generation, source = this.hub.source;
-    this.#key = key; this.#asked = Date.now();
-    if (stale) this.#series = [];
+    const now = Date.now(), ident = `${ids.join(',')}|${state.lsMetric}|${state.timeframe}`;
+    const ask = lsWindow(this.#held, this.#loading, ident, this.view, tfMs, now);
+    if (!ask) return;
+    const { from, to } = ask, generation = ++this.#generation, source = this.hub.source;
+    if (this.#held?.ident !== ident) this.#series = [];
+    this.#held = { ident, from, to, at: now }; this.#loading = true;
     void Promise.all(ids.map(id => source.longShort(id, state.lsMetric, state.timeframe, from, to).catch((): LsSeries => ({ id, population: null, periodMs: 0, points: [], status: 'failed' }))))
-      .then(series => { if (generation === this.#generation) { this.#series = series; this.invalidate(); } });
+      .then(series => {
+        if (generation !== this.#generation) return;
+        this.#series = series; this.#loading = false;
+        if (this.#held) this.#held.at = Date.now();
+        this.invalidate();
+      });
   }
 
   protected draw(): void {
