@@ -352,6 +352,19 @@ test('a reading with no valid time in a full page does not end the paging: the o
   await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - 3 * 24 * H, NOW, timeless, NOW), /no reading time/, 'a full page that cannot be paged on fails');
 });
 
+test('a read on past what is held whose pages run out before it leaves the hole unclaimed: a window in it is read', async () => {
+  // Five-minute readings, 500 a page of which the oldest 100 carry no valid time: twelve pages reach about 16.7 days back.
+  const get = fake({ 'https://api.bybit.com/': url => {
+    const last = Math.floor(Math.min(Number(url.searchParams.get('endTime')), NOW) / (5 * M)) * 5 * M - 5 * M;
+    return { retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: i >= 400 ? 'x' : String(last - i * 5 * M) })) } };
+  } });
+  const cache = new LongShortCache(get, false, () => NOW), D = 24 * H;
+  await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 18 * D, NOW - 17.5 * D);
+  await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - D, NOW + 5 * M);
+  const hole = await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 17.4 * D, NOW - 17 * D);
+  assert.deepEqual([hole.status, hole.points.some(p => p.t >= NOW - 17.4 * D && p.t < NOW - 17 * D)], ['ok', true], 'read (it answered "empty", the hole claimed as held)');
+});
+
 test('a failure pauses the series for a minute from when it failed, however long its pages took', async () => {
   let now = NOW, calls = 0;
   // Each page takes a minute and a quarter of the clock, and the second never answers.

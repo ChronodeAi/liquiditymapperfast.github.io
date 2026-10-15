@@ -233,7 +233,11 @@ export class LongShortCache {
         const until = Math.min(end, now - periodMs);
         if (kind === 'whole') { h.from = reached; h.to = until; h.checked = now; }
         else if (kind === 'older') h.from = Math.min(h.from, reached);
-        else { h.to = Math.max(h.to, until); h.checked = now; }
+        else {
+          // Pages that ran out before reaching what was held leave a hole: only the newer stretch is unbroken (a window in the hole reads it).
+          if (reached > h.to) h.from = reached;
+          h.to = Math.max(h.to, until); h.checked = now;
+        }
         if (h.points.size > this.maxPoints) {
           // The readings furthest from the window asked go, so what it asked for is kept and the rest stays one unbroken stretch.
           const times = [...h.points.keys()].sort((a, b) => a - b), first = times.findIndex(t => t >= from - periodMs);
