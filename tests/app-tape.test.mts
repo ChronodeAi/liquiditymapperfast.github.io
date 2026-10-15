@@ -130,6 +130,12 @@ test('the line from prices a second never carries a price over an empty second',
   assert.deepEqual(runs, [[10, 5, 10, 5, 11, 6, 11, 6], [15, 7, 15, 7]]);
 });
 
+test('with the clock given, an order timed hours away from it is left out (one bad stamp must not move the time base every batch)', () => {
+  const ring = new TapeRing(BLOCK);
+  ring.add(packTape([order('a:X', T0, 1, 1), order('a:X', 1_000, 1, 1), order('a:X', T0 + 7 * 3_600_000, 1, 1), order('a:X', T0 + 5, 1, 1)], 0), 1, 0, T0);
+  assert.equal(ring.size, 2); assert.equal(ring.t0, T0); assert.deepEqual([ring.at(0).t, ring.at(1).t], [T0, T0 + 5]);
+});
+
 test('Live trades are on by default and read field by field from a saved page', () => {
   const d = readBubbles(undefined);
   assert.equal(d.live, true); assert.equal(d.venueLines, false); assert.equal(d.liveOpacity, 0.75);

@@ -28,7 +28,9 @@ const QUAD = `
   float a = abs(rec0.z);
   float r = mix(size.x, size.y, clamp(log(max(a, 1.0) / size.z) / log(size.w / size.z), 0.0, 1.0)) * grow;
   bool off = texelFetch(mask, ivec2(int(rec1.x), 0), 0).r > 0.5 || x < -8.0 || x > px.x + 8.0 || max(y, yhi) < -8.0 || min(y, ylo) > px.y + 8.0;
-  float reach = min(max(r + 1.0, max(y - ylo, yhi - y) + 1.0), 255.0);
+  // The hairline of an order that walked the book is drawn at most 48 device px either side: a sprite as tall as a long walk at a deep
+  // zoom would cost the card a quarter of a million pixels per order.
+  float reach = min(max(r + 1.0, max(y - ylo, yhi - y) + 1.0), 48.0);
   centre = vec3(x, y, r); span = vec2(ylo, yhi); usd = rec0.z; extent = reach;
   gl_PointSize = 2.0 * reach;
   gl_Position = off ? vec4(2.0, 2.0, 2.0, 1.0) : vec4(vec2(x, y) / px * 2.0 - 1.0, 0.0, 1.0);`;
@@ -243,6 +245,8 @@ export class TapeGL {
    */
   draw(view: Bounds, style: DustStyle, dpr: number, key: string, now: number): boolean {
     const gl = this.gl, ring = this.ring;
+    // A view with no time or no price range yet (the first frames) has nowhere to put an order.
+    if (!(view.t1 > view.t0) || !(view.p1 > view.p0)) { this.clear(); return false; }
     this.#upload();
     const w = this.#size[0], msPx = (view.t1 - view.t0) / w, d = this.#drawn, near = (a: number, b: number): boolean => Math.abs(a - b) <= Math.abs(b) * 1e-9;
     let shift = d ? Math.round((view.t0 - d.t0) / d.msPx) : 0;

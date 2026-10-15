@@ -232,8 +232,9 @@ export class HeatPane {
    */
   #dustCanvas = document.createElement('canvas');
   #dust: TapeGL | null = null; #dustFailed = false; #dustFrame = 0; #dustDrawn = 0;
-  /** The price lines through the dust, by pixel column (tape/trace.ts). */
+  /** The price lines through the dust, by pixel column (tape/trace.ts), and the dashed part before them, kept until what it is read from changes. */
   #trace = new TraceIndex();
+  #secondsRuns: { key: string; runs: number[][] } | null = null;
 
   constructor(host: HTMLElement, private store: Store, private hub: Hub, private kernels: Kernels) {
     this.root.className = 'pane heat';
@@ -762,7 +763,10 @@ export class HeatPane {
     // Before the orders held, the chart market's prices a second, dashed (they are averages over a second, not each order).
     const held = tape.written > 0 ? (tape.segments[0]?.from ?? v.t1) : v.t1, series = this.hub.flow.get(state.marketId);
     if (series && held > v.t0 && (Math.min(v.t1, held) - v.t0) / 1000 <= 200_000) {
-      const runs = secondsPath(sec => series.ownPrice(sec), Math.floor(v.t0 / 1000), Math.floor(Math.min(v.t1, held) / 1000), ms, 10);
+      // Worked out again only when the market, the zoom, the seconds in view or the flow held change: never for a pointer move.
+      const s0 = Math.floor(v.t0 / 1000), s1 = Math.floor(Math.min(v.t1, held) / 1000), key = `${state.marketId}|${ms}|${s0}|${s1}|${this.hub.flow.loads}`;
+      if (this.#secondsRuns?.key !== key) this.#secondsRuns = { key, runs: secondsPath(sec => series.ownPrice(sec), s0, s1, ms, 10) };
+      const runs = this.#secondsRuns.runs;
       ctx.setLineDash([4, 3]); stroke(runs, p.bg, 3, 0.5); stroke(runs, p.dark ? '#ffffff' : '#111318', 1.2, 0.75); ctx.setLineDash([]);
     }
     // Neutral, never a side's colour (a theme's text colour can be the buy green): white over a dark map, near-black over a light one.
@@ -967,16 +971,17 @@ export class HeatPane {
         ctx.globalAlpha = 0.9; ctx.lineWidth = 1; ctx.strokeStyle = color;
         ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, top); ctx.moveTo(cx, top + height); ctx.lineTo(cx, yl); ctx.stroke();
         ctx.lineWidth = 1.5; ctx.strokeRect(Math.round(x - body / 2) + 0.75, Math.round(top) + 0.75, Math.max(1, Math.round(body) - 1.5), Math.max(1, Math.round(height) - 1.5));
-        continue;
+      } else {
+        ctx.globalAlpha = outline;
+        ctx.lineWidth = 3.5; ctx.strokeStyle = halo; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();
+        ctx.lineWidth = 1.6; ctx.strokeStyle = edge; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();
+        if (narrowing > 0.01) { ctx.globalAlpha = Math.min(1, narrowing * 1.5); ctx.lineWidth = 1.4; ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke(); }
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = outline; ctx.fillStyle = halo; ctx.fillRect(x - body / 2 - 1.5, top - 1.5, body + 3, height + 3);
+        ctx.globalAlpha = 1; ctx.fillStyle = color; ctx.fillRect(x - body / 2, top, body, height);
+        if (body >= 3) { ctx.globalAlpha = outline; ctx.strokeStyle = edge; ctx.strokeRect(x - body / 2 + 0.5, top + 0.5, body - 1, Math.max(0.5, height - 1)); }
       }
-      ctx.globalAlpha = outline;
-      ctx.lineWidth = 3.5; ctx.strokeStyle = halo; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();
-      ctx.lineWidth = 1.6; ctx.strokeStyle = edge; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();
-      if (narrowing > 0.01) { ctx.globalAlpha = Math.min(1, narrowing * 1.5); ctx.lineWidth = 1.4; ctx.strokeStyle = color; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke(); }
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = outline; ctx.fillStyle = halo; ctx.fillRect(x - body / 2 - 1.5, top - 1.5, body + 3, height + 3);
-      ctx.globalAlpha = 1; ctx.fillStyle = color; ctx.fillRect(x - body / 2, top, body, height);
-      if (body >= 3) { ctx.globalAlpha = outline; ctx.strokeStyle = edge; ctx.strokeRect(x - body / 2 + 0.5, top + 0.5, body - 1, Math.max(0.5, height - 1)); }
+      // Hollow or filled, a candle of unusual volume keeps its ring (Highlights).
       if (hot(ci)) { // unusually large volume: a glowing ring in the candle's own colour
         ctx.save(); ctx.globalAlpha = 1; ctx.shadowColor = color; ctx.shadowBlur = 12; ctx.strokeStyle = color; ctx.lineWidth = 2.4;
         ctx.strokeRect(x - body / 2 - 2.5, top - 2.5, body + 5, height + 5); ctx.restore();

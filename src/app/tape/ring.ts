@@ -16,6 +16,8 @@ import type { TapeBatch } from '../../shared/tape.ts';
 export const STRIDE = 6;
 /** Records per block of the time index (`runs`). */
 export const BLOCK = 4096;
+/** How far from the clock an order's time may be (`add`'s `wall`). */
+export const CLOCK_REACH_MS = 6 * 3_600_000;
 /** Past this offset (2^24 ms, about 4.7 hours) a float32 no longer holds every millisecond. */
 const REBASE_MS = 1 << 24;
 
@@ -71,17 +73,23 @@ export class TapeRing {
   /** The exchange time from which the ring holds every order it was sent (the oldest held, once it has wrapped). */
   get heldFrom(): number { return this.written > this.capacity ? this.t0 + this.data[(this.written % this.capacity) * STRIDE]! : (this.segments[0]?.from ?? 0); }
 
-  /** Take a batch: `connection` is the live connection's number (a new one is a gap), `arrived` the page's clock for the accent. */
-  add(batch: TapeBatch, connection: number, arrived: number): void {
-    const n = batch.inst.length;
+  /**
+   * Take a batch: `connection` is the live connection's number (a new one is a gap), `arrived` the page's clock for the accent. With `wall`
+   * (the clock, ms), an order timed more than `CLOCK_REACH_MS` from it is left out: one bad stamp would otherwise move the time base and
+   * rewrite the whole ring on every batch.
+   */
+  add(batch: TapeBatch, connection: number, arrived: number, wall?: number): void {
+    const rows: number[] = [];
+    for (let i = 0; i < batch.inst.length; i++) if (wall === undefined || Math.abs(batch.t[i]! - wall) <= CLOCK_REACH_MS) rows.push(i);
+    const n = rows.length;
     if (!n && batch.dropped === 0) { this.#seq = batch.seq; return; }
-    if (this.written === 0) { this.t0 = batch.t[0] ?? 0; this.p0 = batch.price[0] ?? 0; }
+    if (this.written === 0 && n) { this.t0 = batch.t[rows[0]!]!; this.p0 = batch.price[rows[0]!]!; }
     let lo = Infinity, hi = -Infinity;
-    for (let i = 0; i < n; i++) { const t = batch.t[i]!; if (t < lo) lo = t; if (t > hi) hi = t; }
+    for (const i of rows) { const t = batch.t[i]!; if (t < lo) lo = t; if (t > hi) hi = t; }
     if (hi - this.t0 >= REBASE_MS) this.#rebase(lo);
     const local = Int32Array.from(batch.ids, id => { let k = this.#index.get(id); if (k === undefined) { k = this.ids.length; this.ids.push(id); this.#index.set(id, k); } return k; });
     const from = this.written;
-    for (let i = 0; i < n; i++) {
+    for (const i of rows) {
       const at = (this.written % this.capacity) * STRIDE, d = this.data, p = batch.price[i]!;
       d[at] = batch.t[i]! - this.t0; d[at + 1] = p - this.p0; d[at + 2] = batch.usd[i]!; d[at + 3] = local[batch.inst[i]!]!;
       d[at + 4] = batch.lo[i]! - this.p0; d[at + 5] = batch.hi[i]! - this.p0;

@@ -271,7 +271,7 @@ export class Hub {
       onTick: tick => this.#tick(tick),
       onLayers: message => this.store.set({ layers: message.layers }),
       onFlow: items => { this.flow.apply(items); this.onFlowChanged(); },
-      onTape: batch => { if (!this.#tapeOn || !this.tape) return; this.tape.add(batch, this.#connection, performance.now()); this.onTape(); },
+      onTape: batch => { if (!this.#tapeOn || !this.tape) return; this.tape.add(batch, this.#connection, performance.now(), Date.now()); this.onTape(); },
       onAbsorption: (groups, minutes) => { this.absorption.add(groups); this.absorption.addMinutes(minutes); this.onAbsorptionChanged(); },
       onPrints: items => {
         const fresh = this.prints.add(items.flatMap(row => { const p = fromWire(row); return p ? [p] : []; }));
