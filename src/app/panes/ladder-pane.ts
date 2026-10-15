@@ -252,6 +252,19 @@ export class LadderPane {
     this.store.set({ grouping: step });
   }
   invalidate(): void { if (!this.#frame) this.#frame = requestAnimationFrame(() => { this.#frame = 0; this.#render(); }); }
+  /**
+   * A new levels frame: pull/stack takes its snapshot here when one is due, not when the book is drawn. A hidden or covered window draws
+   * nothing (the browser stops animation frames) while the frames keep coming, and the first draw after more than `GAP_MS` started the
+   * window again, so a book looked at after a while away always said "Loading…" (Karl, 2026-10-15).
+   */
+  levelsArrived(): void {
+    const state = this.store.state, frame = state.levels, mark = state.mark.price, windowS = state.pullStack;
+    if (!windowS) { this.#pull.clear(); return; }
+    if (!frame || !(mark > 0) || replaying()) return;
+    const base = pullBase(this.#groups[0] ?? 0.1);
+    this.#pull.noteMark(mark);
+    this.#pull.step(this.kernels, frame, mark, Date.now(), windowS, base, `${state.marketId}|${base}|${windowS}`);
+  }
   /** The saved grouping when it is one of this coin's steps (it may have been chosen on another coin), else Auto. */
   #grouping(saved: AppState['grouping']): AppState['grouping'] { return saved !== 'auto' && this.#groups.includes(saved) ? saved : 'auto'; }
 
@@ -349,9 +362,9 @@ export class LadderPane {
     if (!frame || !(mark > 0) || width < 80) { ctx.fillStyle = p.muted; ctx.fillText(t('Waiting for order book…'), 12, 20); return; }
     // Replay: the books are recorded a minute at a time (the map's columns), not as a ladder; this one is the live book, which would mislead.
     if (replaying()) { ctx.fillStyle = p.muted; ctx.fillText(t('Replay: the order book is live only.'), 12, 20); return; }
-    // Pull/stack: a snapshot of every venue when one is due (nothing at all while it is off).
+    // Pull/stack: its snapshots are taken as the frames arrive (`levelsArrived`); here only the price between them is noted.
     const pullS = state.pullStack;
-    if (pullS) { const base = pullBase(this.#groups[0] ?? 0.1); this.#pull.noteMark(mark); this.#pull.step(this.kernels, frame, mark, Date.now(), pullS, base, `${state.marketId}|${base}|${pullS}`); }
+    if (pullS) this.#pull.noteMark(mark);
     else this.#pull.clear();
     const ids = state.ladderMode === 'single' ? books : activeIds(state);
     const cells = state.ladderMode === 'aggregated' && ids.length > 1;

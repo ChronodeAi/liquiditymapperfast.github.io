@@ -219,7 +219,7 @@ async function main(): Promise<void> {
     if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('show')) range.refreshHeld();
     if (changed.has('tradeBubbles') || changed.has('show')) hub.setTape(tapeWanted());
     if (changed.has('sounds')) heat.invalidate();
-    if (changed.has('levels')) { ladder.invalidate(); ladder.syncVenues(); heat.invalidate(); }
+    if (changed.has('levels')) { if (state.show.book) ladder.levelsArrived(); ladder.invalidate(); ladder.syncVenues(); heat.invalidate(); }
     // Replay starting or ending changes what the book, the flow column and the panes show, whether or not new data arrives.
     if (changed.has('replay')) { ladder.invalidate(); cvd.invalidate(); heat.invalidate(); lower(); }
     if (changed.has('layers') || changed.has('layer') || changed.has('candles') || changed.has('mark') || changed.has('heat') || changed.has('show')) heat.invalidate();

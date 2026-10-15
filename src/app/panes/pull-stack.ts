@@ -128,8 +128,9 @@ export function pullRows(then: BookSnap, now: BookSnap, between: readonly BookSn
 export type PullView = { kind: 'off' } | { kind: 'filling'; waitS: number; share: number } | { kind: 'fine' } | { kind: 'rows'; rows: PullRows };
 
 /**
- * The snapshots of one book over one window: taken once per `window / RING` (never more often than once a second) while the book is drawn,
- * started again for another coin, grid or window, or after a gap of `GAP_MS` (the book was hidden: what happened then is not known).
+ * The snapshots of one book over one window: taken once per `window / RING` (never more often than once a second) as the levels frames
+ * arrive (`LadderPane.levelsArrived`, so a hidden or covered page goes on counting), started again for another coin, grid or window, or after
+ * a gap of `GAP_MS` (no frames came: what happened then is not known).
  */
 export class PullHistory {
   #ring: BookSnap[] = [];
