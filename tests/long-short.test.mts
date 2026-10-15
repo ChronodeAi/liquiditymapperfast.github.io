@@ -341,6 +341,17 @@ test('an answer that lost a field its readings are checked with fails as a chang
   await assert.rejects(fetchLongShort('bitget', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, bitget, NOW), /unknown shape/);
 });
 
+test('a reading with no valid time in a full page does not end the paging: the older pages are still read', async () => {
+  const get = fake({ 'https://api.bybit.com/': url => {
+    const last = Math.floor(Math.min(Number(url.searchParams.get('endTime')), NOW) / (5 * M)) * 5 * M - 5 * M;
+    return { retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: i === 250 ? '0' : String(last - i * 5 * M) })) } };
+  } });
+  const { points } = await fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - 3 * 24 * H, NOW, get, NOW);
+  assert.ok(points[0]!.t < NOW - 2 * 24 * H, 'the readings of the third day back were read (paging stopped at the bad row before)');
+  const timeless = fake({ 'https://api.bybit.com/': () => ({ retCode: 0, result: { list: Array.from({ length: 500 }, () => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: 'x' })) } }) });
+  await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - 3 * 24 * H, NOW, timeless, NOW), /no reading time/, 'a full page that cannot be paged on fails');
+});
+
 test('a failure pauses the series for a minute from when it failed, however long its pages took', async () => {
   let now = NOW, calls = 0;
   // Each page takes a minute and a quarter of the clock, and the second never answers.

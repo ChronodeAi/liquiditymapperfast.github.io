@@ -104,6 +104,14 @@ export function lsReading(t: number, long: number, short?: number, ratio?: numbe
   if (ratio !== undefined && (!Number.isFinite(ratio) || ratio <= 0 || Math.abs(ratio - long / (1 - long)) > 0.005 * ratio + 0.002)) return null;
   return { t, long };
 }
+/**
+ * Where the next page back ends: before the oldest reading time of a full page, from its valid times only (a row with no time, or a time of
+ * 0, once ended the paging there and the window read as held to its start). A full page with no valid time cannot be paged on: it fails.
+ */
+function nextEnd(what: string, oldest: number): number {
+  if (!Number.isFinite(oldest)) throw new Error(`${what}: a full page with no reading time`);
+  return oldest - 1;
+}
 /** The long share from a ratio of long to short accounts (OKX gives only that): 1.25 is 1.25 long accounts for each short one, 55.6 % long. */
 export const shareOfRatio = (ratio: number): number => ratio / (1 + ratio);
 
@@ -127,9 +135,9 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       const [longKey, shortKey] = coinM && metric === 'topPositions' ? ['longPosition', 'shortPosition'] : ['longAccount', 'shortAccount'];
       const got = rows(await get(`${market}&period=${name}&limit=500&endTime=${Math.floor(end)}`), 'binance', 'timestamp', longKey, shortKey, 'longShortRatio');
       let oldest = Infinity;
-      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, longKey)), num(at(r, shortKey)), num(at(r, 'longShortRatio')))); if (t < oldest) oldest = t; }
-      if (got.length < 500 || !Number.isFinite(oldest)) break;
-      end = oldest - 1;
+      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, longKey)), num(at(r, shortKey)), num(at(r, 'longShortRatio')))); if (t > 0 && t < oldest) oldest = t; }
+      if (got.length < 500) break;
+      end = nextEnd('binance', oldest);
     }
   } else if (venue === 'bybit') {
     for (; page < PAGES && end >= from; page++) {
@@ -138,9 +146,9 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       if (num(at(answer, 'retCode')) !== 0) throw new Error(`bybit: ${String(at(answer, 'retMsg'))}`);
       const got = rows(at(answer, 'result', 'list'), 'bybit', 'timestamp', 'buyRatio', 'sellRatio');
       let oldest = Infinity;
-      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'buyRatio')), num(at(r, 'sellRatio')))); if (t < oldest) oldest = t; }
-      if (got.length < 500 || !Number.isFinite(oldest)) break;
-      end = oldest - 1;
+      for (const r of got) { const t = num(at(r, 'timestamp')); take(lsReading(t, num(at(r, 'buyRatio')), num(at(r, 'sellRatio')))); if (t > 0 && t < oldest) oldest = t; }
+      if (got.length < 500) break;
+      end = nextEnd('bybit', oldest);
     }
   } else if (venue === 'okx') {
     for (; page < PAGES && end >= from; page++) {
@@ -148,9 +156,9 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       if (String(at(answer, 'code')) !== '0') throw new Error(`okx: ${String(at(answer, 'msg'))}`);
       const got = rows(at(answer, 'data'), 'okx', 0, 1);
       let oldest = Infinity;
-      for (const r of got) { const t = num(at(r, 0)), ratio = num(at(r, 1)); take(Number.isFinite(ratio) && ratio > 0 ? lsReading(t, shareOfRatio(ratio)) : null); if (t < oldest) oldest = t; }
-      if (got.length < 100 || !Number.isFinite(oldest)) break;
-      end = oldest - 1;
+      for (const r of got) { const t = num(at(r, 0)), ratio = num(at(r, 1)); take(Number.isFinite(ratio) && ratio > 0 ? lsReading(t, shareOfRatio(ratio)) : null); if (t > 0 && t < oldest) oldest = t; }
+      if (got.length < 100) break;
+      end = nextEnd('okx', oldest);
     }
   } else if (venue === 'bitget') {
     const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
