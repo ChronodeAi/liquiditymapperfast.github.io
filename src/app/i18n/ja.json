@@ -1230,6 +1230,7 @@
  "None of the open-interest markets is on an exchange that publishes a long/short ratio (Binance, Bybit, OKX, Bitget).": "建玉の市場のどれも、ロング/ショート比率を公表する取引所（Binance、Bybit、OKX、Bitget）にありません。",
  "No long/short readings for this time.": "この時刻のロング/ショートの値はありません。",
  "Reading the long/short ratios…": "ロング/ショート比率を読み込み中…",
+ "The long/short ratios could not be read just now; trying again in a minute.": "今はロング/ショート比率を読めませんでした。1 分後に再試行します。",
  "server only": "サーバーのみ",
  "long": "ロング",
  "Chosen markets": "選んだ市場",

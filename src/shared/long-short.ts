@@ -209,10 +209,11 @@ export class LongShortCache {
         h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
         // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
-        // period before now: the reading of the period under way comes later. A window that starts inside that period holds an empty stretch,
-        // not one that ends before it starts (which read as nothing held, and every question asked the venue again).
+        // period before now: the reading of the period under way comes later. A window that starts inside that period holds the empty stretch
+        // at that edge (its pages read everything from a period before the window on), not one that ends before it starts, which read as
+        // nothing held, and every question asked the venue again; nor one past the edge, which no refresh would ever read again.
         const until = Math.min(end, now - periodMs);
-        if (kind === 'whole') { h.from = reached; h.to = Math.max(reached, until); h.checked = now; }
+        if (kind === 'whole') { h.from = Math.min(reached, until); h.to = until; h.checked = now; }
         else if (kind === 'older') h.from = Math.min(h.from, reached);
         else { h.to = Math.max(h.to, until); h.checked = now; }
         if (h.points.size > this.maxPoints) {
@@ -222,7 +223,10 @@ export class LongShortCache {
           h.points = new Map(keep.map(t => [t, h.points.get(t)!]));
           h.from = Math.max(h.from, keep[0]!); h.to = Math.min(h.to, keep[keep.length - 1]! + periodMs);
         }
-      }, () => { h.failed = now; }).finally(() => { h.busy = null; });
+      }, () => {
+        // When it failed, not when it began: a slow request of many pages would otherwise leave no minute's pause behind it.
+        h.failed = this.now();
+      }).finally(() => { h.busy = null; });
     }
     if (held.busy) await held.busy;
     const points = [...held.points.values()].filter(p => p.t >= from - periodMs && p.t < to).sort((a, b) => a.t - b.t);

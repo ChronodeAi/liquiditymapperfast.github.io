@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lsLanded, lsWindow, type LsHeld } from '../src/app/panes/ls-window.ts';
+import { lsLanded, lsMessage, lsWindow, type LsHeld } from '../src/app/panes/ls-window.ts';
 import type { LsSeries } from '../src/shared/long-short.ts';
 
 const HOUR = 3_600_000, MIN = 60_000, NOW = 1_800_000_000_000, TF = HOUR;
@@ -53,4 +53,11 @@ test('while a round waits, and after it, what was held stays drawn: stale where 
   assert.deepEqual(lsLanded(ids, before, new Map([['binance:BTCUSDT', S('binance:BTCUSDT', 'ok', 4)]]), true).map(s => [s.status, s.points.length]), [['ok', 4], ['stale', 3]], 'nor does no answer');
   const empty = S('bybit:BTCUSDT', 'empty', 0);
   assert.deepEqual(lsLanded(ids, before, new Map([['bybit:BTCUSDT', empty]]), false)[1], empty, 'an answer that is not a failure is taken as it is');
+});
+
+test('with no line to draw the pane says why: still reading, a venue that could not be read, or nothing for this time', () => {
+  // In a page OKX answers at once that only a server can read it: the others are still being read, not empty.
+  assert.equal(lsMessage([S('okx:BTC-USDT-SWAP', 'serverOnly', 0)], true), 'reading');
+  assert.equal(lsMessage([S('binance:BTCUSDT', 'empty', 0), S('bybit:BTCUSDT', 'failed', 0)], false), 'failed', 'a failure is not "no readings"');
+  assert.equal(lsMessage([S('binance:BTCUSDT', 'empty', 0), S('okx:BTC-USDT-SWAP', 'serverOnly', 0)], false), 'none');
 });

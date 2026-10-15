@@ -1267,6 +1267,7 @@
  "None of the open-interest markets is on an exchange that publishes a long/short ratio (Binance, Bybit, OKX, Bitget).": "Açık pozisyon piyasalarından hiçbiri long/short oranı yayımlayan bir borsada değil (Binance, Bybit, OKX, Bitget).",
  "No long/short readings for this time.": "Bu zaman için long/short değeri yok.",
  "Reading the long/short ratios…": "Long/short oranları okunuyor…",
+ "The long/short ratios could not be read just now; trying again in a minute.": "Long/short oranları şu an okunamadı; bir dakika sonra yeniden denenecek.",
  "server only": "yalnızca sunucu",
  "long": "long",
  "Chosen markets": "Seçilen piyasalar",

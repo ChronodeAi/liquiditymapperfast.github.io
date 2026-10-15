@@ -1280,6 +1280,7 @@
  "None of the open-interest markets is on an exchange that publishes a long/short ratio (Binance, Bybit, OKX, Bitget).": "Nessuno dei mercati di open interest è su un exchange che pubblica un rapporto long/short (Binance, Bybit, OKX, Bitget).",
  "No long/short readings for this time.": "Nessuna lettura long/short per questo momento.",
  "Reading the long/short ratios…": "Lettura dei rapporti long/short…",
+ "The long/short ratios could not be read just now; trying again in a minute.": "Non è stato possibile leggere i rapporti long/short; nuovo tentativo tra un minuto.",
  "server only": "solo server",
  "long": "long",
  "Chosen markets": "Mercati scelti",

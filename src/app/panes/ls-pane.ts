@@ -12,7 +12,7 @@ import { venueLabel } from '../venues.ts';
 import { drawVenueMark } from '../venue-marks.ts';
 import { AXIS_W } from './heat-pane.ts';
 import { TimePane, setHtml } from './lower-panes.ts';
-import { LS_ROUND_MS, lsLanded, lsWindow, type LsHeld } from './ls-window.ts';
+import { LS_ROUND_MS, lsLanded, lsMessage, lsWindow, type LsHeld } from './ls-window.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { LS_VENUES, type LsMetric, type LsPoint, type LsPopulation, type LsSeries } from '../../shared/long-short.ts';
 
@@ -205,7 +205,8 @@ export class LsPane extends TimePane {
     if (min < 0.5 && max > 0.5 && Math.abs(y(0.5) - y(hi)) > 14 && Math.abs(y(0.5) - y(lo)) > 14) ctx.fillText('50%', this.w - AXIS_W + 6, y(0.5));
     if (!shown.length) {
       ctx.textAlign = 'left';
-      ctx.fillText(this.#series.length ? t('No long/short readings for this time.') : t('Reading the long/short ratios…'), 12, ph / 2);
+      const message = lsMessage(series, this.#loading);
+      ctx.fillText(message === 'reading' ? t('Reading the long/short ratios…') : message === 'failed' ? t('The long/short ratios could not be read just now; trying again in a minute.') : t('No long/short readings for this time.'), 12, ph / 2);
     }
     // Readout and popup: the moment under the pointer, else now; past the newest reading (or over the price axis), the newest, and the cursor there.
     const newest = Math.max(-Infinity, ...shown.map(s => s.points[s.points.length - 1]!.t));

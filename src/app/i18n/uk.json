@@ -1298,6 +1298,7 @@
  "None of the open-interest markets is on an exchange that publishes a long/short ratio (Binance, Bybit, OKX, Bitget).": "Жоден із ринків відкритого інтересу не на біржі, що публікує співвідношення лонг/шорт (Binance, Bybit, OKX, Bitget).",
  "No long/short readings for this time.": "Немає значень лонг/шорт для цього часу.",
  "Reading the long/short ratios…": "Читаються співвідношення лонг/шорт…",
+ "The long/short ratios could not be read just now; trying again in a minute.": "Зараз не вдалося прочитати співвідношення лонг/шорт; повторна спроба за хвилину.",
  "server only": "лише сервер",
  "long": "лонг",
  "Chosen markets": "Вибрані ринки",

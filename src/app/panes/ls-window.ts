@@ -14,12 +14,21 @@ export interface LsHeld { ident: string; from: number; to: number; at: number }
 
 const MINUTE = 60_000, HOUR = 3_600_000;
 /**
- * How long a round waits for the venues. Each venue's answer is drawn as it comes; one still missing then is given up (its request cancelled,
- * so it does not hold one of the browser's six connections to the server) and reads as failed, or stale over the readings held before. A round
- * once waited for every venue together with no end: two venues' requests that never came back left the pane on "Reading the long/short
- * ratios…" for good, and each re-ask added two more that never came back (2026-10-15).
+ * How long a round waits for the venues. Each venue's answer is drawn as it comes; one still missing then is given up and reads as failed, or
+ * stale over the readings held before. A server's request is cancelled then, so it does not hold one of the browser's six connections to the
+ * server; the browser engine's read is its cache's, shared with every question for the series, and goes on (bounded by the cache) for the
+ * next one. A round once waited for every venue together with no end: two venues' requests that never came back left the pane on "Reading
+ * the long/short ratios…" for good, and each re-ask added two more that never came back (2026-10-15).
  */
 export const LS_ROUND_MS = 45_000;
+
+/**
+ * What the pane says where it draws no line, for the series of the markets shown: `reading` while a round waits for a venue, `failed` once it
+ * is over and a venue could not be read (it is asked again with the minute refresh), else `none` (the venues answered: nothing for this time).
+ */
+export function lsMessage(series: readonly LsSeries[], loading: boolean): 'reading' | 'failed' | 'none' {
+  return loading ? 'reading' : series.some(s => s.status === 'failed') ? 'failed' : 'none';
+}
 
 /** The window to ask for now, or null when nothing need be asked. */
 export function lsWindow(held: LsHeld | null, loading: boolean, ident: string, view: { t0: number; t1: number }, tfMs: number, now: number): { from: number; to: number } | null {

@@ -1230,6 +1230,7 @@
  "None of the open-interest markets is on an exchange that publishes a long/short ratio (Binance, Bybit, OKX, Bitget).": "미결제약정 시장 중 롱/숏 비율을 공개하는 거래소(Binance, Bybit, OKX, Bitget)에 있는 시장이 없습니다.",
  "No long/short readings for this time.": "이 시각의 롱/숏 값이 없습니다.",
  "Reading the long/short ratios…": "롱/숏 비율을 읽는 중…",
+ "The long/short ratios could not be read just now; trying again in a minute.": "지금은 롱/숏 비율을 읽지 못했습니다. 1분 뒤 다시 시도합니다.",
  "server only": "서버만",
  "long": "롱",
  "Chosen markets": "선택한 시장",

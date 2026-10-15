@@ -1230,6 +1230,7 @@
  "None of the open-interest markets is on an exchange that publishes a long/short ratio (Binance, Bybit, OKX, Bitget).": "持仓量市场中没有一个位于公布多空比的交易所（Binance、Bybit、OKX、Bitget）。",
  "No long/short readings for this time.": "此时没有多空读数。",
  "Reading the long/short ratios…": "正在读取多空比…",
+ "The long/short ratios could not be read just now; trying again in a minute.": "暂时无法读取多空比；一分钟后重试。",
  "server only": "仅服务器",
  "long": "多头",
  "Chosen markets": "所选市场",

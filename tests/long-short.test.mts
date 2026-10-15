@@ -245,6 +245,34 @@ test('a window inside the period under way is held: asked again at once, the ven
   assert.equal(get.asked.length, first, 'none for the next ones (each asked the venue again, twice, before)');
 });
 
+test('a reading published after an empty stretch was held is read by the next refresh, also for a window reaching back from it', async () => {
+  // Hourly readings, each published once its hour is over; it is 18:50.
+  let now = Date.UTC(2026, 9, 13, 18, 50);
+  const get = fake({ 'https://api.bybit.com/': url => {
+    const last = Math.floor(Math.min(Number(url.searchParams.get('endTime')), now - H) / H) * H;
+    return { retCode: 0, result: { list: Array.from({ length: 48 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(last - i * H) })) } };
+  } });
+  const cache = new LongShortCache(get, false, () => now);
+  const at = (h: number, m = 0) => Date.UTC(2026, 9, 13, h, m);
+  await cache.series('bybit:BTCUSDT', 'accounts', H, at(18, 45), at(19, 50));
+  const back = await cache.series('bybit:BTCUSDT', 'accounts', H, at(18, 30), at(18, 40));
+  assert.ok(!back.points.some(p => p.t === at(18)), 'the 18:00 reading is not out yet');
+  const asked = get.asked.length;
+  now = at(19, 51);
+  const later = await cache.series('bybit:BTCUSDT', 'accounts', H, at(18, 30), at(18, 40));
+  assert.ok(later.points.some(p => p.t === at(18)), 'an hour on, the 18:00 reading is read and given');
+  assert.ok(get.asked.length > asked);
+});
+
+test('a failure pauses the series for a minute from when it failed, however long its pages took', async () => {
+  let now = NOW, calls = 0;
+  // Each page takes a minute and a quarter of the clock, and the second never answers.
+  const get: Fetcher = async () => { calls++; now += 75_000; if (calls > 1) return new Promise<never>(() => {}); return { retCode: 0, result: { list: Array.from({ length: 500 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(NOW - (i + 1) * 5 * M) })) } }; };
+  const cache = new LongShortCache(get, false, () => now, 48, 10_000, 30);
+  assert.equal((await cache.series('bybit:BTCUSDT', 'accounts', 5 * M, NOW - 3 * 24 * H, NOW)).status, 'failed');
+  assert.equal(calls, 2, 'one request of two pages, not asked again at once though it began more than a minute before it failed');
+});
+
 test("the chart's period only where it fits the window, and an answer that lost its share fields fails", async () => {
   const get = fake({ 'https://www.okx.com/': url => ({ code: '0', data: Array.from({ length: 100 }, (_, i) => [String(Number(url.searchParams.get('end')) - (i + 1) * (url.searchParams.get('period') === '1H' ? H : 5 * M)), '1.2']) }) });
   const okx = await new LongShortCache(get, false, () => NOW).series('okx:BTC-USDT-SWAP', 'accounts', 30 * M, NOW - 15 * 24 * H, NOW);
