@@ -5,6 +5,7 @@ import { PRINT_FLOOR_USD, PRINTS_PER_ANSWER, PrintStream, type Print, type Print
 import type { PrintSumsAnswer } from './print-sums.ts';
 import { LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER, LiquidationStream, type Liquidation, type LiquidationEvent } from './liquidations.ts';
 import { OrderBuilder, orderRow } from './orders.ts';
+import { packTape, type TapeBatch } from './tape.ts';
 import { RecordedBefore } from './restart.ts';
 import { AbsorptionRecorder, GROUP_FLOOR_USD, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from './absorption.ts';
 import { FLOW_MEMORY_MS, FLOW_SEC, FlowRecorder, type FlowFrame, type FlowStore, type FlowUpdate } from './flow.ts';
@@ -114,6 +115,9 @@ export class Engine {
   onLiquidations: (fresh: Liquidation[]) => void = () => {};
   /** Liquidations reported by the venues that publish them: kept in memory only (nothing of them is written to the browser's storage). */
   readonly liquidationStream: LiquidationStream;
+  /** Every market order completed since the last pass, for the trade dust (never stored); null when nobody draws it. */
+  onTape: ((batch: TapeBatch) => void) | null = null;
+  #tapeSeq = 0;
   /** The seconds whose taker flow changed, with their totals so far; about once a second. */
   onFlow: (items: FlowUpdate[]) => void = () => {};
   /** The picker's rows, whenever any of them changed. */
@@ -233,6 +237,7 @@ export class Engine {
   #takeOrders(all: boolean): void {
     const orders = this.orders.drain(all);
     if (!orders.length) return;
+    if (this.onTape) this.onTape(packTape(orders, this.#tapeSeq++));
     this.printStream.ingest(orders.map(orderRow));
     this.footprints.countOrders(orders);
   }

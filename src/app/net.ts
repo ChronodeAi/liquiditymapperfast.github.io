@@ -6,7 +6,7 @@ import { parseProfile, parseRange, parseSizes, parseValueAreas, type ProfileAnsw
 import { parseAbsorptionAnswer, parseAbsorptionLive, type AbsorptionAnswer } from '../shared/absorption.ts';
 import { fromWire, type Print } from './prints.ts';
 import { fromWire as liquidationFromWire, type Liquidation } from '../shared/liquidations.ts';
-import { decodeColumns, decodeLevels, type ColumnsFrame } from './wire.ts';
+import { decodeColumns, decodeLevels, decodeTape, frameType, type ColumnsFrame } from './wire.ts';
 import type { CandleRow, OiBar } from './store.ts';
 import type { BootstrapState, FootprintResponse, LayersMessage, LiquidationsMessage, LiveHandlers, PrintsMessage, TickMessage } from './source.ts';
 import { t } from './i18n.ts';
@@ -133,13 +133,15 @@ export const connectionStatus = (failures: number, host: string): string => fail
  * `silenceMs` counts as a lost connection and is retried like one, once the server has shown that it sends heartbeats (an older server
  * says nothing while the market is quiet, and a quiet market is not a broken connection).
  */
-export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs = 5_000, now = () => performance.now() }: { silenceMs?: number; pollMs?: number; now?: () => number } = {}): { close(): void } {
-  let socket: WebSocket | null = null, closed = false, attempt = 0, timer: number | undefined, heard = 0, beats = false;
+export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs = 5_000, now = () => performance.now() }: { silenceMs?: number; pollMs?: number; now?: () => number } = {}): { close(): void; tape(on: boolean): void } {
+  let socket: WebSocket | null = null, closed = false, attempt = 0, timer: number | undefined, heard = 0, beats = false, tapeOn = false;
+  /** Tell the server whether to send the trade dust (again on every new connection). */
+  const sayTape = (): void => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ t: 'tape', on: tapeOn })); };
   const lost = () => { handlers.onClose(attempt + 1, location.host); if (!closed) timer = window.setTimeout(open, Math.min(10_000, 500 * 2 ** attempt++)); };
   const open = () => {
     const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v2/ws`;
     const current = new WebSocket(url); current.binaryType = 'arraybuffer'; socket = current;
-    current.onopen = () => { attempt = 0; heard = now(); beats = false; handlers.onOpen(); };
+    current.onopen = () => { attempt = 0; heard = now(); beats = false; if (tapeOn) sayTape(); handlers.onOpen(); };
     current.onmessage = event => {
       heard = now();
       try {
@@ -151,7 +153,8 @@ export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs
           else if (message.t === 'liquidations' && Array.isArray((message as LiquidationsMessage).items)) handlers.onLiquidations?.((message as LiquidationsMessage).items);
           else if (message.t === 'flow' && Array.isArray((message as { items?: unknown }).items)) handlers.onFlow?.((message as unknown as { items: FlowUpdate[] }).items);
           else if (message.t === 'absorption') { const found = parseAbsorptionLive(message); handlers.onAbsorption?.(found.groups, found.minutes); }
-        } else handlers.onLevels(decodeLevels(event.data as ArrayBuffer));
+        } else if (frameType(event.data as ArrayBuffer) === 'tape') { const batch = decodeTape(event.data as ArrayBuffer); if (batch && tapeOn) handlers.onTape?.(batch); }
+        else handlers.onLevels(decodeLevels(event.data as ArrayBuffer));
       } catch (error) { console.error('live frame rejected', error); }
     };
     current.onclose = lost;
@@ -164,5 +167,5 @@ export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs
     lost();
   }, pollMs);
   open();
-  return { close() { closed = true; window.clearTimeout(timer); window.clearInterval(watchdog); socket?.close(); } };
+  return { close() { closed = true; window.clearTimeout(timer); window.clearInterval(watchdog); socket?.close(); }, tape(on) { if (on !== tapeOn) { tapeOn = on; sayTape(); } } };
 }

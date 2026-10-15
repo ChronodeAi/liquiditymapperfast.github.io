@@ -108,7 +108,7 @@ class ColumnSource {
   async bootstrap(): Promise<BootstrapState> {
     return { asOf: 0, now: this.clock, dataMode: 'server', markPrice: 100, markInstrumentId: 'a:BTC', markets: [{ instrumentId: 'a:BTC' }], layers: {}, steps: {}, recorded: {}, columnMs: MIN, timeframes: [], oiReferences: [] };
   }
-  connect(): { close(): void } { return { close() {} }; }
+  connect(): { close(): void; tape(on: boolean): void } { return { close() {}, tape() {} }; }
   async candles() { return []; }
   async oi() { return []; }
   async prints() { return []; }

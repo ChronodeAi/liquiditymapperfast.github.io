@@ -6,6 +6,7 @@ import type { PrintSumsAnswer } from '../../shared/print-sums.ts';
 import type { ProfileAnswer, RangeAnswer, SizesAnswer, ValueAreaAnswer } from '../../shared/footprint.ts';
 import type { AbsorptionAnswer, AbsorptionGroup, AbsorptionMinute } from '../../shared/absorption.ts';
 import type { FlowFrame, FlowUpdate } from '../../shared/flow.ts';
+import type { TapeBatch } from '../../shared/tape.ts';
 import type { ColumnsFrame } from '../../shared/columns.ts';
 import type { LevelsFrame } from '../wire.ts';
 import type { Coin } from '../../shared/coins.ts';
@@ -53,6 +54,7 @@ export type FeedsOut =
   | { type: 'prints'; items: Print[] }
   | { type: 'liquidations'; items: Liquidation[] }
   | { type: 'flow'; items: FlowUpdate[] }
+  | { type: 'tape'; batch: TapeBatch }
   | { type: 'absorption'; groups: AbsorptionGroup[]; minutes: AbsorptionMinute[] }
   | { type: 'status'; venues: VenueStatus[] }
   /** Whether this tab is the one writing recordings (another tab may hold that role); `failed`: its storage stopped working, so it will not be. */

@@ -608,6 +608,11 @@ export class Toolbar {
       rangeRow(t('Opacity'), t('How solid the bubbles are: lower lets the map and the candles show through.'), { min: L.opacity.min, max: L.opacity.max, step: L.opacity.step, value: b.opacity, format: v => `${Math.round(v * 100)}%` }, opacity => set({ opacity })),
       switchRow(t('Write the size in large bubbles'), t('Only bubbles big enough to hold the number get one, so zooming out drops them; hover or tap any bubble for its size.'), b.labels, labels => set({ labels })),
       switchRow(t('Show the exchange in each bubble'), t('Its mark in the middle of every bubble large enough to hold it. Hover a bubble and the other venues step back, so the places that venue traded stand out.'), b.marks, marks => set({ marks })),
+      switchRow(t('Live trades'), t('Every market order as it arrives, as a dot at its own exchange\'s price (the fills of one order added together), with the chart market\'s price line through them. Kept in this page only: a reload starts empty.'), b.live, live => { set({ live }); rebuild(); }),
+    );
+    if (b.live) body.append(
+      rangeRow(t('Live trades opacity'), t('How strong the dots are. Where orders crowd together their volume adds up, so busy prices show stronger.'), { min: L.liveOpacity.min, max: L.liveOpacity.max, step: L.liveOpacity.step, value: b.liveOpacity, format: v => `${Math.round(v * 100)}%` }, liveOpacity => set({ liveOpacity })),
+      switchRow(t('Venue lines'), t('A faint price line for every other exchange too. Their prices differ a little, so the lines stack.'), b.venueLines, venueLines => set({ venueLines })),
     );
     const whale = this.store.state.sounds.tiers[2]?.usd;
     if (whale) body.append(note(t('Orders from the Whale size in Sounds ({value}) get a bright ring.', { value: `$${usd(scaledUsd(whale))}` })));

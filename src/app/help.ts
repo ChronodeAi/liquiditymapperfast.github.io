@@ -134,7 +134,8 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
   bubbles: {
     title: t('Trades'), guide: 'trades',
     tip: t('Large market orders as bubbles (the fills of one order added together): green for buys, red for sells, the area in proportion to the size, the largest in view the biggest. Hover one for its venue, size and price.'),
-    body: [],
+    body: [t('Live trades draws every market order as it arrives, as a small dot at its own exchange\'s price: the exchanges trade a little apart, so their dots run in parallel bands. Where dots crowd together their volume adds up, coloured by the side that traded more there. A line runs through the chart market\'s orders (dashed before this page opened, from its prices a second), and the candles turn hollow so nothing hides behind them. New orders flash briefly as they come in.'),
+      t('Live trades are kept in this page\'s memory only, from when it opened (a dotted line marks where they begin, and any gap): a reload starts empty, and the oldest go after about an hour and a half of busy trading. The bubbles are recorded as before.')],
   },
   liquidations: {
     title: t('Liquidations'), guide: 'trades',

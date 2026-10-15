@@ -52,6 +52,9 @@ import type { RangePoint, RangeTool } from '../range/tool.ts';
 import { paintDivergence, type Divergence } from '../delta/divergence.ts';
 import { countdown, lineSide } from '../price-line.ts';
 import { candlesAt, formingCandle, pageNow, replaying, replayView } from '../replay/clock.ts';
+import { TapeGL, type DustStyle } from '../tape/gl.ts';
+import { TraceIndex, secondsPath } from '../tape/trace.ts';
+import { curveColors } from './ladder-curves.ts';
 
 /** The colour of a flag on a candle's wick: amber reads on every theme and is neither side's colour. */
 const TRAP_COLOR = '#f5a524';
@@ -222,11 +225,21 @@ export class HeatPane {
   /** A mouse drag on the price scale: the view when it began, where the pointer was, and the price it holds still. */
   #scaleDrag: { y: number; view: Bounds; hold: number } | null = null;
   #fling = 0;
+  /**
+   * The trade dust (tape/gl.ts): every market order since the page opened, on a canvas of its own between the heatmap and the overlay, so
+   * candles, bubbles and lines stay above it; null until first shown, and for good where the card cannot draw it. Arrivals redraw this
+   * canvas alone (`tapeArrived`), never the overlay; its accent animates only while one is fading.
+   */
+  #dustCanvas = document.createElement('canvas');
+  #dust: TapeGL | null = null; #dustFailed = false; #dustFrame = 0; #dustDrawn = 0;
+  /** The price lines through the dust, by pixel column (tape/trace.ts). */
+  #trace = new TraceIndex();
 
   constructor(host: HTMLElement, private store: Store, private hub: Hub, private kernels: Kernels) {
     this.root.className = 'pane heat';
     this.#pulse.className = 'pulse';
-    this.root.append(this.#glCanvas, this.#pulse, this.overlay);
+    this.#dustCanvas.className = 'dust';
+    this.root.append(this.#glCanvas, this.#dustCanvas, this.#pulse, this.overlay);
     host.append(this.root);
     this.gl = new HeatGL(this.#glCanvas);
     this.#ctx = this.overlay.getContext('2d')!;
@@ -271,6 +284,43 @@ export class HeatPane {
     this.#glCanvas.style.width = `${this.plotW}px`; this.#glCanvas.style.height = `${this.plotH}px`;
     // The heatmap is blocks of colour, so a finger's screen (3 device pixels to a CSS pixel) gains nothing from filling every one of them; the browser scales a 2x canvas up.
     this.gl.resize(this.plotW, this.plotH, isCoarse() ? Math.min(this.#dpr, 2) : this.#dpr);
+    this.#dust?.resize(this.plotW, this.plotH, this.#dustDpr());
+  }
+
+  #dustDpr(): number { return isCoarse() ? Math.min(this.#dpr, 2) : this.#dpr; }
+
+  /** Whether the dust is drawn: the bubbles and their Live trades switch on, something held, and not in replay (it holds only what arrived live). */
+  #dustOn(state: AppState): boolean { return state.show.bubbles && state.tradeBubbles.live && this.hub.tape !== null && !replaying(); }
+
+  /** Orders arrived for the dust: it is redrawn on the next frame, alone (the overlay's price line follows with its own next frame). */
+  tapeArrived(): void { if (!this.#dustFrame && !document.hidden) this.#dustFrame = requestAnimationFrame(() => { this.#dustFrame = 0; this.#drawDust(); }); }
+
+  /** The dust's renderer, made the first time it is shown (null where the card cannot draw it, said once in the console). */
+  #ensureDust(): TapeGL | null {
+    if (this.#dust || this.#dustFailed || !this.hub.tape) return this.#dust;
+    try { this.#dust = new TapeGL(this.#dustCanvas, this.hub.tape); this.#dust.resize(this.plotW, this.plotH, this.#dustDpr()); }
+    catch (error) { this.#dustFailed = true; console.warn('live trades cannot be drawn here:', error); }
+    return this.#dust;
+  }
+
+  /**
+   * Draw the dust for the view as it is (the map's own frames move the view; this never does). While an arrival accent fades it asks for
+   * another frame, at most about 30 a second, none with the page hidden or with reduced motion.
+   */
+  #drawDust(): void {
+    const state = this.store.state;
+    if (!this.#dustOn(state)) { this.#dust?.clear(); return; }
+    const dust = this.#ensureDust(), tape = this.hub.tape; if (!dust || !tape) return;
+    const p = this.#palette, off = state.disabledVenues;
+    dust.setMask(off.length ? tape.ids.flatMap((id, i) => off.includes(id.slice(0, id.indexOf(':'))) ? [i] : []) : []);
+    const style: DustStyle = { bid: rgb(p.bid), ask: rgb(p.ask), mid: rgb(p.dark ? '#d8dce4' : '#3a3f48'), rim: rgb(p.bg), floorUsd: scaledUsd(100), ceilUsd: scaledUsd(250_000), volLo: scaledUsd(100), volHi: scaledUsd(2_000_000), opacity: state.tradeBubbles.liveOpacity * (1 - 0.85 * this.#lodFrame.barAlpha) };
+    const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches, now = performance.now();
+    this.#dustDrawn = now;
+    const fading = dust.draw(this.view, style, this.#dustDpr(), `${style.floorUsd}|${p.bid}|${p.ask}`, reduced ? Infinity : now);
+    if (fading && !this.#dustFrame && !document.hidden) {
+      const next = (time: number): void => { this.#dustFrame = 0; if (time - this.#dustDrawn >= 30) this.#drawDust(); else if (!document.hidden) this.#dustFrame = requestAnimationFrame(next); };
+      this.#dustFrame = requestAnimationFrame(next);
+    }
   }
 
   /** Frame the most recent candles, centred on the mark. */
@@ -431,6 +481,7 @@ export class HeatPane {
     this.#stepFootprint(state);
     // Under a dominant footprint the heatmap is gone altogether, so there is nothing to draw.
     if (state.layer === 'liquidity' && this.#lodFrame.heatmapOpacity > 0.003) this.gl.draw(this.view, this.#style(), this.#placeholder()); else this.gl.clear();
+    this.#drawDust();
     this.#paintOverlay(state);
     this.onFrame();
   }
@@ -507,6 +558,7 @@ export class HeatPane {
     paintWatermark(ctx, p, pw, ph, [market?.base && market.quote ? `${market.base}/${market.quote}` : '', state.timeframe].filter(Boolean).join(' · '));
     this.mirror = null;
     this.#paintHistoryStart(ctx, pw, ph, p);
+    this.#paintTapeStart(ctx, state, pw, ph, p);
     this.#paintLayers(ctx, state, pw, ph);
     this.#paintVolume(ctx, state, pw, ph, this.#lodFrame.narrowing);
     this.#pulseRects = [];
@@ -522,6 +574,7 @@ export class HeatPane {
     this.#startPulse();
     if (state.show.candles) this.#paintCandles(ctx, state, pw, ph, this.#lodFrame.narrowing);
     if (state.show.candles) this.#paintDivergences(ctx, state, pw, ph); // joined swings need the candles they join
+    this.#paintTrace(ctx, state, pw, ph); // over the candles (hollow while the dust shows), under the bubbles
     this.#paintBubbles(ctx, state, pw, ph); // above the candles, so a large trade is never hidden behind one
     this.#paintLiquidations(ctx, state, pw, ph); // above the bubbles: a forced order is one of the market orders, marked as forced
     this.#paintAbsorption(ctx, state, pw, ph);
@@ -682,6 +735,58 @@ export class HeatPane {
    * Where the recorded depth begins, when that is inside the view: a page that reads the exchanges itself records only while it is
    * open, so the map to the left of this line is empty by nature and the line says so rather than leaving it to look broken.
    */
+  /**
+   * The price lines through the dust: the chart market's (its orders reduced to each pixel column's first, extremes and last price, over a
+   * dark edge so it reads over any colour), and with Venue lines every other market shown, faint. Before the page held orders, the chart
+   * market's line comes dashed from its prices a second where the flow column holds them. A line breaks where its market traded nothing
+   * for ten seconds (or three columns).
+   */
+  #paintTrace(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
+    const tape = this.hub.tape;
+    if (!this.#dustOn(state) || !tape) return;
+    const v = this.view, p = this.#palette, ms = (v.t1 - v.t0) / pw, c0 = Math.floor(v.t0 / ms), c1 = Math.ceil(v.t1 / ms), gap = Math.max(3, Math.ceil(10_000 / ms));
+    const fade = 1 - 0.85 * this.#lodFrame.barAlpha;
+    if (fade <= 0.02) return;
+    const stroke = (runs: number[][], color: string, width: number, alpha: number): void => {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = alpha * fade; ctx.beginPath();
+      for (const run of runs) for (let i = 0; i < run.length; i += 2) { const x = v.xOf((run[i]! + 0.5) * ms, pw), y = v.yOf(run[i + 1]!, ph); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      ctx.stroke();
+    };
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineJoin = 'round';
+    if (tape.written > 0) this.#trace.update(tape, v.t0, v.t1, ms);
+    const chart = tape.ids.indexOf(state.marketId), off = state.disabledVenues;
+    if (state.tradeBubbles.venueLines && tape.written > 0) {
+      const colors = curveColors(p, 8);
+      tape.ids.forEach((id, i) => { if (i !== chart && !off.includes(id.slice(0, id.indexOf(':')))) stroke(this.#trace.path(i, c0, c1, gap), colors[i % colors.length]!, 1, 0.55); });
+    }
+    // Before the orders held, the chart market's prices a second, dashed (they are averages over a second, not each order).
+    const held = tape.written > 0 ? (tape.segments[0]?.from ?? v.t1) : v.t1, series = this.hub.flow.get(state.marketId);
+    if (series && held > v.t0 && (Math.min(v.t1, held) - v.t0) / 1000 <= 200_000) {
+      const runs = secondsPath(sec => series.ownPrice(sec), Math.floor(v.t0 / 1000), Math.floor(Math.min(v.t1, held) / 1000), ms, 10);
+      ctx.setLineDash([4, 3]); stroke(runs, p.bg, 3, 0.5); stroke(runs, p.dark ? '#ffffff' : '#111318', 1.2, 0.75); ctx.setLineDash([]);
+    }
+    // Neutral, never a side's colour (a theme's text colour can be the buy green): white over a dark map, near-black over a light one.
+    const ink = p.dark ? '#ffffff' : '#111318';
+    if (chart >= 0) { const runs = this.#trace.path(chart, c0, c1, gap); stroke(runs, p.bg, 3.5, 0.6); stroke(runs, ink, 1.5, 0.95); }
+    ctx.restore();
+  }
+
+  /** Where the live trades begin (the page opened, or the ring let the oldest go), and each gap after: a dotted line and a short note. */
+  #paintTapeStart(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, p: Palette): void {
+    const tape = this.hub.tape, v = this.view;
+    if (!this.#dustOn(state) || !tape || !tape.segments.length) return;
+    const from = Math.max(tape.segments[0]!.from, tape.heldFrom), marks = [{ t: from, label: t('live trades from {time}', { time: clock(from) }) }];
+    for (const s of tape.segments.slice(1)) if (s.from > from) marks.push({ t: s.from, label: t('gap in live trades') });
+    ctx.save(); ctx.font = '10px ui-sans-serif, system-ui, sans-serif'; ctx.textBaseline = 'bottom'; ctx.textAlign = 'left';
+    for (const m of marks) {
+      if (!(m.t > v.t0 && m.t < v.t1)) continue;
+      const x = Math.round(v.xOf(m.t, pw)) + 0.5;
+      ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.5; ctx.setLineDash([1, 3]); ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ph); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = p.muted; ctx.globalAlpha = 0.85; ctx.fillText(m.label, x + 5, ph - 6);
+    }
+    ctx.restore();
+  }
+
   #paintHistoryStart(ctx: CanvasRenderingContext2D, pw: number, ph: number, p: Palette): void {
     const since = this.hub.recordedSince, v = this.view;
     if (!(since > v.t0 && since < v.t1)) return;
@@ -848,6 +953,8 @@ export class HeatPane {
     const volume = this.#volumeAnalysis(state), hot = (i: number) => state.highlight.on && volume.found.flag[i] === 1;
     // A contrasting halo/outline keeps candles legible over both pink and green heat; it fades out over the dimmed footprint view.
     const edge = p.dark ? 'rgba(255,255,255,0.92)' : 'rgba(18,20,24,0.92)', halo = p.dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.7)', outline = 1 - 0.85 * narrowing;
+    // While the trade dust shows, a candle is its outline and a thin wick: a filled body (and its halo) would hide the orders inside it.
+    const hollow = this.#dustOn(state);
     for (let ci = 0; ci < state.candles.length; ci++) {
       const c = state.candles[ci]!;
       if (c[0] + tf < v.t0 || c[0] > v.t1) continue;
@@ -856,6 +963,12 @@ export class HeatPane {
       const color = up ? p.candleUp : p.candleDown;
       const yh = v.yOf(c[2], ph), yl = v.yOf(c[3], ph), yo = v.yOf(c[1], ph), yc = v.yOf(c[4], ph), cx = Math.round(x) + 0.5;
       const top = Math.min(yo, yc), height = Math.max(1.5, Math.abs(yc - yo));
+      if (hollow) {
+        ctx.globalAlpha = 0.9; ctx.lineWidth = 1; ctx.strokeStyle = color;
+        ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, top); ctx.moveTo(cx, top + height); ctx.lineTo(cx, yl); ctx.stroke();
+        ctx.lineWidth = 1.5; ctx.strokeRect(Math.round(x - body / 2) + 0.75, Math.round(top) + 0.75, Math.max(1, Math.round(body) - 1.5), Math.max(1, Math.round(height) - 1.5));
+        continue;
+      }
       ctx.globalAlpha = outline;
       ctx.lineWidth = 3.5; ctx.strokeStyle = halo; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();
       ctx.lineWidth = 1.6; ctx.strokeStyle = edge; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();

@@ -19,6 +19,8 @@ import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/a
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
 import { webGet } from '../shared/history.ts';
 import { KeyLevelHistory } from './keylevels/history.ts';
+import { TapeRing, tapeCapacity } from './tape/ring.ts';
+import { isPhone } from './device.ts';
 import type { SumRow } from '../shared/print-sums.ts';
 
 export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
@@ -71,6 +73,21 @@ export class Hub {
   #liveCandles: TickMessage['candles'] = {};
   /** The live minutes folded into the display candle, when it spans more than one. */
   readonly #liveTrack: { current: LiveTrack | null } = { current: null };
+  /**
+   * Every market order the live stream sent since the page opened, for the trade dust (memory only, never stored; empty while it is off).
+   * Its ring is made when the dust is first switched on.
+   */
+  tape: TapeRing | null = null;
+  /** Called when orders arrived for the dust. */
+  onTape: () => void = () => {};
+  /** The live connection's handle, so the dust can be asked for or stopped. */
+  #live: { close(): void; tape(on: boolean): void } | null = null;
+  #tapeOn = false;
+  /** Ask the source for every order (the trade dust) or stop it; what is held stays until the page goes. */
+  setTape(on: boolean): void {
+    if (on && !this.tape) this.tape = new TapeRing(tapeCapacity(isPhone()));
+    this.#tapeOn = on; this.#live?.tape(on);
+  }
   /** Large trades for the bubbles: history for the window on screen plus everything the live stream has delivered. */
   readonly prints = new PrintBook();
   /** Called with each batch of new large trades from the live stream (for sounds). */
@@ -239,7 +256,7 @@ export class Hub {
     // A source that says when venues change (the browser) keeps the market list current without being asked.
     let pending: ReturnType<typeof setTimeout> | undefined;
     this.source.venues.watch?.(() => { clearTimeout(pending); pending = setTimeout(() => void this.refreshMarkets(), 300); });
-    this.source.connect({
+    this.#live = this.source.connect({
       onOpen: () => {
         this.#connection++; this.#printsWindow = null; this.#liquidationsWindow = null; this.#absorptionCover = null;
         // What the stream said while it was down is in the recordings and not in the book: ask for the history again (the first open has nothing to repair).
@@ -254,6 +271,7 @@ export class Hub {
       onTick: tick => this.#tick(tick),
       onLayers: message => this.store.set({ layers: message.layers }),
       onFlow: items => { this.flow.apply(items); this.onFlowChanged(); },
+      onTape: batch => { if (!this.#tapeOn || !this.tape) return; this.tape.add(batch, this.#connection, performance.now()); this.onTape(); },
       onAbsorption: (groups, minutes) => { this.absorption.add(groups); this.absorption.addMinutes(minutes); this.onAbsorptionChanged(); },
       onPrints: items => {
         const fresh = this.prints.add(items.flatMap(row => { const p = fromWire(row); return p ? [p] : []; }));
@@ -264,6 +282,7 @@ export class Hub {
         if (fresh.length) this.onLiquidationsChanged();
       },
     });
+    this.#live.tape(this.#tapeOn);
   }
 
   #noteRecorded(recorded: Record<string, { first: number }> | undefined): void {

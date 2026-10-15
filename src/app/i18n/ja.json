@@ -1271,5 +1271,14 @@
  "Fill": "塗り",
  "side unknown": "方向不明",
  "Side unknown": "方向不明",
- "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "取引所を合算しているときは、線もこれらの変化から描かれます。線は現在の取引所合計で終わり、ローソク足ごとにその変化だけさかのぼるので、バーとまったく同じように動きます。まだ値がなかった取引所がある区間は破線になります。"
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "取引所を合算しているときは、線もこれらの変化から描かれます。線は現在の取引所合計で終わり、ローソク足ごとにその変化だけさかのぼるので、バーとまったく同じように動きます。まだ値がなかった取引所がある区間は破線になります。",
+ "Live trades": "ライブ約定",
+ "Every market order as it arrives, as a dot at its own exchange's price (the fills of one order added together), with the chart market's price line through them. Kept in this page only: a reload starts empty.": "すべての成行注文を到着時に、その取引所自身の価格の点として表示します（1件の注文の約定を合算）。チャート市場の価格線がその中を通ります。このページ内にのみ保持され、再読み込みすると空から始まります。",
+ "Live trades opacity": "ライブ約定の不透明度",
+ "How strong the dots are. Where orders crowd together their volume adds up, so busy prices show stronger.": "点の濃さです。注文が密集する所では出来高が合算されるため、取引の多い価格ほど濃く表示されます。",
+ "A faint price line for every other exchange too. Their prices differ a little, so the lines stack.": "他の各取引所にも薄い価格線を引きます。価格がわずかに異なるため、線が重なって並びます。",
+ "Live trades draws every market order as it arrives, as a small dot at its own exchange's price: the exchanges trade a little apart, so their dots run in parallel bands. Where dots crowd together their volume adds up, coloured by the side that traded more there. A line runs through the chart market's orders (dashed before this page opened, from its prices a second), and the candles turn hollow so nothing hides behind them. New orders flash briefly as they come in.": "ライブ約定は、すべての成行注文を到着時に、その取引所自身の価格の小さな点として描きます。取引所ごとに価格がわずかにずれるため、点は平行な帯になります。点が密集する所では出来高が合算され、そこで多く取引された側の色で表示されます。チャート市場の注文には線が通り（このページを開く前は1秒ごとの価格から破線で）、何も隠れないようにローソク足は中抜きになります。新しい注文は到着時に一瞬光ります。",
+ "Live trades are kept in this page's memory only, from when it opened (a dotted line marks where they begin, and any gap): a reload starts empty, and the oldest go after about an hour and a half of busy trading. The bubbles are recorded as before.": "ライブ約定はこのページのメモリにのみ、開いた時点から保持されます（点線が開始位置と途切れを示します）。再読み込みすると空から始まり、活発な取引が約1時間半続くと古いものから消えます。バブルはこれまでどおり記録されます。",
+ "live trades from {time}": "{time} からのライブ約定",
+ "gap in live trades": "ライブ約定の途切れ"
 }

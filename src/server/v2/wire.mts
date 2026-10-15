@@ -1,6 +1,7 @@
 import type { Column } from './recorder.mts';
 import { packLt } from '../../shared/columns.ts';
 import type { ValuedBook } from './levels.mts';
+import type { TapeBatch } from '../../shared/tape.ts';
 
 /**
  * Binary frame: u32 header length, UTF-8 JSON header, zero padding to 8 bytes, then typed-array payloads
@@ -8,6 +9,7 @@ import type { ValuedBook } from './levels.mts';
  */
 export const WIRE_COLUMNS = 'columns';
 export const WIRE_LEVELS = 'levels';
+export const WIRE_TAPE = 'tape';
 
 type Part = { kind: 'f64' | 'f32' | 'i32'; data: Float64Array | Float32Array | Int32Array };
 
@@ -44,6 +46,11 @@ export function encodeColumns(results: ColumnsRequestResult[], from: number, to:
   });
   for (const lt of trackers) parts.push({ kind: 'f32', data: lt });
   return frame({ type: WIRE_COLUMNS, from, to, stepMs, instruments }, parts);
+}
+
+/** Every market order completed since the last batch (shared/tape.ts): the ids in the header, six columns as parts. */
+export function encodeTape(batch: TapeBatch): Buffer {
+  return frame({ type: WIRE_TAPE, seq: batch.seq, dropped: batch.dropped, ids: batch.ids }, [{ kind: 'i32', data: batch.inst }, { kind: 'f64', data: batch.t }, { kind: 'f64', data: batch.price }, { kind: 'f32', data: batch.usd }, { kind: 'f64', data: batch.lo }, { kind: 'f64', data: batch.hi }]);
 }
 
 /** Live valued books: per instrument bid/ask lo, hi, usd (6 float64 arrays). */

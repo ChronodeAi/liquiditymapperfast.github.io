@@ -1271,5 +1271,14 @@
  "Fill": "填充",
  "side unknown": "方向未知",
  "Side unknown": "方向未知",
- "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "多个交易所相加时，线也由这些变化绘制：它结束于当前各交易所的总和，并按每根K线的变化往回推，因此与柱子完全同步。部分交易所尚无读数的地方画成虚线。"
+ "With venues added together the line is drawn from those changes too: it ends at the venues' total now and steps back by each candle's change, so it moves exactly as the bars do. Where some venues had no reading yet it is dashed.": "多个交易所相加时，线也由这些变化绘制：它结束于当前各交易所的总和，并按每根K线的变化往回推，因此与柱子完全同步。部分交易所尚无读数的地方画成虚线。",
+ "Live trades": "实时成交",
+ "Every market order as it arrives, as a dot at its own exchange's price (the fills of one order added together), with the chart market's price line through them. Kept in this page only: a reload starts empty.": "每笔市价单到达时，以其所在交易所自身价格上的一个点显示（同一订单的成交合计），图表市场的价格线从中穿过。仅保存在本页面中：刷新后从空开始。",
+ "Live trades opacity": "实时成交不透明度",
+ "How strong the dots are. Where orders crowd together their volume adds up, so busy prices show stronger.": "圆点的浓淡。订单密集处成交量会累加，因此交易活跃的价格显示得更浓。",
+ "A faint price line for every other exchange too. Their prices differ a little, so the lines stack.": "也为其他每个交易所画一条淡淡的价格线。各交易所价格略有差异，所以这些线会层叠排列。",
+ "Live trades draws every market order as it arrives, as a small dot at its own exchange's price: the exchanges trade a little apart, so their dots run in parallel bands. Where dots crowd together their volume adds up, coloured by the side that traded more there. A line runs through the chart market's orders (dashed before this page opened, from its prices a second), and the candles turn hollow so nothing hides behind them. New orders flash briefly as they come in.": "实时成交将每笔市价单在到达时绘制为其所在交易所自身价格上的一个小点：各交易所的价格略有差距，因此它们的点形成平行的条带。点密集处成交量会累加，并以该处成交更多的一方的颜色显示。一条线穿过图表市场的订单（本页面打开之前，根据其每秒价格画成虚线），K线变为空心，以免遮挡其后的内容。新订单到达时会短暂闪烁。",
+ "Live trades are kept in this page's memory only, from when it opened (a dotted line marks where they begin, and any gap): a reload starts empty, and the oldest go after about an hour and a half of busy trading. The bubbles are recorded as before.": "实时成交仅保存在本页面的内存中，从页面打开时开始（虚线标出起点和每处中断）：刷新后从空开始，交易活跃时约一个半小时后最早的会被移除。气泡仍像以前一样记录。",
+ "live trades from {time}": "{time} 起的实时成交",
+ "gap in live trades": "实时成交中断"
 }

@@ -12,7 +12,9 @@ import { TOUCH_HINT_MS } from '../../shared/levels.ts';
 import { COLUMNS_PER_REQUEST } from '../../shared/columns.ts';
 import { DepthRecorder, COLUMN_MS, HOT_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
 import { SqliteColumnStore } from './store.mts';
-import { encodeColumns, encodeLevels } from './wire.mts';
+import { encodeColumns, encodeLevels, encodeTape } from './wire.mts';
+import { TAPE_BATCH_MAX, packTape } from '../../shared/tape.ts';
+import type { MarketOrder } from '../../shared/orders.ts';
 import { FootprintRecorder } from './footprint.mts';
 import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
 import { RecordedBefore } from '../../shared/restart.ts';
@@ -47,6 +49,8 @@ const MAX_FLOW_MINUTES_SPAN_MS = 8 * 24 * 3_600_000;
 const MAX_SIZES_INSTRUMENTS = 96;
 /** A client whose unsent backlog passes this is dropped rather than buffered without bound; levels frames are skipped past a lower mark. */
 const MAX_CLIENT_BACKLOG_BYTES = 16_000_000, LEVELS_SKIP_BYTES = 4_000_000;
+/** A client behind by this much skips trade-dust batches (drawing only: a skipped one leaves a short gap in the dust, nothing else). */
+const TAPE_SKIP_BYTES = 2_000_000;
 /** The live socket says something at least this often, so a client can tell a quiet server from a dead connection. */
 const HEARTBEAT_MS = 5_000;
 /** Books with at least this many raw levels are re-valued no more often than the interval below. */
@@ -115,9 +119,13 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   /** Absorption candidates (see shared/absorption.ts): every fill the builder took, once each. */
   const absorption = new AbsorptionRecorder(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
   const detect = (taken: readonly TakenFill[]): void => { for (const f of taken) absorption.add(f.instrumentId, f.t, f.price, f.usd, f.side); };
+  /** Every order completed since the last dust batch, for the clients that asked for it (`tapeClients`), at most a batch's worth. */
+  let tapeOut: MarketOrder[] = [], tapeSeq = 0;
+  const tapeClients = new WeakSet<WebSocket>();
   const takeOrders = (all: boolean): void => {
     const done = orders.drain(all);
     if (done.length) prints.ingest(done.map(orderRow));
+    if (done.length) { tapeOut.push(...done); if (tapeOut.length > 4 * TAPE_BATCH_MAX) tapeOut = tapeOut.slice(-2 * TAPE_BATCH_MAX); }
     // Every pass, none drained or not: the footprint counts first any orders it had to keep (a minute it could not read back).
     footprint.countOrders(done);
   };
@@ -247,12 +255,21 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     // Taken whether or not anyone listens, so the changed seconds do not pile up while nobody is connected.
     const flowItems = now - lastFlowPush >= FLOW_SEC ? flow.take() : [];
     if (flowItems.length || now - lastFlowPush >= FLOW_SEC) lastFlowPush = now;
+    const tape = tapeOut; tapeOut = [];
     if (wss.clients.size === 0) return;
     if (now - lastBeat >= heartbeatMs) { lastBeat = now; broadcast(JSON.stringify({ t: 'hb', now })); }
     if (fresh.length) broadcast(JSON.stringify({ t: 'prints', items: fresh.map(toWire) }));
     if (forced.length) broadcast(JSON.stringify({ t: 'liquidations', items: forced.map(liquidationWire) }));
     if (found.groups.length || found.minutes.length) broadcast(JSON.stringify({ t: 'absorption', groups: found.groups, minutes: found.minutes }));
     if (flowItems.length) broadcast(JSON.stringify({ t: 'flow', items: flowItems }));
+    if (tape.length) {
+      tapeSeq++;
+      let encoded: Buffer | null = null;
+      for (const client of wss.clients) {
+        if (client.readyState !== WebSocket.OPEN || !tapeClients.has(client) || client.bufferedAmount >= TAPE_SKIP_BYTES) continue;
+        encoded ??= encodeTape(packTape(tape, tapeSeq)); client.send(encoded, { binary: true });
+      }
+    }
     if (levelsDirty) {
       levelsDirty = false;
       broadcast(encodeLevels(books, now), { binary: true }, LEVELS_SKIP_BYTES);
@@ -273,6 +290,11 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/api/v2/ws') return;
     wss.handleUpgrade(req, socket, head, client => {
       client.on('error', () => client.terminate());
+      // The one thing a page says on the socket: whether it draws the trade dust (an older page says nothing and is never sent it).
+      client.on('message', data => {
+        if (!(data instanceof Buffer) || data.length > 200) return;
+        try { const m = JSON.parse(String(data)) as { t?: unknown; on?: unknown }; if (m.t === 'tape') { if (m.on === true) tapeClients.add(client); else tapeClients.delete(client); } } catch { /* not ours */ }
+      });
       levelsDirty = true; lastTick = ''; lastLayers = '';
     });
   };

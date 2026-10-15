@@ -1,4 +1,5 @@
 import type { Print } from './prints.ts';
+import type { TapeBatch } from '../shared/tape.ts';
 import type { LsMetric, LsSeries } from '../shared/long-short.ts';
 import type { Liquidation } from '../shared/liquidations.ts';
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
@@ -34,6 +35,8 @@ export interface LiveHandlers {
   onLiquidations?(items: unknown[]): void;
   /** Taker flow per second for the seconds that changed (about once a second): each replaces what the page had for that second. */
   onFlow?(items: FlowUpdate[]): void;
+  /** Every market order completed since the last batch, for the trade dust (checked already; only while asked for with `tape(true)`). */
+  onTape?(batch: TapeBatch): void;
   /** Absorption groups found and minutes settled (checked already). */
   onAbsorption?(groups: AbsorptionGroup[], minutes: AbsorptionMinute[]): void;
 }
@@ -80,7 +83,8 @@ export type SavingState = 'server' | 'here' | 'other' | 'memory' | 'failed' | 's
 export interface DataSource {
   readonly kind: 'server' | 'browser';
   bootstrap(): Promise<BootstrapState>;
-  connect(handlers: LiveHandlers): { close(): void };
+  /** `tape`: whether the page draws the trade dust (a server sends its batches only to a page that asked; the browser engine always does). */
+  connect(handlers: LiveHandlers): { close(): void; tape(on: boolean): void };
   candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]>;
   /** `usd`: an inverse market's own USD in place of its coins (the readings that kept one; an older source ignores it and answers coins). */
   oi(inst: string, tf: string, from: number, to: number, usd?: boolean): Promise<OiBar[]>;

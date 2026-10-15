@@ -146,6 +146,10 @@ async function main(): Promise<void> {
   alerts.onChange = () => cvd.invalidate(); cvd.events = alerts.bursts;
   hub.onPrints = fresh => { if (replaying()) return; sounds.feed(fresh); cvd.flash(fresh); };
   hub.onPrintsChanged = () => { heat.invalidate(); range.refreshHeld(); };
+  // The trade dust: asked for while the bubbles and their Live trades switch are both on; arrivals redraw the dust alone.
+  const tapeWanted = (): boolean => store.state.show.bubbles && store.state.tradeBubbles.live;
+  hub.setTape(tapeWanted());
+  hub.onTape = () => heat.tapeArrived();
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.keyHistory = hub.keyHistory;
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
@@ -213,6 +217,7 @@ async function main(): Promise<void> {
     // Placing a VWAP anchor and selecting a Range both take the next press on the map: arming one ends the other.
     if (changed.has('rangeTool') && state.rangeTool && state.vwapAnchoring) store.set({ vwapAnchoring: false });
     if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('show')) range.refreshHeld();
+    if (changed.has('tradeBubbles') || changed.has('show')) hub.setTape(tapeWanted());
     if (changed.has('sounds')) heat.invalidate();
     if (changed.has('levels')) { ladder.invalidate(); ladder.syncVenues(); heat.invalidate(); }
     // Replay starting or ending changes what the book, the flow column and the panes show, whether or not new data arrives.

@@ -22,7 +22,7 @@ class FakeSource {
   async bootstrap(): Promise<BootstrapState> {
     return { asOf: 0, now: 0, dataMode: 'server', markPrice: 100, markInstrumentId: 'ref:BTC', markets: [{ instrumentId: 'ref:BTC' }, { instrumentId: 'sel:BTC' }], layers: {}, steps: {}, recorded: {}, columnMs: MIN, timeframes: [], oiReferences: [] };
   }
-  connect(handlers: LiveHandlers): { close(): void } { this.handlers = handlers; return { close() {} }; }
+  connect(handlers: LiveHandlers): { close(): void; tape(on: boolean): void } { this.handlers = handlers; return { close() {}, tape() {} }; }
   candles(): Promise<CandleRow[]> { return new Promise(resolve => { this.asked.push({ resolve }); }); }
   async oi() { return []; }
   async prints() { return []; }

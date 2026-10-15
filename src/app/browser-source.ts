@@ -1,5 +1,6 @@
 import type { VenueStatus } from '../shared/engine.ts';
 import type { FlowFrame } from '../shared/flow.ts';
+import { checkTape } from '../shared/tape.ts';
 import { TIMEFRAMES } from '../shared/series.ts';
 import { LongShortCache, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { webGet } from '../shared/history.ts';
@@ -75,6 +76,8 @@ export class BrowserSource implements DataSource, VenueControl {
   readonly #calls = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   readonly #watchers = new Set<(venues: VenueEntry[]) => void>();
   #handlers: LiveHandlers | null = null;
+  /** Whether the page draws the trade dust: the engine sends its batches anyway (they cost one message a pass), and they are dropped here. */
+  #tapeOn = false;
   #next = 0;
   #statuses: VenueStatus[] = [];
   #statusKnown: Promise<void>;
@@ -116,6 +119,7 @@ export class BrowserSource implements DataSource, VenueControl {
         case 'prints': this.#handlers?.onPrints(message.items.map(toWire)); break;
         case 'liquidations': this.#handlers?.onLiquidations?.(message.items.map(liquidationWire)); break;
         case 'flow': this.#handlers?.onFlow?.(message.items); break;
+        case 'tape': { if (!this.#tapeOn) break; const batch = checkTape(message.batch); if (batch) this.#handlers?.onTape?.(batch); break; }
         case 'absorption': { const found = parseAbsorptionLive(message); this.#handlers?.onAbsorption?.(found.groups, found.minutes); break; }
         case 'status':
           this.#statuses = message.venues; known();
@@ -184,7 +188,7 @@ export class BrowserSource implements DataSource, VenueControl {
     return { ...boot, dataMode: 'browser', layers: {} };
   }
 
-  connect(handlers: LiveHandlers): { close(): void } {
+  connect(handlers: LiveHandlers): { close(): void; tape(on: boolean): void } {
     this.#handlers = handlers;
     void this.#ready.then(() => {
       if (this.#handlers !== handlers) return;
@@ -192,7 +196,7 @@ export class BrowserSource implements DataSource, VenueControl {
       if (this.#levels) handlers.onLevels(this.#levels);
       if (this.#tick) handlers.onTick(this.#tick);
     });
-    return { close: () => { if (this.#handlers === handlers) this.#handlers = null; } };
+    return { close: () => { if (this.#handlers === handlers) this.#handlers = null; }, tape: on => { this.#tapeOn = on; } };
   }
 
   async candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> { return this.#call({ method: 'candles', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to }); }

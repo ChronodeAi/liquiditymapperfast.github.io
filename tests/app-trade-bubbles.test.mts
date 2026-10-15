@@ -9,9 +9,9 @@ const MIN = 60_000, T0 = 1_800_000_000_000;
 
 test('saved bubble settings are read field by field: the smallest order is any size from the recording\'s floor', () => {
   assert.deepEqual(readBubbles(undefined), BUBBLE_DEFAULTS);
-  assert.deepEqual(readBubbles({ minUsd: 300_000, side: 'sell', scale: 1.34, opacity: 0.33, labels: true }), { minUsd: 300_000, side: 'sell', scale: 1.3, opacity: 0.35, labels: true, marks: true });
+  assert.deepEqual(readBubbles({ minUsd: 300_000, side: 'sell', scale: 1.34, opacity: 0.33, labels: true }), { minUsd: 300_000, side: 'sell', scale: 1.3, opacity: 0.35, labels: true, marks: true, live: true, liveOpacity: 0.75, venueLines: false });
   assert.equal(readBubbles({ marks: false }).marks, false, 'the marks can be switched off');
-  assert.deepEqual(readBubbles({ minUsd: 10, side: 'left', scale: 9, opacity: 0, labels: 'yes' }), { minUsd: 25_000, side: 'both', scale: 2, opacity: 0.1, labels: false, marks: true });
+  assert.deepEqual(readBubbles({ minUsd: 10, side: 'left', scale: 9, opacity: 0, labels: 'yes' }), { minUsd: 25_000, side: 'both', scale: 2, opacity: 0.1, labels: false, marks: true, live: true, liveOpacity: 0.75, venueLines: false });
   assert.equal(readBubbles({ minUsd: 5e9 }).minUsd, 5e9); assert.equal(readBubbles({ minUsd: 5e10 }).minUsd, 25_000, 'over the largest size: the default');
   assert.equal(readBubbles({ minUsd: 250_000 }).minUsd, 250_000, 'a choice from before the sizes were free stays');
   assert.equal(readBubbles({ minUsd: Number.NaN }).minUsd, 25_000);

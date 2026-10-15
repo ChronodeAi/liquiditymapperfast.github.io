@@ -342,6 +342,9 @@ export class FlowSeries {
   buy(from: number, to: number): number { return (this.gross(from, to) + this.delta(from, to)) / 2; }
   sell(from: number, to: number): number { return (this.gross(from, to) - this.delta(from, to)) / 2; }
 
+  /** The volume-weighted price of second `sec` itself: 0 when nothing with a price traded in it, or it is not held (never carried forward). */
+  ownPrice(sec: number): number { return this.empty || sec < this.#first || sec > this.#last ? 0 : this.#px[sec & MASK]!; }
+
   /**
    * The price at the end of second `sec`: that of the last second at or before it in which something traded (read back at most two hours),
    * or NaN when there is none (before the series, or no trade with a price yet).

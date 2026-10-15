@@ -79,6 +79,7 @@ async function init(selected: string[] | null, known: string[] | null, persist: 
   next.onPrints = (items: Print[]) => post({ type: 'prints', items });
   next.onLiquidations = items => post({ type: 'liquidations', items });
   next.onFlow = items => post({ type: 'flow', items });
+  next.onTape = batch => post({ type: 'tape', batch }, [batch.inst.buffer, batch.t.buffer, batch.price.buffer, batch.usd.buffer, batch.lo.buffer, batch.hi.buffer]);
   next.onAbsorption = found => post({ type: 'absorption', groups: found.groups, minutes: found.minutes });
   next.onStatus = venues => post({ type: 'status', venues });
   next.select(restoreSelection(selected, known, venues) ?? venues.filter(v => v.recommended).map(v => v.id));

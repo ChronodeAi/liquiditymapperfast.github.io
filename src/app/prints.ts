@@ -123,12 +123,16 @@ export function bubbleRadius(usd: number, largest: number): number {
  * how solid they are, and whether bubbles big enough to hold it carry their size written in them. They change only the bubbles: sounds and
  * the flow column's dots keep their own sizes.
  */
-/** `marks`: the exchange's mark in each bubble large enough to hold it. */
-export interface BubbleSettings { minUsd: number; side: 'both' | 'buy' | 'sell'; scale: number; opacity: number; labels: boolean; marks: boolean }
+/**
+ * `marks`: the exchange's mark in each bubble large enough to hold it. `live`: every market order as it arrives, as dust under the bubbles,
+ * with the chart market's price line through it (`tape/`; held in memory only); `liveOpacity` how strong the dust is; `venueLines` a faint
+ * price line for every other market as well.
+ */
+export interface BubbleSettings { minUsd: number; side: 'both' | 'buy' | 'sell'; scale: number; opacity: number; labels: boolean; marks: boolean; live: boolean; liveOpacity: number; venueLines: boolean }
 /** The smallest orders offered in the menu; any size from the first can be typed (the recording keeps every order from $25,000). */
 export const BUBBLE_MINIMUMS: readonly number[] = [25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_500_000];
-export const BUBBLE_DEFAULTS: Readonly<BubbleSettings> = { minUsd: 25_000, side: 'both', scale: 1, opacity: 0.5, labels: false, marks: true };
-export const BUBBLE_LIMITS = { scale: { min: 0.5, max: 2, step: 0.1 }, opacity: { min: 0.1, max: 0.9, step: 0.05 } } as const;
+export const BUBBLE_DEFAULTS: Readonly<BubbleSettings> = { minUsd: 25_000, side: 'both', scale: 1, opacity: 0.5, labels: false, marks: true, live: true, liveOpacity: 0.75, venueLines: false };
+export const BUBBLE_LIMITS = { scale: { min: 0.5, max: 2, step: 0.1 }, opacity: { min: 0.1, max: 0.9, step: 0.05 }, liveOpacity: { min: 0.2, max: 1, step: 0.05 } } as const;
 
 /** Saved settings, each field checked (anything else is the default; the smallest order is any size from the recording's floor). */
 export function readBubbles(saved: unknown): BubbleSettings {
@@ -143,6 +147,9 @@ export function readBubbles(saved: unknown): BubbleSettings {
     opacity: Number(within(s.opacity, L.opacity.min, L.opacity.max, L.opacity.step, d.opacity).toFixed(2)),
     labels: typeof s.labels === 'boolean' ? s.labels : d.labels,
     marks: typeof s.marks === 'boolean' ? s.marks : d.marks,
+    live: typeof s.live === 'boolean' ? s.live : d.live,
+    liveOpacity: Number(within(s.liveOpacity, L.liveOpacity.min, L.liveOpacity.max, L.liveOpacity.step, d.liveOpacity).toFixed(2)),
+    venueLines: typeof s.venueLines === 'boolean' ? s.venueLines : d.venueLines,
   };
 }
 

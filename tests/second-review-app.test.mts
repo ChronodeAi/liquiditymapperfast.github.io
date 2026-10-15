@@ -32,7 +32,7 @@ class FakeSource {
   async bootstrap(): Promise<BootstrapState> {
     return { asOf: 0, now: 0, dataMode: 'server', markPrice: 100, markInstrumentId: 'ref:BTC', markets: [{ instrumentId: 'ref:BTC' }], layers: {}, steps: {}, recorded: {}, columnMs: MIN, timeframes: [], oiReferences: [] };
   }
-  connect(handlers: LiveHandlers): { close(): void } { this.handlers = handlers; return { close() {} }; }
+  connect(handlers: LiveHandlers): { close(): void; tape(on: boolean): void } { this.handlers = handlers; return { close() {}, tape() {} }; }
   candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> {
     const answer = this.auto.get(tf); if (answer) return Promise.resolve(answer);
     return new Promise((resolve, reject) => { this.candleCalls.push({ inst, tf, from, to, resolve, reject }); });

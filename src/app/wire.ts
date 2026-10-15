@@ -1,6 +1,7 @@
 /** Decoders for the v2 binary frames (see src/server/v2/wire.mts for the layout). */
 import type { ColumnSet, ColumnsFrame } from '../shared/columns.ts';
 import { LT_LENGTH } from '../shared/lt-sample.ts';
+import { checkTape, type TapeBatch } from '../shared/tape.ts';
 export type { ColumnSet, ColumnsFrame };
 type PartKind = 'f64' | 'f32' | 'i32';
 interface PartSpec { kind: PartKind; offset: number; length: number }
@@ -29,6 +30,13 @@ function open(buffer: ArrayBuffer): { header: FrameHeader & Record<string, unkno
 }
 
 export function frameType(buffer: ArrayBuffer): string { return open(buffer).header.type; }
+
+/** A trade-dust batch (server/v2/wire.mts `encodeTape`), checked with shared/tape.ts `checkTape`; null when malformed. */
+export function decodeTape(buffer: ArrayBuffer): TapeBatch | null {
+  const { header, part } = open(buffer);
+  if (header.type !== 'tape') throw new Error(`Expected a tape frame, got ${header.type}`);
+  return checkTape({ seq: header.seq, dropped: header.dropped, ids: header.ids, inst: part(0), t: part(1), price: part(2), usd: part(3), lo: part(4), hi: part(5) });
+}
 
 export function decodeColumns(buffer: ArrayBuffer): ColumnsFrame {
   const { header, part } = open(buffer);
