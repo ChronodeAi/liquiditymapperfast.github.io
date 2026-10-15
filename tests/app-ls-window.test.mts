@@ -60,4 +60,6 @@ test('with no line to draw the pane says why: still reading, a venue that could 
   assert.equal(lsMessage([S('okx:BTC-USDT-SWAP', 'serverOnly', 0)], true), 'reading');
   assert.equal(lsMessage([S('binance:BTCUSDT', 'empty', 0), S('bybit:BTCUSDT', 'failed', 0)], false), 'failed', 'a failure is not "no readings"');
   assert.equal(lsMessage([S('binance:BTCUSDT', 'empty', 0), S('okx:BTC-USDT-SWAP', 'serverOnly', 0)], false), 'none');
+  assert.equal(lsMessage([S('binance:BTCUSDT', 'stale', 3)], false), 'failed', 'readings held for another time, the update for this one failed');
+  assert.equal(lsMessage([S('binance:BTCUSDT', 'ok', 3)], false), 'none', 'readings for another time, none for this one');
 });

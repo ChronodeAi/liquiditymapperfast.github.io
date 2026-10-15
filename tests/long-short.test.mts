@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LongShortCache, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
-import { lsAt, lsCardLines, stepEnd } from '../src/app/panes/ls-pane.ts';
+import { lsAt, lsCardLines, lsRange, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
 import { atOnePrice } from '../src/app/oi-change.ts';
@@ -262,6 +262,38 @@ test('a reading published after an empty stretch was held is read by the next re
   const later = await cache.series('bybit:BTCUSDT', 'accounts', H, at(18, 30), at(18, 40));
   assert.ok(later.points.some(p => p.t === at(18)), 'an hour on, the 18:00 reading is read and given');
   assert.ok(get.asked.length > asked);
+});
+
+test('a window inside or after the period under way claims nothing before it: a window reaching back from it reads what it needs', async () => {
+  const now = Date.UTC(2026, 9, 13, 18, 50);
+  const at = (h: number, m = 0) => Date.UTC(2026, 9, 13, h, m);
+  const venue = () => fake({ 'https://api.bybit.com/': url => {
+    const last = Math.floor(Math.min(Number(url.searchParams.get('endTime')), now - H) / H) * H;
+    return { retCode: 0, result: { list: Array.from({ length: 48 }, (_, i) => ({ buyRatio: '0.6', sellRatio: '0.4', timestamp: String(last - i * H) })) } };
+  } });
+  // A chart zoomed in on the live edge, then one a little further back: the 17:00 reading holds into its window.
+  const live = new LongShortCache(venue(), false, () => now);
+  await live.series('bybit:BTCUSDT', 'accounts', H, at(18, 45), at(19, 50));
+  assert.ok((await live.series('bybit:BTCUSDT', 'accounts', H, at(17, 55), at(18, 50))).points.some(p => p.t === at(17)));
+  // A view in the future (nothing to read), then one before it.
+  const ahead = new LongShortCache(venue(), false, () => now);
+  await ahead.series('bybit:BTCUSDT', 'accounts', H, at(20), at(21));
+  assert.ok((await ahead.series('bybit:BTCUSDT', 'accounts', H, at(17, 55), at(18, 40))).points.some(p => p.t === at(17)));
+  // Asked again, neither goes back to the venue.
+  const get = venue(), again = new LongShortCache(get, false, () => now);
+  await again.series('bybit:BTCUSDT', 'accounts', H, at(18, 45), at(19, 50));
+  const asked = get.asked.length;
+  await again.series('bybit:BTCUSDT', 'accounts', H, at(18, 45), at(19, 50));
+  await again.series('bybit:BTCUSDT', 'accounts', H, at(20), at(21));
+  assert.equal(get.asked.length, asked);
+});
+
+test('the pane draws nothing, and says why, when no step of the readings held is in view', () => {
+  const s = { points: [{ t: 0, long: 0.6 }, { t: H, long: 0.62 }], periodMs: H };
+  assert.deepEqual(lsRange([s], 0, 30 * M), { lo: 0.6, hi: 0.6 });
+  assert.deepEqual(lsRange([s], 30 * M, 3 * H), { lo: 0.6, hi: 0.62 }, 'a step that began before the view and holds into it counts');
+  assert.equal(lsRange([s], 10 * H, 20 * H), null, 'readings held for another time');
+  assert.equal(lsRange([], 0, H), null);
 });
 
 test('a failure pauses the series for a minute from when it failed, however long its pages took', async () => {

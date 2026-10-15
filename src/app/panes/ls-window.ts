@@ -23,11 +23,12 @@ const MINUTE = 60_000, HOUR = 3_600_000;
 export const LS_ROUND_MS = 45_000;
 
 /**
- * What the pane says where it draws no line, for the series of the markets shown: `reading` while a round waits for a venue, `failed` once it
- * is over and a venue could not be read (it is asked again with the minute refresh), else `none` (the venues answered: nothing for this time).
+ * What the pane says when it draws no step in view, for the series of the markets shown: `reading` while a round waits for a venue, `failed`
+ * once it is over and a venue's last update could not be read (failed, or stale: readings held for another time; asked again with the minute
+ * refresh), else `none` (the venues answered: nothing for this time).
  */
 export function lsMessage(series: readonly LsSeries[], loading: boolean): 'reading' | 'failed' | 'none' {
-  return loading ? 'reading' : series.some(s => s.status === 'failed') ? 'failed' : 'none';
+  return loading ? 'reading' : series.some(s => s.status === 'failed' || s.status === 'stale') ? 'failed' : 'none';
 }
 
 /** The window to ask for now, or null when nothing need be asked. */

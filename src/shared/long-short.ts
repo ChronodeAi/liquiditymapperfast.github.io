@@ -196,8 +196,8 @@ export class LongShortCache {
       const h = held, now = this.now(), want = Math.min(to, now + periodMs);
       if (now - h.failed < MINUTE) break;
       let start: number, end: number, kind: 'whole' | 'older' | 'newer';
-      // Nothing held yet (an empty stretch is held: a window inside the period under way holds none, and asking again would not change that).
-      if (!(h.from <= h.to)) { start = from; end = want; kind = 'whole'; }
+      // Never read (or started again); a stretch that ends before it starts is held all the same (see below).
+      if (h.from === Infinity) { start = from; end = want; kind = 'whole'; }
       else if (from < h.from) { start = from; end = h.from; kind = 'older'; }
       // Past what is held: at once where that ends before the live edge, at the live edge at most once a period (and once a minute).
       else if (want > h.to && (h.to < now - 2 * periodMs || now - h.checked >= Math.max(periodMs, MINUTE))) { start = h.to - 2 * periodMs; end = want; kind = 'newer'; }
@@ -209,11 +209,12 @@ export class LongShortCache {
         h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
         // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
-        // period before now: the reading of the period under way comes later. A window that starts inside that period holds the empty stretch
-        // at that edge (its pages read everything from a period before the window on), not one that ends before it starts, which read as
-        // nothing held, and every question asked the venue again; nor one past the edge, which no refresh would ever read again.
+        // period before now: the reading of the period under way comes later. A window that starts inside that period (or after it) is held
+        // as a stretch that ends before it starts: nothing is claimed between the edge and the window, so a window there reads it, and the
+        // refresh reads on from the edge. (Read as nothing held, it had every question ask the venue again; an empty stretch claimed at the
+        // edge skipped the readings between the edge and the window; one claimed at the window's start was past the edge, never refreshed.)
         const until = Math.min(end, now - periodMs);
-        if (kind === 'whole') { h.from = Math.min(reached, until); h.to = until; h.checked = now; }
+        if (kind === 'whole') { h.from = reached; h.to = until; h.checked = now; }
         else if (kind === 'older') h.from = Math.min(h.from, reached);
         else { h.to = Math.max(h.to, until); h.checked = now; }
         if (h.points.size > this.maxPoints) {

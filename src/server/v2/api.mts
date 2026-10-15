@@ -355,7 +355,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     sendJson(res, { instrumentId: id, tf, ...(usd ? { usd } : {}), bars: aggregateOi(usd ? withLiveOi(quoteRows(stored), quoteRows(live)) : withLiveOi(stored, live), tfMs) });
   };
   // Long/short ratios as the venues publish them, read when asked for and kept in memory only (shared/long-short.ts): nothing of the
-  // history store's budget, and nothing read while no page shows the pane.
+  // history store's budget, and nothing new asked while no page shows the pane (a read already under way finishes).
   const longShort = new LongShortCache(webGet, false);
   const longShortRoute = (url: URL, res: ServerResponse) => {
     const id = url.searchParams.get('inst') ?? '', tf = url.searchParams.get('tf') ?? '1h', tfMs = timeframeMs(tf), metric = url.searchParams.get('metric') ?? 'accounts';

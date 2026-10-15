@@ -40,6 +40,13 @@ export function stepEnd(s: Pick<LsSeries, 'points' | 'periodMs'>, i: number): nu
   return next && next.t - q.t <= HOLD_PERIODS * s.periodMs ? next.t : q.t + s.periodMs;
 }
 
+/** The lowest and highest share over the steps drawn in [t0, t1] (a reading counts while it holds, as the lines are drawn); null when no step is in view. */
+export function lsRange(series: readonly Pick<LsSeries, 'points' | 'periodMs'>[], t0: number, t1: number): { lo: number; hi: number } | null {
+  let lo = Infinity, hi = -Infinity;
+  for (const s of series) s.points.forEach((q, i) => { if (stepEnd(s, i) >= t0 && q.t <= t1) { lo = Math.min(lo, q.long); hi = Math.max(hi, q.long); } });
+  return lo <= hi ? { lo, hi } : null;
+}
+
 /** The reading of `points` (oldest first) in effect at `time`: the last one at or before it, while its hold lasts. */
 export function lsAt(points: readonly LsPoint[], time: number, periodMs: number): LsPoint | null {
   let lo = 0, hi = points.length;
@@ -77,7 +84,8 @@ export function lsCardLines(series: readonly LsSeries[], time: number, tf: strin
 /**
  * The Long/Short pane: the share of each venue's accounts that is net long, as the venue publishes it (shared/long-short.ts), one line per
  * venue around a 50 % line. The venues are the OI pane's markets that publish one; Binance's series is chosen in the header. A pane off by
- * default: nothing is read while it is hidden, and its readings are asked for again at most once a minute.
+ * default: nothing new is asked while it is hidden (a read already under way finishes), and its readings are asked for again at most once a
+ * minute.
  */
 export class LsPane extends TimePane {
   #card = new HoverCard();
@@ -168,10 +176,9 @@ export class LsPane extends TimePane {
     // Replay: only what had been published by the moment shown.
     const series = this.#series.filter(s => ids.includes(s.id)).map(s => replaying() ? { ...s, points: s.points.filter(q => q.t + s.periodMs <= now) } : s);
     const shown = series.filter(s => s.points.length);
-    let lo = Infinity, hi = -Infinity;
-    // Over the steps drawn: a reading counts while it holds (until the next), as the lines are drawn.
-    for (const s of shown) s.points.forEach((q, i) => { if (stepEnd(s, i) >= v.t0 && q.t <= v.t1) { lo = Math.min(lo, q.long); hi = Math.max(hi, q.long); } });
-    if (lo > hi) { lo = 0.45; hi = 0.55; }
+    // No step in view (readings held for another time draw nothing here): the pane says why.
+    const range = lsRange(shown, v.t0, v.t1), blank = !range;
+    const lo = range?.lo ?? 0.45, hi = range?.hi ?? 0.55;
     const pad = Math.max((hi - lo) * 0.1, 0.005), min = lo - pad, max = hi + pad, top = 8, bottom = ph - 8;
     const y = (share: number): number => top + (1 - (share - min) / (max - min)) * (bottom - top);
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
@@ -203,7 +210,7 @@ export class LsPane extends TimePane {
     const pct = (share: number): string => `${(share * 100).toFixed(1)}%`;
     ctx.fillText(pct(hi), this.w - AXIS_W + 6, y(hi)); ctx.fillText(pct(lo), this.w - AXIS_W + 6, y(lo));
     if (min < 0.5 && max > 0.5 && Math.abs(y(0.5) - y(hi)) > 14 && Math.abs(y(0.5) - y(lo)) > 14) ctx.fillText('50%', this.w - AXIS_W + 6, y(0.5));
-    if (!shown.length) {
+    if (blank) {
       ctx.textAlign = 'left';
       const message = lsMessage(series, this.#loading);
       ctx.fillText(message === 'reading' ? t('Reading the long/short ratios…') : message === 'failed' ? t('The long/short ratios could not be read just now; trying again in a minute.') : t('No long/short readings for this time.'), 12, ph / 2);
