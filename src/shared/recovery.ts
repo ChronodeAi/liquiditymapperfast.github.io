@@ -11,8 +11,8 @@
  * Coinbase `trades` page back from an id; Bybit `recent-trade` and Hyperliquid `recentTrades` give their latest page only (seconds to a few
  * minutes of BTC), so they recover a short gap or nothing. Deribit and MEXC are not recovered.
  *
- * One recovery action is bounded (`RECOVERY_BUDGET`): at most 20 pages, 20,000 rows or 30 s, two requests in flight, each venue paced well
- * inside its published limit. A gap the budget did not reach stays a gap, visibly.
+ * One recovery action is bounded (`RECOVERY_BUDGET`): at most 20 pages, 20,000 rows or 30 s, two requests in flight, each of the venues'
+ * limits (`bucket`: OKX's swap and spot share one endpoint and one limit) paced well inside what it publishes. A gap the budget did not reach stays a gap, visibly.
  */
 import type { CoinVenue, Listing } from './coins.ts';
 import { complement, type CoverGap, type SeamTrade } from './coverage.ts';
@@ -30,6 +30,11 @@ export interface PageRequest { url: string; init?: { method: 'POST'; headers: Re
 /** One venue's public trade history as recovery reads it. */
 export interface HistorySource {
   readonly venue: CoinVenue;
+  /**
+   * The limit its requests count against: the endpoint, whatever the market (OKX's swap and spot pages are one endpoint with one limit of
+   * 20 requests in 2 s, and two of them paced apart once went over it together). Pacing, a failure and the rest after it are per bucket.
+   */
+  readonly bucket: string;
   /** `forward`: pages run oldest first from an id or a time (Binance); `back`: newest first, each older than the last (OKX, Bitget, Coinbase); `latest`: one page, the newest. */
   readonly mode: 'forward' | 'back' | 'latest';
   /** Trade ids are whole numbers that rise with time, so a seam can be drawn by id. */
@@ -75,7 +80,7 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
     case 'binance': case 'binancespot': {
       const base = venue === 'binance' ? `https://fapi.binance.com/fapi/v1/aggTrades?symbol=${sym}&limit=1000` : `https://api.binance.com/api/v3/aggTrades?symbol=${sym}&limit=1000`;
       return {
-        venue, mode: 'forward', ordered: true, pageRows: 1000,
+        venue, bucket: venue === 'binance' ? 'binance-fapi' : 'binance-api', mode: 'forward', ordered: true, pageRows: 1000,
         // USD-M: weight 20 of 2,400 a minute; spot: 4 of 6,000.
         paceMs: venue === 'binance' ? 600 : 150,
         request: c => ({ url: c && 'fromId' in c ? `${base}&fromId=${c.fromId}` : c && 'start' in c ? `${base}&startTime=${c.start}&endTime=${c.end}` : base }),
@@ -87,7 +92,7 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
       const base = `https://www.okx.com/api/v5/market/history-trades?instId=${sym}&limit=100`, contract = venue === 'okx' ? listing.contract ?? 1 : 1;
       return {
         // 20 requests in 2 s.
-        venue, mode: 'back', ordered: true, pageRows: 100, paceMs: 150,
+        venue, bucket: 'okx-history-trades', mode: 'back', ordered: true, pageRows: 100, paceMs: 150,
         request: c => ({ url: c && 'olderThan' in c ? `${base}&type=1&after=${c.olderThan}` : base }),
         parse: body => { const b = rec(body); return b && b.code === '0' ? rows(b.data, r => trade(r.tradeId, r.side === 'buy' ? 'buy' : r.side === 'sell' ? 'sell' : null, num(r.px), num(r.sz), num(r.ts), unit, contract)) : null; },
       };
@@ -96,7 +101,7 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
       const base = venue === 'bitget' ? `https://api.bitget.com/api/v2/mix/market/fills-history?symbol=${sym}&productType=USDT-FUTURES&limit=1000` : `https://api.bitget.com/api/v2/spot/market/fills-history?symbol=${sym}&limit=1000`;
       return {
         // 10 requests a second per endpoint.
-        venue, mode: 'back', ordered: true, pageRows: 1000, paceMs: 200,
+        venue, bucket: `bitget-${venue === 'bitget' ? 'mix' : 'spot'}-fills`, mode: 'back', ordered: true, pageRows: 1000, paceMs: 200,
         request: c => ({ url: c && 'olderThan' in c ? `${base}&idLessThan=${c.olderThan}` : base }),
         // `side` is not called the taker's in the documentation; the live answers read as the taker's (Research_Findings.md), as the socket's do.
         parse: body => { const b = rec(body); if (!b || b.code !== '00000') return null; return rows(b.data, r => { const s = String(r.side).toLowerCase(); return trade(r.tradeId, s === 'buy' ? 'buy' : s === 'sell' ? 'sell' : null, num(r.price), num(r.size), num(r.ts), unit); }); },
@@ -106,7 +111,7 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
       const base = `https://api.exchange.coinbase.com/products/${sym}/trades?limit=1000`;
       return {
         // 10 requests a second, bursts of 15.
-        venue, mode: 'back', ordered: true, pageRows: 1000, paceMs: 200,
+        venue, bucket: 'coinbase', mode: 'back', ordered: true, pageRows: 1000, paceMs: 200,
         request: c => ({ url: c && 'olderThan' in c ? `${base}&after=${c.olderThan}` : base }),
         // `side` is the maker's: a taker bought where it says sell.
         parse: body => rows(body, r => trade(r.trade_id, r.side === 'sell' ? 'buy' : r.side === 'buy' ? 'sell' : null, num(r.price), num(r.size), Date.parse(String(r.time)), unit)),
@@ -116,7 +121,7 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
       const spot = venue === 'bybitspot', url = `https://api.bybit.com/v5/market/recent-trade?category=${spot ? 'spot' : 'linear'}&symbol=${sym}&limit=${spot ? 60 : 1000}`;
       return {
         // 600 requests in 5 s; one page only (spot's is 60 rows).
-        venue, mode: 'latest', ordered: false, pageRows: spot ? 60 : 1000, paceMs: 200,
+        venue, bucket: 'bybit', mode: 'latest', ordered: false, pageRows: spot ? 60 : 1000, paceMs: 200,
         request: () => ({ url }),
         // `seq` names the matching event, as on the socket: the fills of one market order.
         parse: body => { const b = rec(body); return b && b.retCode === 0 ? rows(rec(b.result)?.list, r => trade(r.execId, r.side === 'Buy' ? 'buy' : r.side === 'Sell' ? 'sell' : null, num(r.price), num(r.size), num(r.time), unit, 1, r.seq === undefined || r.seq === null ? undefined : String(r.seq))) : null; },
@@ -126,7 +131,7 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
       const body = JSON.stringify({ type: 'recentTrades', coin: listing.symbol });
       return {
         // Weight about 20 of 1,200 a minute; ten rows, the newest.
-        venue, mode: 'latest', ordered: false, pageRows: 10, paceMs: 1_000,
+        venue, bucket: 'hyperliquid', mode: 'latest', ordered: false, pageRows: 10, paceMs: 1_000,
         request: () => ({ url: 'https://api.hyperliquid.xyz/info', init: { method: 'POST', headers: { 'content-type': 'application/json' }, body } }),
         // The socket's id: (time, coin, tid) is what the venue calls unique; `hash` names the transaction (the order, or a batch of them).
         parse: answer => rows(answer, r => { const t = num(r.time); return trade(`${t}:${listing.symbol}:${String(r.tid)}`, r.side === 'B' ? 'buy' : r.side === 'A' ? 'sell' : null, num(r.px), num(r.sz), t, unit, 1, r.hash); }),
@@ -177,13 +182,13 @@ export interface RecoveryRun {
   results: RecoveryResult[]; pages: number; rows: number; ms: number;
   /** What ended it: every gap was read, or one of the budget's limits. */
   stoppedBy: 'done' | 'pages' | 'rows' | 'time';
-  /** Venues that answered with an error or not at all: nothing more was asked of them in this action. */
+  /** The limits (`HistorySource.bucket`) whose venue answered with an error or not at all: nothing more was asked under them in this action. */
   failed: string[];
 }
 
 /**
- * Read the gaps' pages within the budget: `inflight` gaps at a time in the order given (the most wanted first), each venue paced, a venue
- * that fails asked nothing more. `onResult` is told each gap as it ends, so its rows can be applied at once (and atomically, with its stretch).
+ * Read the gaps' pages within the budget: `inflight` gaps at a time in the order given (the most wanted first), each limit paced, a limit
+ * whose venue fails asked nothing more. `onResult` is told each gap as it ends, so its rows can be applied at once (and atomically, with its stretch).
  */
 export async function runRecovery(jobs: readonly RecoveryJob[], fetcher: HistoryFetch, options: { budget?: RecoveryBudget; now?: () => number; sleep?: (ms: number) => Promise<void>; onResult?: (result: RecoveryResult) => void } = {}): Promise<RecoveryRun> {
   const budget = options.budget ?? RECOVERY_BUDGET, now = options.now ?? Date.now, sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
@@ -194,8 +199,8 @@ export async function runRecovery(jobs: readonly RecoveryJob[], fetcher: History
 
   /** One page of `job` at `cursor`, paced; null when the budget is spent or the venue failed. */
   const page = async (job: RecoveryJob, cursor: Cursor): Promise<HistoryTrade[] | null> => {
-    const venue = job.source.venue;
-    // The venue's turn: the next free slot is taken before waiting, so two gaps of one venue never ask at once.
+    const venue = job.source.bucket;
+    // The limit's turn: the next free slot is taken before waiting, so two gaps under one limit never ask at once.
     const at = Math.max(now(), paced.get(venue) ?? 0); paced.set(venue, at + job.source.paceMs);
     if (at > now()) await sleep(at - now());
     const over = spent(job.source.pageRows); if (over) { if (stoppedBy === 'done') stoppedBy = over; return null; }
@@ -241,7 +246,7 @@ export async function runRecovery(jobs: readonly RecoveryJob[], fetcher: History
     else if (edge !== null && src.mode === 'forward') { covered = edge > job.from ? [job.from, edge] : null; keep = keep.filter(r => r.t < edge!); }
     else if (edge !== null) { covered = edge + 1 < job.to ? [Math.max(job.from, edge + 1), job.to] : null; keep = keep.filter(r => r.t > edge!); }
     else keep = [];
-    return { job, rows: chronological(keep, src.ordered), covered, complete, pages: count, ...(failed.has(src.venue) ? { error: 'the venue did not answer' } : {}) };
+    return { job, rows: chronological(keep, src.ordered), covered, complete, pages: count, ...(failed.has(src.bucket) ? { error: 'the venue did not answer' } : {}) };
   };
 
   const worker = async (): Promise<void> => {

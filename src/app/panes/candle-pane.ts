@@ -20,6 +20,7 @@ import { STRIDE, type TapeRing } from '../tape/ring.ts';
 import { TrailGL, type FlashSprite } from '../candle/trail-gl.ts';
 import * as M from '../candle/model.ts';
 import type { CoverageAnswer } from '../../shared/coverage.ts';
+import type { RecoveryReport } from '../../shared/engine.ts';
 
 const NUM_FONT = '10.5px ui-monospace, SFMono-Regular, Menlo, monospace';
 const SMALL_FONT = '10px ui-sans-serif, system-ui, sans-serif';
@@ -89,6 +90,8 @@ export class CandlePane {
   #coverage: CoverageAnswer | null = null; #coverageKey = ''; #coverageAt = 0; #coverageBusy = false;
   /** A recovery from the venues' history: due (its timer), under way, and asked for again while under way. */
   #recoverTimer = 0; #recovering = false; #recoverAgain = false;
+  /** What the last recovery did (pages, rows, what stopped it, each market's gaps and what of them was filled), for a look from the console. */
+  lastRecovery: RecoveryReport | null = null;
 
   constructor(parent: HTMLElement, private store: Store, private hub: Hub, private kernels: Kernels, private markets: (state: AppState) => string[]) {
     let saved: unknown = null;
@@ -192,7 +195,7 @@ export class CandlePane {
     const tfMs = TIMEFRAMES[this.#settings.tf] ?? 300_000, now = this.hub.sourceNow(), barT = Math.floor(now / tfMs) * tfMs;
     const ids = markets.includes(state.marketId) ? [state.marketId, ...markets.filter(id => id !== state.marketId)] : markets;
     this.#recovering = true; this.#writeReadout();
-    try { await recover({ ids, windows: [{ from: barT, to: now }, { from: barT - tfMs, to: barT }] }); }
+    try { this.lastRecovery = await recover({ ids, windows: [{ from: barT, to: now }, { from: barT - tfMs, to: barT }] }); }
     catch (error) { console.warn('the trades the recording missed could not be recovered:', error); }
     finally {
       this.#recovering = false; this.#fp.refresh(barT - tfMs); this.#refreshCoverage(true); this.invalidate(); this.#writeReadout();

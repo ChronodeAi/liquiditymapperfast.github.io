@@ -82,7 +82,7 @@ export interface RecoveryReport {
 }
 /** A recovery waits this long at most for the markets' feeds to be live again (a phone back from the background reconnects first). */
 const RECOVERY_WAIT_MS = 8_000;
-/** A venue that failed a recovery is not asked again for this long. */
+/** A venue's limit (`HistorySource.bucket`) that failed a recovery is not asked under again for this long. */
 const VENUE_REST_MS = 60_000;
 
 interface Run {
@@ -408,8 +408,9 @@ export class Engine {
   /** The history source of a running market (none: not running, no history a page can read, or its venue resting after a failure). */
   #historyOf(id: string): HistorySource | null {
     const venue = venueOf(id), listing = this.#listing(id);
-    if (!listing || ![...this.#runs.values()].some(r => r.book.instrumentId === id) || (this.#venueRest.get(venue) ?? 0) > this.#now()) return null;
-    return historySource(venue, listing);
+    if (!listing || ![...this.#runs.values()].some(r => r.book.instrumentId === id)) return null;
+    const source = historySource(venue, listing);
+    return source && (this.#venueRest.get(source.bucket) ?? 0) <= this.#now() ? source : null;
   }
 
   async #recoverOnce(request: RecoveryRequest): Promise<RecoveryReport> {
@@ -429,7 +430,7 @@ export class Engine {
       this.#applyRecovered(result);
       if (result.covered) found.get(result.job.id)!.recoveredMs += result.covered[1] - result.covered[0];
     } });
-    for (const venue of run.failed) this.#venueRest.set(venue, this.#now() + VENUE_REST_MS);
+    for (const bucket of run.failed) this.#venueRest.set(bucket, this.#now() + VENUE_REST_MS);
     return { pages: run.pages, rows: run.rows, ms: run.ms, stoppedBy: run.stoppedBy, failed: run.failed,
       instruments: ids.map(id => ({ id, recoverable: instruments.some(i => i.id === id), ...(found.get(id) ?? { gaps: 0, gapMs: 0, recoveredMs: 0 }) })) };
   }

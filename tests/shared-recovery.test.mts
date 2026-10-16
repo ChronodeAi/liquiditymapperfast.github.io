@@ -113,8 +113,23 @@ test('a venue that fails is asked nothing more in the action, and its gaps claim
   let calls = 0;
   const down: HistoryFetch = async () => { calls++; return { ok: false, status: 429, body: null }; };
   const run = await runRecovery([job(src('okx'), { id: 'a' }), job(src('okx'), { id: 'b' })], down, { sleep: noSleep });
-  assert.equal(calls, 1); assert.deepEqual(run.failed, ['okx']);
+  assert.equal(calls, 1); assert.deepEqual(run.failed, ['okx-history-trades']);
   assert.ok(run.results.every(r => r.covered === null && r.rows.length === 0));
+  // OKX's swap and spot pages are one endpoint with one limit: a failure on one stops the other too.
+  calls = 0;
+  const both = await runRecovery([job(src('okx'), { id: 'a' }), job(src('okxspot'), { id: 'b' })], down, { sleep: noSleep });
+  assert.equal(calls, 1); assert.deepEqual(both.failed, ['okx-history-trades']);
+});
+
+test('markets that share a venue\'s limit are paced as one: OKX swap and spot never ask closer together than its pace', async () => {
+  const t = (id: number): number => BASE + id * 10;
+  let at = 0; const times: number[] = [];
+  const okx = history(0, 100_000, t, { onCall: () => times.push(at) });
+  await runRecovery([job(src('okx'), { id: 'a', from: t(0), to: t(800) }), job(src('okxspot'), { id: 'b', from: t(0), to: t(800) })], okx.fetcher, { now: () => at, sleep: async ms => { at += ms; } });
+  assert.ok(times.length >= 8, `${times.length} pages`);
+  assert.ok(times.every((x, i) => i === 0 || x - times[i - 1]! >= src('okx').paceMs), times.join(','));
+  assert.equal(src('okx').bucket, src('okxspot').bucket);
+  assert.notEqual(src('binance').bucket, src('binancespot').bucket, 'Binance USD-M and spot are two hosts with two limits');
 });
 
 test('the order of an action: the bar under way first, the chart market first, then the venues that page cheaply', () => {
