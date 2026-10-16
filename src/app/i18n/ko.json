@@ -1175,11 +1175,9 @@
  "Venue lines": "거래소 선",
  "top {n}": "상위 {n}",
  "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "컴팩트: 가장 큰 거래소마다 누적 선을 그립니다. 흐름 열의 순위 기간 동안의 거래량으로 순위를 매깁니다. 선 위에 올리면 그 선만 보입니다.",
- "Share of all venues": "전체 거래소 중 비중",
  "At this price": "이 가격",
  "Traded, last {window}": "거래액, 최근 {window}",
  "No trades held for this book: placed by its liquidity in view.": "이 호가창의 거래 기록이 없습니다: 보이는 유동성으로 순위를 매겼습니다.",
- "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of all venues. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "컴팩트에서 거래소 선은 가장 큰 거래소 각각의 누적을 전체 호가창의 누적 위에 따로 그립니다. 선들은 자체 척도를 함께 쓰며, 전체 너비는 보이는 행에서 선들 중 가장 큰 값이므로 선끼리 비교할 수 있습니다. 전체 거래소 중 한 선의 비중은 팝업에 나옵니다. 거래소는 흐름 열의 순위 기간 동안의 거래량으로 순위를 매기며(거래 기록이 없는 호가창은 보이는 유동성으로) 1분 동안 유지됩니다. 헤더에서 각 색 옆의 마크가 거래소를 알려 줍니다. 선은 그 거래소의 호가창이 닿지 않는 곳에서 끝납니다. 선이나 헤더의 항목 가까이에 올리면 그 선만 수치와 함께 보입니다.",
  "Lines, full width": "선, 전체 너비",
  "Count": "집계 대상",
  "Whose market orders the footprint and the bar statistics count.": "풋프린트와 바 통계가 세는 시장가 주문의 대상.",
@@ -1281,5 +1279,13 @@
  "Live trades draws every market order as it arrives, as a small dot at its own exchange's price: the exchanges trade a little apart, so their dots run in parallel bands. Where dots crowd together their volume adds up, coloured by the side that traded more there. A line runs through the chart market's orders (dashed before this page opened, from its prices a second), and the candles turn hollow so nothing hides behind them. New orders flash briefly as they come in.": "실시간 체결은 모든 시장가 주문을 도착하는 대로 해당 거래소 자체 가격의 작은 점으로 그립니다. 거래소마다 가격이 조금씩 달라 점들이 평행한 띠를 이룹니다. 점이 몰리는 곳은 거래량이 합산되며, 그곳에서 더 많이 거래한 쪽의 색으로 표시됩니다. 차트 시장의 주문에는 선이 지나가고(이 페이지를 열기 전에는 초당 가격으로 점선), 아무것도 가려지지 않도록 캔들은 속이 빈 형태가 됩니다. 새 주문은 도착할 때 잠깐 빛납니다.",
  "Live trades are kept in this page's memory only, from when it opened (a dotted line marks where they begin, and any gap): a reload starts empty, and the oldest go after about an hour and a half of busy trading. The bubbles are recorded as before.": "실시간 체결은 이 페이지가 열린 때부터 이 페이지의 메모리에만 보관됩니다(점선이 시작 위치와 끊긴 곳을 표시). 새로고침하면 비어 있는 상태로 시작하고, 활발한 거래가 약 1시간 30분 이어지면 가장 오래된 것부터 사라집니다. 버블은 이전과 같이 기록됩니다.",
  "live trades from {time}": "{time}부터 실시간 체결",
- "gap in live trades": "실시간 체결 끊김"
+ "gap in live trades": "실시간 체결 끊김",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of the depth the books show. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. Most exchanges publish only part of their book (Bybit about 0.25 % either side of the price): where a venue's book ends, a short bar across its line marks the end and the line goes on dashed at the total it reached, since what rests beyond is not published. A book that reaches fewer than three rows from the mark gets no line and the next venue takes its place; the header's popup names it. Hover near a line, or its entry in the header, to see it alone with its numbers.": "컴팩트에서 거래소 선은 가장 큰 거래소 각각의 누적을 전체 호가창의 누적 위에 따로 그립니다. 선들은 자체 척도를 함께 쓰며, 전체 너비는 보이는 행에서 선들 중 가장 큰 값이므로 선끼리 비교할 수 있습니다. 호가창들이 보여 주는 깊이 중 한 선의 비중은 팝업에 나옵니다. 거래소는 흐름 열의 순위 기간 동안의 거래량으로 순위를 매기며(거래 기록이 없는 호가창은 보이는 유동성으로) 1분 동안 유지됩니다. 헤더에서 각 색 옆의 마크가 거래소를 알려 줍니다. 대부분의 거래소는 호가창의 일부만 공개합니다(Bybit는 가격 위아래 약 0.25 %). 거래소의 호가창이 끝나는 곳에는 짧은 가로선이 끝을 표시하고, 선은 거기까지의 누적으로 점선이 되어 이어집니다. 그 너머는 공개되지 않기 때문입니다. 마크에서 3행에 못 미치는 호가창은 선이 없고 다음 거래소가 그 자리를 채웁니다. 헤더의 팝업이 이를 알려 줍니다. 선이나 헤더의 항목 가까이에 올리면 그 선만 수치와 함께 보입니다.",
+ "Its published book ends at {price} ({distance}): the dashed line holds the total it reached.": "공개된 호가창은 {price}({distance})에서 끝납니다. 점선은 거기까지의 누적을 유지합니다.",
+ "at least {value}": "최소 {value}",
+ "Its book reaches": "호가창 범위",
+ "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "점선: 공개된 호가창의 끝 너머는 거기까지의 누적입니다. 그 너머에 무엇이 있는지는 알 수 없습니다.",
+ "Left out, their books reach under {n} rows: {names}": "제외됨, 호가창이 {n}행에 못 미침: {names}",
+ "dashed: past its book": "점선: 호가창 너머",
+ "Share of the depth shown": "보이는 깊이 중 비중"
 }

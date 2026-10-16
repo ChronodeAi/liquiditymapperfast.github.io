@@ -13,7 +13,8 @@ export interface Grouped {
   totalAsk: Float32Array;
 }
 
-const MAX_BINS = 6000;
+/** The most bins one grouping holds (more is cut off at the top). */
+export const MAX_BINS = 6000;
 
 function concat(sides: SideArrays[]): { lo: Float64Array; hi: Float64Array; usd: Float64Array; inst: Uint32Array } {
   const total = sides.reduce((s, side) => s + side.usd.length, 0);
@@ -64,6 +65,14 @@ export function coverage(book: LevelsFrame['books'][number] | undefined, mark: n
  */
 export function beyondCover(cover: Cover, rowLo: number, step: number): boolean {
   return rowLo + step <= cover.lo || (cover.hiPoint ? rowLo > cover.hi : rowLo >= cover.hi);
+}
+
+/**
+ * Whether the row [rowLo, rowLo + step) lies past a book's reach on the far side from the mark: an ask row above its highest price (by the
+ * rule of `beyondCover`), a bid row below its lowest. A running total from the mark is the same on every such row as at the reach.
+ */
+export function pastReach(cover: Cover, rowLo: number, step: number, ask: boolean): boolean {
+  return ask ? (cover.hiPoint ? rowLo > cover.hi : rowLo >= cover.hi) : rowLo + step <= cover.lo;
 }
 
 /** Cumulative USD walking away from the mark: bids downward, asks upward; the mark's own bin counts for both sides. */

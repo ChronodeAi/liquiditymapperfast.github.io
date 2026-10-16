@@ -47,21 +47,51 @@ export function venueCumulative(g: Pick<Grouped, 'nBins' | 'bid' | 'ask'>, index
   return { bid, ask };
 }
 
-/** A venue the lines are drawn for: its book, its traded volume over the ranking window (null: no trades held for it) and its place. */
-export interface CurveVenue { id: string; volume: number | null; rank: number }
+/**
+ * A venue the lines are drawn for: its book, its traded volume over the ranking window (null: no trades held for it) and its place.
+ * `shallow`: ranked in, but its book reaches too few rows for a line (`CURVE_MIN_ROWS`), so the next book took its line; it is named, not drawn.
+ */
+export interface CurveVenue { id: string; volume: number | null; rank: number; shallow?: true }
+
+/**
+ * The fewest rows from the mark (at the Group step) a book must reach on at least one side to get a line. MEXC's page feed sends its best 20
+ * levels, about 1 bp: at a step of 50 its line was one row, invisible, and took one of the five places (Karl, 2026-10-16). Three rows of 50
+ * on BTC are about 18 bp, so Bybit's and Bitget's books (25 to 50 bp) keep theirs: a share of the view would drop the venues that trade most.
+ */
+export const CURVE_MIN_ROWS = 3;
+
+/** Whole rows of `step` from the mark that a book's reach spans on its longer side (0 without one). */
+export function reachRows(cover: { lo: number; hi: number } | null, mark: number, step: number): number {
+  if (!cover || !(step > 0) || !(mark > 0)) return 0;
+  return Math.max(0, Math.floor(Math.max(cover.hi - mark, mark - cover.lo) / step));
+}
+
+/** How far a book reaches either side of the mark, in percent ("−0.25% … +0.25%"). */
+export function reachText(cover: { lo: number; hi: number }, mark: number): string {
+  const pct = (price: number): string => distanceText(price, mark).split(' · ')[0]!;
+  return `${pct(cover.lo)} … ${pct(cover.hi)}`;
+}
 
 /**
  * The `n` venues to draw: those with traded volume first, the most first, then those with none held by their liquidity in view, the most
- * first (a book with neither is left out). Ties go to the id, so a stable input gives a stable order.
+ * first (a book with neither is left out). Ties go to the id, so a stable input gives a stable order. A book `drawable` turns down keeps its
+ * place in the order, marked `shallow`, and does not count toward `n`.
  */
-export function rankCurveVenues(ids: readonly string[], volume: (id: string) => number | null, liquidity: (id: string) => number, n: number): CurveVenue[] {
+export function rankCurveVenues(ids: readonly string[], volume: (id: string) => number | null, liquidity: (id: string) => number, n: number, drawable: (id: string) => boolean = () => true): CurveVenue[] {
   const rows = ids.map(id => ({ id, volume: volume(id), liquidity: liquidity(id) }))
     .filter(r => (r.volume !== null && r.volume > 0) || r.liquidity > 0)
     .map(r => ({ ...r, volume: r.volume !== null && r.volume > 0 ? r.volume : null }));
   rows.sort((a, b) => (a.volume === null) !== (b.volume === null) ? (a.volume === null ? 1 : -1)
     : a.volume !== null && b.volume !== null && a.volume !== b.volume ? b.volume - a.volume
       : a.volume === null && a.liquidity !== b.liquidity ? b.liquidity - a.liquidity : a.id < b.id ? -1 : 1);
-  return rows.slice(0, Math.max(0, n)).map((r, i) => ({ id: r.id, volume: r.volume, rank: i + 1 }));
+  const out: CurveVenue[] = [];
+  let drawn = 0;
+  for (const [i, r] of rows.entries()) {
+    if (drawn >= n) break;
+    if (drawable(r.id)) { out.push({ id: r.id, volume: r.volume, rank: i + 1 }); drawn++; }
+    else out.push({ id: r.id, volume: r.volume, rank: i + 1, shallow: true });
+  }
+  return out;
 }
 
 /**
@@ -141,16 +171,27 @@ export interface CurveFacts {
   volume: number | null; window: string;
   /** What the lines' full width stands for (they share a scale of their own, not the total's). */
   full: number;
+  /**
+   * Where this venue's book stops on this side, when the row lies past it (the dashed part of its line), else null or absent. Past it the
+   * exchange publishes nothing, so the running total is the least it can be, and its share and its size here are not known.
+   */
+  reach?: number | null;
 }
 
 export function curveLines(f: CurveFacts): InfoLine[] {
+  const past = f.reach !== null && f.reach !== undefined;
   return [
     { text: f.name, bold: true, mark: f.id },
     { label: t('Price'), text: `${fmtPrice(f.low, f.step)} – ${fmtPrice(f.low + f.step, f.step)}` },
     { label: t('Side'), text: f.ask ? t('Ask: sellers waiting') : t('Bid: buyers waiting'), color: f.ask ? 'above' : 'below' },
-    { label: t('From the mark'), text: `$${usd(f.venueCum)}`, bold: true },
-    { label: t('Share of all venues'), text: `${f.totalCum > 0 ? Math.round(f.venueCum / f.totalCum * 100) : 0}%` },
-    { label: t('At this price'), text: `$${usd(f.venueLevel)}` },
+    ...(past ? [
+      { text: t('Its published book ends at {price} ({distance}): the dashed line holds the total it reached.', { price: fmtPrice(f.reach!, f.step), distance: distanceText(f.reach!, f.mark) }), color: 'muted' as const, wrap: true },
+      { label: t('From the mark'), text: t('at least {value}', { value: `$${usd(f.venueCum)}` }), bold: true },
+    ] : [
+      { label: t('From the mark'), text: `$${usd(f.venueCum)}`, bold: true },
+      { label: t('Share of the depth shown'), text: `${f.totalCum > 0 ? Math.round(f.venueCum / f.totalCum * 100) : 0}%` },
+      { label: t('At this price'), text: `$${usd(f.venueLevel)}` },
+    ]),
     { label: t('Distance'), text: distanceText(f.low + f.step / 2, f.mark) },
     { label: t('Lines, full width'), text: `$${usd(f.full)}`, color: 'muted' },
     f.volume !== null

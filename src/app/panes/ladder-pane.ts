@@ -11,8 +11,8 @@ import { price as fmtPrice, usd } from '../format.ts';
 import { LADDER_CURVES, type Store, type AppState } from '../store.ts';
 import type { Hub } from '../hub.ts';
 import { RANK_MS } from '../cvd/settings.ts';
-import { CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, venueCumulative, CURVE_HIT_PX, type CurveVenue } from './ladder-curves.ts';
-import { beyondCover, coverage, cumulative, dominanceWeight, groupLevels, imbalanceByDistance, liquidityInView, type Cover, type Grouped } from './levels-data.ts';
+import { CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, reachRows, reachText, venueCumulative, CURVE_HIT_PX, CURVE_MIN_ROWS, type CurveVenue } from './ladder-curves.ts';
+import { MAX_BINS, beyondCover, coverage, cumulative, pastReach, dominanceWeight, groupLevels, imbalanceByDistance, liquidityInView, type Cover, type Grouped } from './levels-data.ts';
 import { GROUPS, groupsFor, holdsMark, ladderWheel, offsetKeepingPrice, priceAtRow, stepBy } from './ladder-zoom.ts';
 import { currentCoin } from '../coin.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type Pt } from '../touch.ts';
@@ -56,6 +56,8 @@ export { venueLabel };
 
 /** A venue line of the Compact book this frame: its venue, running totals, reach and colour. */
 interface Curve { venue: CurveVenue; index: number; cum: { bid: Float32Array; ask: Float32Array }; cover: Cover | null; color: string }
+/** Where the venue lines stand: `x` on a row (null where a line is not drawn), whether that row is past its book's reach (the total held), and what full width is. */
+interface CurveScale { x: (c: Curve, bin: number) => number | null; carried: (c: Curve, bin: number) => boolean; full: number }
 /** The flow column's ranking window, as the popup says it. */
 const rankText = (rank: AppState['cvd']['rank']): string => rank === '15m' ? t('{n} min', { n: 15 }) : t('{n} h', { n: rank === '1h' ? 1 : 24 });
 
@@ -98,6 +100,8 @@ export class LadderPane {
   #pull = new PullHistory();
   /** Which venues the Compact book's lines are drawn for, held a minute at a time (see ladder-curves.ts). */
   #curveRank = new CurveRanking();
+  /** The books the ranking put among the lines whose reach was too short to draw one (named in the key's popup). */
+  #curvesLeftOut: CurveVenue[] = [];
   /** The Venue lines select, shown in Compact only. */
   #curvesControl: HTMLLabelElement | null = null;
   /** The venue line under the pointer in the last frame (its place in the ranking), read by tests. */
@@ -379,7 +383,12 @@ export class LadderPane {
     if (this.#autoOption) { const text = grouping === 'auto' ? `${t('Auto')} · ${stepText(step)}` : t('Auto'); if (this.#autoOption.text !== text) this.#autoOption.text = text; }
     const centerBin = Math.floor(mark / step) + this.#offsetRows;
     const p0 = (centerBin - rows / 2) * step, p1 = (centerBin + rows / 2 + 1) * step;
-    const g = groupLevels(this.kernels, frame, ids, step, p0, p1);
+    // The running totals walk out from the mark, so a view scrolled away from it also groups the rows between: grouped from its own edge, a
+    // total there started at nothing (a Codex review, 2026-10-16, saw one go 60 → 50 → 0 as the book was dragged). The bars, the MAX and
+    // everything else read only the rows on screen.
+    // Scrolled further than one grouping holds, the view alone (its totals then start at its edge, as they always did there).
+    const markP = Math.floor(mark / step) * step, lo = Math.min(p0, markP), hi = Math.max(p1, markP + step), withMark = Math.ceil(hi / step) - Math.floor(lo / step) + 1 <= MAX_BINS;
+    const g = groupLevels(this.kernels, frame, ids, step, withMark ? lo : p0, withMark ? hi : p1);
     const markBin = Math.floor(mark / step) - g.bin0;
     if (state.ladderMode === 'single') {
       const colW = width / columns;
@@ -413,10 +422,13 @@ export class LadderPane {
         for (let b = Math.max(0, loBin); b <= Math.min(g.nBins - 1, hiBin); b++) sum += (g.bid[i]?.[b] ?? 0) + (g.ask[i]?.[b] ?? 0);
         return sum;
       };
-      return rankCurveVenues(g.ids, volume, liquidity, n);
-    }, state.cvd.rank);
-    const colors = curveColors(this.#palette, venues.length);
-    return venues.flatMap((venue, k) => {
+      // Judged once a ranking, not each frame, so the set of lines does not flicker as a reach moves about the threshold.
+      const drawable = (id: string): boolean => reachRows(coverage(frame.books.find(b => b.id === id), state.mark.price), state.mark.price, g.step) >= CURVE_MIN_ROWS;
+      return rankCurveVenues(g.ids, volume, liquidity, n, drawable);
+    }, `${state.cvd.rank}|${g.step}`); // another Group step judges the reach again
+    this.#curvesLeftOut = venues.filter(v => v.shallow);
+    const drawn = venues.filter(v => !v.shallow), colors = curveColors(this.#palette, drawn.length);
+    return drawn.flatMap((venue, k) => {
       const index = g.ids.indexOf(venue.id); if (index < 0) return [];
       return [{ venue, index, cum: venueCumulative(g, index, markBin), cover: coverage(frame.books.find(b => b.id === venue.id), state.mark.price), color: colors[k]! }];
     });
@@ -512,7 +524,7 @@ export class LadderPane {
   }
 
   /** A venue line under the pointer: a dot where it crosses the pointer's row, and what it says there (on the key: the venue and its volume). */
-  #paintCurveInfo(ctx: CanvasRenderingContext2D, state: AppState, g: Grouped, cum: ReturnType<typeof cumulative>, c: Curve, bin: number | null, scale: { x: (c: Curve, bin: number) => number | null; full: number },
+  #paintCurveInfo(ctx: CanvasRenderingContext2D, state: AppState, g: Grouped, cum: ReturnType<typeof cumulative>, c: Curve, bin: number | null, scale: CurveScale,
     o: { x: number; w: number; head: number; centerBin: number; markBin: number; mark: number; step: number }, rows: number): void {
     const hv = this.#hover, p = this.#palette; if (!hv) return;
     const window = rankText(state.cvd.rank), name = bookName(c.venue.id), bounds = { x0: o.x, y0: o.head, x1: o.x + o.w, y1: o.head + rows * ROW_H };
@@ -520,6 +532,10 @@ export class LadderPane {
     if (bin === null) {
       const lines: InfoLine[] = [{ text: name, bold: true, mark: c.venue.id },
         c.venue.volume !== null ? { label: t('Traded, last {window}', { window }), text: `$${usd(c.venue.volume)} · #${c.venue.rank}` } : { text: t('No trades held for this book: placed by its liquidity in view.'), color: 'muted', wrap: true }];
+      if (c.cover) lines.push({ label: t('Its book reaches'), text: reachText(c.cover, o.mark) });
+      lines.push({ text: t('Dashed: past the end of its published book, the total it reached. What rests beyond is not known.'), color: 'muted', wrap: true });
+      const out = this.#curvesLeftOut;
+      if (out.length) lines.push({ text: t('Left out, their books reach under {n} rows: {names}', { n: CURVE_MIN_ROWS, names: out.map(v => `${bookName(v.id)} (#${v.rank})`).join(', ') }), color: 'muted', wrap: true, rule: true });
       paintInfoBox(ctx, lines, hv.x, o.head + 4, bounds, p, { placement: 'up' });
       return;
     }
@@ -527,8 +543,9 @@ export class LadderPane {
     const markAsk = (g.totalAsk[o.markBin] ?? 0) > (g.totalBid[o.markBin] ?? 0), ask = bin >= (markAsk ? o.markBin : o.markBin + 1);
     const y = o.head + (o.centerBin + Math.floor(rows / 2) - g.bin0 - bin) * ROW_H + ROW_H / 2;
     ctx.save(); ctx.fillStyle = c.color; ctx.strokeStyle = p.bg; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
+    const reach = scale.carried(c, bin) && c.cover ? (ask ? c.cover.hi : c.cover.lo) : null;
     const lines = curveLines({ id: c.venue.id, name, rank: c.venue.rank, low: (g.bin0 + bin) * o.step, step: o.step, ask, mark: o.mark,
-      venueCum: ask ? c.cum.ask[bin]! : c.cum.bid[bin]!, totalCum: ask ? cum.ask[bin]! : cum.bid[bin]!, venueLevel: (ask ? g.ask[c.index] : g.bid[c.index])?.[bin] ?? 0, volume: c.venue.volume, window, full: scale.full });
+      venueCum: ask ? c.cum.ask[bin]! : c.cum.bid[bin]!, totalCum: ask ? cum.ask[bin]! : cum.bid[bin]!, venueLevel: (ask ? g.ask[c.index] : g.bid[c.index])?.[bin] ?? 0, volume: c.venue.volume, window, full: scale.full, reach });
     paintInfoBox(ctx, lines, hv.x, touch ? hv.y - 18 : hv.y, bounds, p, { placement: touch ? 'up' : 'center' });
   }
 
@@ -603,23 +620,32 @@ export class LadderPane {
    * largest of their running totals on the rows in view (`full`): on the total's scale each venue is a small part of it and they crowded into
    * its first fifth.
    */
-  #curveX(g: Grouped, curves: readonly Curve[], o: { rows: number; centerBin: number; markBin: number; step: number }, barX: number, barW: number): { x: (c: Curve, bin: number) => number | null; full: number } {
+  #curveX(g: Grouped, curves: readonly Curve[], o: { rows: number; centerBin: number; markBin: number; step: number }, barX: number, barW: number): CurveScale {
     const half = Math.floor(o.rows / 2), markAsk = (g.totalAsk[o.markBin] ?? 0) > (g.totalBid[o.markBin] ?? 0);
     const askFrom = markAsk ? o.markBin : o.markBin + 1, bidFrom = markAsk ? o.markBin - 1 : o.markBin, top = o.centerBin + half - g.bin0;
     const value = (c: Curve, bin: number): number | null => {
       const r = top - bin;
       if (bin < 0 || bin >= g.nBins || r < 0 || r >= o.rows || (bin < askFrom && bin > bidFrom)) return null;
-      if (c.cover && beyondCover(c.cover, (g.bin0 + bin) * o.step, o.step)) return null;
-      return bin >= askFrom ? c.cum.ask[bin]! : c.cum.bid[bin]!;
+      const ask = bin >= askFrom;
+      // Past the reach on its own side the running total is held (no level of the book lies there, so it is the total at the reach): the
+      // line goes on, dashed (`carried`). A row the book does not reach on the mark's side of it (a book starting away from the mark) has none.
+      if (c.cover && beyondCover(c.cover, (g.bin0 + bin) * o.step, o.step) && !pastReach(c.cover, (g.bin0 + bin) * o.step, o.step, ask)) return null;
+      return ask ? c.cum.ask[bin]! : c.cum.bid[bin]!;
     };
+    const carried = (c: Curve, bin: number): boolean => c.cover !== null && pastReach(c.cover, (g.bin0 + bin) * o.step, o.step, bin >= askFrom);
+    // Full width is the largest measured total: a carried row holds the total at its reach, so it never raises it.
     let full = 0;
     for (const c of curves) for (let bin = top - o.rows + 1; bin <= top; bin++) { const v = value(c, bin); if (v !== null && v > full) full = v; }
     full = Math.max(full, 1);
-    return { x: (c, bin) => { const v = value(c, bin); return v === null ? null : barX + lineFraction(v, full) * barW; }, full };
+    return { x: (c, bin) => { const v = value(c, bin); return v === null ? null : barX + lineFraction(v, full) * barW; }, carried, full };
   }
 
-  /** The venue lines, over the bars: each a crisp step outline in its colour; with one under the pointer, that one stronger and the rest faded. */
-  #paintCurves(ctx: CanvasRenderingContext2D, g: Grouped, curves: readonly Curve[], o: { head: number; rows: number; centerBin: number; markBin: number }, barX: number, xAt: (c: Curve, bin: number) => number | null, hovered: number | null): void {
+  /**
+   * The venue lines, over the bars: each a crisp step outline in its colour; with one under the pointer, that one stronger and the rest faded.
+   * Where its book stops reaching, a short bar across marks the end, and the line goes on dashed and fainter at the total it reached.
+   */
+  #paintCurves(ctx: CanvasRenderingContext2D, g: Grouped, curves: readonly Curve[], o: { head: number; rows: number; centerBin: number; markBin: number }, barX: number, scale: CurveScale, hovered: number | null): void {
+    const xAt = scale.x;
     const half = Math.floor(o.rows / 2), top = o.centerBin + half - g.bin0, bottom = top - o.rows + 1;
     const markAsk = (g.totalAsk[o.markBin] ?? 0) > (g.totalBid[o.markBin] ?? 0), askFrom = markAsk ? o.markBin : o.markBin + 1, bidFrom = markAsk ? o.markBin - 1 : o.markBin;
     const yOf = (bin: number): number => o.head + (top - bin) * ROW_H;
@@ -628,25 +654,35 @@ export class LadderPane {
     const order = curves.map((_, k) => k).sort((a, b) => (a === hovered ? 1 : 0) - (b === hovered ? 1 : 0));
     for (const k of order) {
       const c = curves[k]!;
-      ctx.strokeStyle = c.color; ctx.lineWidth = k === hovered ? 2.5 : 1.5; ctx.globalAlpha = hovered === null || k === hovered ? 0.95 : 0.22;
+      const alpha = hovered === null || k === hovered ? 0.95 : 0.22, width = k === hovered ? 2.5 : 1.5;
+      ctx.strokeStyle = c.color; ctx.lineWidth = width; ctx.globalAlpha = alpha;
       for (const up of [true, false]) {
-        ctx.beginPath(); let started = false;
+        ctx.beginPath(); let started = false, end: { x: number; y: number; cap: boolean } | null = null;
         for (let bin = up ? Math.max(askFrom, bottom) : Math.min(bidFrom, top); up ? bin <= top : bin >= bottom; bin += up ? 1 : -1) {
-          // Rows its book does not reach before the line starts are passed over (a shallow book can begin above or below the mark); once drawn, it ends where the reach ends.
+          // Rows its book does not reach before the line starts are passed over (a shallow book can begin above or below the mark).
           const x = xAt(c, bin); if (x === null) { if (started) break; continue; }
           const y = yOf(bin), near = up ? y + ROW_H : y, far = up ? y : y + ROW_H;
+          // Scrolled past the reach, the view holds only the dashed part (no end mark: the end is off screen).
+          if (scale.carried(c, bin)) { end = { x, y: near, cap: started }; break; }
           // From the axis at the mark; from its own place when the mark is scrolled out of view.
           if (!started) { ctx.moveTo(bin === (up ? askFrom : bidFrom) ? barX : x, near); started = true; }
           ctx.lineTo(x, near); ctx.lineTo(x, far);
         }
         if (started) ctx.stroke();
+        // Past the reach: the end of the book across the line, then the total it reached held, dashed, to the edge of the view.
+        if (end) {
+          if (end.cap) { ctx.beginPath(); ctx.moveTo(end.x - 4, end.y); ctx.lineTo(end.x + 4, end.y); ctx.lineWidth = width + 0.5; ctx.stroke(); }
+          ctx.save(); ctx.setLineDash([3, 3]); ctx.lineWidth = Math.max(1, width - 0.5); ctx.globalAlpha = alpha * 0.55;
+          ctx.beginPath(); ctx.moveTo(end.x, end.y); ctx.lineTo(end.x, up ? o.head : o.head + o.rows * ROW_H); ctx.stroke();
+          ctx.restore(); ctx.lineWidth = width;
+        }
       }
     }
     ctx.restore();
   }
 
   /** The lines' key in the header row: a stroke of each colour and its venue's mark, as many as fit in `room`. Each entry's span across, for the pointer. */
-  #paintCurveKey(ctx: CanvasRenderingContext2D, curves: readonly Curve[], x: number, y: number, room: number, hovered: number | null): { x0: number; x1: number }[] {
+  #paintCurveKey(ctx: CanvasRenderingContext2D, curves: readonly Curve[], x: number, y: number, room: number, hovered: number | null, dashed = false): { x0: number; x1: number }[] {
     const ENTRY = 30, spans: { x0: number; x1: number }[] = [];
     curves.forEach((c, k) => {
       const x0 = x + k * ENTRY; if (x0 + ENTRY - 4 > x + room) return;
@@ -656,6 +692,16 @@ export class LadderPane {
       spans.push({ x0, x1: x0 + ENTRY - 2 });
     });
     ctx.globalAlpha = 1;
+    // While a line runs on past its book, what the dashes mean, after the entries where it fits (the key's popup says it in full).
+    if (dashed && spans.length === curves.length) {
+      const text = t('dashed: past its book'), x0 = x + spans.length * ENTRY + 4;
+      ctx.save(); ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
+      if (x0 + 16 + ctx.measureText(text).width <= x + room) {
+        ctx.strokeStyle = this.#palette.muted; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x0, y + 0.5); ctx.lineTo(x0 + 12, y + 0.5); ctx.stroke();
+        ctx.fillStyle = this.#palette.muted; ctx.textAlign = 'left'; ctx.fillText(text, x0 + 16, y + 0.5);
+      }
+      ctx.restore();
+    }
     return spans;
   }
 
@@ -735,11 +781,12 @@ export class LadderPane {
     }
     let maxLevel = 1; const maxCum = Math.max(cum.maxBid, cum.maxAsk, 1);
     const orderIdx = o.order ? o.order.map(id => g.ids.indexOf(id)) : null;
-    for (let i = 0; i < g.nBins; i++) maxLevel = Math.max(maxLevel, g.totalBid[i]!, g.totalAsk[i]!);
+    const shownHi = Math.min(g.nBins - 1, centerBin + Math.floor(rows / 2) - g.bin0), shownLo = Math.max(0, shownHi - rows + 1);
+    for (let i = shownLo; i <= shownHi; i++) maxLevel = Math.max(maxLevel, g.totalBid[i]!, g.totalAsk[i]!);
     // The largest change the price did not reach, so the numbers fade with their size.
     const pullRows = pull?.kind === 'rows' ? pull.rows : null;
     let maxPull = 1;
-    if (pullRows) for (let i = 0; i < g.nBins; i++) if (!pullRows.touched[i]) for (const v of [pullRows.bid[i]!, pullRows.ask[i]!]) if (v === v) maxPull = Math.max(maxPull, Math.abs(v));
+    if (pullRows) for (let i = shownLo; i <= shownHi; i++) if (!pullRows.touched[i]) for (const v of [pullRows.bid[i]!, pullRows.ask[i]!]) if (v === v) maxPull = Math.max(maxPull, Math.abs(v));
     // The venue lines' scale, and round values on it as faint gridlines behind the bars (it is not the bars' scale, so it needs its own).
     const curves = o.curves ?? [], scale = curves.length ? this.#curveX(g, curves, o, barX, barW) : null, xAt = scale?.x ?? null;
     // With the lines on they are the running totals and the whole book's area is left out: on their scale it filled the width a few rows
@@ -798,7 +845,9 @@ export class LadderPane {
     // The venue lines over the bars, and which one the pointer is on: near a line across its row, or on its entry in the key.
     const hv = this.#hover, keyLine = head - HEAD_H / 2, maxShown = o.title || barW >= 170;
     let curveHit: { k: number; bin: number | null } | null = null;
-    const keySpans = curves.length && !o.title ? this.#paintCurveKey(ctx, curves, barX, keyLine, barW - (maxShown ? 96 : 0), null) : [];
+    // Whether any line runs on past its book in view: its first or last row on its own side is carried.
+    const shownTop = centerBin + Math.floor(rows / 2) - g.bin0, dashed = scale !== null && curves.some(c => scale.carried(c, shownTop) || scale.carried(c, shownTop - rows + 1));
+    const keySpans = curves.length && !o.title ? this.#paintCurveKey(ctx, curves, barX, keyLine, barW - (maxShown ? 96 : 0), null, dashed) : [];
     if (xAt && hv && !this.#drag) {
       if (hv.y >= head - HEAD_H && hv.y < head) { const k = keySpans.findIndex(s => hv.x >= s.x0 && hv.x < s.x1); if (k >= 0) curveHit = { k, bin: null }; }
       else if (hv.y >= o.head && hv.y < o.head + rows * ROW_H && hv.x >= barX - CURVE_HIT_PX && hv.x <= barX + barW + CURVE_HIT_PX) {
@@ -809,7 +858,7 @@ export class LadderPane {
     }
     this.hoveredCurve = curveHit?.k ?? null;
     if (xAt) {
-      this.#paintCurves(ctx, g, curves, o, barX, xAt, this.hoveredCurve);
+      this.#paintCurves(ctx, g, curves, o, barX, scale!, this.hoveredCurve);
       // The gridlines' values on the bottom row, each on a patch of the background so the bars under it do not hide it.
       ctx.save(); ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.textAlign = 'center';
       const ly = o.head + rows * ROW_H - ROW_H / 2;

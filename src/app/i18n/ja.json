@@ -1175,11 +1175,9 @@
  "Venue lines": "取引所ライン",
  "top {n}": "上位{n}",
  "Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column's ranking window. Hover a line to see it alone.": "コンパクト：大きい取引所ごとに累計のラインを描きます。フロー列のランキング期間の約定額で順位付けします。ラインにカーソルを合わせると、そのラインだけを表示します。",
- "Share of all venues": "全取引所に占める割合",
  "At this price": "この価格",
  "Traded, last {window}": "約定額（直近{window}）",
  "No trades held for this book: placed by its liquidity in view.": "この板の約定データがありません：表示範囲の流動性で順位付けしています。",
- "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of all venues. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. A line stops where its venue's book stops reaching. Hover near a line, or its entry in the header, to see it alone with its numbers.": "コンパクトでは、取引所ラインが大きい取引所それぞれの累計を、板全体の累計の上に個別に描きます。ラインは独自のスケールを共有し、全幅は表示中の行でのラインの最大値なので、ライン同士を比較できます。全取引所に占める割合はポップアップに表示されます。順位はフロー列のランキング期間の約定額で決まり（約定データのない板は表示範囲の流動性で）、1分間保持されます。ヘッダーの各色の横のマークが取引所を示します。ラインは、その取引所の板が届かなくなる所で終わります。ラインやヘッダーの項目の近くにカーソルを置くと、そのラインだけを数値とともに表示します。",
  "Lines, full width": "ライン、全幅",
  "Count": "集計対象",
  "Whose market orders the footprint and the bar statistics count.": "フットプリントとバー統計が数える成行注文の対象。",
@@ -1281,5 +1279,13 @@
  "Live trades draws every market order as it arrives, as a small dot at its own exchange's price: the exchanges trade a little apart, so their dots run in parallel bands. Where dots crowd together their volume adds up, coloured by the side that traded more there. A line runs through the chart market's orders (dashed before this page opened, from its prices a second), and the candles turn hollow so nothing hides behind them. New orders flash briefly as they come in.": "ライブ約定は、すべての成行注文を到着時に、その取引所自身の価格の小さな点として描きます。取引所ごとに価格がわずかにずれるため、点は平行な帯になります。点が密集する所では出来高が合算され、そこで多く取引された側の色で表示されます。チャート市場の注文には線が通り（このページを開く前は1秒ごとの価格から破線で）、何も隠れないようにローソク足は中抜きになります。新しい注文は到着時に一瞬光ります。",
  "Live trades are kept in this page's memory only, from when it opened (a dotted line marks where they begin, and any gap): a reload starts empty, and the oldest go after about an hour and a half of busy trading. The bubbles are recorded as before.": "ライブ約定はこのページのメモリにのみ、開いた時点から保持されます（点線が開始位置と途切れを示します）。再読み込みすると空から始まり、活発な取引が約1時間半続くと古いものから消えます。バブルはこれまでどおり記録されます。",
  "live trades from {time}": "{time} からのライブ約定",
- "gap in live trades": "ライブ約定の途切れ"
+ "gap in live trades": "ライブ約定の途切れ",
+ "In Compact, Venue lines draws the running total of each of the largest venues on its own, over the whole book's. The lines share a scale of their own, its full width the largest of them on the rows in view, so they compare with each other; the popup gives a line's share of the depth the books show. The venues are ranked by traded volume over the flow column's ranking window (a book with no trades held, by its liquidity in view) and kept for a minute; the mark beside each colour in the header names it. Most exchanges publish only part of their book (Bybit about 0.25 % either side of the price): where a venue's book ends, a short bar across its line marks the end and the line goes on dashed at the total it reached, since what rests beyond is not published. A book that reaches fewer than three rows from the mark gets no line and the next venue takes its place; the header's popup names it. Hover near a line, or its entry in the header, to see it alone with its numbers.": "コンパクトでは、取引所ラインが大きい取引所それぞれの累計を、板全体の累計の上に個別に描きます。ラインは独自のスケールを共有し、全幅は表示中の行でのラインの最大値なので、ライン同士を比較できます。板が示す深さに占める割合はポップアップに表示されます。順位はフロー列のランキング期間の約定額で決まり（約定データのない板は表示範囲の流動性で）、1分間保持されます。ヘッダーの各色の横のマークが取引所を示します。多くの取引所は板の一部しか公開しません（Bybit は価格の上下約 0.25 %）。取引所の板が終わる所では短い横線が端を示し、ラインはそこまでの累計のまま破線で続きます。その先にある注文は公開されていないからです。マークから 3 行に届かない板にはラインを描かず、次の取引所が代わります。ヘッダーのポップアップがそれを示します。ラインやヘッダーの項目の近くにカーソルを置くと、そのラインだけを数値とともに表示します。",
+ "Its published book ends at {price} ({distance}): the dashed line holds the total it reached.": "公開されている板は {price}（{distance}）で終わります。破線はそこまでの累計を保ちます。",
+ "at least {value}": "少なくとも {value}",
+ "Its book reaches": "板の範囲",
+ "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "破線：公開された板の端より先は、そこまでの累計です。その先にある注文は分かりません。",
+ "Left out, their books reach under {n} rows: {names}": "除外（板が {n} 行に届かない）：{names}",
+ "dashed: past its book": "破線：板の先",
+ "Share of the depth shown": "表示中の板に占める割合"
 }
