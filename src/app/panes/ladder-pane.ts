@@ -759,6 +759,11 @@ export class LadderPane {
       const indent = o.markId ? 17 : 0;
       if (o.markId) drawVenueMark(ctx, o.markId, x0 + 6 + 6, head / 2, 12);
       ctx.fillStyle = p.text; ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.fillText(o.title, x0 + 6 + indent, head / 2); ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.fillStyle = p.muted;
+      // A book scrolled further than one grouping holds draws no running totals: said beside the title where the column has room.
+      if (!o.totals && state.ladderShow !== 'levels') {
+        const note = t('Recenter for the running totals'), titleW = ctx.measureText(o.title).width + 6 + indent + 12;
+        if (titleW + ctx.measureText(note).width <= w - 12) { ctx.textAlign = 'right'; ctx.fillText(note, x0 + w - 6, head / 2); ctx.textAlign = 'left'; }
+      }
     }
     else {
       const line = head - HEAD_H / 2;
