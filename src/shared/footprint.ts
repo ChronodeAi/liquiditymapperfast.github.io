@@ -455,6 +455,8 @@ export class FootprintRecorder {
   step(id: string): number | undefined { return this.#steps.get(id); }
   /** Instruments with a recorded minute. */
   get instruments(): string[] { return [...this.#sums.keys()]; }
+  /** Whether the minute starting at `t` has rows for `id` (in memory or in the store). */
+  holds(id: string, t: number): boolean { return this.#sums.get(id)?.has(t) === true; }
   /** The start (ms) of the newest minute recorded for `id`, or 0. */
   lastMinute(id: string): number { let newest = 0; for (const t of this.#sums.get(id)?.keys() ?? []) if (t > newest) newest = t; return newest; }
 
@@ -464,9 +466,10 @@ export class FootprintRecorder {
    * A fill for an older minute that only the store holds reads that minute back first; when the store fails to, the fill is not taken (nor
    * marked seen) but kept, and taken first with the next fills (at most UNTAKEN_MAX; one whose minute the retention has passed meanwhile is
    * let go, as that minute was): a connector's trade comes once, and one handed over again (the feed's recent trades come on every pass)
-   * is then seen and taken once. Only a fill more than `memoryMs` late reads the store at all.
+   * is then seen and taken once. Only a fill more than `memoryMs` late reads the store at all. `taken` is told each fill accepted (the
+   * coverage record's seam: a list handed over whole every pass says which of its fills are new only here).
    */
-  ingest(trades: Iterable<TradeLike>): number {
+  ingest(trades: Iterable<TradeLike>, taken?: (trade: TradeLike) => void): number {
     let accepted = 0;
     const cutoff = this.now() - this.#retentionMs, kept = new Set<string>();
     // A waiting fill whose minute the retention has passed goes, counted as seen, as it would have been had it been taken (a copy handed
@@ -518,6 +521,7 @@ export class FootprintRecorder {
       if (!restored) { const stats = this.#minuteStats(id); if (!stats.has(minute)) stats.set(minute, { ...emptyStats(), big: NO_BIG }); }
       this.#dirty.add(`${id}|${minute}`);
       accepted++;
+      taken?.(trade);
     }
     return accepted;
   }

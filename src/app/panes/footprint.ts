@@ -216,6 +216,16 @@ export class FootprintData {
   venueOrder: string[] = [];
   #busy = false; #retryAt = 0;
 
+  /**
+   * Trades of the bars from `from` on changed in the recording (recovered from a venue's history): those bars are asked for again with the
+   * next look, settled or not, and the bars held stay drawn until the answer replaces them.
+   */
+  refresh(from: number): void {
+    const h = this.#held, tfMs = TIMEFRAMES[this.#context.slice(this.#context.lastIndexOf('|') + 1)];
+    if (!h || !tfMs) return;
+    h.settled = Math.min(h.settled, Math.max(h.from, Math.floor(from / tfMs) * tfMs)); h.at = -Infinity;
+  }
+
   /** No markets to count (Aggregated with every venue off, or none inside the filter): no bars, and nothing asked for. */
   clear(): void {
     if (this.#context === '' && !this.bars.size) return;

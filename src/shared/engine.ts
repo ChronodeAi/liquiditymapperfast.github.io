@@ -15,6 +15,8 @@ import { browserVenues, type BrowserVenue } from './venues.ts';
 import { BTC, SCALES, type Coin, type MarketVenue } from './coins.ts';
 import type { BookConnector, TradeEvent } from './connector.ts';
 import { packLt, type ColumnSet, type ColumnsFrame } from './columns.ts';
+import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, coveredMs, depthAnswer, tradeAnswer, type CoverageAnswer, type CoverageMetric, type CoverageStore } from './coverage.ts';
+import { RECOVERY_BUDGET, historySource, planRecovery, rebuildOrders, runRecovery, trimUnknown, webHistoryFetch, type HistoryFetch, type HistorySource, type HistoryTrade, type RecoveryBudget, type RecoveryResult } from './recovery.ts';
 
 /**
  * The whole data plane without a server: it runs the exchange connectors for the selected venues, values their books, records minute
@@ -65,12 +67,30 @@ export interface EngineOptions {
   get?: Fetcher;
   /** Whether a venue's reachability request was answered; the engine only uses it to explain a venue that never comes up. */
   ping?: (url: string, init?: { method: string; headers: Record<string, string>; body: string }) => Promise<boolean>;
-  columns?: ColumnStore | null; footprint?: FootprintStore | null; prints?: PrintStore | null; flow?: FlowStore | null; absorption?: AbsorptionStore | null;
+  columns?: ColumnStore | null; footprint?: FootprintStore | null; prints?: PrintStore | null; flow?: FlowStore | null; absorption?: AbsorptionStore | null; coverage?: CoverageStore | null;
   retentionMs?: number;
+  /** How a recovery reads a venue's trade history (shared/recovery.ts), and its budget; a test gives its own. */
+  historyFetch?: HistoryFetch; recoveryBudget?: RecoveryBudget;
 }
+
+/** What a page asks a recovery for: its markets, the most wanted first (the chart market), and the windows to fill, in order (the bar under way, then the one before). */
+export interface RecoveryRequest { ids: string[]; windows: { from: number; to: number }[] }
+/** What one recovery action did, per market: how many gaps it found, how much of them it filled from the venue's history, and whether all. */
+export interface RecoveryReport {
+  pages: number; rows: number; ms: number; stoppedBy: 'done' | 'pages' | 'rows' | 'time'; failed: string[];
+  instruments: { id: string; recoverable: boolean; gaps: number; gapMs: number; recoveredMs: number }[];
+}
+/** A recovery waits this long at most for the markets' feeds to be live again (a phone back from the background reconnects first). */
+const RECOVERY_WAIT_MS = 8_000;
+/** A gap shorter than this is the loop's own beat at the window's edge, not a gap. */
+const MIN_GAP_MS = 1_000;
+/** A venue that failed a recovery is not asked again for this long. */
+const VENUE_REST_MS = 60_000;
 
 interface Run {
   venue: BrowserVenue; book: BookConnector; feeds: BookConnector[]; startedAt: number;
+  /** The connectors that carry the instrument's trades (its trade feeds, or the book's own socket): its trades are covered while all are live. */
+  trades: BookConnector[];
   /** Since when a live venue has had no usable book; 0 while it has one. */
   noBookSince: number;
   probe: { ok: boolean | null; at: number; pending: boolean };
@@ -102,6 +122,8 @@ export class Engine {
   readonly orders: OrderBuilder;
   /** Absorption candidates and window statistics, from every fill once. */
   readonly absorption: AbsorptionRecorder;
+  /** When each instrument's trades were recorded (shared/coverage.ts): a minute with nothing in it told apart from one nobody recorded. */
+  readonly tradeCoverage: TradeCoverage;
   /** How far the recordings reached when this engine started (see shared/restart.ts). */
   readonly #recorded: RecordedBefore;
   /** Absorption groups found and minutes settled since the last pass. */
@@ -122,6 +144,15 @@ export class Engine {
   onFlow: (items: FlowUpdate[]) => void = () => {};
   /** The picker's rows, whenever any of them changed. */
   onStatus: (venues: VenueStatus[]) => void = () => {};
+  /** A gap of `id` was filled from the venue's history over [from, to): what was asked about it may have changed. */
+  onRecovered: (id: string, from: number, to: number) => void = () => {};
+  readonly #historyFetch: HistoryFetch;
+  readonly #recoveryBudget: RecoveryBudget;
+  /** The end of the newest footprint minute each instrument had when the engine started (read from storage). */
+  readonly #loadedThrough = new Map<string, number>();
+  /** The recovery under way (one at a time), and a request that came while it ran (done next). */
+  #recovering: Promise<RecoveryReport> | null = null; #recoverNext: RecoveryRequest | null = null;
+  readonly #venueRest = new Map<string, number>();
 
   readonly #venues: readonly BrowserVenue[];
   readonly #coin: Coin;
@@ -140,8 +171,8 @@ export class Engine {
   #lastTick = ''; #lastStatus = '';
   #timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, retentionMs = BROWSER_RETENTION_MS }: EngineOptions = {}) {
-    this.#coin = coin; this.#venues = venues; this.#now = now; this.#get = get; this.#ping = ping;
+  constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, coverage = null, retentionMs = BROWSER_RETENTION_MS, historyFetch = webHistoryFetch, recoveryBudget = RECOVERY_BUDGET }: EngineOptions = {}) {
+    this.#coin = coin; this.#venues = venues; this.#now = now; this.#get = get; this.#ping = ping; this.#historyFetch = historyFetch; this.#recoveryBudget = recoveryBudget;
     // A coin that trades less than BTC keeps smaller trades, groups and map cells (shared/coins.ts SCALES); BTC's are 1.
     const scale = SCALES[tier] ?? 1;
     // A page keeps far fewer merged windows than a server (about 6 MB at most): it holds a day, and it may be a phone.
@@ -156,6 +187,8 @@ export class Engine {
     this.flows = new FlowRecorder(flow, now, Math.min(retentionMs, FLOW_MEMORY_MS), retentionMs);
     this.orders = new OrderBuilder(now);
     this.absorption = new AbsorptionRecorder(absorption, now, { retentionMs, floorUsd: GROUP_FLOOR_USD * scale });
+    this.tradeCoverage = new TradeCoverage(coverage, now, retentionMs);
+    for (const id of this.footprints.instruments) this.#loadedThrough.set(id, this.footprints.lastMinute(id) + COLUMN_MS);
     this.#recorded = new RecordedBefore(this.flows, this.footprints);
   }
 
@@ -169,11 +202,12 @@ export class Engine {
       if (wanted.has(venue.id) && !running && venue.listed) {
         const made = venue.make(), feeds = [...made.feeds, ...(made.liquidations ?? [])], book = made.book;
         for (const connector of [book, ...feeds]) { connector.onTrade = this.#trade; connector.onLiquidation = this.#liquidation; connector.start(); }
-        this.#runs.set(venue.id, { venue, book, feeds, startedAt: now, noBookSince: 0, probe: { ok: null, at: 0, pending: false } });
+        this.#runs.set(venue.id, { venue, book, feeds, trades: made.feeds.length ? made.feeds : [book], startedAt: now, noBookSince: 0, probe: { ok: null, at: 0, pending: false } });
       } else if (!wanted.has(venue.id) && running) {
         for (const connector of [running.book, ...running.feeds]) connector.stop();
         this.#runs.delete(venue.id);
         const id = running.book.instrumentId;
+        this.tradeCoverage.end(id, now);
         this.#last.delete(id); this.#candles.delete(id);
       }
     }
@@ -201,14 +235,20 @@ export class Engine {
   // ---- The loop -------------------------------------------------------------------------------------------------------------------
 
   start(intervalMs = 250): void { if (!this.#timer) this.#timer = setInterval(() => this.step(), intervalMs); }
-  stop(): void { if (this.#timer) clearInterval(this.#timer); this.#timer = null; for (const run of this.#runs.values()) for (const c of [run.book, ...run.feeds]) c.stop(); this.#runs.clear(); this.flush(); }
+  stop(): void {
+    if (this.#timer) clearInterval(this.#timer); this.#timer = null;
+    for (const run of this.#runs.values()) { for (const c of [run.book, ...run.feeds]) c.stop(); this.tradeCoverage.end(run.book.instrumentId, this.#now()); }
+    this.#runs.clear(); this.flush();
+  }
 
   /** One pass: value the books, record, and tell the page what changed. */
   step(now = this.#now()): void {
     const books = this.#value(now);
+    // The trades of each instrument are covered while every feed carrying them is live (a failed one up to its last message).
+    for (const run of this.#runs.values()) this.tradeCoverage.pass(run.book.instrumentId, run.trades.every(c => c.state === 'live'), now, Math.min(...run.trades.map(c => c.lastUpdate || now)));
     // A pass with no book yet must not use up the sample interval, or the first real sample waits five seconds.
     if (books.length && now - this.#lastSample >= SAMPLE_MS) { this.#lastSample = now; this.recorder.sample(books, now); }
-    if (now - this.#lastFlush >= FLUSH_MS) { this.#lastFlush = now; this.footprints.flush(); this.printStream.flush(); this.liquidationStream.flush(); this.flows.flush(); this.absorption.flush(); }
+    if (now - this.#lastFlush >= FLUSH_MS) { this.#lastFlush = now; this.footprints.flush(); this.printStream.flush(); this.liquidationStream.flush(); this.flows.flush(); this.absorption.flush(); this.tradeCoverage.flush(); }
     if (now - this.#lastFlowPush >= FLOW_SEC) { this.#lastFlowPush = now; const items = this.flows.take(); if (items.length) this.onFlow(items); }
     if (now - this.#lastPrune >= PRUNE_MS) { this.#lastPrune = now; this.recorder.prune(now); }
     this.#pollOi(now);
@@ -231,7 +271,7 @@ export class Engine {
   }
 
   /** Write everything not yet saved, including the minute still open and the orders still open (the page is going away). */
-  flush(): void { this.#takeOrders(true); this.recorder.flush(); this.footprints.flush(true); this.printStream.flush(); this.flows.flush(true); this.absorption.step(true); this.absorption.flush(); }
+  flush(): void { this.#takeOrders(true); this.recorder.flush(); this.footprints.flush(true); this.printStream.flush(); this.flows.flush(true); this.absorption.step(true); this.absorption.flush(); this.tradeCoverage.flush(true); }
 
   /** Hand the market orders that are complete (all of them with `all`) to the prints and the size statistics. */
   #takeOrders(all: boolean): void {
@@ -266,6 +306,7 @@ export class Engine {
     this.flows.ingest([row]);
     // A trade seen before (a feed that replays after a reconnect) is in the footprint already, and must not count twice in the candle either.
     if (this.footprints.ingest([row]) === 0) return;
+    this.tradeCoverage.trade(trade.instrumentId, trade.tradeId, trade.t, this.#now());
     // The fill joins its market order; prints and size statistics are taken from orders once they are complete (`step`).
     for (const f of this.orders.add([{ ...row, order: trade.order }])) this.absorption.add(f.instrumentId, f.t, f.price, f.usd, f.side);
     const now = this.#now();
@@ -336,6 +377,85 @@ export class Engine {
 
   /** The trades of these instruments added together by size over each of the last `windows` minutes (the page's strip). */
   sizes(ids: readonly string[], windows: readonly number[], cuts: readonly number[] = []): SizesAnswer { return this.footprints.sizes(ids, windows, this.#cuts(cuts)); }
+
+  /**
+   * When `ids` were recorded over the whole minutes of [from, to) (shared/coverage.ts): trades from the coverage record and the footprint's
+   * minutes, depth from the columns' samples. A question too long or too wide is cut to what may be asked.
+   */
+  coverage(ids: readonly string[], metric: CoverageMetric, from: number, to: number): CoverageAnswer {
+    const w = coverageWindow(Math.max(from, to - MAX_COVERAGE_SPAN_MS), to);
+    const instruments = [...new Set(ids)].slice(0, MAX_COVERAGE_INSTRUMENTS).map(id => metric === 'trades'
+      ? tradeAnswer(id, this.tradeCoverage, w.from, w.to, t => this.footprints.holds(id, t))
+      : depthAnswer(id, this.recorder.samples(id, w.from, w.to), w.from, w.to));
+    return { metric, from: w.from, to: w.to, asOf: this.#now(), instruments };
+  }
+
+  // ---- Recovery -------------------------------------------------------------------------------------------------------------------
+
+  /**
+   * Fill the gaps of the windows asked for from the venues' trade history (shared/recovery.ts), within one action's budget. One action at a
+   * time: a request while one runs is done after it (with what the windows then lack), and the caller of the running one is answered by it.
+   */
+  recover(request: RecoveryRequest): Promise<RecoveryReport> {
+    if (this.#recovering) { this.#recoverNext = request; return this.#recovering; }
+    const run = this.#recoverOnce(request).finally(() => {
+      this.#recovering = null;
+      const next = this.#recoverNext; this.#recoverNext = null;
+      if (next) void this.recover(next).catch(() => {});
+    });
+    this.#recovering = run;
+    return run;
+  }
+
+  /** The history source of a running market (none: not running, no history a page can read, or its venue resting after a failure). */
+  #historyOf(id: string): HistorySource | null {
+    const venue = venueOf(id), listing = this.#listing(id);
+    if (!listing || ![...this.#runs.values()].some(r => r.book.instrumentId === id) || (this.#venueRest.get(venue) ?? 0) > this.#now()) return null;
+    return historySource(venue, listing);
+  }
+
+  async #recoverOnce(request: RecoveryRequest): Promise<RecoveryReport> {
+    const ids = [...new Set(request.ids)].slice(0, MAX_COVERAGE_INSTRUMENTS);
+    // Back from the background the feeds reconnect first: the gap ends where the live recording starts again, its seam the first trade then.
+    for (let waited = 0; waited < RECOVERY_WAIT_MS && ids.some(id => this.#historyOf(id) && !this.tradeCoverage.isOpen(id)); waited += 250) await new Promise<void>(resolve => setTimeout(resolve, 250));
+    const now = this.#now(), windows = request.windows.map(w => ({ from: w.from, to: Math.min(w.to, now) })).filter(w => w.to > w.from);
+    const instruments = ids.flatMap(id => { const source = this.#historyOf(id); return source ? [{ id, source }] : []; });
+    // A minute held from storage with no record of being covered (an older build recorded it) is not recovered: its trades would count twice.
+    const unknown = (id: string) => (t: number): boolean => t < (this.#loadedThrough.get(id) ?? 0) && this.footprints.holds(id, t) && coveredMs(this.tradeCoverage.covered(id, t, t + COLUMN_MS), t, t + COLUMN_MS) === 0;
+    const gapsOf = (id: string, from: number, to: number) => trimUnknown(this.tradeCoverage.gaps(id, from, to), unknown(id)).filter(g => g.to - g.from >= MIN_GAP_MS);
+    const jobs = planRecovery(windows, instruments, gapsOf);
+    const found = new Map<string, { gaps: number; gapMs: number; recoveredMs: number }>();
+    for (const job of jobs) { const f = found.get(job.id) ?? { gaps: 0, gapMs: 0, recoveredMs: 0 }; f.gaps++; f.gapMs += job.to - job.from; found.set(job.id, f); }
+    const run = await runRecovery(jobs, this.#historyFetch, { budget: this.#recoveryBudget, now: this.#now, onResult: result => {
+      this.#applyRecovered(result);
+      if (result.covered) found.get(result.job.id)!.recoveredMs += result.covered[1] - result.covered[0];
+    } });
+    for (const venue of run.failed) this.#venueRest.set(venue, this.#now() + VENUE_REST_MS);
+    return { pages: run.pages, rows: run.rows, ms: run.ms, stoppedBy: run.stoppedBy, failed: run.failed,
+      instruments: ids.map(id => ({ id, recoverable: instruments.some(i => i.id === id), ...(found.get(id) ?? { gaps: 0, gapMs: 0, recoveredMs: 0 }) })) };
+  }
+
+  /**
+   * One gap's recovered trades into the recordings, in one step with the stretch they cover: the footprint takes those the live recording does
+   * not hold already (by trade id: the seam's last guard), the flow the same, their market orders (rebuilt from them alone) go to the size
+   * statistics and the large orders without being handed on as new. Never the live callback: not the price, the candle, the trade dust or
+   * the order builder of the live trades.
+   */
+  #applyRecovered(result: RecoveryResult): void {
+    const id = result.job.id, taken: HistoryTrade[] = [], byId = new Map(result.rows.map(r => [r.tradeId, r]));
+    const rows = result.rows.map(r => ({ instrumentId: id, tradeId: r.tradeId, side: r.side, price: r.price, notionalUsd: r.notionalUsd, sourceTimestamp: r.t }));
+    const accepted: typeof rows = [];
+    this.footprints.ingest(rows, row => { const r = byId.get(String(row.tradeId)); if (r) { taken.push(r); accepted.push(row as (typeof rows)[number]); } });
+    this.flows.ingest(accepted);
+    const orders = rebuildOrders(id, taken);
+    this.footprints.countOrders(orders);
+    this.printStream.ingest(orders.map(orderRow), false);
+    if (result.covered) {
+      const first = result.rows[0], last = result.rows[result.rows.length - 1];
+      this.tradeCoverage.recovered(id, result.covered[0], result.covered[1], first ? { id: first.tradeId, t: first.t } : undefined, last ? { id: last.tradeId, t: last.t } : undefined);
+    }
+    if (result.covered || taken.length) this.onRecovered(id, result.covered?.[0] ?? result.job.from, result.covered?.[1] ?? result.job.to);
+  }
 
   /** Taker flow per second for each instrument over [from, to), from its first recorded minute in that range. */
   flow(ids: readonly string[], from: number, to: number): FlowFrame { return this.flows.frame(ids, from, to); }

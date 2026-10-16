@@ -83,8 +83,12 @@ export class PrintStream {
     else for (const print of this.#recent) this.sums.add(print);
   }
 
-  /** Take market orders (or single trades); returns the prints that are new and large enough, oldest first. */
-  ingest(trades: Iterable<PrintRow>): Print[] {
+  /**
+   * Take market orders (or single trades); returns the prints that are new and large enough, oldest first. With `fresh` false (orders
+   * recovered from a venue's history) they are kept and asked for like any other, but never handed on as new (`takeFresh`): no bubble
+   * appears for them as it arrives and no sound plays.
+   */
+  ingest(trades: Iterable<PrintRow>, fresh = true): Print[] {
     const added: Print[] = [];
     for (const trade of trades) {
       const id = String(trade.instrumentId ?? ''), key = String(trade.tradeId ?? '');
@@ -102,7 +106,7 @@ export class PrintStream {
       added.push(print); this.#unsaved.push(print);
     }
     added.sort((a, b) => a.t - b.t);
-    for (const print of added) { this.#recent.push(print); this.#fresh.push(print); this.sums.add(print); }
+    for (const print of added) { this.#recent.push(print); if (fresh) this.#fresh.push(print); this.sums.add(print); }
     // Feeds interleave, so keep memory ordered by time (appends are almost always in order already).
     const before = this.#recent[this.#recent.length - added.length - 1];
     if (added.length && before && before.t > added[0]!.t) this.#recent.sort((a, b) => a.t - b.t);

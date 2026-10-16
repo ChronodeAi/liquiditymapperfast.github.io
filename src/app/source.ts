@@ -6,6 +6,8 @@ import type { PrintSumsAnswer } from '../shared/print-sums.ts';
 import type { FlowFrame, FlowMinutesFrame, FlowUpdate } from '../shared/flow.ts';
 import type { ProfileAnswer, RangeAnswer, SizesAnswer, ValueAreaAnswer } from '../shared/footprint.ts';
 import type { AbsorptionAnswer, AbsorptionGroup, AbsorptionMinute } from '../shared/absorption.ts';
+import type { CoverageAnswer, CoverageMetric } from '../shared/coverage.ts';
+import type { RecoveryReport, RecoveryRequest } from '../shared/engine.ts';
 import type { ColumnsFrame, LevelsFrame } from './wire.ts';
 import type { Bar } from './panes/footprint.ts';
 import type { CandleRow, LayerLevel, Market, OiBar } from './store.ts';
@@ -39,6 +41,8 @@ export interface LiveHandlers {
   onTape?(batch: TapeBatch): void;
   /** Absorption groups found and minutes settled (checked already). */
   onAbsorption?(groups: AbsorptionGroup[], minutes: AbsorptionMinute[]): void;
+  /** A gap of `id` was filled from the venue's trade history over [from, to): recovered trades, never to flash or sound. */
+  onRecovered?(id: string, from: number, to: number): void;
 }
 
 /** Executions per candle for a window, as the footprint draws them. */
@@ -118,6 +122,17 @@ export interface DataSource {
   range(ids: string[], from: number, to: number, band: { p0: number; p1: number } | null, rowStep: number): Promise<RangeAnswer>;
   /** The point of control and the value area of each window (whole minutes), on rows of `rowStep`, holding `share` (0..1). Rejects when the source cannot say. */
   valueAreas(ids: string[], windows: { from: number; to: number }[], rowStep: number, share: number): Promise<ValueAreaAnswer>;
+  /**
+   * When `ids` were recorded over the whole minutes of [from, to) (shared/coverage.ts): per minute the seconds covered and whether anything
+   * is held, so a minute recorded with nothing in it is told apart from one nobody recorded. A source that cannot say (an older server) leaves
+   * it out, and nothing is then called fully covered.
+   */
+  coverage?(ids: string[], metric: CoverageMetric, from: number, to: number): Promise<CoverageAnswer>;
+  /**
+   * Fill the gaps of the windows from the venues' trade history (shared/recovery.ts), within one action's budget. Only a source that records
+   * in the page has it (the browser engine): a server records on its own, whether a page is open or not.
+   */
+  recover?(request: RecoveryRequest): Promise<RecoveryReport>;
   /** Absorption candidates of each of `ids` starting in [from, to) with a largest credit of at least its `mins` entry (at most `limit` each, the largest first), floors, and the minutes since `since`. */
   absorption(ids: string[], mins: number[], from: number, to: number, limit: number, since: number): Promise<AbsorptionAnswer>;
   readonly venues: VenueControl;

@@ -9,6 +9,8 @@ import { toWire as liquidationWire, type Liquidation } from '../shared/liquidati
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
 import { parseProfile, parseRange, parseSizes, parseValueAreas, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from '../shared/footprint.ts';
 import { parseAbsorptionAnswer, parseAbsorptionLive, type AbsorptionAnswer } from '../shared/absorption.ts';
+import { parseCoverage, type CoverageAnswer, type CoverageMetric } from '../shared/coverage.ts';
+import type { RecoveryReport, RecoveryRequest } from '../shared/engine.ts';
 import type { FeedsIn, FeedsOut, RpcCall, RpcResult } from './browser/protocol.ts';
 import type { Print } from './prints.ts';
 import type { BootstrapState, DataSource, FootprintResponse, LiveHandlers, SavingState, TickMessage, VenueCatalog, VenueControl, VenueEntry } from './source.ts';
@@ -126,6 +128,7 @@ export class BrowserSource implements DataSource, VenueControl {
           for (const watcher of this.#watchers) watcher(message.venues.map(toEntry));
           break;
         case 'recording': this.recording = message.recording; if (message.failed) this.storageFailed = true; break;
+        case 'recovered': if (typeof message.id === 'string' && Number.isFinite(message.from) && Number.isFinite(message.to)) this.#handlers?.onRecovered?.(message.id, message.from, message.to); break;
         case 'rpc': {
           const call = this.#calls.get(message.id); this.#calls.delete(message.id);
           if (message.error !== undefined) call?.reject(new Error(message.error)); else call?.resolve(message.result);
@@ -241,6 +244,12 @@ export class BrowserSource implements DataSource, VenueControl {
     if (!answer) throw new Error('the browser engine answered the sizes question with something else');
     return answer;
   }
+  async coverage(ids: string[], metric: CoverageMetric, from: number, to: number): Promise<CoverageAnswer> {
+    const answer = parseCoverage(await this.#call({ method: 'coverage', ids, metric, from, to }), ids, metric, from, to);
+    if (!answer) throw new Error('the browser engine answered the coverage question with something else');
+    return answer;
+  }
+  async recover(request: RecoveryRequest): Promise<RecoveryReport> { return this.#call({ method: 'recover', ids: [...request.ids], windows: request.windows.map(w => ({ from: w.from, to: w.to })) }); }
   async footprint(inst: string, tf: string, from: number, to: number, rowStep: number, cuts: readonly number[] = [], budget?: number, venues = false): Promise<FootprintResponse> {
     return this.#call({ method: 'footprint', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to, rowStep, cuts: [...cuts], ...(budget ? { budget } : {}), ...(venues ? { venues } : {}) });
   }

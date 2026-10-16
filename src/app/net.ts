@@ -4,6 +4,7 @@ import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
 import { decodeFlowFrame, decodeFlowMinutes, type FlowFrame, type FlowMinutesFrame, type FlowUpdate } from '../shared/flow.ts';
 import { parseProfile, parseRange, parseSizes, parseValueAreas, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from '../shared/footprint.ts';
 import { parseAbsorptionAnswer, parseAbsorptionLive, type AbsorptionAnswer } from '../shared/absorption.ts';
+import { parseCoverage, type CoverageAnswer, type CoverageMetric } from '../shared/coverage.ts';
 import { fromWire, type Print } from './prints.ts';
 import { fromWire as liquidationFromWire, type Liquidation } from '../shared/liquidations.ts';
 import { decodeColumns, decodeLevels, decodeTape, frameType, type ColumnsFrame } from './wire.ts';
@@ -86,6 +87,14 @@ export async function getAbsorption(ids: string[], mins: number[], from: number,
   return answer;
 }
 /** Traded volume by price for these instruments over [from, to); an older server without the route rejects (404). */
+/** When `ids` were recorded (see `CoverageAnswer`). Rejects on a server that does not know the question (an older one). */
+export async function getCoverage(ids: string[], metric: CoverageMetric, from: number, to: number): Promise<CoverageAnswer> {
+  const response = await fetch(`/api/v2/coverage?inst=${ids.map(encodeURIComponent).join(',')}&metric=${metric}&from=${Math.floor(from)}&to=${Math.ceil(to)}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`coverage failed: ${response.status}`);
+  const answer = parseCoverage(await response.json().catch(() => null), ids, metric, from, to);
+  if (!answer) throw new Error('coverage answered with something else');
+  return answer;
+}
 export async function getProfile(ids: string[], from: number, to: number, rowStep: number): Promise<ProfileAnswer> {
   const response = await fetch(`/api/v2/profile?inst=${ids.map(encodeURIComponent).join(',')}&from=${Math.floor(from)}&to=${Math.ceil(to)}&step=${rowStep}`, { cache: 'no-store' });
   if (!response.ok) throw new Error(`profile failed: ${response.status}`);

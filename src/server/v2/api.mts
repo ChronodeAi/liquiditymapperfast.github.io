@@ -18,6 +18,8 @@ import type { MarketOrder } from '../../shared/orders.ts';
 import { FootprintRecorder } from './footprint.mts';
 import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
 import { RecordedBefore } from '../../shared/restart.ts';
+import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, tradeAnswer, type CoverageMetric } from './coverage.mts';
+import { venueForFeedId } from '../../core/venue-status.mts';
 import { FLOW_SEC, FlowRecorder, encodeFlowFrame, encodeFlowMinutes } from './flow.mts';
 import { FlowSources } from './flow-sources.mts';
 import { PRINT_FLOOR_USD, PRINTS_PER_ANSWER, PrintStream, toWire, type Print } from './prints.mts';
@@ -113,6 +115,13 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (price > 0 && Math.abs(at - t) <= TOUCH_HINT_MS && now - at <= TOUCH_HINT_MS && (!held || t >= held.t)) touchHints.set(id, { price, t, at });
   };
   const flow = new FlowRecorder(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
+  /** When each instrument's trades were recorded (shared/coverage.ts): covered while every source of its trades is live and this loop runs. */
+  const coverage = new TradeCoverage(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
+  /** The venue each instrument's trades come from on the feed manager (learnt from its trade rows), so its trade feed's state says whether it is covered. */
+  const feedVenue = new Map<string, string>();
+  /** The instruments covered on the last pass, so one whose source went away is closed. */
+  let coveredIds = new Set<string>();
+  const noteTaken = (trade: TradeLike): void => { coverage.trade(String(trade.instrumentId), String(trade.tradeId), Number(trade.sourceTimestamp ?? trade.receivedAt), Date.now()); };
   /** How far the recordings reach (read now, before any trade): what a venue sends again after a restart is not counted twice. */
   const recorded = new RecordedBefore(flow, footprint);
   const unrecorded = (trades: readonly TradeLike[]): TradeLike[] => trades.filter(trade => !recorded.holds(String(trade.instrumentId ?? ''), Number(trade.sourceTimestamp ?? trade.receivedAt)));
@@ -137,12 +146,28 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const arrived = Date.now(); noteTouch(trade.instrumentId, trade.price, trade.t, arrived, arrived);
     if (recorded.holds(trade.instrumentId, trade.t)) return;
     const row = { instrumentId: trade.instrumentId, tradeId: trade.tradeId, side: trade.side, price: trade.price, notionalUsd: trade.notionalUsd, sourceTimestamp: trade.t };
-    footprint.ingest([row]); flow.ingest([row]); detect(orders.add([{ ...row, order: trade.order }]));
+    footprint.ingest([row], noteTaken); flow.ingest([row]); detect(orders.add([{ ...row, order: trade.order }]));
   };
   const takeLiquidation = (event: import('../../shared/liquidations.ts').LiquidationEvent): void => { liquidations.ingest([event], id => lastPrice.get(id) ?? null); };
   extra.onTrade(takeTrade);
   // Exchanges the feed manager has depth for but no trade feed: their trades come from the browser engine's connectors (see flow-sources.mts).
   const flowSources = new FlowSources(takeTrade, undefined, undefined, takeLiquidation);
+  /**
+   * Whether each instrument's trade source is live now: the feed manager's trade feeds (`<venue>-trades`, by the venue its rows name), the
+   * trade connectors run for venues it has depth for (FlowSources), and the connector venues. One with none is not recorded.
+   */
+  const tradeSources = (now: number): Map<string, { live: boolean; lastData: number }> => {
+    const out = new Map<string, { live: boolean; lastData: number }>();
+    const feeds = Object.entries(app.state.feedStatuses ?? {}).filter(([id]) => id.endsWith('-trades'));
+    for (const [id, venue] of feedVenue) {
+      const mine = feeds.filter(([feed]) => venueForFeedId(feed) === venue); if (!mine.length) continue;
+      const success = mine.map(([, s]) => Number((s as { lastSuccess?: unknown } | null)?.lastSuccess)).filter(Number.isFinite);
+      out.set(id, { live: mine.every(([, s]) => (s as { state?: unknown } | null)?.state === 'live'), lastData: success.length ? Math.min(...success) : now });
+    }
+    for (const [id, source] of flowSources.trades()) out.set(id, { live: source.live, lastData: source.lastData || now });
+    for (const v of extra.list()) if (v.enabled) out.set(v.instrumentId, { live: v.state === 'live', lastData: v.lastUpdate || now });
+    return out;
+  };
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   /**
    * Each venue's book as last valued, by the book object it was valued from (an update replaces the object, so an unchanged object is an
@@ -248,7 +273,12 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (members !== lastMembers) { lastMembers = members; levelsDirty = true; }
     if (now - lastSample >= SAMPLE_MS) { lastSample = now; recorder.sample(books, now); }
     const trades = unrecorded(app.state.trades ?? []);
-    footprint.ingest(trades);
+    for (const trade of trades) { const venue = (trade as { venue?: unknown }).venue; if (typeof venue === 'string' && venue) feedVenue.set(String(trade.instrumentId), venue); }
+    const sources = tradeSources(now);
+    for (const [id, source] of sources) coverage.pass(id, source.live, now, source.lastData);
+    for (const id of coveredIds) if (!sources.has(id)) coverage.pass(id, false, now, now);
+    coveredIds = new Set(sources.keys());
+    footprint.ingest(trades, noteTaken);
     flow.ingest(trades);
     // The feed manager's recent trades are handed over whole every pass: the builder takes each fill once (Hyperliquid rows carry the order's hash).
     detect(orders.add(trades));
@@ -256,7 +286,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     absorption.step();
     if (now - lastSources >= 5_000) { lastSources = now; flowSources.sync(new Set([...Object.keys(app.state.books ?? {}), ...extra.enabledInstrumentIds])); syncFar(Object.keys(app.state.books ?? {})); oiSampler?.sync(Object.keys(app.state.books ?? {}).filter(perpetual)); }
     // Each store on its own: one that cannot write (a full disk) keeps its rows for the next round and does not stop the others or the rest of this pass.
-    if (now - lastFlush >= 30_000) { lastFlush = now; for (const store of [footprint, prints, liquidations, flow, absorption]) { try { store.flush(); } catch (error) { fault('recordings could not be saved; will try again:', error); } } }
+    if (now - lastFlush >= 30_000) { lastFlush = now; for (const store of [footprint, prints, liquidations, flow, absorption, coverage]) { try { store.flush(); } catch (error) { fault('recordings could not be saved; will try again:', error); } } }
     if (now - lastPrune >= 3_600_000) { lastPrune = now; recorder.prune(now); }
     const fresh = prints.takeFresh(), found = absorption.takeFresh(), forced = liquidations.takeFresh();
     // Taken whether or not anyone listens, so the changed seconds do not pile up while nobody is connected.
@@ -463,6 +493,19 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
     sendJson(res, footprint.profile(ids, span.from, span.to, step));
   };
+  /** When instruments were recorded, per minute (shared/coverage.ts): `metric` trades (the coverage record and the footprint's minutes) or depth (the columns' samples). */
+  const coverageRoute = (url: URL, res: ServerResponse) => {
+    const ids = [...new Set((url.searchParams.get('inst') ?? '').split(',').filter(Boolean))];
+    if (!ids.length || ids.length > MAX_COVERAGE_INSTRUMENTS) return sendJson(res, { error: `inst must name 1 to ${MAX_COVERAGE_INSTRUMENTS} instruments` }, 400);
+    const metric = url.searchParams.get('metric');
+    if (metric !== 'trades' && metric !== 'depth') return sendJson(res, { error: 'metric must be trades or depth' }, 400);
+    const span = windowOf(url, Date.now() + 60_000, 3_600_000); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
+    if (span.to - span.from > MAX_COVERAGE_SPAN_MS) return sendJson(res, { error: `the window may be at most ${MAX_COVERAGE_SPAN_MS / 3_600_000} hours` }, 400);
+    const w = coverageWindow(span.from, span.to), m: CoverageMetric = metric;
+    sendJson(res, { metric: m, from: w.from, to: w.to, asOf: Date.now(), instruments: ids.map(id => m === 'trades'
+      ? tradeAnswer(id, coverage, w.from, w.to, t => footprint.holds(id, t))
+      : depthAnswer(id, recorder.samples(id, w.from, w.to), w.from, w.to)) });
+  };
   /** What happened in a selection of the map (a band of prices, `p0` and `p1`) or of a pane (every price): see `RangeAnswer`. */
   const rangeRoute = (url: URL, res: ServerResponse) => {
     const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean);
@@ -567,6 +610,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/range': rangeRoute(url, res); return true;
           case '/api/v2/value-areas': valueAreasRoute(url, res); return true;
           case '/api/v2/absorption': absorptionRoute(url, res); return true;
+          case '/api/v2/coverage': coverageRoute(url, res); return true;
           case '/api/v2/venues': venuesRoute(res); return true;
           case '/coins.json': return coins?.send(res) ?? false;
           default: return false;
@@ -582,7 +626,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       clearInterval(loop); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
       for (const client of wss.clients) client.terminate();
       // Each part gets its turn even when one of them fails, so what can still be written is (the open minutes and the open orders are written here).
-      for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => footprint.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {
+      for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => footprint.close(), () => coverage.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {
         try { part(); } catch (error) { console.error('v2 shutdown:', error); }
       }
     },

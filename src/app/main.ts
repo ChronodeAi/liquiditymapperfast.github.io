@@ -156,6 +156,8 @@ async function main(): Promise<void> {
   dock.onChange = () => { candle.setShown(candleShown()); hub.setTape(tapeWanted()); };
   hub.setTape(tapeWanted());
   hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); };
+  // Trades recovered from a venue's history (the browser engine): the Candle view asks again, and no flow burst is sounded over them.
+  hub.onRecovered = (id, from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); candle.recovered(id, from); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.keyHistory = hub.keyHistory;
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
@@ -240,7 +242,6 @@ async function main(): Promise<void> {
     if (changed.has('hover')) { heat.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); cvd.syncHover(); }
     if (changed.has('delta')) delta.settingsChanged();
     if (changed.has('marketId')) candle.marketChanged();
-    if (changed.has('levels')) candle.levelsArrived();
     if (['levels', 'mark', 'disabledVenues', 'scope', 'markets', 'footprint', 'customMarkets', 'replay', 'bookGone', 'show'].some(k => changed.has(k as never))) candle.invalidate();
     if (changed.has('lsMetric')) ls.settingsChanged();
     if (['show', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'oiMarkets', 'customMarkets', 'oiInstrument', 'oiParts', 'seriesInstrument', 'range'].some(k => changed.has(k as never))) ls.invalidate();

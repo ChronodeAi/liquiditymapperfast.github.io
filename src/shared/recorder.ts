@@ -369,6 +369,18 @@ export class DepthRecorder {
     return out;
   }
 
+  /**
+   * Each minute of [from, to) the instrument was sampled in (the open one too): how many of its twelve samples were taken and whether any
+   * level was kept. The depth metric of the coverage record (shared/coverage.ts): a minute missing here was not recorded.
+   */
+  samples(instrumentId: string, from: number, to: number): Map<number, { n: number; levels: boolean }> {
+    const out = new Map<number, { n: number; levels: boolean }>();
+    for (const c of this.#columnsIn(instrumentId, from, to)) out.set(c.t, { n: c.n, levels: c.bins.length > 0 });
+    const open = this.#pending.get(instrumentId);
+    if (open && open.n > 0 && open.t >= from && open.t < to) out.set(open.t, { n: open.n, levels: open.bid.size + open.ask.size > 0 });
+    return out;
+  }
+
   /** Commit everything still accumulating (shutdown). */
   flush(): void { for (const [id, pending] of [...this.#pending]) this.#commit(id, pending); }
 

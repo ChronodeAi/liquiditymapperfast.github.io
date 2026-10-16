@@ -1,3 +1,5 @@
+import { coversAll, type CoverageAnswer } from '../../shared/coverage.ts';
+
 /**
  * The phone's Candle view, the parts that are only numbers: where each column of the screen goes, which prices the screen shows and in
  * rows of what size, which arrivals light the rail, the age ruler under the trail, and the view's own settings. No DOM and no canvas, so
@@ -152,22 +154,39 @@ export function countdownText(ms: number): string {
   return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`;
 }
 
-/** A stretch the recording may have missed: the page hidden (a phone suspends it), or a market's book off the map (its feed reconnecting). */
-export interface Gap { from: number; to: number }
+/**
+ * How far behind the coverage answer's own time a market may stop and still count as covered up to it: the loop's beat and the answer's
+ * trip from the recorder (the open stretch is extended on each pass, four a second).
+ */
+export const COVER_SLACK_MS = 1_500;
 
 /**
- * Whether a forming bar's footprint can be judged (its imbalance colours and point of control): the recording began before the bar opened
- * (`recordedSince`, the source's first recorded time, 0 when unknown), no gap the page saw (`gaps`: the page hidden, a counted market's book
- * gone) touches the bar, and its minutes with rows (`Bar.minutes`) leave none out, but the one under way in its first seconds, whose first
- * trades may not be in the last answer yet. `minutes` counts the minutes any market traded in, so this is what can be told without a
- * coverage record per market: a market that stopped sending trades while its book stayed on the map is not seen (AGENTS.md, the Candle tab).
+ * The markets of `markets` whose trades were recorded without a break, live or recovered from the venue's history, from the bar's open
+ * (`barT`) to the coverage answer's time: only these are judged (shared/coverage.ts). A market the answer does not name, an answer from
+ * before the bar opened or one that does not reach back to it counts none, and so does no answer (a source that cannot say).
  */
-export const MINUTE_GRACE_MS = 15_000;
-export function barComplete(minutes: number | undefined, barT: number, now: number, recordedSince: number, gaps: readonly Gap[] = []): boolean {
-  if (!(recordedSince > 0) || recordedSince > barT || minutes === undefined) return false;
-  if (gaps.some(g => g.to >= barT && g.from <= now)) return false;
-  const elapsed = Math.max(1, Math.ceil((now - barT) / 60_000)), into = (now - barT) % 60_000;
-  return minutes >= elapsed || (minutes === elapsed - 1 && into < MINUTE_GRACE_MS);
+export function coveredMarkets(answer: CoverageAnswer | null, markets: readonly string[], barT: number): Set<string> {
+  const out = new Set<string>();
+  if (!answer || answer.metric !== 'trades' || !(answer.asOf > barT) || answer.from > barT) return out;
+  const end = Math.max(barT + 1, answer.asOf - COVER_SLACK_MS);
+  for (const i of answer.instruments) if (markets.includes(i.id) && coversAll(i.spans, barT, end)) out.add(i.id);
+  return out;
+}
+
+/** A footprint row split by coverage: what the fully covered markets bought and sold (judged), and what the others did (observed only). */
+export interface RowSplit { buy: number; sell: number; partBuy: number; partSell: number }
+/**
+ * Split a row of `buy` and `sell` by its markets' parts (`parts`, with several markets added together): the covered markets' USD, and the
+ * rest. A row of one market is all its own; a row of several without parts (an older answer) cannot be put to a market, so none of it is judged.
+ */
+export function splitRow(buy: number, sell: number, parts: readonly (readonly [string, number, number])[] | undefined, covered: ReadonlySet<string>, markets: readonly string[]): RowSplit {
+  if (parts) {
+    let b = 0, s = 0;
+    for (const [id, pb, ps] of parts) if (covered.has(id)) { b += pb; s += ps; }
+    const rest = (all: number, part: number): number => all - part > all * 1e-9 ? all - part : 0;
+    return { buy: b, sell: s, partBuy: rest(buy, b), partSell: rest(sell, s) };
+  }
+  return markets.length === 1 && covered.has(markets[0]!) ? { buy, sell, partBuy: 0, partSell: 0 } : { buy: 0, sell: 0, partBuy: buy, partSell: sell };
 }
 
 /** The row with the most volume (bought and sold together), or -1: the footprint's point of control. */

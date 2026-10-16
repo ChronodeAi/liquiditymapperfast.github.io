@@ -56,6 +56,11 @@ export type ColumnsReader = (ids: string[], from: number, to: number) => Promise
  */
 export class Alerts {
   readonly log: AlertEntry[] = [];
+  /**
+   * Per market, the end of the newest stretch filled from the venue's trade history: its seconds may sit in the burst window for a moment, and
+   * recovered trades never sound, so a market is not looked at until the window has passed them.
+   */
+  readonly recovered = new Map<string, number>();
   /** Flow bursts seen while the page was open, for the markers on the flow column's rows (oldest first). */
   readonly bursts: BurstEvent[] = [];
   readonly #cool = new Cooldowns();
@@ -110,7 +115,7 @@ export class Alerts {
     if (!(s.show.cvd && s.cvd.bursts) && !rule.burst) return;
     const nowSec = Math.floor(now / 1000);
     for (const id of flowIds(s, this.flow.ids)) {
-      const series = this.flow.get(id); if (!series) continue;
+      const series = this.flow.get(id); if (!series || (this.recovered.get(id) ?? 0) > now - 12_000) continue;
       const found = burst(series, nowSec, { windowSec: 10, baselineSec: 1_800, k: rule.sensitivity, minUsd: scaledUsd(rule.usd) });
       if (!found || series.span!.last < nowSec - 2) continue;
       if (this.bursts.some(b => b.id === id && now - b.t < FLOW_COOLDOWN_MS)) continue;

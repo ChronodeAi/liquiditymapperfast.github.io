@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  AXIS_W, CANDLE_DEFAULTS, FLASH_MS, MAX_FLASHES, MIN_SPAN, RAIL_W, ageTicks, barComplete, candleLayout, countdownText, flashRadius, flashStrength,
-  flashes, pocIndex, priceAt, priceSpan, railCells, readCandleSettings, rowStepFor, trailX, yOf, type Arrival,
+  AXIS_W, CANDLE_DEFAULTS, COVER_SLACK_MS, FLASH_MS, MAX_FLASHES, MIN_SPAN, RAIL_W, ageTicks, candleLayout, countdownText, coveredMarkets, flashRadius, flashStrength,
+  flashes, pocIndex, priceAt, priceSpan, railCells, readCandleSettings, rowStepFor, splitRow, trailX, yOf, type Arrival,
 } from '../src/app/candle/model.ts';
+import type { CoverageAnswer } from '../src/shared/coverage.ts';
 
 test('saved settings are read field by field, anything that does not check out falls back to its default', () => {
   assert.deepEqual(readCandleSettings(null), CANDLE_DEFAULTS);
@@ -74,17 +75,33 @@ test('the trail and its ruler: now at the rail, the window at the left edge, a m
   assert.deepEqual(ageTicks(60_000).map(t => t.seconds), [0, 15, 30, 45, 60]);
 });
 
-test('a bar is judged only when the recording reaches back to its open and no minute is missing', () => {
-  const bar = 1_000 * 300_000, now = bar + 150_000;
-  assert.equal(barComplete(3, bar, now, bar - 60_000), true);
-  assert.equal(barComplete(2, bar, now, bar - 60_000), false, 'thirty seconds into the third minute, two minutes is one missing');
-  assert.equal(barComplete(2, bar, bar + 125_000, bar - 60_000), true, 'in the first seconds of a minute its trades may not be in the last answer yet');
-  assert.equal(barComplete(1, bar, now, bar - 60_000), false, 'a minute missing: the phone was away');
-  assert.equal(barComplete(3, bar, now, bar - 60_000, [{ from: bar + 30_000, to: bar + 50_000 }]), false, 'the page was hidden, or a book was off the map, inside the bar');
-  assert.equal(barComplete(3, bar, now, bar - 60_000, [{ from: bar - 90_000, to: bar - 30_000 }]), true, 'a gap before the bar does not count');
-  assert.equal(barComplete(3, bar, now, bar + 10_000), false, 'the recording began inside the bar');
-  assert.equal(barComplete(undefined, bar, now, bar - 60_000), false);
-  assert.equal(barComplete(3, bar, now, 0), false, 'unknown start');
+test('a market is judged only when its trades were recorded, live or recovered, from the open of the bar to the answer without a break', () => {
+  const bar = 1_000 * 300_000, asOf = bar + 150_000;
+  const answer = (spans: Record<string, [number, number][]>, at = asOf): CoverageAnswer => ({ metric: 'trades', from: bar - 300_000, to: bar + 180_000, asOf: at,
+    instruments: Object.entries(spans).map(([id, s]) => ({ id, spans: s, recovered: [], seconds: [], held: [] })) });
+  const all = ['a', 'b', 'c', 'd'];
+  const got = coveredMarkets(answer({
+    a: [[bar - 60_000, asOf]],
+    b: [[bar - 60_000, bar + 30_000], [bar + 50_000, asOf]],                 // the phone was away for 20 s inside the bar
+    c: [[bar + 10_000, asOf]],                                               // recorded from inside the bar only
+    d: [[bar - 60_000, bar + 20_000], [bar + 20_000, asOf - COVER_SLACK_MS]], // a recovered stretch joined to the live one, up to the beat
+  }), all, bar);
+  assert.deepEqual([...got].sort(), ['a', 'd']);
+  assert.equal(coveredMarkets(null, all, bar).size, 0, 'no answer (a source that cannot say): nothing is judged');
+  assert.equal(coveredMarkets(answer({ a: [[bar - 60_000, bar - 1_000]] }, bar - 1_000), all, bar).size, 0, 'an answer from before the bar opened');
+  assert.equal(coveredMarkets(answer({ a: [[bar + 200, bar + 400]] }, bar + 500), all, bar).has('a'), false, 'in the bar\'s first second a market counts only if it was recorded at its open');
+  assert.equal(coveredMarkets(answer({ a: [[bar - 5_000, bar + 400]] }, bar + 500), all, bar).has('a'), true);
+  assert.equal(coveredMarkets(answer({ z: [[bar - 60_000, asOf]] }), all, bar).size, 0, 'a market not selected does not count');
+});
+
+test('a row is split into what the covered markets did, judged, and what the others did, observed', () => {
+  const covered = new Set(['a']);
+  assert.deepEqual(splitRow(30, 20, [['a', 10, 5], ['b', 20, 15]], covered, ['a', 'b']), { buy: 10, sell: 5, partBuy: 20, partSell: 15 });
+  assert.deepEqual(splitRow(30, 20, [['b', 30, 20]], covered, ['a', 'b']), { buy: 0, sell: 0, partBuy: 30, partSell: 20 });
+  assert.deepEqual(splitRow(30, 20, undefined, covered, ['a']), { buy: 30, sell: 20, partBuy: 0, partSell: 0 }, 'one market: the row is all its own');
+  assert.deepEqual(splitRow(30, 20, undefined, covered, ['a', 'b']), { buy: 0, sell: 0, partBuy: 30, partSell: 20 }, 'several markets with no parts cannot be judged');
+  // A partial market selling 900 against a covered one buying 100: the judgement sees the covered 100 bought, never a buy imbalance of the whole row.
+  assert.deepEqual(splitRow(100, 900, [['a', 100, 0], ['b', 0, 900]], covered, ['a', 'b']), { buy: 100, sell: 0, partBuy: 0, partSell: 900 });
 });
 
 test('the countdown and the point of control', () => {

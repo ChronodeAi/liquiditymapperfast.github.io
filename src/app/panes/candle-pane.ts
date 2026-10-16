@@ -19,6 +19,7 @@ import { niceStep } from '../view.ts';
 import { STRIDE, type TapeRing } from '../tape/ring.ts';
 import { TrailGL, type FlashSprite } from '../candle/trail-gl.ts';
 import * as M from '../candle/model.ts';
+import type { CoverageAnswer } from '../../shared/coverage.ts';
 
 const NUM_FONT = '10.5px ui-monospace, SFMono-Regular, Menlo, monospace';
 const SMALL_FONT = '10px ui-sans-serif, system-ui, sans-serif';
@@ -30,6 +31,10 @@ const PAINT_MS = 50;
 const MAX_TRAIL_MARKS = 10;
 /** How often the candle's own bars are asked for again; between answers the price moves the forming one. */
 const CANDLES_MS = 15_000;
+/** How often the markets' coverage is asked for again while the view shows (and at once after a recovery). */
+const COVERAGE_MS = 3_000;
+/** How long after the view opens, or the page comes back, a recovery starts: the feeds reconnect first, and the gap ends where they do. */
+const RECOVER_OPEN_MS = 800, RECOVER_RETURN_MS = 1_500;
 
 /** The forming bar as drawn: open, high, low and close. */
 interface Ohlc { t: number; o: number; h: number; l: number; c: number }
@@ -48,8 +53,11 @@ interface Ohlc { t: number; o: number; h: number; l: number; c: number }
  * trail, fading with it, and the largest flashes on the rail show the mark of the exchange that sent them for a moment. They are drawn on
  * a canvas of their own between the trail and the book, at the trail's pace, so the book and the candle are not redrawn for them.
  *
- * The footprint is judged (imbalance colours, the point of control drawn solid) only when the recording reaches back to the bar's open
- * and no minute of it is missing (`barComplete`); otherwise its rows are drawn plain and the header says the bar is recorded in part.
+ * Coverage (shared/coverage.ts): the footprint counts every market the map's footprint counts, but judges (the imbalance colours, the point
+ * of control) only over the markets whose trades were recorded without a break since the bar opened, live or recovered (`coveredMarkets`).
+ * The other markets' part of each row is drawn on, faint and neutral, and the header says how many of the markets are fully covered. On
+ * open and on return from the background the view asks the source to recover the bar's missing trades from the venues' history, then the
+ * bar before (shared/recovery.ts); recovered trades never flash or sound (the rail and the trail are the live trade dust's alone).
  */
 export class CandlePane {
   readonly root = el('div', { class: 'pane candle' });
@@ -77,13 +85,10 @@ export class CandlePane {
   #order: { key: string; ids: string[]; at: number } | null = null;
   #maskKey = '';
   #reduced = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
-  /**
-   * What the recording may have missed, as the page saw it (candle/model.ts `Gap`): the last stretch the page was hidden, and per market the
-   * last stretch its book was off the map (open while it still is). The page's own record of a book that left (`bookGone`) is dropped
-   * when the book comes back, so these are kept here.
-   */
-  #pageGap: M.Gap | null = null; #hiddenAt = 0;
-  #bookGap = new Map<string, M.Gap>(); #booksSeen = new Set<string>();
+  /** The markets' trade coverage over the bar and the one before (null: none yet, or a source that cannot say), what it was asked for, and when. */
+  #coverage: CoverageAnswer | null = null; #coverageKey = ''; #coverageAt = 0; #coverageBusy = false;
+  /** A recovery from the venues' history: due (its timer), under way, and asked for again while under way. */
+  #recoverTimer = 0; #recovering = false; #recoverAgain = false;
 
   constructor(parent: HTMLElement, private store: Store, private hub: Hub, private kernels: Kernels, private markets: (state: AppState) => string[]) {
     let saved: unknown = null;
@@ -111,10 +116,9 @@ export class CandlePane {
     new ResizeObserver(() => this.#resize()).observe(this.#body);
     this.#bindGestures();
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) { this.#hiddenAt = Date.now(); return; }
-      if (this.#hiddenAt && Date.now() - this.#hiddenAt > 2_000) this.#pageGap = { from: this.#hiddenAt, to: Date.now() };
-      this.#hiddenAt = 0;
-      if (this.#shown) { this.#refreshCandles(true); this.invalidate(); this.#scheduleTrail(0); }
+      if (document.hidden || !this.#shown) return;
+      // Back from the background (a phone suspends the page): what the recording missed meanwhile is asked of the venues' history.
+      this.#refreshCandles(true); this.#refreshCoverage(true); this.invalidate(); this.#scheduleTrail(0); this.#scheduleRecovery(RECOVER_RETURN_MS);
     });
   }
 
@@ -123,7 +127,7 @@ export class CandlePane {
     const tfChanged = next.tf !== this.#settings.tf;
     this.#settings = next;
     try { window.localStorage.setItem(M.CANDLE_SETTINGS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
-    if (tfChanged) { this.#candles = []; this.#live = null; this.#candleKey = ''; this.#refreshCandles(true); }
+    if (tfChanged) { this.#candles = []; this.#live = null; this.#candleKey = ''; this.#refreshCandles(true); this.#refreshCoverage(true); this.#scheduleRecovery(RECOVER_OPEN_MS); }
     this.invalidate(); this.#scheduleTrail(0);
   }
 
@@ -134,38 +138,68 @@ export class CandlePane {
     if (on === this.#shown) return;
     this.#shown = on;
     if (on) {
-      this.#resize(); this.#refreshCandles(true); this.invalidate(); this.#scheduleTrail(0);
-      // The countdown and the bars' refresh; a page that is not shown asks for nothing (it draws nothing either: no frames come).
-      this.#tick = window.setInterval(() => { if (document.hidden) return; this.#refreshCandles(false); this.#writeReadout(); }, 1_000);
+      this.#resize(); this.#refreshCandles(true); this.#refreshCoverage(true); this.invalidate(); this.#scheduleTrail(0); this.#scheduleRecovery(RECOVER_OPEN_MS);
+      // The countdown and the bars' and coverage's refresh; a page that is not shown asks for nothing (it draws nothing either: no frames come).
+      this.#tick = window.setInterval(() => { if (document.hidden) return; this.#refreshCandles(false); this.#refreshCoverage(false); this.#writeReadout(); }, 1_000);
     } else {
-      window.clearInterval(this.#tick); this.#tick = 0;
+      window.clearInterval(this.#tick); this.#tick = 0; window.clearTimeout(this.#recoverTimer); this.#recoverTimer = 0;
       this.#cancelTrail(); window.clearTimeout(this.#paintTimer); this.#paintTimer = 0;
       if (this.#frame) { cancelAnimationFrame(this.#frame); this.#frame = 0; }
     }
   }
   get shown(): boolean { return this.#shown; }
 
-  /** A levels frame arrived: note which markets' books left the map or came back (gaps the footprint may have, see `barComplete`). */
-  levelsArrived(): void {
-    const frame = this.store.state.levels; if (!frame) return;
-    const now = Date.now(), present = new Set(frame.books.map(b => b.id));
-    for (const id of this.#booksSeen) {
-      const gap = this.#bookGap.get(id), open = gap !== undefined && gap.to === Infinity;
-      if (!present.has(id) && !open) this.#bookGap.set(id, { from: now, to: Infinity });
-      else if (present.has(id) && open) gap.to = now;
+  /** A gap of a market was filled from its venue's history: the bar's coverage and rows are asked for again when the market is one of the view's. */
+  recovered(id: string, from: number): void {
+    if (!this.#shown || !this.markets(this.store.state).includes(id)) return;
+    this.#fp.refresh(from); this.#refreshCoverage(true); this.invalidate();
+  }
+
+  /** The market changed: its bars and its forming candle are another market's (and the markets counted may be others). */
+  marketChanged(): void {
+    this.#candles = []; this.#live = null; this.#candleKey = ''; this.#zoom = 1; this.#pan = 0; this.#coverage = null;
+    if (this.#shown) { this.#refreshCandles(true); this.#refreshCoverage(true); this.#scheduleRecovery(RECOVER_OPEN_MS); }
+    this.invalidate();
+  }
+
+  /** The markets' trade coverage over the bar under way and the one before, asked again every COVERAGE_MS (or now). */
+  #refreshCoverage(force: boolean): void {
+    const source = this.hub.source, state = this.store.state, markets = this.markets(state);
+    if (!this.#shown || !source.coverage || !markets.length || replaying()) { if (!source.coverage) this.#coverage = null; return; }
+    const tfMs = TIMEFRAMES[this.#settings.tf] ?? 300_000, now = this.hub.sourceNow(), barT = Math.floor(now / tfMs) * tfMs, key = `${markets.join(',')}|${barT}`;
+    if (this.#coverageBusy || (!force && key === this.#coverageKey && performance.now() - this.#coverageAt < COVERAGE_MS)) return;
+    this.#coverageBusy = true;
+    source.coverage(markets, 'trades', barT - tfMs, now + 1).then(answer => {
+      if (key !== this.#coverageKey) this.#coverage = null;
+      this.#coverage = answer; this.#coverageKey = key; this.invalidate();
+    }, () => { this.#coverage = null; this.#coverageKey = key; }).finally(() => { this.#coverageBusy = false; this.#coverageAt = performance.now(); });
+  }
+
+  /** A recovery in `delay` ms (one due at a time: a page that flaps between shown and hidden asks once). */
+  #scheduleRecovery(delay: number): void {
+    if (!this.hub.source.recover) return;
+    window.clearTimeout(this.#recoverTimer);
+    this.#recoverTimer = window.setTimeout(() => { this.#recoverTimer = 0; void this.#recover(); }, delay);
+  }
+
+  /**
+   * Ask the source to fill the bar's missing trades from the venues' history, then the bar before's: the chart market first, then the others
+   * the view counts. One at a time; asked again while one runs, it runs once more after.
+   */
+  async #recover(): Promise<void> {
+    const recover = this.hub.source.recover?.bind(this.hub.source), state = this.store.state, markets = this.markets(state);
+    if (!recover || !this.#shown || document.hidden || replaying() || !markets.length) return;
+    if (this.#recovering) { this.#recoverAgain = true; return; }
+    const tfMs = TIMEFRAMES[this.#settings.tf] ?? 300_000, now = this.hub.sourceNow(), barT = Math.floor(now / tfMs) * tfMs;
+    const ids = markets.includes(state.marketId) ? [state.marketId, ...markets.filter(id => id !== state.marketId)] : markets;
+    this.#recovering = true; this.#writeReadout();
+    try { await recover({ ids, windows: [{ from: barT, to: now }, { from: barT - tfMs, to: barT }] }); }
+    catch (error) { console.warn('the trades the recording missed could not be recovered:', error); }
+    finally {
+      this.#recovering = false; this.#fp.refresh(barT - tfMs); this.#refreshCoverage(true); this.invalidate(); this.#writeReadout();
+      if (this.#recoverAgain) { this.#recoverAgain = false; this.#scheduleRecovery(RECOVER_OPEN_MS); }
     }
-    for (const id of present) this.#booksSeen.add(id);
   }
-
-  /** The gaps that count for `markets`: the page's last hidden stretch and each market's last stretch off the map. */
-  #gaps(markets: readonly string[]): M.Gap[] {
-    const out: M.Gap[] = this.#pageGap ? [this.#pageGap] : [];
-    for (const id of markets) { const g = this.#bookGap.get(id); if (g) out.push({ from: g.from, to: Math.min(g.to, Date.now()) }); }
-    return out;
-  }
-
-  /** The market changed: its bars and its forming candle are another market's. */
-  marketChanged(): void { this.#candles = []; this.#live = null; this.#candleKey = ''; this.#zoom = 1; this.#pan = 0; if (this.#shown) this.#refreshCandles(true); this.invalidate(); }
 
   /** Orders arrived for the trail: drawn on the next trail frame, and the rail's ticks with the book. */
   tapeArrived(): void { if (!this.#shown) return; this.#scheduleTrail(0); this.invalidate(); }
@@ -263,18 +297,16 @@ export class CandlePane {
     if (markets.length) this.#fp.ensure(markets.join(','), tf, { t0: barT, t1: now, p0: scale.p0, p1: scale.p1 }, M.rowStepFor(this.#fp.fine, scale), (inst, tf2, from, to, rows, lines, budget, venues) => this.hub.footprint(inst, tf2, from, to, rows, lines, budget, venues), () => this.invalidate(), [], this.hub.sourceNow());
     else this.#fp.clear();
     const step = fpStep > 0 ? fpStep : niceStep(scale.p1 - scale.p0, (scale.y1 - scale.y0) / 18); this.#step = step;
-    // A page that reads the exchanges itself records from when it opened: the source names the minute recording began, which would
-    // count a bar opened earlier in that minute as seen whole. A server records on its own, so its time stands.
-    const since = this.hub.source.kind === 'browser' ? Math.max(this.hub.recordedSince, performance.timeOrigin) : this.hub.recordedSince;
-    const judged = M.barComplete(fpBar?.minutes, barT, this.hub.sourceNow(), since, this.#gaps(markets));
+    // Judged over the markets recorded without a break since the bar opened, by the coverage record (none until it answers).
+    const covered = M.coveredMarkets(this.#coverage, markets, barT);
     this.#paintRuler(ctx, l, p);
     ctx.save(); ctx.beginPath(); ctx.rect(0, l.plotY0, l.axisX0, l.plotY1 - l.plotY0); ctx.clip();
     this.#paintBook(ctx, l, scale, step, mark, state, p);
-    this.#paintCandle(ctx, l, scale, bar, fpBar, fpStep, judged, p);
+    this.#paintCandle(ctx, l, scale, bar, fpBar, fpStep, covered, markets, p);
     this.#paintRail(ctx, l, scale, step, p);
     ctx.restore();
     this.#paintAxis(ctx, l, scale, mark, bar, p);
-    this.#writeReadout(judged, markets.length);
+    this.#writeReadout(covered.size, markets.length);
     this.#scheduleTrail(0);
   }
 
@@ -284,15 +316,14 @@ export class CandlePane {
     this.#trail?.clear();
   }
 
-  /** What the header last said: a bar is not called whole before it has been looked at. */
-  #lastJudged = false; #lastMarkets = 0;
-  #writeReadout(judged = this.#lastJudged, markets = this.#lastMarkets): void {
-    this.#lastJudged = judged; this.#lastMarkets = markets;
+  /** What the header last said: how many of the markets counted are fully covered (none is said before the bar has been looked at). */
+  #lastCovered = 0; #lastMarkets = 0;
+  #writeReadout(covered = this.#lastCovered, markets = this.#lastMarkets): void {
+    this.#lastCovered = covered; this.#lastMarkets = markets;
     if (!this.#shown) return;
     const tf = this.#settings.tf, tfMs = TIMEFRAMES[tf] ?? 300_000, now = pageNow(), left = Math.floor(now / tfMs) * tfMs + tfMs - now;
-    const parts = [tf, t('closes in {time}', { time: M.countdownText(left) })];
-    if (markets > 1) parts.push(t('{n} markets', { n: markets }));
-    if (!judged) parts.push(t('recorded in part'));
+    const parts = [tf, t('closes in {time}', { time: M.countdownText(left) }), t('{n} selected · {m} fully covered', { n: markets, m: covered })];
+    if (this.#recovering) parts.push(t('recovering earlier trades…'));
     setText(this.#readout, parts.join(' · '));
   }
 
@@ -373,12 +404,18 @@ export class CandlePane {
     }
   }
 
-  /** The hollow candle with its footprint inside: sells left of the middle, buys right, the point of control outlined. */
-  #paintCandle(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, bar: Ohlc, fpBar: Bar | undefined, step: number, judged: boolean, p: Palette): void {
+  /**
+   * The hollow candle with its footprint inside: sells left of the middle, buys right. Each row's bar is what every market counted traded
+   * there; its inner part, the fully covered markets', carries the judgement (the side's colour where it traded 1.15 times the other) and
+   * the point of control is theirs, while the outer part, the markets covered in part, is faint and neutral. With no market fully covered
+   * nothing is judged.
+   */
+  #paintCandle(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, bar: Ohlc, fpBar: Bar | undefined, step: number, covered: ReadonlySet<string>, markets: readonly string[], p: Palette): void {
     const x0 = l.candleX0, x1 = l.candleX1, split = (x0 + x1) / 2, half = (x1 - x0) / 2 - 2, up = bar.c >= bar.o, col = up ? p.candleUp : p.candleDown;
-    const rows = fpBar && step > 0 ? fpBar.rows.filter(r => r[1] + r[2] > 0) : [];
+    const judged = covered.size > 0, whole = judged && markets.every(id => covered.has(id));
+    const rows = fpBar && step > 0 ? fpBar.rows.flatMap((r, i) => r[1] + r[2] > 0 ? [{ r, split: M.splitRow(r[1], r[2], fpBar.parts?.[i], covered, markets) }] : []) : [];
     let top = bar.h, bottom = bar.l;
-    for (const r of rows) { top = Math.max(top, r[0] + step); bottom = Math.min(bottom, r[0]); }
+    for (const { r } of rows) { top = Math.max(top, r[0] + step); bottom = Math.min(bottom, r[0]); }
     // The candle's column is a panel of its own: the trail passes behind it, never through its numbers. Solid, it hides the trail; glass,
     // the trail shows through it frosted (trail-gl.ts) under a tint dense enough for the numbers, with a lit edge and a darker one.
     const yTop = M.yOf(s, top) - 3, yBottom = M.yOf(s, bottom) + 3, glass = this.#settings.glass;
@@ -394,11 +431,11 @@ export class CandlePane {
       ctx.fillStyle = '#000000'; ctx.globalAlpha = p.dark ? 0.45 : 0.12; ctx.fillRect(x1 - 1, yTop, 1, yBottom - yTop); ctx.fillRect(x0, yBottom - 1, x1 - x0, 1);
       ctx.globalAlpha = 1;
     }
-    // A bar the page saw only in part: its range with no rows is hatched, not left empty, so "not recorded" never reads as "nothing traded".
-    if (!judged) {
-      const covered = rows.length ? { hi: M.yOf(s, Math.max(...rows.map(r => r[0])) + step), lo: M.yOf(s, Math.min(...rows.map(r => r[0]))) } : null;
+    // A bar some market was not recorded for whole: its range with no rows is hatched, not left empty, so "not recorded" never reads as "nothing traded".
+    if (!whole) {
+      const seen = rows.length ? { hi: M.yOf(s, Math.max(...rows.map(x => x.r[0])) + step), lo: M.yOf(s, Math.min(...rows.map(x => x.r[0]))) } : null;
       ctx.save(); ctx.beginPath(); ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
-      if (covered) ctx.rect(x1, covered.hi, x0 - x1, covered.lo - covered.hi);
+      if (seen) ctx.rect(x1, seen.hi, x0 - x1, seen.lo - seen.hi);
       ctx.clip('evenodd');
       ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.16; ctx.lineWidth = 1; ctx.beginPath();
       for (let x = x0 - (yBottom - yTop); x < x1; x += 7) { ctx.moveTo(x, yBottom); ctx.lineTo(x + (yBottom - yTop), yTop); }
@@ -409,15 +446,21 @@ export class CandlePane {
     ctx.strokeRect(x0 + 0.75, bodyTop, x1 - x0 - 1.5, bodyBottom - bodyTop);
     if (rows.length) {
       const rowPx = step * (s.y1 - s.y0) / (s.p1 - s.p0), rh = Math.max(1, rowPx - (rowPx > 4 ? 1 : 0));
-      let busiest = 0; for (const r of rows) busiest = Math.max(busiest, r[1], r[2]);
-      const poc = M.pocIndex(rows);
+      let busiest = 0; for (const { r } of rows) busiest = Math.max(busiest, r[1], r[2]);
+      // The point of control of the covered markets alone (none when no market is).
+      const poc = judged ? M.pocIndex(rows.map(({ r, split: c }) => [r[0], c.buy, c.sell] as const)) : -1;
       ctx.font = NUM_FONT; ctx.textBaseline = 'middle';
-      rows.forEach(([low, buy, sell], i) => {
+      rows.forEach(({ r: [low, buy, sell], split: c }, i) => {
         const y = M.yOf(s, low + step); if (y + rh < s.y0 || y > s.y1) return;
-        const inBody = y + rh / 2 >= bodyTop && y + rh / 2 <= bodyBottom, side = judged ? imbalance(buy, sell) : null;
+        const inBody = y + rh / 2 >= bodyTop && y + rh / 2 <= bodyBottom, side = judged ? imbalance(c.buy, c.sell) : null;
+        // The bar's length is what every market traded; its inner part the covered markets', in proportion, the rest outside it.
         const sw = Math.sqrt(sell / busiest) * half, bw = Math.sqrt(buy / busiest) * half;
-        ctx.globalAlpha = side === 'sell' ? 0.95 : side === 'buy' ? 0.38 : 0.5; ctx.fillStyle = p.candleDown; ctx.fillRect(split - 1 - sw, y, sw, rh);
-        ctx.globalAlpha = side === 'buy' ? 0.95 : side === 'sell' ? 0.38 : 0.5; ctx.fillStyle = p.candleUp; ctx.fillRect(split + 1, y, bw, rh);
+        const swIn = sell > 0 ? sw * c.sell / sell : 0, bwIn = buy > 0 ? bw * c.buy / buy : 0;
+        ctx.globalAlpha = side === 'sell' ? 0.95 : side === 'buy' ? 0.38 : 0.5; ctx.fillStyle = p.candleDown; ctx.fillRect(split - 1 - swIn, y, swIn, rh);
+        ctx.globalAlpha = side === 'buy' ? 0.95 : side === 'sell' ? 0.38 : 0.5; ctx.fillStyle = p.candleUp; ctx.fillRect(split + 1, y, bwIn, rh);
+        ctx.globalAlpha = p.dark ? 0.2 : 0.16; ctx.fillStyle = p.muted;
+        if (sw > swIn) ctx.fillRect(split - 1 - sw, y, sw - swIn, rh);
+        if (bw > bwIn) ctx.fillRect(split + 1 + bwIn, y, bw - bwIn, rh);
         ctx.globalAlpha = 1;
         if (rh >= 11) {
           // A small row's numbers are the ink faded, not the muted grey: on the dark body grey would barely read.
@@ -427,10 +470,7 @@ export class CandlePane {
           ctx.textAlign = 'left'; if (buy >= 1) ctx.fillText(volText(buy), split + 4, y + rh / 2);
           ctx.globalAlpha = 1;
         }
-        if (i === poc) {
-          ctx.strokeStyle = p.poc; ctx.lineWidth = 1.5; ctx.setLineDash(judged ? [] : [3, 2]);
-          ctx.strokeRect(x0 + 0.75, y + 0.25, x1 - x0 - 1.5, rh - 0.5); ctx.setLineDash([]);
-        }
+        if (i === poc) { ctx.strokeStyle = p.poc; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.75, y + 0.25, x1 - x0 - 1.5, rh - 0.5); }
       });
     }
   }

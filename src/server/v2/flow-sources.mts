@@ -20,13 +20,19 @@ interface Made { book: BookConnector; feeds: BookConnector[]; liquidations?: Boo
  * a server set up for another coin has depth that their trades do not belong to) and stopped a minute after it has none.
  */
 export class FlowSources {
-  readonly #running = new Map<string, { connectors: BookConnector[]; instrument: string; unwantedSince: number }>();
+  readonly #running = new Map<string, { connectors: BookConnector[]; trades: BookConnector[]; instrument: string; unwantedSince: number }>();
   /** Connectors made but not started: a venue has to be made to tell which instrument it trades, and that one is what starts if the venue is wanted. */
   readonly #spare = new Map<string, Made>();
 
   constructor(private onTrade: (trade: TradeEvent) => void, private now: () => number = Date.now, private venues: readonly BrowserVenue[] = BROWSER_VENUES, private onLiquidation: (event: LiquidationEvent) => void = () => {}) {}
 
   get active(): string[] { return [...this.#running.keys()]; }
+  /** Each instrument whose trades come from here: whether every connector carrying them is live, and the oldest of their last messages. */
+  trades(): Map<string, { live: boolean; lastData: number }> {
+    const out = new Map<string, { live: boolean; lastData: number }>();
+    for (const run of this.#running.values()) if (run.trades.length) out.set(run.instrument, { live: run.trades.every(c => c.state === 'live'), lastData: Math.min(...run.trades.map(c => c.lastUpdate)) });
+    return out;
+  }
 
   /** Start the sources of the venues whose instrument is in `wanted` (the instrument ids the server has a book for) and are not running; stop those that have not been wanted for a minute. */
   sync(wanted: ReadonlySet<string>): void {
@@ -41,13 +47,13 @@ export class FlowSources {
       }
       const made = this.#spare.get(venue.id) ?? venue.make(); this.#spare.set(venue.id, made);
       // A venue whose trades come another way runs only its liquidation feed, if it has one (one with neither stays made and unstarted).
-      const connectors = [...(COVERED.has(venue.id) ? [] : made.feeds.length ? made.feeds : [made.book]), ...(made.liquidations ?? [])];
+      const trades = COVERED.has(venue.id) ? [] : made.feeds.length ? made.feeds : [made.book], connectors = [...trades, ...(made.liquidations ?? [])];
       const instrument = made.book.instrumentId;
       if (!connectors.length || !wanted.has(instrument)) continue;
       this.#spare.delete(venue.id);
       // Their books are not read here (the feed manager has the depth), so they read no far book either.
       for (const connector of connectors) { connector.onTrade = this.onTrade; connector.onLiquidation = this.onLiquidation; connector.bookRead = false; connector.start(); }
-      this.#running.set(venue.id, { connectors, instrument, unwantedSince: 0 });
+      this.#running.set(venue.id, { connectors, trades, instrument, unwantedSince: 0 });
     }
   }
 

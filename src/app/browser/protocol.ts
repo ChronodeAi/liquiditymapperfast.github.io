@@ -1,4 +1,4 @@
-import type { EngineBootstrap, EngineTick, FootprintAnswer, VenueStatus } from '../../shared/engine.ts';
+import type { EngineBootstrap, EngineTick, FootprintAnswer, RecoveryReport, VenueStatus } from '../../shared/engine.ts';
 import type { Candle, OiBar } from '../../shared/series.ts';
 import type { Print } from '../../shared/prints.ts';
 import type { Liquidation } from '../../shared/liquidations.ts';
@@ -10,6 +10,7 @@ import type { TapeBatch } from '../../shared/tape.ts';
 import type { ColumnsFrame } from '../../shared/columns.ts';
 import type { LevelsFrame } from '../wire.ts';
 import type { Coin } from '../../shared/coins.ts';
+import type { CoverageAnswer, CoverageMetric } from '../../shared/coverage.ts';
 
 /** What the page asks the feeds worker for; each has an answer of the type in `RpcResult`. */
 export type RpcCall =
@@ -26,10 +27,12 @@ export type RpcCall =
   | { method: 'valueAreas'; ids: string[]; windows: { from: number; to: number }[]; rowStep: number; share: number }
   | { method: 'absorption'; ids: string[]; mins: number[]; from: number; to: number; limit: number; since: number }
   | { method: 'candles'; inst: string; tfMs: number; from: number; to: number }
-  | { method: 'oi'; inst: string; tfMs: number; from: number; to: number; usd?: boolean };
+  | { method: 'oi'; inst: string; tfMs: number; from: number; to: number; usd?: boolean }
+  | { method: 'coverage'; ids: string[]; metric: CoverageMetric; from: number; to: number }
+  | { method: 'recover'; ids: string[]; windows: { from: number; to: number }[] };
 
 export interface RpcResult {
-  bootstrap: EngineBootstrap; columns: ColumnsFrame; footprint: FootprintAnswer; prints: Print[]; liquidations: Liquidation[]; printSums: PrintSumsAnswer | null; flow: FlowFrame; sizes: SizesAnswer; profile: ProfileAnswer; range: RangeAnswer; valueAreas: ValueAreaAnswer; absorption: AbsorptionAnswer; candles: Candle[]; oi: OiBar[];
+  bootstrap: EngineBootstrap; columns: ColumnsFrame; footprint: FootprintAnswer; prints: Print[]; liquidations: Liquidation[]; printSums: PrintSumsAnswer | null; flow: FlowFrame; sizes: SizesAnswer; profile: ProfileAnswer; range: RangeAnswer; valueAreas: ValueAreaAnswer; absorption: AbsorptionAnswer; candles: Candle[]; oi: OiBar[]; coverage: CoverageAnswer; recover: RecoveryReport;
 }
 
 export type FeedsIn =
@@ -59,4 +62,6 @@ export type FeedsOut =
   | { type: 'status'; venues: VenueStatus[] }
   /** Whether this tab is the one writing recordings (another tab may hold that role); `failed`: its storage stopped working, so it will not be. */
   | { type: 'recording'; recording: boolean; failed?: boolean }
+  /** A gap of `id` was filled from the venue's trade history over [from, to) (shared/recovery.ts): what was asked about it may have changed. */
+  | { type: 'recovered'; id: string; from: number; to: number }
   | { type: 'rpc'; id: number; result?: unknown; error?: string };

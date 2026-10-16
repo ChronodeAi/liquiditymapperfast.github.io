@@ -73,7 +73,7 @@ async function init(selected: string[] | null, known: string[] | null, persist: 
     }
   }
   const venues = browserVenues(coin);
-  const next = new Engine({ coin, tier, venues, columns: recordings?.columns ?? null, footprint: recordings?.footprint ?? null, prints: recordings?.prints ?? null, flow: recordings?.flow ?? null, absorption: recordings?.absorption ?? null });
+  const next = new Engine({ coin, tier, venues, columns: recordings?.columns ?? null, footprint: recordings?.footprint ?? null, prints: recordings?.prints ?? null, flow: recordings?.flow ?? null, absorption: recordings?.absorption ?? null, coverage: recordings?.coverage ?? null });
   next.onLevels = (books, asOf) => post({ type: 'levels', frame: frameOf(books, asOf) });
   next.onTick = tick => post({ type: 'tick', tick });
   next.onPrints = (items: Print[]) => post({ type: 'prints', items });
@@ -82,6 +82,7 @@ async function init(selected: string[] | null, known: string[] | null, persist: 
   next.onTape = batch => post({ type: 'tape', batch }, [batch.inst.buffer, batch.t.buffer, batch.price.buffer, batch.usd.buffer, batch.lo.buffer, batch.hi.buffer]);
   next.onAbsorption = found => post({ type: 'absorption', groups: found.groups, minutes: found.minutes });
   next.onStatus = venues => post({ type: 'status', venues });
+  next.onRecovered = (id, from, to) => post({ type: 'recovered', id, from, to });
   next.select(restoreSelection(selected, known, venues) ?? venues.filter(v => v.recommended).map(v => v.id));
   next.start();
   engine = next;
@@ -110,6 +111,8 @@ async function answer(call: RpcCall, run: Engine): Promise<{ result: unknown; tr
     case 'absorption': return { result: await run.absorptionHistory(call.ids, call.mins, call.from, call.to, call.limit, call.since), transfer: [] };
     case 'candles': return { result: await run.candles(call.inst, call.tfMs, call.from, call.to), transfer: [] };
     case 'oi': return { result: await run.oi(call.inst, call.tfMs, call.from, call.to, call.usd === true), transfer: [] };
+    case 'coverage': return { result: run.coverage(call.ids, call.metric, call.from, call.to), transfer: [] };
+    case 'recover': return { result: await run.recover({ ids: call.ids, windows: call.windows }), transfer: [] };
   }
 }
 

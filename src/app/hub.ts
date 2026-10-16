@@ -81,6 +81,8 @@ export class Hub {
   tape: TapeRing | null = null;
   /** Called when orders arrived for the dust. */
   onTape: () => void = () => {};
+  /** A gap of a market was filled from its venue's trade history over [from, to) (the browser engine's recovery): never a flash or a sound. */
+  onRecovered: (id: string, from: number, to: number) => void = () => {};
   /** The live connection's handle, so the dust can be asked for or stopped. */
   #live: { close(): void; tape(on: boolean): void } | null = null;
   #tapeOn = false;
@@ -275,6 +277,8 @@ export class Hub {
       onFlow: items => { this.flow.apply(items); this.onFlowChanged(); },
       onTape: batch => { if (!this.#tapeOn || !this.tape) return; this.tape.add(batch, this.#connection, performance.now(), Date.now()); this.onTape(); },
       onAbsorption: (groups, minutes) => { this.absorption.add(groups); this.absorption.addMinutes(minutes); this.onAbsorptionChanged(); },
+      // The large orders of the stretch are in the recording now, not among the fresh ones: the window held is asked for again.
+      onRecovered: (id, from, to) => { this.#printsWindow = null; this.onRecovered(id, from, to); },
       onPrints: items => {
         const fresh = this.prints.add(items.flatMap(row => { const p = fromWire(row); return p ? [p] : []; }));
         if (fresh.length) { this.#whaleTake(fresh); this.onPrints(fresh); this.onPrintsChanged(); }
