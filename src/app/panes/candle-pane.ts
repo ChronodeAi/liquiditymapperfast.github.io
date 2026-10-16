@@ -177,19 +177,21 @@ export class CandlePane {
     }, () => { this.#coverage = null; this.#coverageKey = key; }).finally(() => { this.#coverageBusy = false; this.#coverageAt = performance.now(); });
   }
 
-  /** A recovery in `delay` ms (one due at a time: a page that flaps between shown and hidden asks once). */
-  #scheduleRecovery(delay: number): void {
+  /** A recovery in `delay` ms (one due at a time: a page that flaps between shown and hidden asks once), of `only` those markets when given. */
+  #scheduleRecovery(delay: number, only?: readonly string[]): void {
     if (!this.hub.source.recover) return;
     window.clearTimeout(this.#recoverTimer);
-    this.#recoverTimer = window.setTimeout(() => { this.#recoverTimer = 0; void this.#recover(); }, delay);
+    this.#recoverTimer = window.setTimeout(() => { this.#recoverTimer = 0; void this.#recover(only); }, delay);
   }
 
   /**
    * Ask the source to fill the bar's missing trades from the venues' history, then the bar before's: the chart market first, then the others
-   * the view counts. One at a time; asked again while one runs, it runs once more after.
+   * the view counts (`only`: just these). One at a time; asked again while one runs, it runs once more after. Markets that joined while it
+   * ran (on a cold start the venues come up over the first seconds) get one of their own after it.
    */
-  async #recover(): Promise<void> {
-    const recover = this.hub.source.recover?.bind(this.hub.source), state = this.store.state, markets = this.markets(state);
+  async #recover(only?: readonly string[]): Promise<void> {
+    const recover = this.hub.source.recover?.bind(this.hub.source), state = this.store.state, counted = this.markets(state);
+    const markets = only ? counted.filter(id => only.includes(id)) : counted;
     if (!recover || !this.#shown || document.hidden || replaying() || !markets.length) return;
     if (this.#recovering) { this.#recoverAgain = true; return; }
     const tfMs = TIMEFRAMES[this.#settings.tf] ?? 300_000, now = this.hub.sourceNow(), barT = Math.floor(now / tfMs) * tfMs;
@@ -199,7 +201,9 @@ export class CandlePane {
     catch (error) { console.warn('the trades the recording missed could not be recovered:', error); }
     finally {
       this.#recovering = false; this.#fp.refresh(barT - tfMs); this.#refreshCoverage(true); this.invalidate(); this.#writeReadout();
+      const joined = this.markets(this.store.state).filter(id => !counted.includes(id));
       if (this.#recoverAgain) { this.#recoverAgain = false; this.#scheduleRecovery(RECOVER_OPEN_MS); }
+      else if (joined.length) this.#scheduleRecovery(RECOVER_OPEN_MS, joined);
     }
   }
 
