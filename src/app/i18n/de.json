@@ -1326,5 +1326,20 @@
  "dashed: past its book": "gestrichelt: hinter dem Buch",
  "Share of the depth shown": "Anteil an der gezeigten Tiefe",
  "Recenter for the running totals": "Zentrieren für die laufenden Summen",
- "No book reaches {n} rows at this step": "Kein Buch reicht {n} Zeilen bei diesem Schritt"
+ "No book reaches {n} rows at this step": "Kein Buch reicht {n} Zeilen bei diesem Schritt",
+ "Look": "Optik",
+ "Phosphor": "Phosphor",
+ "Etched": "Radiert",
+ "Beads": "Perlen",
+ "Trail": "Spur",
+ "Glass": "Glas",
+ "The Candle view shows the live market only.": "Die Kerzenansicht zeigt nur den Live-Markt.",
+ "Waiting for the market…": "Warte auf den Markt…",
+ "closes in {time}": "schließt in {time}",
+ "recorded in part": "teilweise aufgezeichnet",
+ "now": "jetzt",
+ "The candle under way, the trades coming in and the book around it, made for a phone.": "Die laufende Kerze, die eingehenden Trades und das Orderbuch darum, gemacht fürs Handy.",
+ "The candle under way filling a phone screen: its footprint inside, the order book on both sides, large orders flashing on the rail as they arrive, and the last seconds of trades flowing left behind it.": "Die laufende Kerze füllt den Handybildschirm: ihr Footprint darin, das Orderbuch auf beiden Seiten, große Orders, die bei ihrer Ankunft auf der Schiene aufblitzen, und die Trades der letzten Sekunden, die dahinter nach links ziehen.",
+ "Inside the candle, each row is a price: sold at market on the left, bought on the right. A row is coloured by the side that traded at least 1.15 times the other, and the busiest row is outlined, only while the whole bar is recorded; a bar the page saw only in part is drawn plain and the header says so. Bids rest left of the candle, asks right, split into exchanges.": "In der Kerze ist jede Zeile ein Preis: links zu Markt verkauft, rechts gekauft. Eine Zeile trägt die Farbe der Seite, die mindestens das 1,15-Fache der anderen gehandelt hat, und die geschäftigste Zeile wird umrandet, aber nur, solange die ganze Kerze aufgezeichnet ist; eine Kerze, die die Seite nur teilweise gesehen hat, wird schlicht gezeichnet, und der Kopf sagt es. Gebote liegen links der Kerze, Angebote rechts, aufgeteilt nach Börsen.",
+ "The rail at the right lights each row where a large order just arrived, by when it arrived, with the mark of the exchange that sent the largest. The trail is every market order of the last seconds at the time it traded, now at the rail and older to the left: filled dots are buys, rings are sells, larger dots larger orders, and orders from the whale size up carry their exchange's mark. With Glass on, the trail shows through the candle, frosted. Drag to move the prices, pinch to zoom, double-tap to reset. Look changes how the trail is drawn, not what it shows.": "Die Schiene rechts lässt jede Zeile aufleuchten, in der gerade eine große Order angekommen ist, nach ihrer Ankunft, mit dem Zeichen der Börse, die die größte geschickt hat. Die Spur ist jede Marktorder der letzten Sekunden zu dem Zeitpunkt, an dem sie gehandelt wurde, jetzt an der Schiene und älter weiter links: gefüllte Punkte sind Käufe, Ringe Verkäufe, größere Punkte größere Orders, und Orders ab der Walgröße tragen das Zeichen ihrer Börse. Mit Glas scheint die Spur mattiert durch die Kerze. Ziehen verschiebt die Preise, Kneifen zoomt, Doppeltippen setzt zurück. Optik ändert, wie die Spur gezeichnet wird, nicht, was sie zeigt."
 }

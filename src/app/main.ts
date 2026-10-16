@@ -22,6 +22,7 @@ import { CvdPane } from './panes/cvd-pane.ts';
 import { BarStatsPane, DepthPane, LtPane, OiPane } from './panes/lower-panes.ts';
 import { DeltaPane } from './panes/delta-pane.ts';
 import { LsPane } from './panes/ls-pane.ts';
+import { CandlePane } from './panes/candle-pane.ts';
 import { matchShortcut, togglePatch } from './shortcuts.ts';
 import { ReplayBar } from './replay/bar.ts';
 import { replaying } from './replay/clock.ts';
@@ -29,7 +30,7 @@ import { enabledStats } from './panes/bar-stats.ts';
 import { Layout } from './layout.ts';
 import { Dock } from './dock.ts';
 import { RangeTool } from './range/tool.ts';
-import { startDevice, onLayoutMode } from './device.ts';
+import { startDevice, onLayoutMode, isPhone } from './device.ts';
 import './styles.css';
 import './mobile.css';
 import './chrome.css';
@@ -103,6 +104,8 @@ async function main(): Promise<void> {
   const lt = new LtPane(chart, store, heat.view, hub);
   const ladder = new LadderPane(side, store, kernels, hub);
   const cvd = new CvdPane(flowCol, store, hub, heat.view);
+  // The phone's Candle view: a tab of its own that fills the area (panes/candle-pane.ts); it counts the markets the map's footprint counts.
+  const candle = new CandlePane(main, store, hub, kernels, s => heat.footprintMarkets(s));
   const arrange = new Layout(main, chart, side, [
     { id: 'heat', root: heat.root, min: 240 },
     { id: 'bars', root: bars.root, height: 84, min: 56, head: bars.header },
@@ -147,9 +150,12 @@ async function main(): Promise<void> {
   hub.onPrints = fresh => { if (replaying()) return; sounds.feed(fresh); cvd.flash(fresh); };
   hub.onPrintsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   // The trade dust: asked for while the bubbles and their Live trades switch are both on; arrivals redraw the dust alone.
-  const tapeWanted = (): boolean => store.state.show.bubbles && store.state.tradeBubbles.live;
+  // The Candle view's trail reads the same orders, so they are asked for while it is shown whatever the bubbles' switches say.
+  const candleShown = (): boolean => dock.tab === 'candle' && isPhone();
+  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown();
+  dock.onChange = () => { candle.setShown(candleShown()); hub.setTape(tapeWanted()); };
   hub.setTape(tapeWanted());
-  hub.onTape = () => heat.tapeArrived();
+  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.keyHistory = hub.keyHistory;
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
@@ -159,7 +165,7 @@ async function main(): Promise<void> {
   hub.onAbsorptionChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.absorptionInfo = () => heat.absorptionThresholdText();
   // Hovering a theme shows it everywhere without saving it; leaving the menu puts the saved one back.
-  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; applyTheme(name); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd]) p.setPalette(name); toolbar.previewTheme(name); };
+  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; applyTheme(name); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(name); toolbar.previewTheme(name); };
   heat.onStats = () => toolbar.sync(store.state, heat.window);
 
   // An address like #guide/mirror opens the guide there.
@@ -186,7 +192,7 @@ async function main(): Promise<void> {
   });
 
   // The profile column and axis are narrower on a phone; everything that aligns to them has to redraw when that changes.
-  onLayoutMode(() => { layout(); heat.invalidate(); lower(); toolbar.sync(store.state, heat.window); });
+  onLayoutMode(() => { layout(); heat.invalidate(); lower(); toolbar.sync(store.state, heat.window); candle.setShown(candleShown()); hub.setTape(tapeWanted()); });
   const layout = () => {
     const s = store.state;
     document.documentElement.style.setProperty('--gutter', `${gutter(s)}px`);
@@ -203,7 +209,7 @@ async function main(): Promise<void> {
     if (changed.has('keepAwake')) wake.set(state.keepAwake);
     // Every time on the page is written from the one setting: say it changed, and have what shows times draw again.
     if (changed.has('timeZone')) { setTimeZone(state.timeZone); heat.invalidate(); lower(); cvd.invalidate(); showStatus(); }
-    if (changed.has('theme')) { applyTheme(state.theme); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd]) p.setPalette(state.theme); }
+    if (changed.has('theme')) { applyTheme(state.theme); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(state.theme); }
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('status') || changed.has('connected') || changed.has('mark')) showStatus();
     if (changed.has('show')) layout();
@@ -233,13 +239,16 @@ async function main(): Promise<void> {
     if (changed.has('range')) { heat.invalidate(); oi.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); cvd.invalidate(); }
     if (changed.has('hover')) { heat.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); cvd.syncHover(); }
     if (changed.has('delta')) delta.settingsChanged();
+    if (changed.has('marketId')) candle.marketChanged();
+    if (changed.has('levels')) candle.levelsArrived();
+    if (['levels', 'mark', 'disabledVenues', 'scope', 'markets', 'footprint', 'customMarkets', 'replay', 'bookGone', 'show'].some(k => changed.has(k as never))) candle.invalidate();
     if (changed.has('lsMetric')) ls.settingsChanged();
     if (['show', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'oiMarkets', 'customMarkets', 'oiInstrument', 'oiParts', 'seriesInstrument', 'range'].some(k => changed.has(k as never))) ls.invalidate();
     if (['show', 'candles', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'traded', 'timeZone', 'range', 'oi', 'oiInstrument', 'oiParts'].some(k => changed.has(k as never))) delta.invalidate();
     if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
   });
 
-  for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd]) p.setPalette(store.state.theme);
+  for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(store.state.theme);
   layout(); ladder.syncControls(); lt.refresh();
   arrange.setPaneHeight('bars', 12 + Math.max(1, enabledStats(store.state.barStats).length) * 24);
   toolbar.sync(store.state, heat.window);
@@ -249,7 +258,7 @@ async function main(): Promise<void> {
   window.setInterval(() => { void hub.loadSeries(true); }, 60_000);
   // OI is sampled about once a minute on the server; asking more often than that keeps the newest bar from lagging by a whole refresh.
   window.setInterval(() => { void hub.loadOi(); }, 20_000);
-  (window as unknown as { __hlm: unknown }).__hlm = { store, hub, heat, ladder, cvd, sounds, alerts };
+  (window as unknown as { __hlm: unknown }).__hlm = { store, hub, heat, ladder, cvd, candle, sounds, alerts };
 }
 
 main().catch(error => {

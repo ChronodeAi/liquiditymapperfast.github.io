@@ -1339,5 +1339,20 @@
  "dashed: past its book": "tracejado: além do livro",
  "Share of the depth shown": "Parte da profundidade mostrada",
  "Recenter for the running totals": "Recentralize para ver os acumulados",
- "No book reaches {n} rows at this step": "Nenhum livro alcança {n} faixas neste passo"
+ "No book reaches {n} rows at this step": "Nenhum livro alcança {n} faixas neste passo",
+ "Look": "Aparência",
+ "Phosphor": "Fósforo",
+ "Etched": "Gravado",
+ "Beads": "Contas",
+ "Trail": "Rastro",
+ "Glass": "Vidro",
+ "The Candle view shows the live market only.": "A visão Vela mostra apenas o mercado ao vivo.",
+ "Waiting for the market…": "Aguardando o mercado…",
+ "closes in {time}": "fecha em {time}",
+ "recorded in part": "gravada em parte",
+ "now": "agora",
+ "The candle under way, the trades coming in and the book around it, made for a phone.": "A vela em curso, os negócios que chegam e o livro ao redor, feita para o celular.",
+ "The candle under way filling a phone screen: its footprint inside, the order book on both sides, large orders flashing on the rail as they arrive, and the last seconds of trades flowing left behind it.": "A vela em curso preenche a tela do celular: seu footprint dentro, o livro de ofertas dos dois lados, ordens grandes que piscam no trilho ao chegar e os negócios dos últimos segundos fluindo para a esquerda atrás dela.",
+ "Inside the candle, each row is a price: sold at market on the left, bought on the right. A row is coloured by the side that traded at least 1.15 times the other, and the busiest row is outlined, only while the whole bar is recorded; a bar the page saw only in part is drawn plain and the header says so. Bids rest left of the candle, asks right, split into exchanges.": "Dentro da vela, cada linha é um preço: vendido a mercado à esquerda, comprado à direita. Uma linha recebe a cor do lado que negociou pelo menos 1,15 vez o outro, e a linha mais movimentada é contornada, apenas enquanto a vela inteira está gravada; uma vela que a página viu só em parte é desenhada sem cor e o cabeçalho avisa. As ofertas de compra ficam à esquerda da vela e as de venda à direita, divididas por corretora.",
+ "The rail at the right lights each row where a large order just arrived, by when it arrived, with the mark of the exchange that sent the largest. The trail is every market order of the last seconds at the time it traded, now at the rail and older to the left: filled dots are buys, rings are sells, larger dots larger orders, and orders from the whale size up carry their exchange's mark. With Glass on, the trail shows through the candle, frosted. Drag to move the prices, pinch to zoom, double-tap to reset. Look changes how the trail is drawn, not what it shows.": "O trilho à direita acende cada linha onde uma ordem grande acabou de chegar, pela chegada, com a marca da corretora que enviou a maior. O rastro é cada ordem a mercado dos últimos segundos no momento em que foi executada, agora junto ao trilho e mais antiga à esquerda: pontos cheios são compras, anéis são vendas, pontos maiores são ordens maiores, e ordens a partir do tamanho de baleia levam a marca da sua corretora. Com Vidro ligado, o rastro aparece através da vela, fosco. Arraste para mover os preços, faça pinça para dar zoom, toque duas vezes para redefinir. Aparência muda como o rastro é desenhado, não o que ele mostra."
 }

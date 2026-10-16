@@ -1326,5 +1326,20 @@
  "dashed: past its book": "kesikli: defterin ötesi",
  "Share of the depth shown": "Gösterilen derinlikteki payı",
  "Recenter for the running totals": "Kümülatifler için ortalayın",
- "No book reaches {n} rows at this step": "Bu adımda hiçbir defter {n} satıra ulaşmıyor"
+ "No book reaches {n} rows at this step": "Bu adımda hiçbir defter {n} satıra ulaşmıyor",
+ "Look": "Görünüm",
+ "Phosphor": "Fosfor",
+ "Etched": "Kazınmış",
+ "Beads": "Boncuk",
+ "Trail": "İz",
+ "Glass": "Cam",
+ "The Candle view shows the live market only.": "Mum görünümü yalnızca canlı piyasayı gösterir.",
+ "Waiting for the market…": "Piyasa bekleniyor…",
+ "closes in {time}": "{time} içinde kapanır",
+ "recorded in part": "kısmen kaydedildi",
+ "now": "şimdi",
+ "The candle under way, the trades coming in and the book around it, made for a phone.": "Süren mum, gelen işlemler ve çevresindeki emir defteri, telefon için.",
+ "The candle under way filling a phone screen: its footprint inside, the order book on both sides, large orders flashing on the rail as they arrive, and the last seconds of trades flowing left behind it.": "Süren mum telefon ekranını dolduruyor: içinde footprint'i, iki yanında emir defteri, geldiği anda rayda parlayan büyük emirler ve arkasında sola akan son saniyelerin işlemleri.",
+ "Inside the candle, each row is a price: sold at market on the left, bought on the right. A row is coloured by the side that traded at least 1.15 times the other, and the busiest row is outlined, only while the whole bar is recorded; a bar the page saw only in part is drawn plain and the header says so. Bids rest left of the candle, asks right, split into exchanges.": "Mumun içinde her satır bir fiyattır: solda piyasadan satılan, sağda alınan. Bir satır, diğerinin en az 1,15 katı işlem gören tarafın rengini alır ve en yoğun satırın çevresi çizilir, ancak yalnızca mumun tamamı kaydedilmişken; sayfanın yalnızca bir kısmını gördüğü bir mum renksiz çizilir ve başlık bunu söyler. Alış emirleri mumun solunda, satış emirleri sağında durur, borsalara bölünmüş olarak.",
+ "The rail at the right lights each row where a large order just arrived, by when it arrived, with the mark of the exchange that sent the largest. The trail is every market order of the last seconds at the time it traded, now at the rail and older to the left: filled dots are buys, rings are sells, larger dots larger orders, and orders from the whale size up carry their exchange's mark. With Glass on, the trail shows through the candle, frosted. Drag to move the prices, pinch to zoom, double-tap to reset. Look changes how the trail is drawn, not what it shows.": "Sağdaki ray, büyük bir emrin az önce geldiği her satırı geliş zamanına göre yakar ve en büyüğünü gönderen borsanın işaretini gösterir. İz, son saniyelerdeki her piyasa emrinin gerçekleştiği andaki yeridir: şimdi rayın yanında, daha eskisi solda; dolu noktalar alış, halkalar satış, büyük noktalar büyük emirlerdir ve balina boyutundan büyük emirler borsalarının işaretini taşır. Cam açıkken iz, mumun arkasından buzlu olarak görünür. Fiyatları kaydırmak için sürükleyin, yakınlaştırmak için kıstırın, sıfırlamak için iki kez dokunun. Görünüm izin nasıl çizildiğini değiştirir, ne gösterdiğini değil."
 }

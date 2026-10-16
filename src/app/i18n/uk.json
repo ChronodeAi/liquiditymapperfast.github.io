@@ -1357,5 +1357,20 @@
  "dashed: past its book": "пунктир: за стаканом",
  "Share of the depth shown": "Частка показаної глибини",
  "Recenter for the running totals": "Поверніться до ціни, щоб побачити накопичені суми",
- "No book reaches {n} rows at this step": "Жоден стакан не сягає {n} рядків за цього кроку"
+ "No book reaches {n} rows at this step": "Жоден стакан не сягає {n} рядків за цього кроку",
+ "Look": "Вигляд",
+ "Phosphor": "Люмінофор",
+ "Etched": "Гравюра",
+ "Beads": "Намистини",
+ "Trail": "Шлейф",
+ "Glass": "Скло",
+ "The Candle view shows the live market only.": "Вигляд «Свічка» показує лише живий ринок.",
+ "Waiting for the market…": "Чекаємо на ринок…",
+ "closes in {time}": "закриється через {time}",
+ "recorded in part": "записана частково",
+ "now": "зараз",
+ "The candle under way, the trades coming in and the book around it, made for a phone.": "Поточна свічка, угоди, що надходять, і стакан навколо неї, зроблено для телефона.",
+ "The candle under way filling a phone screen: its footprint inside, the order book on both sides, large orders flashing on the rail as they arrive, and the last seconds of trades flowing left behind it.": "Поточна свічка на весь екран телефона: її футпринт усередині, стакан заявок з обох боків, великі заявки, що спалахують на смузі під час надходження, і угоди останніх секунд, що пливуть ліворуч позаду неї.",
+ "Inside the candle, each row is a price: sold at market on the left, bought on the right. A row is coloured by the side that traded at least 1.15 times the other, and the busiest row is outlined, only while the whole bar is recorded; a bar the page saw only in part is drawn plain and the header says so. Bids rest left of the candle, asks right, split into exchanges.": "Усередині свічки кожен рядок це ціна: продано за ринком ліворуч, куплено праворуч. Рядок забарвлюється в колір сторони, що наторгувала щонайменше в 1,15 раза більше за іншу, а найактивніший рядок обводиться, лише поки вся свічка записана; свічка, яку сторінка бачила лише частково, малюється без кольору, і заголовок про це каже. Заявки на купівлю стоять ліворуч від свічки, на продаж праворуч, за біржами.",
+ "The rail at the right lights each row where a large order just arrived, by when it arrived, with the mark of the exchange that sent the largest. The trail is every market order of the last seconds at the time it traded, now at the rail and older to the left: filled dots are buys, rings are sells, larger dots larger orders, and orders from the whale size up carry their exchange's mark. With Glass on, the trail shows through the candle, frosted. Drag to move the prices, pinch to zoom, double-tap to reset. Look changes how the trail is drawn, not what it shows.": "Смуга праворуч підсвічує кожен рядок, куди щойно надійшла велика заявка, за часом надходження, зі знаком біржі, що надіслала найбільшу. Шлейф це кожна ринкова заявка останніх секунд у момент її виконання: зараз біля смуги, старіші лівіше; заповнені точки це купівлі, кільця продажі, більші точки більші заявки, а заявки від розміру кита мають знак своєї біржі. Зі Склом шлейф видно крізь свічку, матовим. Перетягуйте, щоб зсунути ціни, зводьте пальці для масштабу, подвійний дотик скидає. Вигляд змінює те, як малюється шлейф, а не те, що він показує."
 }
