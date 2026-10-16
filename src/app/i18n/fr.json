@@ -1337,5 +1337,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "En pointillés : au-delà de la fin de son carnet publié, le cumul atteint. Ce qui repose au-delà n’est pas connu.",
  "Left out, their books reach under {n} rows: {names}": "Écartées, leurs carnets portent à moins de {n} rangées : {names}",
  "dashed: past its book": "pointillés : au-delà du carnet",
- "Share of the depth shown": "Part de la profondeur affichée"
+ "Share of the depth shown": "Part de la profondeur affichée",
+ "Recenter for the running totals": "Recentrez pour les cumuls",
+ "No book reaches {n} rows at this step": "Aucun carnet ne porte à {n} rangées à ce pas"
 }

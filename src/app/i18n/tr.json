@@ -1324,5 +1324,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "Kesikli: yayımlanan defterinin sonunun ötesinde, ulaştığı toplam. Ötesinde ne olduğu bilinmez.",
  "Left out, their books reach under {n} rows: {names}": "Dışarıda bırakıldı, defterleri {n} satıra ulaşmıyor: {names}",
  "dashed: past its book": "kesikli: defterin ötesi",
- "Share of the depth shown": "Gösterilen derinlikteki payı"
+ "Share of the depth shown": "Gösterilen derinlikteki payı",
+ "Recenter for the running totals": "Kümülatifler için ortalayın",
+ "No book reaches {n} rows at this step": "Bu adımda hiçbir defter {n} satıra ulaşmıyor"
 }

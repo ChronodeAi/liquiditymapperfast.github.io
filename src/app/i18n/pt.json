@@ -1337,5 +1337,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "Tracejada: além do fim do seu livro publicado, o total alcançado. O que há além não é conhecido.",
  "Left out, their books reach under {n} rows: {names}": "Deixadas de fora, seus livros alcançam menos de {n} faixas: {names}",
  "dashed: past its book": "tracejado: além do livro",
- "Share of the depth shown": "Parte da profundidade mostrada"
+ "Share of the depth shown": "Parte da profundidade mostrada",
+ "Recenter for the running totals": "Recentralize para ver os acumulados",
+ "No book reaches {n} rows at this step": "Nenhum livro alcança {n} faixas neste passo"
 }

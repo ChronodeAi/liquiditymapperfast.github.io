@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CURVE_HOLD_MS, CURVE_MIN_ROWS, CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, reachRows, reachText, venueCumulative } from '../src/app/panes/ladder-curves.ts';
-import { beyondCover, cumulative, pastReach, type Grouped } from '../src/app/panes/levels-data.ts';
+import { beyondCover, cumulative, groupSpan, pastReach, type Grouped } from '../src/app/panes/levels-data.ts';
 import { PALETTES, contrastRatio } from '../src/app/theme.ts';
 import { nearDirection } from '../src/app/cvd/colors.ts';
 import { LADDER_CURVES } from '../src/app/store.ts';
@@ -133,4 +133,16 @@ test('venue lines: past a book\'s reach on its own side the line goes on at the 
   assert.ok(text.includes('From the mark|at least $54M'), text.join('\n'));
   assert.ok(text.some(s => s.includes('ends at 82,205') && s.includes('+0.25%')), text.join('\n'));
   assert.ok(!text.some(s => s.startsWith('Share of the depth shown') || s.startsWith('At this price')), 'not known past the book');
+});
+
+test('the book groups the view, the mark and as far on the mark\'s other side, so totals from the mark hold when it is scrolled away', () => {
+  // Rows of 10, mark 1 045 (row 1 040): centred, the view itself.
+  assert.deepEqual(groupSpan(1_000, 1_100, 1_045, 10), { lo: 980, hi: 1_100 }, 'the mirror of the top edge reaches 980');
+  // Scrolled up to 2 000-2 100: the rows down to the mark and as far again below it.
+  assert.deepEqual(groupSpan(2_000, 2_100, 1_045, 10), { lo: -20, hi: 2_100 });
+  // Scrolled further than one grouping holds.
+  assert.equal(groupSpan(100_000, 100_100, 1_045, 10), null);
+  // Grouped like that, a venue's running total at the view's lowest row counts the rows between it and the mark.
+  const g = book(), c = venueCumulative(g, 0, 4);
+  assert.equal(c.ask[9], [1, 1, 2, 3, 4, 5].reduce((a, b) => a + b, 0), 'from the mark, not from the view');
 });

@@ -1287,5 +1287,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "破線：公開された板の端より先は、そこまでの累計です。その先にある注文は分かりません。",
  "Left out, their books reach under {n} rows: {names}": "除外（板が {n} 行に届かない）：{names}",
  "dashed: past its book": "破線：板の先",
- "Share of the depth shown": "表示中の板に占める割合"
+ "Share of the depth shown": "表示中の板に占める割合",
+ "Recenter for the running totals": "累計を見るには中央に戻してください",
+ "No book reaches {n} rows at this step": "この刻みで {n} 行に届く板はありません"
 }

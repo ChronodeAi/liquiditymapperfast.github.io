@@ -12,7 +12,7 @@ import { LADDER_CURVES, type Store, type AppState } from '../store.ts';
 import type { Hub } from '../hub.ts';
 import { RANK_MS } from '../cvd/settings.ts';
 import { CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, reachRows, reachText, venueCumulative, CURVE_HIT_PX, CURVE_MIN_ROWS, type CurveVenue } from './ladder-curves.ts';
-import { MAX_BINS, beyondCover, coverage, cumulative, pastReach, dominanceWeight, groupLevels, imbalanceByDistance, liquidityInView, type Cover, type Grouped } from './levels-data.ts';
+import { beyondCover, coverage, cumulative, pastReach, dominanceWeight, groupLevels, groupSpan, imbalanceByDistance, liquidityInView, type Cover, type Grouped } from './levels-data.ts';
 import { GROUPS, groupsFor, holdsMark, ladderWheel, offsetKeepingPrice, priceAtRow, stepBy } from './ladder-zoom.ts';
 import { currentCoin } from '../coin.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type Pt } from '../touch.ts';
@@ -386,23 +386,25 @@ export class LadderPane {
     // The running totals walk out from the mark, so a view scrolled away from it also groups the rows between: grouped from its own edge, a
     // total there started at nothing (a Codex review, 2026-10-16, saw one go 60 → 50 → 0 as the book was dragged). The bars, the MAX and
     // everything else read only the rows on screen.
-    // Scrolled further than one grouping holds, the view alone (its totals then start at its edge, as they always did there).
-    const markP = Math.floor(mark / step) * step, lo = Math.min(p0, markP), hi = Math.max(p1, markP + step), withMark = Math.ceil(hi / step) - Math.floor(lo / step) + 1 <= MAX_BINS;
-    const g = groupLevels(this.kernels, frame, ids, step, withMark ? lo : p0, withMark ? hi : p1);
+    // The same distance on the other side of the mark too, so what compares the two sides at a distance (the highlight, Mirror) has both.
+    // Scrolled further than one grouping holds, the view alone, and no running totals: they would start at its edge.
+    const span = groupSpan(p0, p1, mark, step), withMark = span !== null;
+    const g = groupLevels(this.kernels, frame, ids, step, span?.lo ?? p0, span?.hi ?? p1);
     const markBin = Math.floor(mark / step) - g.bin0;
     if (state.ladderMode === 'single') {
       const colW = width / columns;
       ids.forEach((id, k) => {
         const idx = g.ids.indexOf(id); if (idx < 0) return;
         const own: Grouped = { ...g, totalBid: g.bid[idx]!, totalAsk: g.ask[idx]! };
-        this.#drawBook(ctx, state, own, { x: k * colW, w: colW, title: `${venueLabel(id)} ${id.split(':').slice(1).join(':')}`, markId: id, pullIds: [id], cells: null, order: null, cellW: 0, head, balanceH, cover: coverage(frame.books.find(b => b.id === id), mark), centerBin, rows, markBin, mark, step });
+        this.#drawBook(ctx, state, own, { x: k * colW, w: colW, title: `${venueLabel(id)} ${id.split(':').slice(1).join(':')}`, markId: id, pullIds: [id], cells: null, order: null, cellW: 0, head, balanceH, cover: coverage(frame.books.find(b => b.id === id), mark), totals: withMark, centerBin, rows, markBin, mark, step });
         if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(k * colW + 0.5, 0); ctx.lineTo(k * colW + 0.5, h); ctx.stroke(); }
       });
     } else {
       const hiBin = centerBin + Math.floor(rows / 2) - g.bin0;
       const order = state.ladderMode === 'compact' && ids.length > 1 ? this.#venueOrder(g, hiBin - rows + 1, hiBin) : null;
-      const curves = state.ladderMode === 'compact' && state.ladderShow !== 'levels' && state.ladderCurves > 0 ? this.#curves(state, g, frame, markBin, hiBin - rows + 1, hiBin) : null;
-      this.#drawBook(ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? ids : null, order, curves, cellW, head, balanceH, cover: null, centerBin, rows, markBin, mark, step });
+      this.#curvesLeftOut = [];
+      const curves = withMark && state.ladderMode === 'compact' && state.ladderShow !== 'levels' && state.ladderCurves > 0 ? this.#curves(state, g, frame, markBin, hiBin - rows + 1, hiBin) : null;
+      this.#drawBook(ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? ids : null, order, curves, cellW, head, balanceH, cover: null, totals: withMark, centerBin, rows, markBin, mark, step });
     }
   }
 
@@ -742,7 +744,7 @@ export class LadderPane {
   }
 
   #drawBook(ctx: CanvasRenderingContext2D, state: AppState, g: Grouped,
-    o: { x: number; w: number; title: string; markId?: string; pullIds: string[]; cells: string[] | null; order: string[] | null; curves?: Curve[] | null; cellW: number; head: number; balanceH: number; cover: Cover | null; centerBin: number; rows: number; markBin: number; mark: number; step: number }): void {
+    o: { x: number; w: number; title: string; markId?: string; pullIds: string[]; cells: string[] | null; order: string[] | null; curves?: Curve[] | null; cellW: number; head: number; balanceH: number; cover: Cover | null; totals: boolean; centerBin: number; rows: number; markBin: number; mark: number; step: number }): void {
     const p = this.#palette, { x: x0, w, rows, markBin, step, centerBin } = o;
     const cum = cumulative(g, o.mark);
     const dominance = state.highlight.on ? imbalanceByDistance(g, cum, markBin) : null;
@@ -777,12 +779,18 @@ export class LadderPane {
         }
       }
       ctx.textAlign = 'left';
-      if (!o.curves?.length) ctx.fillText(state.ladderShow === 'levels' ? t('DEPTH') : t('DEPTH + CUM'), barX, line);
+      // Running totals or lines asked for and none drawn: say why rather than leave them out unexplained.
+      const linesAsked = state.ladderMode === 'compact' && state.ladderShow !== 'levels' && state.ladderCurves > 0;
+      const why = !o.totals && state.ladderShow !== 'levels' ? t('Recenter for the running totals') : linesAsked && !o.curves?.length && this.#curvesLeftOut.length ? t('No book reaches {n} rows at this step', { n: CURVE_MIN_ROWS }) : null;
+      if (why) ctx.fillText(why, barX, line);
+      else if (!o.curves?.length) ctx.fillText(state.ladderShow === 'levels' ? t('DEPTH') : t('DEPTH + CUM'), barX, line);
     }
-    let maxLevel = 1; const maxCum = Math.max(cum.maxBid, cum.maxAsk, 1);
+    let maxLevel = 1;
     const orderIdx = o.order ? o.order.map(id => g.ids.indexOf(id)) : null;
     const shownHi = Math.min(g.nBins - 1, centerBin + Math.floor(rows / 2) - g.bin0), shownLo = Math.max(0, shownHi - rows + 1);
-    for (let i = shownLo; i <= shownHi; i++) maxLevel = Math.max(maxLevel, g.totalBid[i]!, g.totalAsk[i]!);
+    // The running totals' full width is the largest on the rows on screen (each still counted from the mark).
+    let maxCum = 1;
+    for (let i = shownLo; i <= shownHi; i++) { maxLevel = Math.max(maxLevel, g.totalBid[i]!, g.totalAsk[i]!); maxCum = Math.max(maxCum, cum.bid[i]!, cum.ask[i]!); }
     // The largest change the price did not reach, so the numbers fade with their size.
     const pullRows = pull?.kind === 'rows' ? pull.rows : null;
     let maxPull = 1;
@@ -792,7 +800,7 @@ export class LadderPane {
     // With the lines on they are the running totals and the whole book's area is left out: on their scale it filled the width a few rows
     // from the mark (the total is several times the largest venue: Karl, 2026-10-14), and on a scale of its own a venue's line stood beyond
     // the total it is part of (2026-10-13).
-    if (state.ladderShow !== 'levels' && !scale) this.#paintCumulative(ctx, g, cum, o, barX, barW, maxCum, weight);
+    if (state.ladderShow !== 'levels' && !scale && o.totals) this.#paintCumulative(ctx, g, cum, o, barX, barW, maxCum, weight);
     const ticks = scale ? lineTicks(scale.full).map(v => ({ v, x: Math.round(barX + lineFraction(v, scale.full) * barW) + 0.5 })) : [];
     if (ticks.length) {
       ctx.save(); ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.35; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;

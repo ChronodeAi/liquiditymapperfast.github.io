@@ -41,6 +41,16 @@ export function groupLevels(kernels: Kernels, frame: LevelsFrame, ids: string[],
   return { ids: books.map(book => book.id), step, bin0, nBins, bid, ask, totalBid, totalAsk };
 }
 
+/**
+ * The prices the order book groups for a view [p0, p1): the view, the mark's row and as far on the mark's other side as the view is on its
+ * own, so a running total from the mark and a comparison of the two sides at one distance both have their rows when the view is scrolled
+ * away. Null when that is more than one grouping holds (the view alone is grouped then, and has no running totals).
+ */
+export function groupSpan(p0: number, p1: number, mark: number, step: number): { lo: number; hi: number } | null {
+  const markP = Math.floor(mark / step) * step, lo = Math.min(p0, markP, 2 * markP - p1), hi = Math.max(p1, markP + step, 2 * markP - p0 + step);
+  return Math.ceil(hi / step) - Math.floor(lo / step) + 1 <= MAX_BINS ? { lo, hi } : null;
+}
+
 /** What a venue's book reaches: its lowest and highest price, and whether the highest is a single price (`hiPoint`) or the end of a band. */
 export interface Cover { lo: number; hi: number; hiPoint?: boolean }
 

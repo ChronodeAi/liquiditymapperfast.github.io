@@ -1337,5 +1337,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "Tratteggiata: oltre la fine del suo book pubblicato, il totale raggiunto. Ciò che c’è oltre non è noto.",
  "Left out, their books reach under {n} rows: {names}": "Esclusi, i loro book arrivano a meno di {n} righe: {names}",
  "dashed: past its book": "tratteggio: oltre il suo book",
- "Share of the depth shown": "Quota della profondità mostrata"
+ "Share of the depth shown": "Quota della profondità mostrata",
+ "Recenter for the running totals": "Ricentra per i cumulati",
+ "No book reaches {n} rows at this step": "Nessun book arriva a {n} righe con questo passo"
 }

@@ -1355,5 +1355,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "Пунктир: за кінцем опублікованого стакана — набрана сума. Що стоїть далі, невідомо.",
  "Left out, their books reach under {n} rows: {names}": "Пропущено, їхні стакани не сягають {n} рядків: {names}",
  "dashed: past its book": "пунктир: за стаканом",
- "Share of the depth shown": "Частка показаної глибини"
+ "Share of the depth shown": "Частка показаної глибини",
+ "Recenter for the running totals": "Поверніться до ціни, щоб побачити накопичені суми",
+ "No book reaches {n} rows at this step": "Жоден стакан не сягає {n} рядків за цього кроку"
 }

@@ -1324,5 +1324,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "Gestrichelt: hinter dem Ende des veröffentlichten Buchs die erreichte Summe. Was dahinter liegt, ist nicht bekannt.",
  "Left out, their books reach under {n} rows: {names}": "Weggelassen, ihre Bücher reichen keine {n} Zeilen: {names}",
  "dashed: past its book": "gestrichelt: hinter dem Buch",
- "Share of the depth shown": "Anteil an der gezeigten Tiefe"
+ "Share of the depth shown": "Anteil an der gezeigten Tiefe",
+ "Recenter for the running totals": "Zentrieren für die laufenden Summen",
+ "No book reaches {n} rows at this step": "Kein Buch reicht {n} Zeilen bei diesem Schritt"
 }

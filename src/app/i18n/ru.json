@@ -1350,5 +1350,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "Пунктир: за концом опубликованного стакана — набранная сумма. Что стоит дальше, неизвестно.",
  "Left out, their books reach under {n} rows: {names}": "Пропущены, их стаканы не доходят до {n} строк: {names}",
  "dashed: past its book": "пунктир: за стаканом",
- "Share of the depth shown": "Доля показанной глубины"
+ "Share of the depth shown": "Доля показанной глубины",
+ "Recenter for the running totals": "Вернитесь к цене, чтобы увидеть накопленные суммы",
+ "No book reaches {n} rows at this step": "Ни один стакан не доходит до {n} строк при этом шаге"
 }

@@ -1287,5 +1287,7 @@
  "Dashed: past the end of its published book, the total it reached. What rests beyond is not known.": "虚线：越过其公开订单簿的尽头，为已达到的累计量。更远处挂着什么并不知道。",
  "Left out, their books reach under {n} rows: {names}": "已略去，其订单簿不足 {n} 行：{names}",
  "dashed: past its book": "虚线：订单簿之外",
- "Share of the depth shown": "占所示深度的份额"
+ "Share of the depth shown": "占所示深度的份额",
+ "Recenter for the running totals": "回到中心以查看累计量",
+ "No book reaches {n} rows at this step": "在此步长下没有订单簿达到 {n} 行"
 }
