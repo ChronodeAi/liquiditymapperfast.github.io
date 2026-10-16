@@ -102,6 +102,13 @@ test('one action reads at most 20 pages, 20,000 rows or 30 s, two requests in fl
   const slow = history(0, 10_000_000, t, { onCall: () => { clock += 4_000; } });
   const byTime = await runRecovery(many, slow.fetcher, { sleep: noSleep, now: () => clock, budget: { ...RECOVERY_BUDGET, pages: 100, rows: 1e9 } });
   assert.equal(byTime.stoppedBy, 'time'); assert.ok(byTime.ms >= 30_000 && byTime.pages <= 9, `${byTime.pages} pages in ${byTime.ms} ms`);
+  assert.deepEqual(byTime.failed, []);
+  // A request cut short by the action's time (its abort) is not the venue's failure: the venue is not rested for it.
+  let late = 0;
+  // (Node's timeout signal does not keep the process alive by itself: the pending answer does, until the abort.)
+  const hangs: HistoryFetch = (_request, signal) => new Promise((_resolve, reject) => { const alive = setTimeout(() => {}, 5_000); signal.addEventListener('abort', () => { clearTimeout(alive); late = 31_000; reject(new Error('aborted')); }); });
+  const cut = await runRecovery([job(src('okx'))], hangs, { sleep: noSleep, now: () => late, budget: { ...RECOVERY_BUDGET, ms: 30 } });
+  assert.deepEqual([cut.stoppedBy, cut.failed], ['time', []]);
   // Pacing: two gaps of one venue never ask closer together than its pace.
   let at = 0; const times: number[] = [];
   const paced = history(0, 10_000_000, t, { onCall: r => { if (r.url.includes('fapi')) times.push(at); } });

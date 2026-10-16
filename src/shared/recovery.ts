@@ -212,7 +212,11 @@ export async function runRecovery(jobs: readonly RecoveryJob[], fetcher: History
       if (!list) { failed.add(venue); return null; }
       rowsRead += list.length;
       return list;
-    } catch { failed.add(venue); return null; }
+    } catch {
+      // A request cut short because the action's time ran out says nothing against the venue; one that failed or timed out on its own does.
+      if (now() - start < budget.ms) failed.add(venue); else if (stoppedBy === 'done') stoppedBy = 'time';
+      return null;
+    }
   };
 
   const recover = async (job: RecoveryJob): Promise<RecoveryResult> => {
