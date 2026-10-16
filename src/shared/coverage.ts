@@ -79,6 +79,8 @@ export class TradeCoverage {
 
   /** Whether `id`'s trades are being recorded now (a stretch is open). */
   isOpen(id: string): boolean { return this.#open.has(id); }
+  /** Where the open stretch of `id` reaches (its last live pass), or null when none is open. */
+  openTo(id: string): number | null { return this.#open.get(id)?.span.to ?? null; }
 
   /** The recording of `id` ended at `now` on purpose (the venue was switched off): what it covered up to now stands. */
   end(id: string, now: number): void { const open = this.#open.get(id); if (!open) return; if (now >= open.span.to) open.span.to = now; this.#close(id); }

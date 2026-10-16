@@ -82,8 +82,6 @@ export interface RecoveryReport {
 }
 /** A recovery waits this long at most for the markets' feeds to be live again (a phone back from the background reconnects first). */
 const RECOVERY_WAIT_MS = 8_000;
-/** A gap shorter than this is the loop's own beat at the window's edge, not a gap. */
-const MIN_GAP_MS = 1_000;
 /** A venue that failed a recovery is not asked again for this long. */
 const VENUE_REST_MS = 60_000;
 
@@ -422,7 +420,8 @@ export class Engine {
     const instruments = ids.flatMap(id => { const source = this.#historyOf(id); return source ? [{ id, source }] : []; });
     // A minute held from storage with no record of being covered (an older build recorded it) is not recovered: its trades would count twice.
     const unknown = (id: string) => (t: number): boolean => t < (this.#loadedThrough.get(id) ?? 0) && this.footprints.holds(id, t) && coveredMs(this.tradeCoverage.covered(id, t, t + COLUMN_MS), t, t + COLUMN_MS) === 0;
-    const gapsOf = (id: string, from: number, to: number) => trimUnknown(this.tradeCoverage.gaps(id, from, to), unknown(id)).filter(g => g.to - g.from >= MIN_GAP_MS);
+    // A window that reaches now ends where the open stretch does (its last pass): the moment since is the loop's beat, not a gap.
+    const gapsOf = (id: string, from: number, to: number) => { const open = this.tradeCoverage.openTo(id), end = open !== null && open > from ? Math.min(to, open) : to; return trimUnknown(this.tradeCoverage.gaps(id, from, end), unknown(id)); };
     const jobs = planRecovery(windows, instruments, gapsOf);
     const found = new Map<string, { gaps: number; gapMs: number; recoveredMs: number }>();
     for (const job of jobs) { const f = found.get(job.id) ?? { gaps: 0, gapMs: 0, recoveredMs: 0 }; f.gaps++; f.gapMs += job.to - job.from; found.set(job.id, f); }

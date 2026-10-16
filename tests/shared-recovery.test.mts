@@ -202,3 +202,24 @@ test('the engine fills a frozen page\'s gap from the venue\'s history at the sea
   assert.equal(again.pages, 0);
   assert.equal(Math.round(engine.footprint(id, MINUTE, BASE, BASE + 5 * MINUTE, 1).bars.reduce((s, b) => s + b.buyUsd + b.sellUsd, 0)), 401 * 810 + 49 * 810);
 });
+
+test('a market whose recording began a moment after the bar opened has that moment recovered, and the beat at the window\'s end is no gap', async () => {
+  let clock = BASE + 21;
+  const fakes: Fake[] = [], asked: string[] = [];
+  const venues: BrowserVenue[] = [{ id: 'okx', name: 'OKX', kind: 'perp', recommended: true, listed: true, probe: null, make: () => { const book = new Fake('okx'); fakes.push(book); return { book, feeds: [] }; } }];
+  // The venue's newest page: trades 10 to 1 at one a second back from 12:00:10, and one 5 s before the bar.
+  const fetcher: HistoryFetch = async request => {
+    asked.push(request.url);
+    const rows = [...Array.from({ length: 10 }, (_, i) => 10 - i), 0].map(n => ({ tradeId: String(n), px: '81000', sz: '1', side: 'buy', ts: String(n === 0 ? BASE - 5_000 : BASE + n * 1_000 - 500) }));
+    return { ok: true, status: 200, body: { code: '0', data: rows } };
+  };
+  const engine = new Engine({ venues, now: () => clock, ping: async () => true, get: async () => { throw new Error('offline'); }, historyFetch: fetcher });
+  engine.select(['okx']);
+  const fake = fakes[0]!, id = fake.instrumentId;
+  for (; clock < BASE + 12_000; clock += 250) { fake.book(); engine.step(clock); }
+  assert.deepEqual(engine.tradeCoverage.gaps(id, BASE, clock).map(g => [g.from - BASE, g.to - BASE]), [[0, 21], [11_771, 12_021]]);
+  const report = await engine.recover({ ids: [id], windows: [{ from: BASE, to: clock }] });
+  assert.equal(asked.length, 1, 'one gap: the 21 ms at the open (the last quarter second is the loop\'s beat)');
+  assert.deepEqual(report.instruments[0]!.gaps, 1);
+  assert.deepEqual(engine.tradeCoverage.covered(id, BASE, BASE + 11_771), [[BASE, BASE + 11_771]]);
+});

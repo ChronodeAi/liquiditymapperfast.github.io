@@ -170,7 +170,6 @@ export class CandlePane {
     if (this.#coverageBusy || (!force && key === this.#coverageKey && performance.now() - this.#coverageAt < COVERAGE_MS)) return;
     this.#coverageBusy = true;
     source.coverage(markets, 'trades', barT - tfMs, now + 1).then(answer => {
-      if (key !== this.#coverageKey) this.#coverage = null;
       this.#coverage = answer; this.#coverageKey = key; this.invalidate();
     }, () => { this.#coverage = null; this.#coverageKey = key; }).finally(() => { this.#coverageBusy = false; this.#coverageAt = performance.now(); });
   }
