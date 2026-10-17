@@ -193,7 +193,7 @@ export class Toolbar {
   #source = el('select', { class: 'heat-source', ariaLabel: t('Source'), tip: t('Heatmap source') });
   #theme = el('button', { class: 'theme-btn', tip: t('Theme: hover to preview, click to keep') });
   /** Solid or glass, in any theme (store `material`): a lamp on the full bar, a switch in a phone's Settings. */
-  #glass = el('button', { type: 'button', class: 'led-btn glass-btn', textContent: t('Glass'), tip: t('Glass: the bars and panels around the chart turn to glass; large orders and large flow changes light it and send waves across the screen') });
+  #glass = el('button', { type: 'button', class: 'led-btn glass-btn', textContent: t('Waves'), tip: t('Waves: the bars and panels around the chart turn to glass; large orders and large flow changes light it and send waves across the screen') });
   #glassSwitch = el('input', { type: 'checkbox' });
   /** The page's language: the code of the one in use, and a menu of the others (a language is chosen before the page is built, so choosing one reloads it). */
   /** Which clock the page's times are on: UTC, or the computer's own. */
@@ -507,7 +507,7 @@ export class Toolbar {
         section(t('Venues'), [field(t('Market'), this.#market, true), field(t('Markets'), this.#scope, true), el('div', { class: 'sheet-chips' }, this.#chips, this.#blocked)], this.#venuesButton!),
         section(t('Alerts'), [el('div', { class: 'sheet-tiles' }, this.#alertSplits!.highlights, this.#alertSplits!.sound)]),
         section(t('Appearance'), [field(t('Language'), this.#language), field(t('Theme'), this.#theme),
-          field(t('Glass'), el('label', { class: 'switch', tip: t('Glass: the bars and panels around the chart turn to glass; large orders and large flow changes light it and send waves across the screen') }, this.#glassSwitch, el('i'))), field(t('Time zone'), this.#zone),
+          field(t('Waves'), el('label', { class: 'switch', tip: t('Waves: the bars and panels around the chart turn to glass; large orders and large flow changes light it and send waves across the screen') }, this.#glassSwitch, el('i'))), field(t('Time zone'), this.#zone),
           ...(wakeLockSupported() ? [field(t('Keep screen on'), el('label', { class: 'switch', tip: t('Stops the screen turning off while this page is open. A screen that sleeps stops the recording, and the map then has a gap where it was.') }, this.#awake, el('i')))] : [])]));
     }, () => { this.#sheet = null; this.#more.classList.remove('open'); this.#venuesLabel.textContent = t('Venues'); this.#venuesCount.hidden = false; });
     this.#more.classList.add('open');
