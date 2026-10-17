@@ -1,15 +1,16 @@
 import { context2d, intersect, paintLayers, surface, type Box, type Ctx2D, type Layer, type LiveCanvas } from './capture.ts';
 import { drawShape, paintMark, type Shape } from './shapes.ts';
 import { GIF_LIMIT, type GifPlan } from './gif-budget.ts';
-import type { Rgb } from './gif-encoder.ts';
-import type { FromGifWorker, ToGifWorker } from './gif-protocol.ts';
+import type { FromCoordinator, GifStats, ToCoordinator, ToPoolWorker } from './gif-protocol.ts';
 
 /**
  * Recording the selected area as a GIF. When it starts, the page in the area is painted once as layers (`paintLayers`: the still parts
  * between canvases), and each frame lays them over the canvases as they are then, cut to the area and at the GIF's size, so a frame costs
- * the page a few image copies on the graphics card. The frame is handed to a worker without a copy (`gif.worker.ts`), which reads it back
- * and encodes it there, so the GIF is ready almost as soon as the recording ends. The still layers are painted again (at most twice a
- * second) when the page's elements in the area change: a readout's text, a lamp, a panel opening.
+ * the page a few image copies on the graphics card. The frame is handed without a copy to one of a pool of workers
+ * (`gif-pool.worker.ts`), which reads it back to pixels; a coordinator (`gif.worker.ts`) takes the frames in order, chooses each one's
+ * palette and quality and has the pool put it on its palette and pack it, all side by side, and writes the file; so the GIF is ready
+ * almost as soon as the recording ends. The still layers are painted again (at most twice a second) when the page's elements in the
+ * area change: a readout's text, a lamp, a panel opening.
  *
  * Three canvases are WebGL that does not keep its picture once the screen has shown it (`LIVE_GL`): the glass with its waves, the trade
  * dust and the phone tape's trail. Read from a frame of ours they would come out empty, or as whatever the last draw left, so while
@@ -19,8 +20,8 @@ import type { FromGifWorker, ToGifWorker } from './gif-protocol.ts';
 
 /** WebGL canvases that do not keep their picture (`preserveDrawingBuffer` false). A new one must be named here to show in a GIF. */
 const LIVE_GL = ['canvas.ui-glass', 'canvas.dust', 'canvas.candle-trail'].join(', ');
-/** Frames handed to the worker and not answered yet beyond which a frame is skipped (the next one covers its time). */
-const MAX_IN_FLIGHT = 6;
+/** Frames handed over and not written yet, per worker of the pool, beyond which a frame is skipped (the next one covers its time). */
+const IN_FLIGHT_PER_WORKER = 2;
 /** How long the start waits for each watched canvas to draw once, so the first frame has it (ms). */
 const WARM_MS = 450;
 /**
@@ -29,22 +30,24 @@ const WARM_MS = 450;
  */
 const REPAINT_MS = 500, REPAINT_SHARE = 60;
 
-export interface GifProgress { elapsed: number; total: number; bytes: number; frames: number; fps: number; starting: boolean }
+export interface GifProgress { elapsed: number; total: number; bytes: number; frames: number; fps: number; starting: boolean; rung?: number }
 export interface GifResult {
   blob: Blob; bytes: number; frames: number;
   /** The file's head and first frame (bytes): what the rest is measured against. */
   firstBytes: number;
   /** How long the GIF plays (ms). */
   duration: number;
-  /** The frame rate planned, and the one it ended at (lower when the file would have passed the limit). */
+  /** The frame rate planned, and the one it ended at (lower when the frames cost more than the bytes left allowed). */
   plannedFps: number; fps: number;
-  /** The tolerance it ended with (raised when small changes were let go to keep the file small). */
+  /** The tolerance it ended with. */
   tolerance: number;
   width: number; height: number;
   /** Why it ended: its length, the person, the size limit, or the page being hidden. */
   ended: 'time' | 'stopped' | 'full' | 'hidden';
-  /** The page thread's time per frame (ms, mean and worst), frames skipped while the worker was behind, and the worker's own times. */
-  captureMs: number; captureP95Ms: number; captureWorstMs: number; skipped: number; encodeMs: number; readMs: number; finishMs: number; repaints: number; repaintWorstMs: number; refits: number;
+  /** The page thread's time per frame (ms, mean and worst), frames skipped while the pool was behind, and how the rungs went. */
+  captureMs: number; captureP95Ms: number; captureWorstMs: number; skipped: number; repaints: number; repaintWorstMs: number;
+  /** What the coordinator and the pool measured (see `GifStats`), and how long from the stop to the file (ms). */
+  stats: GifStats; workers: number; readyMs: number;
 }
 export interface GifRecording { stop(): void; cancel(): void; done: Promise<GifResult | null> }
 
@@ -57,20 +60,6 @@ export interface GifRequest {
   /** The address for the corner mark, or null for none. */
   mark: string | null;
   onProgress(progress: GifProgress): void;
-}
-
-/** The theme's buy and sell colours, which the waves' light is made of. */
-function tints(): { tints: Rgb[]; dark: boolean } {
-  const cs = getComputedStyle(document.documentElement), probe = document.createElement('canvas').getContext('2d');
-  const parse = (value: string): Rgb | null => {
-    if (!probe || !value.trim()) return null;
-    probe.fillStyle = '#000'; probe.fillStyle = value.trim();
-    const m = /^#([0-9a-f]{6})$/i.exec(String(probe.fillStyle));
-    return m ? [parseInt(m[1]!.slice(0, 2), 16), parseInt(m[1]!.slice(2, 4), 16), parseInt(m[1]!.slice(4, 6), 16)] : null;
-  };
-  const found = [parse(cs.getPropertyValue('--bid')), parse(cs.getPropertyValue('--ask'))].filter((c): c is Rgb => c !== null);
-  const bg = parse(getComputedStyle(document.body).backgroundColor) ?? [0, 0, 0];
-  return { tints: found, dark: 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2] < 128 };
 }
 
 /** Copy the part of a canvas in the area into a frame at `s` GIF pixels per CSS pixel. */
@@ -114,13 +103,22 @@ function watch(layer: LiveCanvas, area: Box, s: number, w: number, h: number): W
   return result;
 }
 
+/** How many workers the pool has: the cores there are less the page's own and the coordinator's, from 2 to 6. */
+export const poolSize = (): number => Math.max(2, Math.min(6, (typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) - 2));
+
 export function recordGif(request: GifRequest): GifRecording {
   const { area, plan } = request, s = plan.scale, W = plan.width, H = plan.height, total = Math.round(request.seconds * 1000);
-  const worker = new Worker(new URL('./gif.worker.ts', import.meta.url), { type: 'module' });
   const bitmaps = typeof OffscreenCanvas === 'function' && typeof OffscreenCanvas.prototype.transferToImageBitmap === 'function';
-  // Frames go to the reader as pictures and reach the encoder as pixels; without pictures off the page, as pixels straight to the encoder.
-  const reader = bitmaps ? new Worker(new URL('./gif-read.worker.ts', import.meta.url), { type: 'module' }) : null;
-  if (reader) { const channel = new MessageChannel(); reader.postMessage({ type: 'port', port: channel.port1 } satisfies ToGifWorker, [channel.port1]); worker.postMessage({ type: 'port', port: channel.port2 } satisfies ToGifWorker, [channel.port2]); }
+  const coordinator = new Worker(new URL('./gif.worker.ts', import.meta.url), { type: 'module' });
+  // The pool reads pictures back to pixels; without pictures off the page the page reads them itself.
+  const pool: Worker[] = [], ports: MessagePort[] = [];
+  if (bitmaps) for (let k = 0; k < poolSize(); k++) {
+    const worker = new Worker(new URL('./gif-pool.worker.ts', import.meta.url), { type: 'module' }), channel = new MessageChannel();
+    worker.postMessage({ type: 'port', port: channel.port1 } satisfies ToPoolWorker, [channel.port1]);
+    worker.postMessage({ type: 'size', width: W, height: H } satisfies ToPoolWorker);
+    pool.push(worker); ports.push(channel.port2);
+  }
+  const maxInFlight = Math.max(3, pool.length * IN_FLIGHT_PER_WORKER + 1);
   const frame = bitmaps ? new OffscreenCanvas(W, H) : surface(W, H), fctx = context2d(frame);
   const effects = request.shapes.filter(sh => sh.kind === 'pixelate' || sh.kind === 'blur');
   // The marks that do not read the picture, and the corner mark, are drawn once.
@@ -172,12 +170,11 @@ export function recordGif(request: GifRequest): GifRecording {
 
   let resolve: (result: GifResult | null) => void = () => {};
   const done = new Promise<GifResult | null>(r => { resolve = r; });
-  let raf = 0, start = -1, nextAt = 0, interval = 1000 / plan.fps, fps = plan.fps, sent = 0, answered = 0, bytes = 0, frames = 0;
-  let ending: GifResult['ended'] | null = null, cancelled = false, finished = false, skipped = 0, captureMs = 0, captureWorst = 0, captured = 0, last = 0;
+  let raf = 0, start = -1, nextAt = 0, interval = 1000 / plan.fps, fps = plan.fps, sent = 0, answered = 0, bytes = 0, frames = 0, rung = plan.rung;
+  let ending: GifResult['ended'] | null = null, cancelled = false, finished = false, skipped = 0, captureMs = 0, captureWorst = 0, captured = 0, last = 0, stoppedAt = 0, turn = 0;
   const spentAll: number[] = [];
 
-  const send = (message: ToGifWorker, transfer: Transferable[] = []): void => (reader ?? worker).postMessage(message, transfer);
-  const terminate = (): void => { worker.terminate(); reader?.terminate(); };
+  const terminate = (): void => { coordinator.terminate(); for (const w of pool) w.terminate(); };
   const cleanup = (): void => {
     if (raf) cancelAnimationFrame(raf); raf = 0;
     observer.disconnect();
@@ -186,33 +183,32 @@ export function recordGif(request: GifRequest): GifRecording {
   };
   const end = (why: GifResult['ended'], t: number): void => {
     if (ending || cancelled) return;
-    ending = why; cleanup();
-    send({ type: 'stop', t: Math.max(0, Math.min(total, t)) });
+    ending = why; cleanup(); stoppedAt = performance.now();
+    coordinator.postMessage({ type: 'stop', t: Math.max(0, Math.min(total, t)), count: sent } satisfies ToCoordinator);
   };
   const onHidden = (): void => { if (document.hidden && start >= 0) end('hidden', last); };
   document.addEventListener('visibilitychange', onHidden);
 
-  worker.onmessage = (event: MessageEvent<FromGifWorker>): void => {
+  coordinator.onmessage = (event: MessageEvent<FromCoordinator>): void => {
     const m = event.data;
-    if (m.type === 'progress') { answered++; bytes = m.bytes; frames = m.frames; }
-    else if (m.type === 'fps') { fps = m.fps; interval = 1000 / fps; }
+    if (m.type === 'progress') { answered++; bytes = m.bytes; frames = m.frames; rung = m.rung; }
+    else if (m.type === 'rate') { fps = m.fps; interval = 1000 / fps; }
     else if (m.type === 'full') end('full', m.t);
     else if (m.type === 'done') {
-      finished = true; terminate();
+      finished = true; const readyMs = ending && stoppedAt ? performance.now() - stoppedAt : 0; terminate();
       // No frame came through (pixels could not be read back here): nothing to show.
-      if (cancelled || m.frames === 0) { resolve(null); return; }
+      if (cancelled || m.stats.written === 0) { resolve(null); return; }
       resolve({
-        blob: new Blob([m.gif], { type: 'image/gif' }), bytes: m.bytes, frames: m.frames, firstBytes: m.firstBytes, duration: m.duration, plannedFps: plan.fps, fps: m.fps, tolerance: m.tolerance,
-        width: W, height: H, ended: m.full ? 'full' : ending ?? 'stopped', captureMs: captured ? captureMs / captured : 0, captureWorstMs: captureWorst,
+        blob: new Blob([m.gif], { type: 'image/gif' }), bytes: m.stats.bytes, frames: m.stats.written, firstBytes: m.stats.firstBytes, duration: m.stats.duration, plannedFps: plan.fps, fps: m.stats.fps, tolerance: m.stats.tolerance,
+        width: W, height: H, ended: m.stats.full ? 'full' : ending ?? 'stopped', captureMs: captured ? captureMs / captured : 0, captureWorstMs: captureWorst,
         captureP95Ms: spentAll.length ? spentAll.sort((p, q) => p - q)[Math.floor(spentAll.length * 0.95)]! : 0,
-        skipped, encodeMs: m.encodeMs, readMs: m.readMs, finishMs: m.finishMs, repaints, repaintWorstMs: paintWorst, refits: m.refits,
+        skipped, repaints, repaintWorstMs: paintWorst, stats: m.stats, workers: pool.length, readyMs,
       });
     } else if (m.type === 'error') { console.warn('GIF:', m.message); cancelled = true; cleanup(); terminate(); resolve(null); }
   };
   const failed = (event: ErrorEvent): void => { console.warn('GIF: the encoder did not start.', event.message); cancelled = true; cleanup(); terminate(); resolve(null); };
-  worker.onerror = failed; if (reader) reader.onerror = failed;
-  const { tints: colours, dark } = tints();
-  send({ type: 'start', width: W, height: H, colors: plan.colors, dither: plan.dither, tolerance: plan.tolerance, limit: GIF_LIMIT, tints: colours, dark, fps: plan.fps, total });
+  coordinator.onerror = failed; for (const w of pool) w.onerror = failed;
+  coordinator.postMessage({ type: 'start', width: W, height: H, limit: GIF_LIMIT, total, rung: plan.rung, ports } satisfies ToCoordinator, ports);
 
   const tick = (now: number): void => {
     raf = 0;
@@ -229,11 +225,14 @@ export function recordGif(request: GifRequest): GifRecording {
     // A frame a little before its time is taken: the display's frames do not fall exactly on the GIF's.
     if (now < nextAt - interval * 0.25) return;
     nextAt = Math.max(nextAt + interval, now - interval);
-    if (sent - answered >= MAX_IN_FLIGHT) { skipped++; return; }
+    if (sent - answered >= maxInFlight) { skipped++; return; }
     const began = performance.now();
     compose();
-    if (bitmaps && frame instanceof OffscreenCanvas) { const bitmap = frame.transferToImageBitmap(); send({ type: 'frame', t, bitmap }, [bitmap]); }
-    else { const data = fctx.getImageData(0, 0, W, H).data; send({ type: 'frame', t, rgba: data.buffer as ArrayBuffer }, [data.buffer as ArrayBuffer]); }
+    if (bitmaps && frame instanceof OffscreenCanvas) {
+      // To the workers of the pool in turn.
+      const bitmap = frame.transferToImageBitmap();
+      pool[turn++ % pool.length]!.postMessage({ type: 'frame', seq: sent, t, bitmap } satisfies ToPoolWorker, [bitmap]);
+    } else { const data = fctx.getImageData(0, 0, W, H).data; coordinator.postMessage({ type: 'pixels', seq: sent, t, rgba: data.buffer as ArrayBuffer } satisfies ToCoordinator, [data.buffer as ArrayBuffer]); }
     sent++; last = t;
     const spent = performance.now() - began; captureMs += spent; captured++; if (spent > captureWorst) captureWorst = spent; spentAll.push(spent);
     // The still parts are painted again after this frame has gone to the screen, when the page has a moment.
@@ -242,7 +241,7 @@ export function recordGif(request: GifRequest): GifRecording {
       const run = (): void => { repaintQueued = false; if (ending || cancelled) return; paint(); repaints++; };
       if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 250 }); else window.setTimeout(run, 0);
     }
-    request.onProgress({ elapsed: t, total, bytes, frames, fps, starting: false });
+    request.onProgress({ elapsed: t, total, bytes, frames, fps, starting: false, rung });
   };
   raf = requestAnimationFrame(tick);
 

@@ -8,7 +8,7 @@ import {
   BLOCK_BORDERS, BLOCK_FILL_START, BLOCK_SIZE, COLORS, CURSORS, WIDTHS, clampRect, drawShape, fileName, hitHandle, inside, markText, paintMark, rectFrom, resizeRect, textSize, toolbarPlacement, worthKeeping,
   HANDLES, handlePoint, snapAngle, squareTo, type BlockBorder, type Handle, type Pt, type Rect, type Shape, type Tool,
 } from './shapes.ts';
-import { GIF_LIMIT, GIF_SECONDS, GIF_TOLERANCE, planGif } from './gif-budget.ts';
+import { GIF_LIMIT, GIF_SECONDS, planGif } from './gif-budget.ts';
 import { recordGif, type GifRecording, type GifResult } from './gif-record.ts';
 import { language, t, tn } from '../i18n.ts';
 
@@ -78,6 +78,8 @@ function canCopyGif(): boolean {
 }
 
 const LENGTH_KEY = 'hlm-shot-gif-seconds';
+/** The tolerance (levels) from which a GIF says that its faintest changes were left out. */
+const FAINT_TOLERANCE = 8;
 
 let active: { close(): void } | null = null;
 
@@ -389,7 +391,7 @@ function openEditor(snap: Snapshot): { close(): void } {
     const limit = GIF_LIMIT / 1e6, at = decimal.format(result.duration / 1000);
     if (result.ended === 'full') toast(t('Kept under {mb} MB: the GIF ends at {s} s', { mb: limit, s: at }));
     else if (result.fps < result.plannedFps) toast(t('Kept under {mb} MB: the frame rate went down to {fps} a second', { mb: limit, fps: result.fps }));
-    else if (result.tolerance > GIF_TOLERANCE.start) toast(t('Kept under {mb} MB: the faintest changes were left out', { mb: limit }));
+    else if (result.tolerance >= FAINT_TOLERANCE) toast(t('Kept under {mb} MB: the faintest changes were left out', { mb: limit }));
     else if (result.ended === 'hidden') toast(t('The page was hidden, so the GIF ends at {s} s', { s: at }));
   }
   function again(): void {

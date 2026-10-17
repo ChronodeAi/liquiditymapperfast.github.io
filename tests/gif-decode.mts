@@ -11,6 +11,8 @@ export interface DecodedFrame {
   indices: Uint8Array;
   delayCs: number; disposal: number; transparent: number | null;
   local: boolean;
+  /** How many entries the colour table the frame is drawn with has. */
+  tableSize: number;
 }
 export interface DecodedGif { width: number; height: number; globalColors: number; loops: number | null; frames: DecodedFrame[] }
 
@@ -81,8 +83,8 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
     }
     if (block !== 0x2c) throw new Error(`unknown block 0x${block.toString(16)} at ${p - 1}`);
     const x = u16(), y = u16(), w = u16(), h = u16(), ip = u8();
-    let table = global, local = false;
-    if (ip & 0x80) { const n = 1 << ((ip & 7) + 1); table = bytes.subarray(p, p + n * 3); p += n * 3; local = true; }
+    let table = global, local = false, tableSize = globalColors;
+    if (ip & 0x80) { const n = 1 << ((ip & 7) + 1); table = bytes.subarray(p, p + n * 3); p += n * 3; local = true; tableSize = n; }
     if (ip & 0x40) throw new Error('interlaced frames are not written by the encoder');
     if (!table) throw new Error('a frame without colours');
     const min = u8();
@@ -93,7 +95,7 @@ export function decodeGif(bytes: Uint8Array): DecodedGif {
       const px = x + i, py = y + j; if (px >= width || py >= height) continue;
       const o = (py * width + px) * 4; canvas[o] = table[k * 3]!; canvas[o + 1] = table[k * 3 + 1]!; canvas[o + 2] = table[k * 3 + 2]!; canvas[o + 3] = 255;
     }
-    frames.push({ rgba: canvas.slice(), x, y, w, h, indices, delayCs, disposal, transparent, local });
+    frames.push({ rgba: canvas.slice(), x, y, w, h, indices, delayCs, disposal, transparent, local, tableSize });
     if (disposal === 2) for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const o = ((y + j) * width + x + i) * 4; canvas[o] = canvas[o + 1] = canvas[o + 2] = canvas[o + 3] = 0; }
     else if (disposal === 3 && before) canvas.set(before);
     delayCs = 0; disposal = 0; transparent = null;
