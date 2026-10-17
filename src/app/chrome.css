@@ -1,104 +1,67 @@
 /*
- * The page's window language: square corners, one crisp outline, raised things lit from the top left and pressed things the other way
- * round, windows with a title bar and a hard shadow, and the black-filled "on" state the controls already had. It is the look of
- * software that was built to stay open all day: plain, exact, and the same everywhere.
+ * The page's window language, in four frames chosen by the theme (theme.ts `Frame`, `html[data-frame]`): Editor, the flat default (one
+ * crisp outline, quiet surfaces, a focus ring in the theme's own blue); Bevel, the 1990s desktop (raised things lit from the top left and
+ * pressed things the other way round, title bars in navy, sunken wells); Paper, the softer light one; and Text mode, the terminal and DOS
+ * screen (double rules, inverse video, a monospaced face). What every frame shares comes first; each frame's own rules sit under
+ * `:where([data-frame=...])`, which adds nothing to a selector's weight, so the cascade between this file and styles.css is the same in all.
  *
- * The tones are the variables theme.ts derives from each palette (--edge, --hi, --lo, --face, --title, --well, --shadow); the values
- * below are the light theme's, only so that the first paint has them. BEVEL in theme.ts dials the whole style back. Loaded last, so
- * it settles the cascade for everything above it; shapes and surfaces are decided here, sizes and arrangements in styles.css and mobile.css.
+ * The tones are the variables theme.ts derives from each palette (--edge, --edge-lit, --hi, --lo, --face, --title, --well, --bar,
+ * --bar-text, --shadow); the values below are the light theme's, only so that the first paint has them. Loaded last, so it settles the
+ * cascade for everything above it; shapes and surfaces are decided here, sizes and arrangements in styles.css and mobile.css.
  */
 :root {
-  --radius: 2px;
-  --edge: #88898c; --hi: #ffffff; --lo: #cdcdce; --face: #f6f6f6; --title: #f5f5f5; --well: #ffffff; --bar: #1b1d21; --bar-text: #ffffff; --shadow: rgba(0, 0, 0, 0.22);
+  --radius: 3px;
+  --edge: #8b8e93; --edge-lit: #8b8e93; --hi: #ffffff; --lo: #e4e5e6; --face: #fbfbfb; --title: #f7f7f8; --well: #ffffff; --bar: #1b1d21; --bar-text: #ffffff; --shadow: rgba(0, 0, 0, 0.11);
   font-variant-numeric: tabular-nums;
 }
+:root[data-frame="bevel"] { --radius: 0px; font-family: Tahoma, "MS Sans Serif", "Microsoft Sans Serif", Arial, sans-serif; font-size: 11px; line-height: 13px; }
+:root[data-frame="paper"] { --radius: 5px; }
+:root[data-frame="textmode"] { --radius: 0px; font-family: ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace; }
 
-/* ---- controls: raised, and pressed when held ------------------------------------------------------------------------------------ */
-button, select {
-  border-color: var(--edge); border-radius: var(--radius); background: var(--face);
-  box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo);
-}
-button:hover, select:hover { border-color: var(--text); }
-button:active:not(:disabled):not(.on), button.open:not(.on) { box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi); }
-button.on { box-shadow: none; }
-button.open { border-color: var(--text); }
-/* The keyboard's place, drawn inside the control the way it always was on a desk. */
-:is(button, select, summary):focus-visible { outline: 1px dotted var(--text); outline-offset: -4px; }
+/* ==== shared by every frame ======================================================================================================= */
 .seg button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
 .seg button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
 .chip { border-radius: var(--radius); }
-input[type="number"], input[type="text"] {
-  border: 1px solid var(--edge); border-radius: var(--radius); background: var(--well); color: var(--text);
-  box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi);
-}
-
-/* ---- bars: the toolbar and the pane headers are etched strips ------------------------------------------------------------------- */
-.toolbar { background: var(--face); border-bottom-color: var(--edge); box-shadow: inset 0 -1px 0 var(--hi); }
-.pane-head { background: var(--title); border-bottom-color: var(--edge); box-shadow: inset 0 1px 0 var(--hi); }
-.pane-head strong { letter-spacing: .01em; }
-.splitter { background: var(--face); }
-.splitter.h { height: 5px; flex-basis: 5px; border-top: 1px solid var(--hi); border-bottom: 1px solid var(--edge); }
-.splitter.v { border-left: 1px solid var(--hi); border-right: 1px solid var(--edge); }
-.splitter:hover, .splitter.active { background: var(--edge); }
-
-/* ---- windows: a title bar in the page's own colours reversed, a square outline, a hard shadow ------------------------------------ */
-.panel, .menu, dialog.venues {
-  border: 1px solid var(--edge); border-radius: var(--radius); box-shadow: 3px 3px 0 var(--shadow);
-}
-.panel-head { gap: 6px; padding: 3px 4px 3px 10px; min-height: 26px; background: var(--bar); color: var(--bar-text); border-bottom: 1px solid var(--edge); }
+.panel, .menu, dialog.venues { border: 1px solid var(--edge); border-radius: var(--radius); box-shadow: 2px 2px 0 var(--shadow); }
+.panel-head { gap: 6px; padding: 3px 4px 3px 10px; min-height: 26px; border-bottom: 1px solid var(--line); }
 .panel-head h3 { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
 .panel-x { width: 20px; height: 20px; --cross: 8px; --weight: 1.6px; }
-/* Every close button is the same square, raised, with a drawn cross: the window's, the guide's, a notice's, a list row's, a sheet's. */
-:is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x) {
-  border: 1px solid var(--edge); border-radius: var(--radius); background: var(--face); color: var(--text);
-  box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo);
-}
-:is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x):hover { background: var(--face); color: var(--text); border-color: var(--text); }
-:is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x):active { box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi); }
 .panel .srow .x:hover { color: var(--ask); }
 /* Flat by design, so the raised look of a button does not reach them: a menu row, a tab, a tool in a floating bar, a drag handle. */
 .menu-item, .dock-tab, .shot-bar button, .panel .grip { box-shadow: none; }
 .panel-tools { background: var(--face); }
 .menu { padding: 2px; }
 .menu-item { border-radius: 0; }
-.menu-item:hover, .menu-item:focus-visible { background: var(--bar); color: var(--bar-text); }
-.menu-item:hover .tick, .menu-item:focus-visible .tick { color: var(--bar-text); }
-.menu-item:focus-visible { outline: 1px dotted var(--bar-text); outline-offset: -3px; }
+.pane-head strong { letter-spacing: .01em; }
+.splitter.h { height: 5px; flex-basis: 5px; }
 
-/* ---- the tooltip: still the page's colours reversed, now square with a hard shadow ---------------------------------------------- */
+/* The tooltip: the page's colours reversed, square, with a hard shadow. */
 .tip { border-radius: 0; border-color: var(--text); padding: 4px 8px; font-size: 11px; line-height: 1.4; box-shadow: 2px 2px 0 var(--shadow); }
 
-/* ---- glyphs that are drawn, not typed: they sit in the middle of their box whatever the font ---------------------------------- */
+/* Glyphs that are drawn, not typed: they sit in the middle of their box whatever the font. */
+/* A "?" is a mark to read, not a key to press: flat, its outline only. Raised like the buttons, its lower edge was the one line of the bevel
+   a light theme shows (the lit edge is white on a near-white face), and at a phone's size it read as a drop shadow out of place (Karl,
+   2026-10-16). The glyph keeps a share of the box, so a phone's larger button does not get a heavier "?". */
 button.help {
   position: relative; width: 16px; height: 16px; margin: 0 6px 0 3px; border-radius: var(--radius); border: 1px solid var(--edge); background: var(--face); color: var(--text); font-size: 0; line-height: 0;
-  box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo);
+  box-shadow: none;
 }
+button.help:active:not(:disabled) { box-shadow: none; }
 button.help::before {
-  content: ""; position: absolute; inset: 2px; background: currentColor;
+  content: ""; position: absolute; inset: max(2px, 17%); background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.2 8.6a3.9 3.9 0 1 1 5.9 3.3c-1.3.8-2.1 1.5-2.1 3'/%3E%3Cpath d='M12 19.6h.01'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8.2 8.6a3.9 3.9 0 1 1 5.9 3.3c-1.3.8-2.1 1.5-2.1 3'/%3E%3Cpath d='M12 19.6h.01'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 button.help:hover, button.help.open { color: var(--bg); background: var(--text); border-color: var(--text); }
 .theme-btn::after { content: ""; flex: none; width: 0; height: 0; border: 4px solid transparent; border-top-color: currentColor; border-bottom-width: 0; margin-left: 2px; }
 
-/* ---- over the map: nothing that blurs or softens what is painted underneath, which repaints all the time ------------------------ */
-.pane.heat .map-recenter, .pane.heat .map-select, .pane.heat .map-goto {
-  border-radius: var(--radius); background: var(--face); -webkit-backdrop-filter: none; backdrop-filter: none;
-  box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo), 2px 2px 0 var(--shadow);
-}
+/* Over the map: nothing that blurs or softens what is painted underneath, which repaints all the time. */
+.pane.heat .map-recenter, .pane.heat .map-select, .pane.heat .map-goto { border-radius: var(--radius); background: var(--face); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .pane.heat .map-recenter:hover, .pane.heat .map-select:hover, .pane.heat .map-goto:hover { background: var(--face); border-color: var(--text); }
 
-/* ---- the rest of the page, in the same shapes ------------------------------------------------------------------------------------ */
-/* A switch: a sunken square track and a raised square knob. */
-:is(.panel, .sheet) .switch i { border-radius: var(--radius); background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
-:is(.panel, .sheet) .switch input:checked + i { background: var(--ui); box-shadow: inset 0 0 0 1px var(--edge); }
-:is(.panel, .sheet) .switch i::after { border-radius: var(--radius); background: var(--face); box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo), 0 0 0 1px var(--edge); }
 /* Numbers that label things are squares, not discs. */
 .guide-link .num, .guide-section h2 .num { border-radius: var(--radius); }
-/* The sheets a phone uses are windows too: the same title bar. */
-.sheet-head { background: var(--bar); color: var(--bar-text); }
 .sheet-head h3 { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
-.sheet-grab { background: color-mix(in srgb, var(--bar-text) 45%, transparent); }
 .sheet, html[data-bar="compact"] .panel, html[data-bar="compact"] .menu { border-color: var(--edge); }
 /* The guide and the picture tool keep their own dark and light surfaces but take the shapes. */
 dialog.guide { border: 1px solid var(--edge); }
@@ -118,6 +81,491 @@ dialog.guide::backdrop { background: rgba(8, 10, 14, .55); }
 .menu-item { grid-template-columns: auto minmax(0, 1fr) 18px; }
 .menu-item.plain { grid-template-columns: minmax(0, 1fr) 18px; }
 /* A longer word than English has for a tab ("Profundidade") shrinks a little on the narrowest phones instead of running out of its tab. */
-.dock-tab { font-size: min(11.5px, 2.9vw); }
+.dock-tab { font-size: min(11.5px, 2.55vw); }
 /* The three-across toggles in Settings: a longer word than English has ("Profundidade", with its tick) shrinks a little on the narrowest phones instead of running out of its box. */
 .sheet .seg.toggles button { font-size: min(1em, 3.9vw); }
+
+/* ==== Editor: the flat default, and the base the other frames change ============================================================== */
+button, select { border-color: var(--edge); border-radius: var(--radius); background: var(--face); }
+button:hover, select:hover { border-color: var(--text); }
+button.open { border-color: var(--text); }
+/* The lamp button of a panel that is open sits a step in from its face (the bevel presses it in its own way). */
+:where(:root:not([data-frame="bevel"])) button.open { background: color-mix(in srgb, var(--text) 9%, var(--face)); }
+/* The keyboard's place: a ring in the theme's own blue, just outside the control. */
+:is(button, select, summary):focus-visible { outline: 2px solid var(--ui); outline-offset: 1px; }
+/* A text box's keyboard ring is the same (the bevel's text boxes are left as they are). A dialog that took the focus on opening has none around the whole
+   window, in every frame: the browser's rounded ring around a square window was the one thing on it that no frame drew. */
+:where(:root:not([data-frame="bevel"])) :is(input[type="text"], input[type="number"], input[type="search"], input[type="datetime-local"]):focus-visible { outline: 2px solid var(--ui); outline-offset: 1px; }
+dialog:focus-visible { outline: none; }
+/* The browser's own controls (a check box, a slider) take the theme's accent. */
+:where(:root:not([data-frame="bevel"])) { accent-color: var(--ui); }
+/* A held button is a step darker than its face: a click answers. */
+:where([data-frame="editor"], [data-frame="paper"]) button:active:not(:disabled):not(.on) { background: color-mix(in srgb, var(--text) 12%, var(--face)); }
+/* A control that cannot be used is dimmed, of whatever kind (the bevel embosses its labels instead). */
+:where(:root:not([data-frame="bevel"])) :where(button, select, input):disabled { opacity: .45; cursor: default; }
+/* The two lists that scrolled with the browser's own bar (the coin list, the venue dialog) take the thin one the panels have (the bevel keeps its pixel bars). */
+:where(:root:not([data-frame="bevel"])) :is(.coin-list, dialog.venues) { scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
+input[type="number"], input[type="text"] { border: 1px solid var(--edge); border-radius: var(--radius); background: var(--well); color: var(--text); }
+.toolbar { background: var(--face); border-bottom-color: var(--edge); }
+.statusbar { background: var(--title); border-top-color: var(--edge); }
+.pane-head { background: var(--title); border-bottom-color: var(--line); }
+.splitter { background: var(--line); }
+.splitter:hover, .splitter.active { background: var(--ui); }
+.panel-head { background: var(--title); color: var(--text); }
+/* Every close button is the same square with a drawn cross: the window's, the guide's, a notice's, a list row's, a sheet's. */
+:is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x) { border: 1px solid var(--edge); border-radius: var(--radius); background: var(--face); color: var(--text); }
+:is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x):hover { background: var(--face); color: var(--text); border-color: var(--text); }
+/* A menu's lit row: a tint of the theme's blue, the text left as it is. */
+.menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, var(--ui) 16%, var(--panel)); color: var(--text); }
+.menu-item:focus-visible { outline: 2px solid var(--ui); outline-offset: -2px; }
+/* A switch: a square track and a square knob, no pill. */
+:is(.panel, .sheet) .switch i { border-radius: var(--radius); background: var(--well); box-shadow: inset 0 0 0 1px var(--edge); }
+:is(.panel, .sheet) .switch input:checked + i { background: var(--ui); box-shadow: inset 0 0 0 1px var(--edge); }
+:is(.panel, .sheet) .switch i::after { border-radius: var(--radius); background: var(--face); box-shadow: 0 0 0 1px var(--edge); }
+.sheet-head { background: var(--title); color: var(--text); border-bottom: 1px solid var(--line); }
+.sheet-grab { background: color-mix(in srgb, var(--text) 35%, transparent); }
+/* A lit button on a dark Editor theme is a tint of the theme's accent with an outline in it, not a slab of the text colour (cream or lavender, the brightest thing on a dark
+   page) and not the title bar's tone (hardly lighter than the face in Slate and Charcoal). The label keeps its colour and its weight, so nothing moves when it lights, and
+   the outlines keep tiles that touch apart. */
+:where([data-frame="editor"][data-theme="dark"]) button.on { background: color-mix(in srgb, var(--ui) 25%, var(--face)); color: var(--text); border-color: var(--ui); }
+
+/* The top bar's decks: a pair of hairlines with the title in the frame line, in a tone that shows: the control edge and the quiet line, half and half, so it is never
+   fainter than the line was (1.9 to 2.9:1 against the bar in the Editor and Paper themes, where the line alone was 1.1 to 2.7). */
+.toolbar .deck { border: 3px double color-mix(in srgb, var(--edge) 55%, var(--line)); border-radius: var(--radius); }
+
+/* ==== Paper: the Editor, softer: rounder corners, windows lifted by their outline alone ============================================ */
+:where([data-frame="paper"]) .panel, :where([data-frame="paper"]) .menu, :where([data-frame="paper"]) dialog.venues { box-shadow: 0 2px 0 var(--shadow); }
+:where([data-frame="paper"]) .toolbar { background: var(--panel); border-bottom-color: var(--line); }
+:where([data-frame="paper"]) .statusbar { background: var(--panel); border-top-color: var(--line); }
+:where([data-frame="paper"]) .pane-head { background: var(--panel); }
+:where([data-frame="paper"]) .menu-item:hover, :where([data-frame="paper"]) .menu-item:focus-visible { background: color-mix(in srgb, var(--text) 7%, var(--panel)); }
+
+:where([data-frame="paper"]) .toolbar .deck { border: 1px solid color-mix(in srgb, var(--edge) 55%, var(--line)); }
+
+/* ==== Bevel: the 1990s desktop ==================================================================================================== */
+/* Every edge here is a pixel map, not a CSS border. A nine-slice `border-image` (5 x 5, slice 2: the two rings of a 2 px bevel, outer ring first) is
+   painted over the control's edge by `border-image-width`, and its corners come out as the desktop drew them: the lower and right edges win the two
+   corners they share (a CSS border blends those to a grey pixel). The element keeps an ordinary 1 px border for layout, so a button, a field and a
+   window frame are one box wearing different pictures. Held, a control's left and top borders grow by a pixel and the right and bottom ones go: the
+   label moves one pixel down and right and no size changes. Glyphs (arrows, the check, the cross, the grip) are pixel maps as well, drawn as masks or
+   backgrounds, never typed. The tones in the maps are the classic palette's (theme.ts `chrome` pins): grey face, white and light grey, grey and black.
+   Rules that only reshape what styles.css already sizes sit under :where(), which adds nothing to a selector's weight; rules that have to win over a
+   size, a margin or a fill set there or in mobile.css carry :root[data-frame="bevel"]. */
+/* The maps (X is black, W white; the arrow is turned for the other directions and greyed, with a white copy one pixel lower right, when disabled):
+   check     close      question   arrow     dither
+         X   XX    XX    XXXX      XXXXXXX   W
+        XX    XX  XX    XX  XX      XXXXX     W
+   X   XXX     XXXX     XX  XX       XXX
+   XX XXX       XX         XX         X
+   XXXXX       XXXX       XX
+    XXX       XX  XX      XX
+     X       XX    XX
+                          XX
+                          XX
+   Rings, 5 x 5 with a slice of 2, outer ring first, "above and left | below and right": raised white, light grey | black, grey; held black, grey |
+   white, light grey; sunken (a field) grey, black | white, light grey; window light grey, white | black, grey; etched (a group box) grey, white | white,
+   grey. A drop-down list is 21 x 9 (slices 4, 18, 4, 2): a field's ring on three sides and a raised 16-pixel key on the right. */
+:root[data-frame="bevel"] {
+  --bv-raised: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h4v1h-4zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M4%200h1v1h-1zM4%201h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M1%201h2v1h-2zM1%202h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M3%201h1v1h-1zM3%202h1v1h-1zM1%203h3v1h-3z'/%3E%3C/svg%3E");
+  --bv-pressed: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M0%200h4v1h-4zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1z'/%3E%3Cpath%20fill='%23ffffff'%20d='M4%200h1v1h-1zM4%201h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3Cpath%20fill='%23808080'%20d='M1%201h2v1h-2zM1%202h1v1h-1z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M3%201h1v1h-1zM3%202h1v1h-1zM1%203h3v1h-3z'/%3E%3C/svg%3E");
+  --bv-sunken: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h4v1h-4zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1z'/%3E%3Cpath%20fill='%23ffffff'%20d='M4%200h1v1h-1zM4%201h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M1%201h2v1h-2zM1%202h1v1h-1z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M3%201h1v1h-1zM3%202h1v1h-1zM1%203h3v1h-3z'/%3E%3C/svg%3E");
+  --bv-window: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23dfdfdf'%20d='M0%200h4v1h-4zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M4%200h1v1h-1zM4%201h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3Cpath%20fill='%23ffffff'%20d='M1%201h2v1h-2zM1%202h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M3%201h1v1h-1zM3%202h1v1h-1zM1%203h3v1h-3z'/%3E%3C/svg%3E");
+  --bv-default: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='7'%20height='7'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M0%200h7v1h-7zM0%201h1v1h-1zM5%201h2v1h-2zM0%202h1v1h-1zM5%202h2v1h-2zM0%203h1v1h-1zM5%203h2v1h-2zM0%204h1v1h-1zM5%204h2v1h-2zM0%205h7v1h-7zM0%206h7v1h-7z'/%3E%3Cpath%20fill='%23ffffff'%20d='M1%201h4v1h-4zM1%202h1v1h-1zM1%203h1v1h-1zM1%204h1v1h-1z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M2%202h2v1h-2zM2%203h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M4%202h1v1h-1zM4%203h1v1h-1zM2%204h3v1h-3z'/%3E%3C/svg%3E");
+  --bv-etched: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h4v1h-4zM0%201h1v1h-1zM3%201h1v1h-1zM0%202h1v1h-1zM3%202h1v1h-1zM0%203h4v1h-4z'/%3E%3Cpath%20fill='%23ffffff'%20d='M4%200h1v1h-1zM1%201h2v1h-2zM4%201h1v1h-1zM1%202h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3C/svg%3E");
+  --bv-field: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='3'%20height='3'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h2v1h-2zM0%201h1v1h-1z'/%3E%3Cpath%20fill='%23ffffff'%20d='M2%200h1v1h-1zM2%201h1v1h-1zM0%202h3v1h-3z'/%3E%3C/svg%3E");
+  --bv-select: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='21'%20height='9'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h20v1h-20zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1zM17%203h1v1h-1zM0%204h1v1h-1zM17%204h1v1h-1zM0%205h1v1h-1zM4%205h14v1h-14zM0%206h1v1h-1zM0%207h1v1h-1z'/%3E%3Cpath%20fill='%23ffffff'%20d='M20%200h1v1h-1zM20%201h1v1h-1zM3%202h15v1h-15zM20%202h1v1h-1zM3%203h1v1h-1zM20%203h1v1h-1zM3%204h1v1h-1zM20%204h1v1h-1zM3%205h1v1h-1zM20%205h1v1h-1zM20%206h1v1h-1zM20%207h1v1h-1zM0%208h21v1h-21z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M1%201h18v1h-18zM1%202h1v1h-1zM18%202h1v1h-1zM1%203h1v1h-1zM18%203h1v1h-1zM1%204h1v1h-1zM18%204h1v1h-1zM1%205h1v1h-1zM18%205h1v1h-1zM1%206h1v1h-1zM3%206h16v1h-16z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M19%201h1v1h-1zM19%202h1v1h-1zM4%203h13v1h-13zM19%203h1v1h-1zM4%204h1v1h-1zM19%204h1v1h-1zM19%205h1v1h-1zM19%206h1v1h-1zM1%207h19v1h-19z'/%3E%3C/svg%3E");
+  --bv-tab: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h1v1h-1zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M1%200h1v1h-1zM1%201h1v1h-1zM1%202h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M3%200h1v1h-1zM3%201h1v1h-1zM3%202h1v1h-1zM1%203h3v1h-3z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M4%200h1v1h-1zM4%201h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3C/svg%3E");
+  --bv-tab-right: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h4v1h-4z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M4%200h1v1h-1zM4%201h1v1h-1zM4%202h1v1h-1zM4%203h1v1h-1zM0%204h5v1h-5z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M0%201h3v1h-3z'/%3E%3Cpath%20fill='%23808080'%20d='M3%201h1v1h-1zM3%202h1v1h-1zM0%203h4v1h-4z'/%3E%3C/svg%3E");
+  --bv-dither: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='2'%20height='2'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h1v1h-1zM1%201h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-dither-dark: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='2'%20height='2'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M0%200h1v1h-1zM1%201h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-check: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='7'%20height='7'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M6%200h1v1h-1zM5%201h2v1h-2zM0%202h1v1h-1zM4%202h3v1h-3zM0%203h2v1h-2zM3%203h3v1h-3zM0%204h5v1h-5zM1%205h3v1h-3zM2%206h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-check-grey: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='7'%20height='7'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M6%200h1v1h-1zM5%201h2v1h-2zM0%202h1v1h-1zM4%202h3v1h-3zM0%203h2v1h-2zM3%203h3v1h-3zM0%204h5v1h-5zM1%205h3v1h-3zM2%206h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-check-white: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='7'%20height='7'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M6%200h1v1h-1zM5%201h2v1h-2zM0%202h1v1h-1zM4%202h3v1h-3zM0%203h2v1h-2zM3%203h3v1h-3zM0%204h5v1h-5zM1%205h3v1h-3zM2%206h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-down: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='7'%20height='4'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M0%200h7v1h-7zM1%201h5v1h-5zM2%202h3v1h-3zM3%203h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-down-off: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='8'%20height='5'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h7v1h-7zM1%201h5v1h-5zM2%202h3v1h-3zM3%203h1v1h-1z'/%3E%3Cpath%20fill='%23ffffff'%20d='M6%201h2v1h-2zM5%202h2v1h-2zM4%203h2v1h-2zM4%204h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-close: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='8'%20height='7'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M0%200h2v1h-2zM6%200h2v1h-2zM1%201h2v1h-2zM5%201h2v1h-2zM2%202h4v1h-4zM3%203h2v1h-2zM2%204h4v1h-4zM1%205h2v1h-2zM5%205h2v1h-2zM0%206h2v1h-2zM6%206h2v1h-2z'/%3E%3C/svg%3E");
+  --bv-question: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='6'%20height='9'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%230a0a0a'%20d='M1%200h4v1h-4zM0%201h2v1h-2zM4%201h2v1h-2zM0%202h2v1h-2zM4%202h2v1h-2zM3%203h2v1h-2zM2%204h2v1h-2zM2%205h2v1h-2zM2%207h2v1h-2zM2%208h2v1h-2z'/%3E%3C/svg%3E");
+  --bv-grip: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='12'%20height='12'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M11%202h1v1h-1zM10%203h1v1h-1zM9%204h1v1h-1zM8%205h1v1h-1zM7%206h1v1h-1zM11%206h1v1h-1zM6%207h1v1h-1zM10%207h1v1h-1zM5%208h1v1h-1zM9%208h1v1h-1zM4%209h1v1h-1zM8%209h1v1h-1zM3%2010h1v1h-1zM7%2010h1v1h-1zM11%2010h1v1h-1zM2%2011h1v1h-1zM6%2011h1v1h-1zM10%2011h1v1h-1z'/%3E%3Cpath%20fill='%23ffffff'%20d='M11%203h1v1h-1zM10%204h1v1h-1zM9%205h1v1h-1zM8%206h1v1h-1zM7%207h1v1h-1zM11%207h1v1h-1zM6%208h1v1h-1zM10%208h1v1h-1zM5%209h1v1h-1zM9%209h1v1h-1zM4%2010h1v1h-1zM8%2010h1v1h-1zM3%2011h1v1h-1zM7%2011h1v1h-1zM11%2011h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-gripper: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='5'%20height='12'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h1v1h-1zM3%200h1v1h-1zM0%201h1v1h-1zM3%201h1v1h-1zM0%202h1v1h-1zM3%202h1v1h-1zM0%203h1v1h-1zM3%203h1v1h-1zM0%204h1v1h-1zM3%204h1v1h-1zM0%205h1v1h-1zM3%205h1v1h-1zM0%206h1v1h-1zM3%206h1v1h-1zM0%207h1v1h-1zM3%207h1v1h-1zM0%208h1v1h-1zM3%208h1v1h-1zM0%209h1v1h-1zM3%209h1v1h-1zM0%2010h1v1h-1zM3%2010h1v1h-1zM0%2011h1v1h-1zM3%2011h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M1%200h1v1h-1zM4%200h1v1h-1zM1%201h1v1h-1zM4%201h1v1h-1zM1%202h1v1h-1zM4%202h1v1h-1zM1%203h1v1h-1zM4%203h1v1h-1zM1%204h1v1h-1zM4%204h1v1h-1zM1%205h1v1h-1zM4%205h1v1h-1zM1%206h1v1h-1zM4%206h1v1h-1zM1%207h1v1h-1zM4%207h1v1h-1zM1%208h1v1h-1zM4%208h1v1h-1zM1%209h1v1h-1zM4%209h1v1h-1zM1%2010h1v1h-1zM4%2010h1v1h-1zM1%2011h1v1h-1zM4%2011h1v1h-1z'/%3E%3C/svg%3E");
+  --bv-tip: #ffffe1;
+  /* A window, a menu and a note cast no shadow in this look (the desktop of the time drew none: a window is told from what lies under it by its dark lower
+     and right edges). For the hard offset shadow of the earlier look, set this to `2px 2px 0 var(--shadow)`. */
+  --bv-shadow: none;
+  /* The same edges as plain border colours (outer ring only): the browser paints the pictures above instead, but the picture tool's page copy reads
+     these, and a browser that cannot draw the pictures falls back to them. */
+  --bv-c-raised: var(--edge-lit) var(--edge) var(--edge) var(--edge-lit);
+  --bv-c-pressed: var(--edge) var(--edge-lit) var(--edge-lit) var(--edge);
+  --bv-c-sunken: var(--lo) var(--edge-lit) var(--edge-lit) var(--lo);
+  --bv-c-window: var(--hi) var(--edge) var(--edge) var(--hi);
+}
+
+/* ---- push buttons: 2 px raised, held the other way round, a dotted rectangle for the keyboard, an embossed label when disabled ---------------- */
+:where([data-frame="bevel"]) button {
+  background: var(--face); color: var(--text); border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; box-shadow: none;
+}
+:where([data-frame="bevel"]) button:disabled { color: var(--lo); text-shadow: 1px 1px 0 var(--edge-lit); cursor: default; }
+:where([data-frame="bevel"]) :is(button, summary):focus-visible { outline: 1px dotted var(--text); outline-offset: -4px; }
+:where([data-frame="bevel"]) :is(button:active:not(:disabled), button.open):not(.on) { border-width: 2px 0 0 2px; border-color: var(--bv-c-pressed); border-image: var(--bv-pressed) 2 / 2px; box-shadow: none; }
+/* A latched button (a timeframe, a pane's switch, a segment that is chosen) is held down for good: the same picture, its face a checker of white and grey. */
+:root[data-frame="bevel"] :is(.toolbar, .statusbar, .pane-head, .panel, .sheet, .replay-bar) button.on {
+  background: var(--bv-dither) 0 0 / 2px 2px fixed, var(--face); color: var(--text); border-width: 2px 0 0 2px; border-color: var(--bv-c-pressed); border-image: var(--bv-pressed) 2 / 2px; box-shadow: none;
+}
+/* The default button of a window wears a black outline around its bevel. */
+:root[data-frame="bevel"] button.guide-btn { font-weight: 700; }
+/* A split button's two parts are two buttons side by side, each with its whole bevel (an overlap would hide the switch's dark right edge). */
+:root[data-frame="bevel"] .split > .split-cfg { margin-left: 0; width: 18px; }
+:root[data-frame="bevel"] .split > .split-cfg::before { width: 11px; height: 11px; }
+/* A small "?" is a raised key with a bold question mark drawn on it. */
+:where([data-frame="bevel"]) button.help { border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; background: var(--face); color: var(--text); }
+:where([data-frame="bevel"]) button.help:hover { background: var(--face); color: var(--text); border-color: transparent; }
+:root[data-frame="bevel"] button.help { width: 16px; height: 16px; margin-left: 2px; margin-right: 4px; }
+:root[data-frame="bevel"] button.help::before { inset: auto; left: 4px; top: 2px; width: 6px; height: 9px; -webkit-mask: var(--bv-question) 0 0 / 6px 9px no-repeat; mask: var(--bv-question) 0 0 / 6px 9px no-repeat; }
+
+/* ---- the lamp of a feature's button is a check box in this look: a white sunken square, a black check when it is on --------------------------- */
+:root[data-frame="bevel"] .led-btn { padding-left: 22px; }
+:root[data-frame="bevel"] .led-btn::before {
+  content: ""; box-sizing: border-box; left: 5px; top: calc(50% - 6.5px); width: 13px; height: 13px; margin: 0; border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; border-radius: 0;
+  background: var(--well); opacity: 1; transition: none;
+}
+:root[data-frame="bevel"] .led-btn[data-state="on"]::before { background: var(--bv-check) center / 7px 7px no-repeat, var(--well); opacity: 1; }
+/* Sound is on but the browser keeps audio locked: a check box in its third state, grey on a checker. */
+:root[data-frame="bevel"] .sound-btn[data-state="locked"]::before { background: var(--bv-check-grey) center / 7px 7px no-repeat, var(--bv-dither) 0 0 / 2px 2px fixed, var(--face); }
+:root[data-frame="bevel"] .sound-btn.flash::before { background: var(--bv-check-white) center / 7px 7px no-repeat, var(--bar); box-shadow: none; }
+
+/* ---- a drop-down list: a white sunken field with a small raised button at its right holding a black triangle ---------------------------------- */
+/* The field's white (and navy while the keyboard is on it, grey when it is off) is a layer of the background, not its colour: the glass material
+   tints a control's background colour, and a field must stay white on glass. */
+:where([data-frame="bevel"]) select {
+  --bv-well: var(--well);
+  -webkit-appearance: none; appearance: none; color: var(--text); border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-select) 4 18 4 2 / 4px 18px 4px 2px;
+  background: var(--bv-down) right 7px top calc(50% - 0.5px) / 7px 4px no-repeat border-box, conic-gradient(var(--face), var(--face)) right 4px top 4px / 12px calc(100% - 8px) no-repeat border-box, linear-gradient(var(--bv-well), var(--bv-well));
+  box-shadow: none;
+}
+:root[data-frame="bevel"] select { padding-right: 18px; }
+:where([data-frame="bevel"]) select:disabled {
+  --bv-well: var(--face); color: var(--lo); text-shadow: 1px 1px 0 var(--edge-lit);
+  background: var(--bv-down-off) right 7px top calc(50% - 0.5px) / 8px 5px no-repeat border-box, conic-gradient(var(--face), var(--face)) right 4px top 4px / 12px calc(100% - 8px) no-repeat border-box, linear-gradient(var(--bv-well), var(--bv-well));
+}
+/* The keyboard's place in a list is its text, lit in the desktop's navy; the list that opens keeps its own white. */
+:where([data-frame="bevel"]) select:focus-visible { --bv-well: var(--bar); color: var(--bar-text); outline: 0; }
+:where([data-frame="bevel"]) select option { background-color: var(--well); color: var(--text); }
+
+/* ---- fields, check boxes, sliders ------------------------------------------------------------------------------------------------------------ */
+:where([data-frame="bevel"]) :is(input[type="number"], input[type="text"], input[type="search"], input[type="time"], input[type="datetime-local"]) {
+  background: var(--well); color: var(--text); border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; border-radius: 0; box-shadow: none;
+}
+:where([data-frame="bevel"]) :is(input[type="number"], input[type="text"], input[type="search"], input[type="time"], input[type="datetime-local"]):focus-visible { outline: 0; }
+:where([data-frame="bevel"]) input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; flex: none; box-sizing: border-box; width: 13px; height: 13px; margin: 0; padding: 0; background: var(--well); border: 1px solid; border-color: var(--bv-c-sunken);
+  border-image: var(--bv-sunken) 2 / 2px; border-radius: 0;
+}
+:where([data-frame="bevel"]) input[type="checkbox"]:checked { background: var(--bv-check) center / 7px 7px no-repeat, var(--well); }
+:where([data-frame="bevel"]) input[type="checkbox"]:disabled { background-color: var(--face); }
+:where([data-frame="bevel"]) input[type="checkbox"]:disabled:checked { background: var(--bv-check-grey) center / 7px 7px no-repeat, var(--face); }
+:root[data-frame="bevel"]:not([data-bar="compact"]) input[type="checkbox"] { width: 13px; height: 13px; }
+:where([data-frame="bevel"]) input[type="checkbox"]:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
+/* A slider: a groove four pixels deep and a raised key. */
+:where([data-frame="bevel"]) input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; }
+:where([data-frame="bevel"]) input[type="range"]::-webkit-slider-runnable-track { height: 4px; border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; background: transparent; border-radius: 0; }
+:where([data-frame="bevel"]) input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 11px; height: 20px; margin-top: -8px; background: var(--face); border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; border-radius: 0; box-shadow: none;
+}
+:where([data-frame="bevel"]) input[type="range"]:focus-visible { outline: 1px dotted var(--text); outline-offset: 2px; }
+:root[data-frame="bevel"] .panel .slider input { height: 20px; }
+:root[data-frame="bevel"] :is(.toolbar, .sheet) .scale input[type="range"] { height: 12px; }
+:root[data-frame="bevel"] .toolbar .scale input[type="range"]::-webkit-slider-thumb { width: 9px; height: 12px; margin-top: -5px; }
+:where([data-frame="bevel"]) :is(.toolbar, .sheet) .legend { border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-field) 1 / 1px; border-radius: 0; }
+:where([data-frame="bevel"]) :is(.toolbar, .sheet) .legend i { text-shadow: 1px 1px 0 #000; }
+
+/* ---- the top bar: decks are group boxes, the bar an etched strip ------------------------------------------------------------------------------ */
+:root[data-frame="bevel"] .toolbar.cockpit { gap: 4px 6px; padding: 3px 6px 6px; }
+:root[data-frame="bevel"] .toolbar.cockpit :is(button, select) { height: 21px; padding-top: 0; padding-bottom: 0; padding-left: 6px; padding-right: 6px; }
+:root[data-frame="bevel"] .toolbar.cockpit select { padding-right: 18px; }
+:root[data-frame="bevel"] .toolbar.cockpit .led-btn { padding-left: 22px; }
+:root[data-frame="bevel"] .toolbar.cockpit .seg button { margin: 0; }
+:where([data-frame="bevel"]) .toolbar { background: var(--face); border-bottom: 1px solid var(--edge-lit); box-shadow: inset 0 1px 0 var(--edge-lit), inset 0 -1px 0 var(--lo); }
+/* A deck is a group box: an etched line (a grey one with a white one beside it), its title in the frame line in plain text. The picture is the box's
+   border, so the title's own gap in it is made by the browser and nothing has to be painted over the lines. */
+:where([data-frame="bevel"]) .toolbar .deck { border: 2px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-etched) 2 / 2px; box-shadow: none; padding: 0 3px 4px; }
+:where([data-frame="bevel"]) .toolbar .deck > legend { position: relative; padding: 0 3px; margin-left: -1px; background: transparent; font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--text); }
+/* A small triangle after a button's name is drawn, not typed. */
+:root[data-frame="bevel"] :is(.coin-btn, .theme-btn, .language-btn)::after {
+  content: ""; display: inline-block; flex: none; width: 7px; height: 4px; border: 0; margin: 0 0 0 5px; vertical-align: middle; font-size: 0; opacity: 1; color: var(--text); background: currentColor;
+  -webkit-mask: var(--bv-down) 0 0 / 7px 4px no-repeat; mask: var(--bv-down) 0 0 / 7px 4px no-repeat;
+}
+
+/* ---- bars: the status bar's items sit in sunken fields, the pane headers are etched strips ---------------------------------------------------- */
+:where([data-frame="bevel"]) .statusbar { background: var(--face); border-top: 1px solid var(--lo); box-shadow: inset 0 1px 0 var(--edge-lit); color: var(--text); }
+:root[data-frame="bevel"] .statusbar { gap: 2px; padding: 2px 4px 2px 6px; }
+:root[data-frame="bevel"] .statusbar .status-item { display: inline-flex; align-items: center; align-self: stretch; padding: 0 6px; border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-field) 1 / 1px; }
+:root[data-frame="bevel"] .statusbar .status-controls { gap: 2px; margin-left: 4px; }
+:root[data-frame="bevel"] .statusbar .status-controls button { height: 21px; min-height: 0; padding-top: 0; padding-bottom: 0; }
+:root[data-frame="bevel"] .statusbar .status-controls .led-btn { padding-left: 22px; }
+:root[data-frame="bevel"] .statusbar::after { content: ""; flex: none; align-self: flex-end; width: 12px; height: 12px; margin: 0 -2px -1px 4px; background: var(--bv-grip) 0 0 / 12px 12px no-repeat; }
+:where([data-frame="bevel"]) .pane-head { background: var(--face); border-bottom: 1px solid var(--edge-lit); box-shadow: inset 0 -1px 0 var(--lo); }
+:where([data-frame="bevel"]) .splitter { background: var(--face); }
+:where([data-frame="bevel"]) .splitter:hover { background: var(--face); }
+/* A bar being dragged is a half-tone band, as the desktop showed it. */
+:where([data-frame="bevel"]) .splitter.active { background: var(--bv-dither-dark) 0 0 / 2px 2px fixed, var(--face); }
+/* Selected text is the desktop's navy. */
+:where([data-frame="bevel"]) ::selection { background: var(--bar); color: var(--bar-text); }
+
+
+/* ---- windows: a raised frame, a navy title bar with bold white text and a small raised close key, a face to work on ---------------------------- */
+:where([data-frame="bevel"]) :is(.panel, dialog.venues) { background: var(--face); color: var(--text); border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; box-shadow: var(--bv-shadow); padding: 2px; }
+:root[data-frame="bevel"] :is(.panel, dialog.venues) { font-size: 11px; }
+:where([data-frame="bevel"]) .panel-head { background: var(--bar); color: var(--bar-text); border-bottom: 0; }
+:where([data-frame="bevel"]) .panel-head h3 { font-size: 11px; font-weight: 700; letter-spacing: 0; }
+:root[data-frame="bevel"]:not([data-bar="compact"]) .panel-head { gap: 2px; padding: 0 2px 0 3px; min-height: 18px; height: 18px; }
+:where([data-frame="bevel"]) .panel-tools { background: var(--face); padding-top: 6px; padding-bottom: 6px; }
+:where([data-frame="bevel"]) .panel h4 { color: var(--text); font-size: 11px; font-weight: 700; letter-spacing: 0; text-transform: none; border-bottom: 1px solid var(--edge-lit); box-shadow: inset 0 -1px 0 var(--lo); }
+:where([data-frame="bevel"]) .panel :is(.opt, .field, .tier-row):hover, :where([data-frame="bevel"]) .keylevel-grid label:hover { background: transparent; }
+:where([data-frame="bevel"]) .panel .srow { border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-field) 1 / 1px; background: var(--well); }
+:where([data-frame="bevel"]) .panel .srow.dragging { background: var(--bar); color: var(--bar-text); box-shadow: none; }
+:where([data-frame="bevel"]) .panel .srow.dragging :is(.idx, b) { color: var(--bar-text); }
+
+/* The close key of every window: raised, a bold cross drawn on it, held the other way round. */
+:where([data-frame="bevel"]) :is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x) {
+  border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; background: var(--face); color: var(--text); box-shadow: none;
+}
+:where([data-frame="bevel"]) :is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x):hover { background: var(--face); color: var(--text); border-color: transparent; }
+:where([data-frame="bevel"]) :is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x):active { border-width: 2px 0 0 2px; border-color: var(--bv-c-pressed); border-image: var(--bv-pressed) 2 / 2px; }
+:root[data-frame="bevel"]:not([data-bar="compact"]) :is(.panel-x, .guide-x, .notice-close, .panel .srow .x) { width: 16px; height: 14px; flex: none; }
+:root[data-frame="bevel"] :is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x)::before {
+  content: ""; left: calc(50% - 4px); top: calc(50% - 3px); width: 8px; height: 7px; margin: 0; border-radius: 0; transform: none; background: currentColor;
+  -webkit-mask: var(--bv-close) 0 0 / 8px 7px no-repeat; mask: var(--bv-close) 0 0 / 8px 7px no-repeat;
+}
+:root[data-frame="bevel"] :is(.panel-x, .guide-x, .notice-close, .panel .srow .x, .sheet-x)::after { content: none; }
+
+/* ---- menus: a raised frame, rows lit in navy, a drawn check, an embossed label when a row is dimmed ---------------------------------------- */
+:where([data-frame="bevel"]) .menu { background: var(--face); color: var(--text); border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; box-shadow: var(--bv-shadow); padding: 0; }
+:root[data-frame="bevel"]:not([data-bar="compact"]) .menu-item { padding: 3px 4px 3px 8px; gap: 8px; font-size: 11px; }
+:where([data-frame="bevel"]) .menu-item:hover, :where([data-frame="bevel"]) .menu-item:focus-visible { background: var(--bar); color: var(--bar-text); outline: 0; }
+:where([data-frame="bevel"]) .menu-item:disabled { opacity: 1; }
+:root[data-frame="bevel"] .menu-item .tick { display: block; width: 18px; height: 7px; font-size: 0; }
+:root[data-frame="bevel"] .menu-item.current .tick { background: var(--bv-check) center / 7px 7px no-repeat; }
+:root[data-frame="bevel"] .menu-item.current:is(:hover, :focus-visible) .tick { background-image: var(--bv-check-white); }
+:where([data-frame="bevel"]) .menu-title { color: var(--text); font-weight: 700; letter-spacing: 0; text-transform: none; border-bottom: 1px solid var(--edge-lit); box-shadow: inset 0 -1px 0 var(--lo); }
+:where([data-frame="bevel"]) .swatch { border: 1px solid var(--edge); }
+
+/* ---- the little yellow notes: tooltips, the card over a pane, a notice, a toast ------------------------------------------------------------- */
+:where([data-frame="bevel"]) .tip { transition: none; background: var(--bv-tip); color: #000; border: 1px solid #000; padding: 2px 4px; font-size: 11px; line-height: 13px; box-shadow: none; }
+:where([data-frame="bevel"]) .hovercard { background: var(--bv-tip); color: #000; border: 1px solid #000; padding: 2px 5px; box-shadow: none; font-size: 11px; line-height: 14px; }
+:where([data-frame="bevel"]) .hovercard :is(.hc-label, .c-muted) { color: #404040; }
+:where([data-frame="bevel"]) .hovercard .rule { border-top-color: var(--lo); }
+:where([data-frame="bevel"]) .toolbar .notice { background: var(--bv-tip); color: #000; border: 1px solid #000; border-radius: 0; box-shadow: none; font-size: 11px; padding: 3px 4px 3px 8px; }
+:root[data-frame="bevel"] .toolbar.cockpit .notice { box-shadow: none; }
+:where([data-frame="bevel"]) .toast { background: var(--face); color: var(--text); border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; box-shadow: var(--bv-shadow); font-size: 11px; padding: 8px 14px; }
+
+/* ---- scrollbars: sixteen pixels, a checkered track, raised keys with drawn arrows and a raised thumb ---------------------------------------- */
+:root[data-frame="bevel"] :is(.panel-body, .menu, .guide-toc, .guide-scroll) { scrollbar-width: auto; scrollbar-color: auto; }
+:where([data-frame="bevel"]) ::-webkit-scrollbar { width: 16px; height: 16px; background: var(--face); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-track { background: var(--bv-dither) 0 0 / 2px 2px fixed, var(--face); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-thumb { background: var(--face); border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; border-radius: 0; }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-corner { background: var(--face); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:single-button { display: block; width: 16px; height: 16px; background-color: var(--face); background-repeat: no-repeat; background-position: 0 0; }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:vertical:decrement { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h15v1h-15zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1zM0%204h1v1h-1zM0%205h1v1h-1zM0%206h1v1h-1zM0%207h1v1h-1zM0%208h1v1h-1zM0%209h1v1h-1zM0%2010h1v1h-1zM0%2011h1v1h-1zM0%2012h1v1h-1zM0%2013h1v1h-1zM0%2014h1v1h-1z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M15%200h1v1h-1zM15%201h1v1h-1zM15%202h1v1h-1zM15%203h1v1h-1zM15%204h1v1h-1zM15%205h1v1h-1zM7%206h1v1h-1zM15%206h1v1h-1zM6%207h3v1h-3zM15%207h1v1h-1zM5%208h5v1h-5zM15%208h1v1h-1zM4%209h7v1h-7zM15%209h1v1h-1zM15%2010h1v1h-1zM15%2011h1v1h-1zM15%2012h1v1h-1zM15%2013h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M1%201h13v1h-13zM1%202h1v1h-1zM1%203h1v1h-1zM1%204h1v1h-1zM1%205h1v1h-1zM1%206h1v1h-1zM1%207h1v1h-1zM1%208h1v1h-1zM1%209h1v1h-1zM1%2010h1v1h-1zM1%2011h1v1h-1zM1%2012h1v1h-1zM1%2013h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M14%201h1v1h-1zM14%202h1v1h-1zM14%203h1v1h-1zM14%204h1v1h-1zM14%205h1v1h-1zM14%206h1v1h-1zM14%207h1v1h-1zM14%208h1v1h-1zM14%209h1v1h-1zM14%2010h1v1h-1zM14%2011h1v1h-1zM14%2012h1v1h-1zM14%2013h1v1h-1zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M2%202h12v1h-12zM2%203h12v1h-12zM2%204h12v1h-12zM2%205h12v1h-12zM2%206h5v1h-5zM8%206h6v1h-6zM2%207h4v1h-4zM9%207h5v1h-5zM2%208h3v1h-3zM10%208h4v1h-4zM2%209h2v1h-2zM11%209h3v1h-3zM2%2010h12v1h-12zM2%2011h12v1h-12zM2%2012h12v1h-12zM2%2013h12v1h-12z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:vertical:increment { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h15v1h-15zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1zM0%204h1v1h-1zM0%205h1v1h-1zM0%206h1v1h-1zM0%207h1v1h-1zM0%208h1v1h-1zM0%209h1v1h-1zM0%2010h1v1h-1zM0%2011h1v1h-1zM0%2012h1v1h-1zM0%2013h1v1h-1zM0%2014h1v1h-1z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M15%200h1v1h-1zM15%201h1v1h-1zM15%202h1v1h-1zM15%203h1v1h-1zM15%204h1v1h-1zM15%205h1v1h-1zM4%206h7v1h-7zM15%206h1v1h-1zM5%207h5v1h-5zM15%207h1v1h-1zM6%208h3v1h-3zM15%208h1v1h-1zM7%209h1v1h-1zM15%209h1v1h-1zM15%2010h1v1h-1zM15%2011h1v1h-1zM15%2012h1v1h-1zM15%2013h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M1%201h13v1h-13zM1%202h1v1h-1zM1%203h1v1h-1zM1%204h1v1h-1zM1%205h1v1h-1zM1%206h1v1h-1zM1%207h1v1h-1zM1%208h1v1h-1zM1%209h1v1h-1zM1%2010h1v1h-1zM1%2011h1v1h-1zM1%2012h1v1h-1zM1%2013h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M14%201h1v1h-1zM14%202h1v1h-1zM14%203h1v1h-1zM14%204h1v1h-1zM14%205h1v1h-1zM14%206h1v1h-1zM14%207h1v1h-1zM14%208h1v1h-1zM14%209h1v1h-1zM14%2010h1v1h-1zM14%2011h1v1h-1zM14%2012h1v1h-1zM14%2013h1v1h-1zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M2%202h12v1h-12zM2%203h12v1h-12zM2%204h12v1h-12zM2%205h12v1h-12zM2%206h2v1h-2zM11%206h3v1h-3zM2%207h3v1h-3zM10%207h4v1h-4zM2%208h4v1h-4zM9%208h5v1h-5zM2%209h5v1h-5zM8%209h6v1h-6zM2%2010h12v1h-12zM2%2011h12v1h-12zM2%2012h12v1h-12zM2%2013h12v1h-12z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:horizontal:decrement { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h15v1h-15zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1zM0%204h1v1h-1zM0%205h1v1h-1zM0%206h1v1h-1zM0%207h1v1h-1zM0%208h1v1h-1zM0%209h1v1h-1zM0%2010h1v1h-1zM0%2011h1v1h-1zM0%2012h1v1h-1zM0%2013h1v1h-1zM0%2014h1v1h-1z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M15%200h1v1h-1zM15%201h1v1h-1zM15%202h1v1h-1zM15%203h1v1h-1zM9%204h1v1h-1zM15%204h1v1h-1zM8%205h2v1h-2zM15%205h1v1h-1zM7%206h3v1h-3zM15%206h1v1h-1zM6%207h4v1h-4zM15%207h1v1h-1zM7%208h3v1h-3zM15%208h1v1h-1zM8%209h2v1h-2zM15%209h1v1h-1zM9%2010h1v1h-1zM15%2010h1v1h-1zM15%2011h1v1h-1zM15%2012h1v1h-1zM15%2013h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M1%201h13v1h-13zM1%202h1v1h-1zM1%203h1v1h-1zM1%204h1v1h-1zM1%205h1v1h-1zM1%206h1v1h-1zM1%207h1v1h-1zM1%208h1v1h-1zM1%209h1v1h-1zM1%2010h1v1h-1zM1%2011h1v1h-1zM1%2012h1v1h-1zM1%2013h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M14%201h1v1h-1zM14%202h1v1h-1zM14%203h1v1h-1zM14%204h1v1h-1zM14%205h1v1h-1zM14%206h1v1h-1zM14%207h1v1h-1zM14%208h1v1h-1zM14%209h1v1h-1zM14%2010h1v1h-1zM14%2011h1v1h-1zM14%2012h1v1h-1zM14%2013h1v1h-1zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M2%202h12v1h-12zM2%203h12v1h-12zM2%204h7v1h-7zM10%204h4v1h-4zM2%205h6v1h-6zM10%205h4v1h-4zM2%206h5v1h-5zM10%206h4v1h-4zM2%207h4v1h-4zM10%207h4v1h-4zM2%208h5v1h-5zM10%208h4v1h-4zM2%209h6v1h-6zM10%209h4v1h-4zM2%2010h7v1h-7zM10%2010h4v1h-4zM2%2011h12v1h-12zM2%2012h12v1h-12zM2%2013h12v1h-12z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:horizontal:increment { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23ffffff'%20d='M0%200h15v1h-15zM0%201h1v1h-1zM0%202h1v1h-1zM0%203h1v1h-1zM0%204h1v1h-1zM0%205h1v1h-1zM0%206h1v1h-1zM0%207h1v1h-1zM0%208h1v1h-1zM0%209h1v1h-1zM0%2010h1v1h-1zM0%2011h1v1h-1zM0%2012h1v1h-1zM0%2013h1v1h-1zM0%2014h1v1h-1z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M15%200h1v1h-1zM15%201h1v1h-1zM15%202h1v1h-1zM15%203h1v1h-1zM6%204h1v1h-1zM15%204h1v1h-1zM6%205h2v1h-2zM15%205h1v1h-1zM6%206h3v1h-3zM15%206h1v1h-1zM6%207h4v1h-4zM15%207h1v1h-1zM6%208h3v1h-3zM15%208h1v1h-1zM6%209h2v1h-2zM15%209h1v1h-1zM6%2010h1v1h-1zM15%2010h1v1h-1zM15%2011h1v1h-1zM15%2012h1v1h-1zM15%2013h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23dfdfdf'%20d='M1%201h13v1h-13zM1%202h1v1h-1zM1%203h1v1h-1zM1%204h1v1h-1zM1%205h1v1h-1zM1%206h1v1h-1zM1%207h1v1h-1zM1%208h1v1h-1zM1%209h1v1h-1zM1%2010h1v1h-1zM1%2011h1v1h-1zM1%2012h1v1h-1zM1%2013h1v1h-1z'/%3E%3Cpath%20fill='%23808080'%20d='M14%201h1v1h-1zM14%202h1v1h-1zM14%203h1v1h-1zM14%204h1v1h-1zM14%205h1v1h-1zM14%206h1v1h-1zM14%207h1v1h-1zM14%208h1v1h-1zM14%209h1v1h-1zM14%2010h1v1h-1zM14%2011h1v1h-1zM14%2012h1v1h-1zM14%2013h1v1h-1zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M2%202h12v1h-12zM2%203h12v1h-12zM2%204h4v1h-4zM7%204h7v1h-7zM2%205h4v1h-4zM8%205h6v1h-6zM2%206h4v1h-4zM9%206h5v1h-5zM2%207h4v1h-4zM10%207h4v1h-4zM2%208h4v1h-4zM9%208h5v1h-5zM2%209h4v1h-4zM8%209h6v1h-6zM2%2010h4v1h-4zM7%2010h7v1h-7zM2%2011h12v1h-12zM2%2012h12v1h-12zM2%2013h12v1h-12z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:vertical:decrement:active { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h16v1h-16zM0%201h1v1h-1zM15%201h1v1h-1zM0%202h1v1h-1zM15%202h1v1h-1zM0%203h1v1h-1zM15%203h1v1h-1zM0%204h1v1h-1zM15%204h1v1h-1zM0%205h1v1h-1zM15%205h1v1h-1zM0%206h1v1h-1zM15%206h1v1h-1zM0%207h1v1h-1zM15%207h1v1h-1zM0%208h1v1h-1zM15%208h1v1h-1zM0%209h1v1h-1zM15%209h1v1h-1zM0%2010h1v1h-1zM15%2010h1v1h-1zM0%2011h1v1h-1zM15%2011h1v1h-1zM0%2012h1v1h-1zM15%2012h1v1h-1zM0%2013h1v1h-1zM15%2013h1v1h-1zM0%2014h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M1%201h14v1h-14zM1%202h14v1h-14zM1%203h14v1h-14zM1%204h14v1h-14zM1%205h14v1h-14zM1%206h14v1h-14zM1%207h7v1h-7zM9%207h6v1h-6zM1%208h6v1h-6zM10%208h5v1h-5zM1%209h5v1h-5zM11%209h4v1h-4zM1%2010h4v1h-4zM12%2010h3v1h-3zM1%2011h14v1h-14zM1%2012h14v1h-14zM1%2013h14v1h-14zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M8%207h1v1h-1zM7%208h3v1h-3zM6%209h5v1h-5zM5%2010h7v1h-7z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:vertical:increment:active { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h16v1h-16zM0%201h1v1h-1zM15%201h1v1h-1zM0%202h1v1h-1zM15%202h1v1h-1zM0%203h1v1h-1zM15%203h1v1h-1zM0%204h1v1h-1zM15%204h1v1h-1zM0%205h1v1h-1zM15%205h1v1h-1zM0%206h1v1h-1zM15%206h1v1h-1zM0%207h1v1h-1zM15%207h1v1h-1zM0%208h1v1h-1zM15%208h1v1h-1zM0%209h1v1h-1zM15%209h1v1h-1zM0%2010h1v1h-1zM15%2010h1v1h-1zM0%2011h1v1h-1zM15%2011h1v1h-1zM0%2012h1v1h-1zM15%2012h1v1h-1zM0%2013h1v1h-1zM15%2013h1v1h-1zM0%2014h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M1%201h14v1h-14zM1%202h14v1h-14zM1%203h14v1h-14zM1%204h14v1h-14zM1%205h14v1h-14zM1%206h14v1h-14zM1%207h4v1h-4zM12%207h3v1h-3zM1%208h5v1h-5zM11%208h4v1h-4zM1%209h6v1h-6zM10%209h5v1h-5zM1%2010h7v1h-7zM9%2010h6v1h-6zM1%2011h14v1h-14zM1%2012h14v1h-14zM1%2013h14v1h-14zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M5%207h7v1h-7zM6%208h5v1h-5zM7%209h3v1h-3zM8%2010h1v1h-1z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:horizontal:decrement:active { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h16v1h-16zM0%201h1v1h-1zM15%201h1v1h-1zM0%202h1v1h-1zM15%202h1v1h-1zM0%203h1v1h-1zM15%203h1v1h-1zM0%204h1v1h-1zM15%204h1v1h-1zM0%205h1v1h-1zM15%205h1v1h-1zM0%206h1v1h-1zM15%206h1v1h-1zM0%207h1v1h-1zM15%207h1v1h-1zM0%208h1v1h-1zM15%208h1v1h-1zM0%209h1v1h-1zM15%209h1v1h-1zM0%2010h1v1h-1zM15%2010h1v1h-1zM0%2011h1v1h-1zM15%2011h1v1h-1zM0%2012h1v1h-1zM15%2012h1v1h-1zM0%2013h1v1h-1zM15%2013h1v1h-1zM0%2014h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M1%201h14v1h-14zM1%202h14v1h-14zM1%203h14v1h-14zM1%204h14v1h-14zM1%205h9v1h-9zM11%205h4v1h-4zM1%206h8v1h-8zM11%206h4v1h-4zM1%207h7v1h-7zM11%207h4v1h-4zM1%208h6v1h-6zM11%208h4v1h-4zM1%209h7v1h-7zM11%209h4v1h-4zM1%2010h8v1h-8zM11%2010h4v1h-4zM1%2011h9v1h-9zM11%2011h4v1h-4zM1%2012h14v1h-14zM1%2013h14v1h-14zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M10%205h1v1h-1zM9%206h2v1h-2zM8%207h3v1h-3zM7%208h4v1h-4zM8%209h3v1h-3zM9%2010h2v1h-2zM10%2011h1v1h-1z'/%3E%3C/svg%3E"); }
+:where([data-frame="bevel"]) ::-webkit-scrollbar-button:horizontal:increment:active { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20shape-rendering='crispEdges'%3E%3Cpath%20fill='%23808080'%20d='M0%200h16v1h-16zM0%201h1v1h-1zM15%201h1v1h-1zM0%202h1v1h-1zM15%202h1v1h-1zM0%203h1v1h-1zM15%203h1v1h-1zM0%204h1v1h-1zM15%204h1v1h-1zM0%205h1v1h-1zM15%205h1v1h-1zM0%206h1v1h-1zM15%206h1v1h-1zM0%207h1v1h-1zM15%207h1v1h-1zM0%208h1v1h-1zM15%208h1v1h-1zM0%209h1v1h-1zM15%209h1v1h-1zM0%2010h1v1h-1zM15%2010h1v1h-1zM0%2011h1v1h-1zM15%2011h1v1h-1zM0%2012h1v1h-1zM15%2012h1v1h-1zM0%2013h1v1h-1zM15%2013h1v1h-1zM0%2014h1v1h-1zM15%2014h1v1h-1zM0%2015h16v1h-16z'/%3E%3Cpath%20fill='%23c0c0c0'%20d='M1%201h14v1h-14zM1%202h14v1h-14zM1%203h14v1h-14zM1%204h14v1h-14zM1%205h6v1h-6zM8%205h7v1h-7zM1%206h6v1h-6zM9%206h6v1h-6zM1%207h6v1h-6zM10%207h5v1h-5zM1%208h6v1h-6zM11%208h4v1h-4zM1%209h6v1h-6zM10%209h5v1h-5zM1%2010h6v1h-6zM9%2010h6v1h-6zM1%2011h6v1h-6zM8%2011h7v1h-7zM1%2012h14v1h-14zM1%2013h14v1h-14zM1%2014h14v1h-14z'/%3E%3Cpath%20fill='%230a0a0a'%20d='M7%205h1v1h-1zM7%206h2v1h-2zM7%207h3v1h-3zM7%208h4v1h-4zM7%209h3v1h-3zM7%2010h2v1h-2zM7%2011h1v1h-1z'/%3E%3C/svg%3E"); }
+
+/* ---- switches are check boxes here -------------------------------------------------------------------------------------------------------- */
+:root[data-frame="bevel"]:not([data-bar="compact"]) .panel .switch { width: 13px; height: 13px; }
+:root[data-frame="bevel"] :is(.panel, .sheet) .switch i { border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; border-radius: 0; background: var(--well); box-shadow: none; transition: none; }
+:root[data-frame="bevel"] :is(.panel, .sheet) .switch input:checked + i { background: var(--well); box-shadow: none; }
+:root[data-frame="bevel"] :is(.panel, .sheet) .switch i::after { top: 0; left: 0; width: 100%; height: 100%; border-radius: 0; box-shadow: none; transform: none; transition: none; background: none; }
+:root[data-frame="bevel"] :is(.panel, .sheet) .switch input:checked + i::after { transform: none; background: var(--bv-check) center / 7px 7px no-repeat; }
+:root[data-frame="bevel"] :is(.panel, .sheet) .switch input:focus-visible + i { outline: 1px dotted var(--text); outline-offset: 2px; }
+
+/* ---- dialogs ------------------------------------------------------------------------------------------------------------------------------- */
+:root[data-frame="bevel"] dialog.venues { padding: 2px 2px 8px; }
+:root[data-frame="bevel"] dialog.venues > h3 { margin: 0 0 8px; padding: 0 4px; height: 18px; line-height: 18px; background: var(--bar); color: var(--bar-text); font-size: 11px; font-weight: 700; }
+:root[data-frame="bevel"] dialog.venues > :not(h3) { margin-left: 8px; margin-right: 8px; }
+:root[data-frame="bevel"] dialog.venues .row button { min-width: 75px; height: 23px; }
+:where([data-frame="bevel"]) :is(dialog.venues, dialog.guide)::backdrop { background: transparent; }
+:root[data-frame="bevel"] dialog.coins input[type="search"] { width: calc(100% - 16px); margin-top: 0; }
+:where([data-frame="bevel"]) .coin-row:hover, :where([data-frame="bevel"]) .coin-row:focus-visible, :where([data-frame="bevel"]) .coin-row.on { background: var(--bar); color: var(--bar-text); outline: 0; }
+:where([data-frame="bevel"]) :is(.coin-row:hover, .coin-row:focus-visible, .coin-row.on) .muted { color: var(--bar-text); }
+:where([data-frame="bevel"]) .coin-list { background: var(--well); border: 1px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; }
+:where([data-frame="bevel"]) .venue-list { background: transparent; }
+
+/* ---- over the map and in a pane ---------------------------------------------------------------------------------------------------------- */
+:root[data-frame="bevel"] .pane.heat :is(.map-recenter, .map-select, .map-goto) { height: 23px; box-shadow: none; }
+:where([data-frame="bevel"]) .pane.heat .replay-bar { background: var(--face); border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; box-shadow: var(--bv-shadow); padding: 2px 6px; }
+
+/* ---- the guide is a help window: a title bar, a contents list and a page, each in a sunken white well ------------------------------------------ */
+:where([data-frame="bevel"]) dialog.guide { background: var(--face); color: var(--text); border: 0; padding: 0; box-shadow: none; }
+:root[data-frame="bevel"] dialog.guide::after { content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none; border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; }
+:root[data-frame="bevel"] .guide-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0; padding: 4px 4px 0; border-bottom: 0; color: var(--text);
+  background: linear-gradient(var(--bar), var(--bar)) 4px 4px / calc(100% - 8px) 18px no-repeat, var(--face);
+}
+:root[data-frame="bevel"] .guide-head > div { display: contents; }
+:root[data-frame="bevel"] .guide-head h1 { grid-column: 1; grid-row: 1; margin: 0; padding: 0 4px; height: 18px; line-height: 18px; font-size: 11px; font-weight: 700; letter-spacing: 0; color: var(--bar-text); }
+:root[data-frame="bevel"] .guide-head .guide-x { grid-column: 2; grid-row: 1; margin: 0 2px 0 0; }
+:root[data-frame="bevel"] .guide-head .sub { grid-column: 1 / -1; grid-row: 2; padding: 6px 4px 2px; font-size: 11px; color: var(--text); }
+:root[data-frame="bevel"] .guide-head .guide-jump { grid-column: 1 / -1; grid-row: 3; margin-top: 4px; }
+:root[data-frame="bevel"] .guide-body { gap: 4px; padding: 4px; }
+:root[data-frame="bevel"] :is(.guide-toc, .guide-scroll) { background: var(--well); border: 2px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; }
+:root[data-frame="bevel"] .guide-toc { padding: 4px 2px; gap: 0; }
+:root[data-frame="bevel"] .guide-scroll { padding: 6px 0 60px; }
+:where([data-frame="bevel"]) .guide-link { padding: 3px 6px; color: var(--text); font-size: 11px; }
+:where([data-frame="bevel"]) .guide-link:hover { background: transparent; }
+:where([data-frame="bevel"]) .guide-link.on { background: var(--bar); color: var(--bar-text); font-weight: 400; }
+:where([data-frame="bevel"]) .guide-link .num { background: var(--face); color: var(--text); }
+:where([data-frame="bevel"]) .guide-link.on .num { background: var(--bar-text); color: var(--bar); }
+/* The guide's caution note and the words of the sound state "locked" take the derived caution tone, as in the other frames: the literal
+   ambers they had read 1.8:1 on the grey face. The Sound button's lamp is not text and keeps its own look. */
+:root[data-frame="bevel"] .guide-section .note.warn { border-left-color: var(--caution); background: color-mix(in srgb, var(--caution) 11%, transparent); }
+:root[data-frame="bevel"] .sound-state[data-state="locked"] { color: var(--caution); }
+:where([data-frame="bevel"]) :is(.guide-section kbd, .keys-list kbd) { background: var(--face); border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; }
+
+/* ---- the panes sit in sunken frames, the way a window's client areas do ------------------------------------------------------------------------- */
+:root[data-frame="bevel"]:not([data-layout^="phone"]) .pane::after { content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none; border: 2px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; }
+:root[data-frame="bevel"]:not([data-layout^="phone"]) .pane-head { padding-top: 4px; padding-bottom: 3px; }
+
+/* The handle that moves a pane or a row is a gripper: two raised lines side by side. */
+:root[data-frame="bevel"] .pane-head .grip { font-size: 0; display: inline-block; width: 7px; height: 14px; margin: 0 2px 0 0; background: var(--bv-gripper) 1px 1px / 5px 12px no-repeat; }
+:root[data-frame="bevel"] .panel .grip { background: var(--bv-gripper) center / 5px 12px no-repeat; }
+:root[data-frame="bevel"] .panel .grip:hover { background-color: transparent; }
+
+/* A box of choices that opens in a pane (the book's venues) is a small window. */
+:where([data-frame="bevel"]) .pane .popover { background: var(--face); border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; box-shadow: var(--bv-shadow); padding: 6px 8px; }
+:where([data-frame="bevel"]) .author-link { background: var(--face); border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; }
+:where([data-frame="bevel"]) .author-link:hover { border-color: transparent; }
+:where([data-frame="bevel"]) .avatar { border-radius: 0; }
+
+/* Everything set in the period face: the card over a pane and the notice in the flow column take their size from styles.css and the family from here. */
+:root[data-frame="bevel"] :is(.hovercard, .cvd-notice) { font-family: inherit; }
+/* Buttons of a group sit side by side with their own bevels, not overlapping by a pixel (that would hide each one's dark right edge under the next one's light left edge). */
+:root[data-frame="bevel"] .seg button { margin-left: 0; }
+
+/* The explanation a "?" opens inside a panel reads in a white text well. */
+:root[data-frame="bevel"] .help-inline { margin: 4px 6px 2px; padding: 8px 10px 10px; background: var(--well); border: 2px solid; border-color: var(--bv-c-sunken); border-image: var(--bv-sunken) 2 / 2px; }
+:root[data-frame="bevel"] :is(.help-inline, .help-body) .lead { font-size: 11px; }
+
+
+/* ---- a phone: the same windows at a finger's size (a title bar of 34 px, keys of 30, check boxes of 20) -------------------------------------- */
+:root[data-frame="bevel"][data-bar="compact"] { line-height: 1.25; }
+/* The settings sheet and the panels and menus that open as sheets are windows sliding up from the bottom edge. */
+:root[data-frame="bevel"] .sheet, :root[data-frame="bevel"][data-bar="compact"] :is(.panel, .menu) {
+  background: var(--face); color: var(--text); border: 2px solid; border-color: var(--bv-c-window); border-image: var(--bv-window) 2 / 2px; box-shadow: none; padding: 2px 2px calc(2px + env(safe-area-inset-bottom));
+}
+:root[data-frame="bevel"] .sheet-grab { display: none; }
+:root[data-frame="bevel"] .sheet-head, :root[data-frame="bevel"][data-bar="compact"] .panel-head {
+  gap: 4px; padding: 0 2px 0 5px; min-height: 34px; height: 34px; background: var(--bar); color: var(--bar-text); border-bottom: 0; flex: none;
+}
+:root[data-frame="bevel"] .sheet-head h3, :root[data-frame="bevel"][data-bar="compact"] .panel-head h3 { font-size: 15px; font-weight: 700; letter-spacing: 0; color: var(--bar-text); }
+:root[data-frame="bevel"][data-bar="compact"] :is(.sheet-x, .panel-x) { width: 32px; height: 30px; min-height: 0; flex: none; border-radius: 0; }
+:root[data-frame="bevel"][data-bar="compact"] :is(.panel-x, .guide-x, .sheet-x, .panel .srow .x)::before { left: calc(50% - 8px); top: calc(50% - 7px); width: 16px; height: 14px; -webkit-mask-size: 16px 14px; mask-size: 16px 14px; }
+:root[data-frame="bevel"][data-bar="compact"] .panel-body, :root[data-frame="bevel"] .sheet-body { background: var(--face); }
+:root[data-frame="bevel"][data-bar="compact"] .panel-tools { padding: 8px 14px; }
+:root[data-frame="bevel"] .sheet-sec-head { border-bottom: 1px solid var(--edge-lit); box-shadow: inset 0 -1px 0 var(--lo); margin-bottom: 8px; padding-bottom: 4px; }
+:root[data-frame="bevel"] .sheet-sec-head h4 { font-size: 14px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--text); }
+:root[data-frame="bevel"] .sheet-field { border-top: 0; box-shadow: inset 0 1px 0 var(--lo), inset 0 2px 0 var(--edge-lit); }
+:root[data-frame="bevel"] .sheet-sec-head + .sheet-field { box-shadow: none; }
+:root[data-frame="bevel"] .sheet .seg.toggles button.on::before { content: none; }
+:root[data-frame="bevel"] .sheet .seg.toggles button.on { font-weight: 400; }
+:root[data-frame="bevel"] .sheet .seg.toggles { gap: 6px; }
+/* The toggles are labelled in the size of the tiles beside them (15px); on the narrowest phones a long word still shrinks a little (the shared rule has the vw clause). */
+:root[data-frame="bevel"] .sheet .seg.toggles button { font-size: min(15px, 3.9vw); }
+:root[data-frame="bevel"] .sheet .seg.scope button { margin-left: 0; }
+:root[data-frame="bevel"] .sheet-tiles { gap: 6px; }
+:root[data-frame="bevel"] .sheet-chips, :root[data-frame="bevel"] .sheet-chips .chips { gap: 6px; }
+:root[data-frame="bevel"][data-bar="compact"] .menu { padding: 2px 2px calc(2px + env(safe-area-inset-bottom)); }
+:root[data-frame="bevel"][data-bar="compact"] .menu-item { min-height: 46px; }
+:root[data-frame="bevel"][data-bar="compact"] .menu-title { padding: 10px 14px 6px; font-size: 14px; color: var(--text); margin-bottom: 4px; }
+/* The "?" in a sheet or a pane header: a larger key, the question mark drawn at twice its size where there is room. */
+:root[data-frame="bevel"][data-bar="compact"] button.help { margin: 0 2px; }
+:root[data-frame="bevel"][data-bar="compact"] .sheet-sec-head button.help, :root[data-frame="bevel"][data-bar="compact"] .panel-tools button.help { width: 28px; height: 28px; }
+:root[data-frame="bevel"][data-bar="compact"] :is(.sheet-sec-head, .panel-tools) button.help::before { left: calc(50% - 6px); top: calc(50% - 9px); width: 12px; height: 18px; -webkit-mask-size: 12px 18px; mask-size: 12px 18px; }
+:root[data-frame="bevel"][data-layout^="phone"] .pane-head button.help { width: 22px; height: 22px; }
+:root[data-frame="bevel"][data-bar="compact"] .pane-head button.help::before { left: calc(50% - 3px); top: calc(50% - 5px); }
+/* A lamp is a check box of 20 px on a phone, its check drawn at twice the size; so are the plain check boxes. */
+:root[data-frame="bevel"] .sheet .led-btn { padding-left: 40px; }
+:root[data-frame="bevel"] .sheet .led-btn::before { left: 10px; top: calc(50% - 10px); width: 20px; height: 20px; }
+:root[data-frame="bevel"] .sheet .led-btn[data-state="on"]::before { background-size: 14px 14px, auto; }
+:root[data-frame="bevel"][data-bar="compact"] input[type="checkbox"]:checked { background-size: 14px 14px, auto; }
+:root[data-frame="bevel"][data-bar="compact"] input[type="checkbox"]:disabled:checked { background-size: 14px 14px, auto; }
+:root[data-frame="bevel"] .sheet .switch { width: 24px; height: 24px; }
+:root[data-frame="bevel"] .sheet .switch input:checked + i::after, :root[data-frame="bevel"][data-bar="compact"] .panel .switch input:checked + i::after { background-size: 14px 14px; }
+:root[data-frame="bevel"][data-bar="compact"] .panel .switch { width: 22px; height: 22px; }
+:root[data-frame="bevel"][data-bar="compact"] .panel .switch i::after { top: 0; left: 0; width: 100%; height: 100%; }
+:root[data-frame="bevel"][data-bar="compact"] .panel .switch input:checked + i::after { transform: none; }
+/* Drop-down lists keep their small key at the right; the text gets the room left of it. */
+:root[data-frame="bevel"][data-bar="compact"] select, :root[data-frame="bevel"][data-layout^="phone"] .pane-head select { padding-right: 20px; }
+:root[data-frame="bevel"][data-bar="compact"] :is(.sheet, .panel) input[type="range"] { height: 32px; }
+:root[data-frame="bevel"][data-bar="compact"] :is(.sheet, .panel) input[type="range"]::-webkit-slider-thumb { width: 16px; height: 28px; margin-top: -12px; }
+/* The top bar of a phone: a square lamp for the connection, three square dots for Settings. */
+:root[data-frame="bevel"] :is(.toolbar .status, .statusbar .status-conn)::before { border-radius: 0; }
+:root[data-frame="bevel"][data-bar="compact"] .more-btn svg { display: none; }
+:root[data-frame="bevel"][data-bar="compact"] .more-btn::before { content: ""; width: 4px; height: 4px; background: currentColor; box-shadow: -9px 0 currentColor, 9px 0 currentColor; }
+:root[data-frame="bevel"][data-bar="compact"] .more-btn.open::before { margin: 1px 0 0 1px; }
+
+/* The bar of tabs under a phone's map: tabs hanging from the page, the chosen one a little taller and joined to it. */
+:root[data-frame="bevel"][data-layout^="phone"] .dock { background: var(--face); border-top: 1px solid var(--lo); box-shadow: inset 0 1px 0 var(--edge-lit); padding-left: 4px; padding-right: 4px; }
+:root[data-frame="bevel"][data-layout^="phone"] .dock-tab {
+  margin-top: 3px; border: 2px solid; border-color: var(--bv-c-window); border-width: 0 2px 2px; border-image: var(--bv-tab) 0 2 2 / 0 2px 2px stretch; background: var(--face); color: var(--text); box-shadow: none; min-height: 48px;
+}
+:root[data-frame="bevel"][data-layout^="phone"] .dock-tab.on { margin-top: -1px; min-height: 52px; color: var(--text); box-shadow: none; font-weight: 700; }
+:root[data-frame="bevel"][data-layout^="phone"] .dock-tab.on svg { color: var(--ui); }
+:root[data-frame="bevel"][data-layout="phone-landscape"] .dock { border-top: 0; border-left: 1px solid var(--lo); box-shadow: inset 1px 0 0 var(--edge-lit); padding: 4px 0 4px; }
+:root[data-frame="bevel"][data-layout="phone-landscape"] .dock-tab { margin: 0 0 0 3px; border-width: 2px 2px 2px 0; border-image: var(--bv-tab-right) 2 2 2 0 / 2px 2px 2px 0 stretch; }
+:root[data-frame="bevel"][data-layout="phone-landscape"] .dock-tab.on { margin: 0 0 0 -1px; box-shadow: none; }
+/* The handle between the map and the pane under it: a small raised grip. */
+:root[data-frame="bevel"][data-layout^="phone"] main:not([data-tab="map"]) > .dock-grip { background: var(--face); border-top: 1px solid var(--lo); box-shadow: inset 0 1px 0 var(--edge-lit); }
+:root[data-frame="bevel"] .dock-grip i { border: 1px solid; border-color: var(--bv-c-raised); border-image: var(--bv-raised) 2 / 2px; border-radius: 0; background: var(--face); height: 8px; width: 40px; transition: none; }
+:root[data-frame="bevel"] .dock-grip.active i { border-width: 2px 0 0 2px; border-color: var(--bv-c-pressed); border-image: var(--bv-pressed) 2 / 2px; width: 40px; background: var(--face); }
+:root[data-frame="bevel"][data-layout="phone-landscape"] .dock-grip i, :root[data-frame="bevel"][data-layout="phone-landscape"] .dock-grip.active i { width: 8px; height: 40px; }
+:root[data-frame="bevel"][data-layout^="phone"] .pane.ladder .pane-head .ctl select { padding-right: 20px; }
+:root[data-frame="bevel"][data-bar="compact"] .menu-item.current .tick { height: 14px; background-size: 14px 14px; }
+/* The guide on a phone: the same help window, its title bar as tall as a sheet's and clear of the notch. */
+:root[data-frame="bevel"][data-layout^="phone"] .guide-head { padding-top: calc(4px + env(safe-area-inset-top)); background: linear-gradient(var(--bar), var(--bar)) 4px calc(4px + env(safe-area-inset-top)) / calc(100% - 8px) 34px no-repeat, var(--face); }
+:root[data-frame="bevel"][data-layout^="phone"] .guide-head h1 { height: 34px; line-height: 34px; font-size: 15px; padding: 0 6px; }
+:root[data-frame="bevel"][data-layout^="phone"] .guide-head .sub { font-size: 12px; }
+:root[data-frame="bevel"][data-layout^="phone"] .guide-x { width: 32px; height: 30px; margin: 0 2px 0 0; }
+:root[data-frame="bevel"][data-bar="compact"] .pane-head select { padding-right: 20px; }
+
+/* ==== Text mode: the terminal and the DOS screen =================================================================================== */
+/* Windows and bars are ruled with double lines, a lit row is inverse video, and the keyboard's place is a plain box. */
+:where([data-frame="textmode"]) .panel, :where([data-frame="textmode"]) .menu, :where([data-frame="textmode"]) dialog.venues { border: 3px double var(--edge); box-shadow: 2px 2px 0 rgba(0, 0, 0, .6); }
+:where([data-frame="textmode"]) .toolbar { background: var(--panel); border-bottom: 3px double var(--edge); }
+:where([data-frame="textmode"]) .statusbar { background: var(--panel); border-top: 3px double var(--edge); }
+:where([data-frame="textmode"]) .pane-head { background: var(--panel); border-bottom-color: var(--edge); }
+:where([data-frame="textmode"]) .pane-head strong { text-transform: uppercase; letter-spacing: .06em; }
+:where([data-frame="textmode"]) .panel-head, :where([data-frame="textmode"]) .sheet-head { background: var(--text); color: var(--bg); border-bottom: 0; }
+:where([data-frame="textmode"]) .menu-item:hover, :where([data-frame="textmode"]) .menu-item:focus-visible { background: var(--text); color: var(--bg); }
+:where([data-frame="textmode"]) .menu-item:hover .tick, :where([data-frame="textmode"]) .menu-item:focus-visible .tick { color: var(--bg); }
+:where([data-frame="textmode"]) :is(button, select, summary):focus-visible { outline: 1px solid var(--text); outline-offset: 1px; }
+:where([data-frame="textmode"]) .menu-item:focus-visible { outline: 1px solid var(--bg); outline-offset: -3px; }
+:where([data-frame="textmode"]) .splitter:hover, :where([data-frame="textmode"]) .splitter.active { background: var(--text); }
+:where([data-frame="textmode"]) .sheet-grab { background: color-mix(in srgb, var(--bg) 55%, transparent); }
+:where([data-frame="textmode"]) .toolbar .deck { border: 3px double var(--edge); }
+:where([data-frame="textmode"]) .toolbar .deck > legend { color: var(--text); }
+/* A text box's keyboard ring is a plain box, like the buttons'; a held button is inverse video, its lamp turned to the background. */
+:where([data-frame="textmode"]) :is(input[type="text"], input[type="number"], input[type="search"], input[type="datetime-local"]):focus-visible { outline: 1px solid var(--text); outline-offset: 1px; }
+:where([data-frame="textmode"]) button:active:not(:disabled) { background: var(--text); color: var(--bg); }
+:where([data-frame="textmode"]) .led-btn:active:not(:disabled)::before { background: var(--bg); }
+/* The dialogs wear a title bar like the windows: inverse video. */
+:where([data-frame="textmode"]) dialog.venues { padding-top: 0; }
+:where([data-frame="textmode"]) dialog.venues > h3 { margin: 0 -20px 12px; padding: 5px 10px; font-size: 12px; background: var(--text); color: var(--bg); }
+:where([data-frame="textmode"]) .guide-head { background: var(--text); color: var(--bg); border-bottom: 0; }
+:where([data-frame="textmode"]) .guide-head :is(h1, .sub) { color: var(--bg); }
+
+/* ==== The Glass material (glass/ui-glass.ts), in every frame ======================================================================= */
+/* One canvas over the page draws glass under the chrome, which turns see-through above it: the canvas sits between the chart, under it,
+   and the chrome, over it. Here, last of all the style sheets, so a phone's own backgrounds (the dock, a compact panel) give way to it. The
+   controls keep most of their face, so their text keeps its contrast; a control whose hover or lit state is its own background (the "?", a
+   menu row, a chip) keeps that. A panel or menu lying over the bars is solid (`glass-over`, set by the canvas): the bars' controls sit above
+   the canvas, so they would show through it. */
+.ui-glass { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 50; pointer-events: none; }
+html[data-material="glass"] :is(.toolbar, .statusbar, .dock) { position: relative; z-index: 52; background: transparent; box-shadow: none; }
+html[data-material="glass"] main .splitter { z-index: 52; }
+html[data-material="glass"] main .splitter:not(:hover):not(.active) { background: transparent; border-color: transparent; }
+html[data-material="glass"] :is(.panel, .menu):not(.glass-over) { background: transparent; }
+html[data-material="glass"] :is(.toolbar, .statusbar, .dock, .panel, .menu) :is(button:not(.on):not(.help):not(.menu-item):not(.chip):not(.dock-tab), select) { background-color: color-mix(in srgb, var(--face) 82%, transparent); }
+html[data-material="glass"] .panel-tools { background: color-mix(in srgb, var(--face) 70%, transparent); }

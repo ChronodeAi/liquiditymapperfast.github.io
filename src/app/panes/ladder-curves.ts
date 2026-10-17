@@ -143,7 +143,7 @@ export function curveColors(p: Palette, n = 8): string[] {
     out.push(tone); hues.push(h);
   }
   // The text colour faded, then plain greys (a theme whose text is tinted, as the terminal's green, gets those).
-  const greys = [0, 0.2, 0.35, 0.5].map(amount => mixHex(p.text, p.panel, amount)).concat(p.dark ? ['#e0e0e0', '#b8b8b8', '#909090'] : ['#3a3a3a', '#5c5c5c', '#7a7a7a']);
+  const greys = [0, 0.2, 0.35, 0.5].map(amount => mixHex(p.text, p.panel, amount)).concat(p.dark ? ['#e0e0e0', '#b8b8b8', '#909090', '#a4a4a4'] : ['#3a3a3a', '#5c5c5c', '#7a7a7a', '#4b4b4b']);
   for (const tone of greys) {
     if (out.length >= n) break;
     const grey = legible(tone, p);

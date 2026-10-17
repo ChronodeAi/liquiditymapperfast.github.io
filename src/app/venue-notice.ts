@@ -66,7 +66,7 @@ export class VenueNotice {
   #dismissed = '';
 
   constructor() {
-    this.root.append(el('span', { class: 'notice-mark', textContent: '⊘', ariaHidden: 'true' }), this.#text,
+    this.root.append(el('span', { class: 'notice-mark mark-ban', ariaHidden: 'true' }), this.#text,
       el('button', { class: 'notice-close', tip: t('Dismiss'), ariaLabel: t('Dismiss'), onclick: () => { this.#dismissed = this.#key; this.root.hidden = true; } }));
   }
 

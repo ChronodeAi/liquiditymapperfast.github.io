@@ -7,13 +7,16 @@ import { contrastRatio, mixHex, rgb, type Palette } from '../theme.ts';
  * is the same line faded.
  *
  * One exception: where a theme's own buy or sell colour sits close to blue or amber (the colour-blind theme is Okabe-Ito blue and orange),
- * a blue or amber line would read as direction there, so that theme gets two other hues from the same colour-blind-safe set.
+ * a blue or amber line would read as direction there, so that theme gets two other hues from the same colour-blind-safe set; and where
+ * those are near its colours too (a teal buy with a rose sell, an olive candle), the first mix of them and a violet that stays clear.
  */
 export interface LaneColors { spot: string; perp: string; spotQuiet: string; perpQuiet: string }
 
 const SPOT = '#3d8bfd', PERP = '#ffb648';
 /** Okabe-Ito reddish purple and bluish green: they stay apart from each other and from the blue and orange of a colour-blind theme's buy and sell. */
 const SPOT_ALT = '#cc79a7', PERP_ALT = '#009e73';
+/** The last resort, for a theme whose buy and sell are near both pairs above. */
+const SPOT_LAST = '#8e6be0';
 /** Hues closer than this (degrees) are read as the same colour. */
 const NEAR = 30;
 const cache = new WeakMap<Palette, LaneColors>();
@@ -45,8 +48,11 @@ function legible(color: string, p: LaneTheme): string {
 
 /** The two line colours (and their quiet tones) for a theme. */
 export function laneColorsFor(p: LaneTheme): LaneColors {
-  const alt = nearDirection(SPOT, p) || nearDirection(PERP, p);
-  const spot = legible(alt ? SPOT_ALT : SPOT, p), perp = legible(alt ? PERP_ALT : PERP, p);
+  // Blue and amber first; then the colour-blind-safe pair; then mixes of the four with the violet, whichever first stays clear of the theme's colours.
+  const pairs: [string, string][] = [[SPOT, PERP], [SPOT_ALT, PERP_ALT], [SPOT_LAST, PERP], [SPOT, SPOT_ALT], [SPOT_LAST, PERP_ALT], [SPOT, PERP_ALT]];
+  // Judged as they are drawn: the nudge toward the text colour for contrast can move a hue toward the theme's own.
+  const drawn = pairs.map(([a, b]) => [legible(a, p), legible(b, p)] as const);
+  const [spot, perp] = drawn.find(([a, b]) => !nearDirection(a, p) && !nearDirection(b, p)) ?? drawn[1]!;
   return { spot, perp, spotQuiet: mixHex(spot, p.panel, 0.6), perpQuiet: mixHex(perp, p.panel, 0.6) };
 }
 

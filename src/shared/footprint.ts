@@ -260,9 +260,11 @@ const copyStats = (stats: TradeStats | undefined): TradeStats | null => stats ? 
 
 /**
  * The row a price falls in. A price that is a whole number of steps is a boundary and belongs to the row above it, but the division can come
- * out a hair under the whole number (100.3 / 0.1), which would put it in the row below: a part in 10^12 is forgiven.
+ * out a hair under the whole number (100.3 / 0.1), which would put it in the row below: a part in 10^12 is forgiven. `slack` is how far
+ * under its true price a price may read (the trade dust keeps prices as float32 offsets, tape/ring.ts), forgiven as well. Every count of
+ * trades by price uses this one rule (the footprint here, the Tape's rows and rail), so they agree on the row of a price at a boundary.
  */
-const binOf = (price: number, step: number): number => Math.floor(price / step * (1 + 1e-12));
+export const binOf = (price: number, step: number, slack = 0): number => Math.floor((price + slack) / step * (1 + 1e-12));
 
 /**
  * A row as stored: [bin, buyUsd, sellUsd], and in a minute that counts orders by price [bin, buyUsd, sellUsd, buyOrders, sellOrders]. A minute's

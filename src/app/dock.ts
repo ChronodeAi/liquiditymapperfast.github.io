@@ -17,8 +17,8 @@ const svg = (body: string): string => `<svg viewBox="0 0 24 24" width="22" heigh
 export const DOCK_TABS: readonly TabSpec[] = [
   { id: 'map', label: t('Map'), tip: t('The heatmap alone, at full size.'),
     icon: svg('<rect x="3.5" y="4" width="17" height="4.4" rx="1.2" fill="currentColor" fill-opacity=".28"/><rect x="3.5" y="10" width="17" height="4.4" rx="1.2" fill="currentColor" fill-opacity=".6"/><rect x="3.5" y="16" width="17" height="4.4" rx="1.2" fill="currentColor" fill-opacity=".16"/>') },
-  // The Candle view takes the whole area instead of sitting beside the map (panes/candle-pane.ts).
-  { id: 'candle', label: t('Candle'), tip: t('The candle under way, the trades coming in and the book around it, made for a phone.'),
+  // The Tape view takes the whole area instead of sitting beside the map (panes/candle-pane.ts).
+  { id: 'candle', label: t('Tape'), tip: t('Every trade since the page opened, the trades coming in and the book around them, made for a phone.'),
     icon: svg('<path d="M12 3v4M12 17v4"/><rect x="8" y="7" width="8" height="10" rx="1"/><path d="M9.5 10h2M12.5 12.5h2M9.5 15h2" stroke-width="1.5"/>') },
   { id: 'flow', label: t('Flow'), tip: t('Taker flow: what each exchange bought and sold at market, spot and perpetual, biggest first.'), needs: 'cvd',
     icon: svg('<path d="M3.5 17c3-1 4-8 7-8s3 5 5 5 3-8 5-8"/><path d="M3.5 20h17"/>') },
@@ -38,11 +38,16 @@ export const DOCK_TABS: readonly TabSpec[] = [
     icon: svg('<path d="M5 20V11M12 20V5M19 20V13"/>') },
 ];
 
-const KEY = 'hlm-dock-tab', SIZE_KEY = 'hlm-dock-size';
+/**
+ * The tab a phone opens on is the Tape (Karl, 2026-10-17); a desktop has the map. The key is new with that choice, so a phone that kept the
+ * Map from before opens on the Tape once and keeps whatever is chosen after.
+ */
+const KEY = 'hlm-dock-tab-v2', SIZE_KEY = 'hlm-dock-size';
 /** Thickness of the handle in px (the stylesheet gives it the same). */
 const GRIP = 20;
 type Axis = 'portrait' | 'landscape';
-const read = (): DockTab => { try { const id = window.localStorage.getItem(KEY); return DOCK_TABS.some(t => t.id === id) ? id as DockTab : 'map'; } catch { return 'map'; } };
+const firstTab = (): DockTab => layoutMode() === 'desktop' ? 'map' : 'candle';
+const read = (): DockTab => { try { const id = window.localStorage.getItem(KEY); return DOCK_TABS.some(t => t.id === id) ? id as DockTab : firstTab(); } catch { return firstTab(); } };
 
 /** The tabs available for these pane switches, in order. */
 export const tabsFor = (show: AppState['show']): DockTab[] => DOCK_TABS.filter(t => !t.needs || show[t.needs]).map(t => t.id);
@@ -115,7 +120,7 @@ export class Dock {
   /** Put the pane's size (remembered, or the default share) on `<main>` as `--dock-size`. */
   #size(): void {
     const tab = this.main.dataset.tab as DockTab | undefined;
-    // The map alone and the Candle view each fill the area: neither has a pane beside it to size.
+    // The map alone and the Tape view each fill the area: neither has a pane beside it to size.
     if (!tab || tab === 'map' || tab === 'candle') { this.main.style.removeProperty('--dock-size'); return; }
     const axis = this.#axis(), saved = this.#sizes[`${axis}.${tab}`];
     this.main.style.setProperty('--dock-size', saved ? `${saved}px` : `${Math.round(DEFAULT_SHARE[axis][tab] * 100)}%`);

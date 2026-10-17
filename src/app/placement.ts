@@ -16,6 +16,15 @@ export const FLOOR = 180;
 const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high));
 
 /**
+ * The box a panel is placed by: its button's sides and, when the button belongs to a group (a deck of the top bar), the group's top and bottom,
+ * so the panel clears the whole group. Under the button alone it hid the group's other row, and the next button could not be reached while
+ * the panel was open.
+ */
+export function anchorBox(button: Box, group: Box | null): Box {
+  return group ? { left: button.left, right: button.right, top: Math.min(button.top, group.top), bottom: Math.max(button.bottom, group.bottom) } : button;
+}
+
+/**
  * The side of its button a panel `need` tall (as tall as its contents make it) goes on: below when it fits there, above when it fits
  * there, and else the side with more room (its body then scrolls). The first of these that holds, so a panel that fits keeps to the side it
  * is usually on, and one that does not fit anywhere takes the bigger half instead of whichever happens to be under the button.

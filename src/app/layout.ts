@@ -94,6 +94,8 @@ export class Layout {
     if (this.flow) this.flow.hidden = !flow;
     if (this.#flowSplit) this.#flowSplit.hidden = !flow;
     this.side.hidden = !book; this.#sideSplit.hidden = !book;
+    // A phone's columns are the stylesheet's (mobile.css): the desktop's template written here beat its landscape grid and left the pane beside the map 0 to 120 px wide.
+    if (isPhone()) { this.main.style.removeProperty('grid-template-columns'); return; }
     const tracks: string[] = [];
     if (flow) tracks.push('var(--flow-w)', '6px');
     tracks.push('minmax(0,1fr)');
@@ -178,7 +180,7 @@ export class Layout {
 
   /** Header grip that reorders fixed panes by dragging over their neighbours. */
   #grip(pane: LayoutPane): void {
-    const grip = document.createElement('span'); grip.className = 'grip'; setTip(grip, t('Drag to move this pane')); grip.textContent = '⠿';
+    const grip = document.createElement('span'); grip.className = 'grip'; setTip(grip, t('Drag to move this pane'));
     pane.head!.prepend(grip);
     grip.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;

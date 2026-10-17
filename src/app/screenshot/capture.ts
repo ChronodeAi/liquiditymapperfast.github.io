@@ -4,10 +4,22 @@
  * serialising the page into an image) and is exact where it matters, because the chart, the order book and the panes are canvases. The
  * toolbar and pane headers are approximated from their computed styles: boxes, borders, rounded corners, text, gradients, selects and
  * sliders; shadows and pseudo-elements are left out.
+ *
+ * The same walk serves a moving picture (`paintLayers`): what lies between two canvases is painted once into a layer of its own, and
+ * each frame lays the layers and the canvases (as they are by then) over each other in the page's order.
  */
 export interface Snapshot { canvas: HTMLCanvasElement; /** Canvas pixels per CSS pixel. */ scale: number; width: number; height: number }
+export interface Box { x: number; y: number; w: number; h: number }
 
 const num = (value: string): number => { const n = parseFloat(value); return Number.isFinite(n) ? n : 0; };
+
+/** The part of `a` inside `b` (null for none); `b` null is no limit. */
+export function intersect(a: Box, b: Box | null): Box | null {
+  if (!b) return a;
+  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y), r = Math.min(a.x + a.w, b.x + b.w), btm = Math.min(a.y + a.h, b.y + b.h);
+  return r > x && btm > y ? { x, y, w: r - x, h: btm - y } : null;
+}
+const boxOf = (r: DOMRect): Box => ({ x: r.left, y: r.top, w: r.width, h: r.height });
 
 /** Split on commas that are not inside parentheses. */
 export function splitTop(text: string): string[] {
@@ -20,8 +32,10 @@ export function splitTop(text: string): string[] {
   return parts.filter(Boolean);
 }
 
+export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 /** The first `linear-gradient(...)` of a computed `background-image`, as a canvas gradient over `box`, or null. */
-export function gradientFor(ctx: CanvasRenderingContext2D, image: string, box: { x: number; y: number; w: number; h: number }): CanvasGradient | null {
+export function gradientFor(ctx: Ctx2D, image: string, box: { x: number; y: number; w: number; h: number }): CanvasGradient | null {
   const start = image.indexOf('linear-gradient('); if (start < 0) return null;
   let depth = 0, end = -1;
   for (let i = start + 'linear-gradient'.length; i < image.length; i++) { if (image[i] === '(') depth++; else if (image[i] === ')' && --depth === 0) { end = i; break; } }
@@ -42,12 +56,12 @@ export function gradientFor(ctx: CanvasRenderingContext2D, image: string, box: {
   return gradient;
 }
 
-function roundedPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radii: number[]): void {
+function roundedPath(ctx: Ctx2D, x: number, y: number, w: number, h: number, radii: number[]): void {
   ctx.beginPath();
   if (radii.some(r => r > 0) && typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, radii.map(r => Math.min(r, w / 2, h / 2))); else ctx.rect(x, y, w, h);
 }
 
-function paintBox(ctx: CanvasRenderingContext2D, rect: DOMRect, cs: CSSStyleDeclaration): void {
+function paintBox(ctx: Ctx2D, rect: DOMRect, cs: CSSStyleDeclaration): void {
   const radii = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].map(num);
   const box = { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
   if (cs.backgroundColor && cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent') { roundedPath(ctx, box.x, box.y, box.w, box.h, radii); ctx.fillStyle = cs.backgroundColor; ctx.fill(); }
@@ -73,19 +87,7 @@ function paintBox(ctx: CanvasRenderingContext2D, rect: DOMRect, cs: CSSStyleDecl
 
 const fontOf = (cs: CSSStyleDeclaration): string => `${cs.fontStyle === 'normal' ? '' : `${cs.fontStyle} `}${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
 
-function paintText(ctx: CanvasRenderingContext2D, node: Text, cs: CSSStyleDeclaration): void {
-  const data = node.data; if (!data.trim()) return;
-  ctx.font = fontOf(cs); ctx.fillStyle = cs.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  const transform = cs.textTransform, range = document.createRange();
-  for (const match of data.matchAll(/\S+/g)) {
-    range.setStart(node, match.index!); range.setEnd(node, match.index! + match[0].length);
-    const rect = range.getBoundingClientRect(); if (rect.width === 0 && rect.height === 0) continue;
-    let word = match[0]; if (transform === 'uppercase') word = word.toUpperCase(); else if (transform === 'lowercase') word = word.toLowerCase();
-    ctx.fillText(word, rect.left, rect.top + rect.height / 2 + 0.5);
-  }
-}
-
-function paintControl(ctx: CanvasRenderingContext2D, node: Element, rect: DOMRect, cs: CSSStyleDeclaration): void {
+function paintControl(ctx: Ctx2D, node: Element, rect: DOMRect, cs: CSSStyleDeclaration): void {
   const pad = num(cs.paddingLeft) + num(cs.borderLeftWidth);
   ctx.font = fontOf(cs); ctx.fillStyle = cs.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
   if (node instanceof HTMLSelectElement) {
@@ -105,33 +107,108 @@ function paintControl(ctx: CanvasRenderingContext2D, node: Element, rect: DOMRec
   }
 }
 
-function paintNode(ctx: CanvasRenderingContext2D, node: Element, view: { w: number; h: number }): void {
-  const cs = getComputedStyle(node);
+/**
+ * Where a walk paints: `ctx` is where boxes and text go now (asked only for something that shows in `view`), `canvas` takes a canvas
+ * element where it lies, with the opacity and the clip it is seen through.
+ */
+interface Painter {
+  view: Box;
+  ctx(): Ctx2D;
+  canvas(node: HTMLCanvasElement, rect: Box, alpha: number, clip: Box | null): void;
+}
+
+/** Paint with the walk's opacity and clip, then put the context back as it was. */
+function inState(ctx: Ctx2D, alpha: number, clip: Box | null, paint: () => void): void {
+  ctx.save(); ctx.globalAlpha = alpha;
+  if (clip) { ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip(); }
+  paint();
+  ctx.restore();
+}
+
+function paintText(painter: Painter, node: Text, cs: CSSStyleDeclaration, alpha: number, clip: Box | null): void {
+  const data = node.data; if (!data.trim()) return;
+  const view = intersect(painter.view, clip); if (!view) return;
+  const transform = cs.textTransform, range = document.createRange();
+  let ctx: Ctx2D | null = null;
+  for (const match of data.matchAll(/\S+/g)) {
+    range.setStart(node, match.index!); range.setEnd(node, match.index! + match[0].length);
+    const rect = range.getBoundingClientRect(); if (rect.width === 0 && rect.height === 0) continue;
+    if (!intersect(boxOf(rect), view)) continue;
+    if (!ctx) {
+      ctx = painter.ctx(); ctx.save(); ctx.globalAlpha = alpha;
+      if (clip) { ctx.beginPath(); ctx.rect(clip.x, clip.y, clip.w, clip.h); ctx.clip(); }
+      ctx.font = fontOf(cs); ctx.fillStyle = cs.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    }
+    let word = match[0]; if (transform === 'uppercase') word = word.toUpperCase(); else if (transform === 'lowercase') word = word.toLowerCase();
+    ctx.fillText(word, rect.left, rect.top + rect.height / 2 + 0.5);
+  }
+  ctx?.restore();
+}
+
+/**
+ * A positioned element with a z-index above 0: the page paints it over everything else in its stacking context, wherever it sits in the
+ * tree (the bars over the glass: the glass is a z-index 50 child of the body, the bars 52 deep inside it), so it is kept and painted
+ * there, after the rest.
+ */
+interface Raised { node: Element; cs: CSSStyleDeclaration; z: number; order: number; alpha: number; clip: Box | null }
+let raisedOrder = 0;
+
+/** Whether an element starts a stacking context of its own (the cases this page uses). */
+const stacks = (cs: CSSStyleDeclaration): boolean => (cs.position !== 'static' && cs.zIndex !== 'auto') || num(cs.opacity) < 1 || cs.transform !== 'none' || cs.filter !== 'none' || cs.isolation === 'isolate' || cs.mixBlendMode !== 'normal';
+const zOf = (cs: CSSStyleDeclaration): number => cs.position !== 'static' && cs.zIndex !== 'auto' ? num(cs.zIndex) : 0;
+
+function paintRaised(painter: Painter, raised: Raised[]): void {
+  for (const r of [...raised].sort((p, q) => p.z - q.z || p.order - q.order)) paintNode(painter, r.node, r.alpha, r.clip, [], r.cs);
+}
+
+function paintNode(painter: Painter, node: Element, alpha: number, clip: Box | null, raised: Raised[], cs: CSSStyleDeclaration = getComputedStyle(node)): void {
   if (cs.display === 'none' || cs.visibility === 'hidden' || node.hasAttribute('data-no-capture')) return;
   const opacity = num(cs.opacity); if (opacity <= 0) return;
-  const rect = node.getBoundingClientRect();
+  const rect = node.getBoundingClientRect(), box = boxOf(rect);
   const clips = cs.overflowX !== 'visible' || cs.overflowY !== 'visible';
-  // Nothing of a clipping box that is wholly off screen can show, and neither can any of its children.
-  if (clips && (rect.right < 0 || rect.bottom < 0 || rect.left > view.w || rect.top > view.h)) return;
-  ctx.save();
-  ctx.globalAlpha *= opacity;
+  // Nothing of a clipping box outside the view can show, and neither can any of its children.
+  if (clips && !intersect(box, intersect(painter.view, clip))) return;
+  const a = alpha * opacity;
+  let inner = clip;
   if (rect.width > 0 && rect.height > 0) {
-    paintBox(ctx, rect, cs);
-    if (node instanceof HTMLCanvasElement) { if (node.width > 0 && node.height > 0) { try { ctx.drawImage(node, rect.left, rect.top, rect.width, rect.height); } catch { /* a tainted or lost canvas is skipped */ } } }
-    else if (node instanceof HTMLSelectElement || node instanceof HTMLInputElement) paintControl(ctx, node, rect, cs);
-    if (clips) { ctx.beginPath(); ctx.rect(rect.left, rect.top, rect.width, rect.height); ctx.clip(); }
-  }
-  if (!(node instanceof HTMLSelectElement) && !(node instanceof HTMLInputElement) && !(node instanceof HTMLCanvasElement)) {
-    const children = [...node.childNodes];
-    const zOf = (child: Node): number => { if (!(child instanceof Element)) return 0; const c = getComputedStyle(child); return c.position !== 'static' && c.zIndex !== 'auto' ? num(c.zIndex) : 0; };
-    // Positioned children with a z-index paint above their siblings, as in the page (the pulse layer sits above the chart's overlay).
-    const ordered = children.map((child, i) => ({ child, i, z: zOf(child) })).sort((a, b) => a.z - b.z || a.i - b.i);
-    for (const { child } of ordered) {
-      if (child instanceof Element) paintNode(ctx, child, view);
-      else if (child instanceof Text) paintText(ctx, child, cs);
+    const shows = intersect(box, intersect(painter.view, clip)) !== null;
+    if (shows) {
+      inState(painter.ctx(), a, clip, () => {
+        paintBox(painter.ctx(), rect, cs);
+        if (node instanceof HTMLSelectElement || node instanceof HTMLInputElement) paintControl(painter.ctx(), node, rect, cs);
+      });
+      if (node instanceof HTMLCanvasElement && node.width > 0 && node.height > 0) painter.canvas(node, box, a, clip);
     }
+    if (clips) inner = intersect(box, clip) ?? box;
   }
-  ctx.restore();
+  if (node instanceof HTMLSelectElement || node instanceof HTMLInputElement || node instanceof HTMLCanvasElement) return;
+  // Children with a z-index above 0 wait for the end of the stacking context they belong to (this one, if it starts one); those below 0
+  // come first, the rest in the order of the page.
+  const own = stacks(cs) ? [] as Raised[] : raised;
+  const items: { child: Node; cs: CSSStyleDeclaration | null; z: number; i: number }[] = [];
+  node.childNodes.forEach((child, i) => {
+    if (child instanceof Element) { const c = getComputedStyle(child), z = zOf(c); if (z > 0) own.push({ node: child, cs: c, z, order: raisedOrder++, alpha: a, clip: inner }); else items.push({ child, cs: c, z, i }); }
+    else if (child instanceof Text) items.push({ child, cs: null, z: 0, i });
+  });
+  items.sort((p, q) => p.z - q.z || p.i - q.i);
+  for (const { child, cs: c } of items) {
+    if (child instanceof Element) paintNode(painter, child, a, inner, own, c!);
+    else if (child instanceof Text) paintText(painter, child, cs, a, inner);
+  }
+  if (own !== raised) paintRaised(painter, own);
+}
+
+/** Elements of the page that are never in its picture: the screenshot tool itself, its notices and tooltips. */
+const LEFT_OUT = '.shot, .shot-stage, .shot-toast, .tip';
+
+function walk(painter: Painter, root: HTMLElement): void {
+  const raised: Raised[] = [];
+  for (const child of root.children) {
+    if (child.matches(LEFT_OUT)) continue;
+    const cs = getComputedStyle(child), z = zOf(cs);
+    if (z > 0) raised.push({ node: child, cs, z, order: raisedOrder++, alpha: 1, clip: null }); else paintNode(painter, child, 1, null, raised, cs);
+  }
+  paintRaised(painter, raised);
 }
 
 /** Draw the page as it is on screen now. Open panels and dialogs are included; tooltips are not (they are hidden by the click that started this). */
@@ -144,6 +221,54 @@ export function capturePage(root: HTMLElement = document.body): Snapshot {
   ctx.scale(scale, scale);
   ctx.fillStyle = getComputedStyle(document.body).backgroundColor || '#fff'; ctx.fillRect(0, 0, width, height);
   ctx.beginPath(); ctx.rect(0, 0, width, height); ctx.clip();
-  for (const child of root.children) if (!child.classList.contains('shot-stage') && !child.classList.contains('tip')) paintNode(ctx, child, { w: width, h: height });
+  walk({
+    view: { x: 0, y: 0, w: width, h: height },
+    ctx: () => ctx,
+    canvas: (node, rect, alpha, clip) => inState(ctx, alpha, clip, () => { try { ctx.drawImage(node, rect.x, rect.y, rect.w, rect.h); } catch { /* a tainted or lost canvas is skipped */ } }),
+  }, root);
   return { canvas, scale, width, height };
+}
+
+/** A canvas a moving picture copies each frame: where it lies on the page (CSS px), and the opacity and clip it is seen through. */
+export interface LiveCanvas { kind: 'canvas'; node: HTMLCanvasElement; rect: Box; alpha: number; clip: Box | null }
+/** What lies between two canvases, painted once for the area. */
+export interface StillLayer { kind: 'still'; image: HTMLCanvasElement | OffscreenCanvas }
+export type Layer = LiveCanvas | StillLayer;
+
+/** A canvas for a picture `w` × `h`, off the page where the browser has them. */
+export function surface(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
+  if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(w, h);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; return c;
+}
+
+/** The 2D context of a canvas on or off the page. */
+export function context2d(c: HTMLCanvasElement | OffscreenCanvas, options?: CanvasRenderingContext2DSettings): Ctx2D {
+  const ctx = c instanceof HTMLCanvasElement ? c.getContext('2d', options) : c.getContext('2d', options);
+  if (!ctx) throw new Error('no 2D canvas');
+  return ctx;
+}
+
+/**
+ * The page in `area` (CSS px) as layers at `scale` picture pixels per CSS pixel, in the page's order: the still parts (boxes, borders,
+ * text, controls) painted now, the canvases named so a frame can copy them as they are then. The first layer holds the page's background.
+ */
+export function paintLayers(area: Box, scale: number, root: HTMLElement = document.body): Layer[] {
+  const w = Math.max(1, Math.round(area.w * scale)), h = Math.max(1, Math.round(area.h * scale));
+  const layers: Layer[] = [];
+  let current: Ctx2D | null = null;
+  const open = (): Ctx2D => {
+    if (current) return current;
+    const image = surface(w, h), ctx = context2d(image);
+    ctx.setTransform(scale, 0, 0, scale, -area.x * scale, -area.y * scale);
+    layers.push({ kind: 'still', image }); current = ctx;
+    return ctx;
+  };
+  const base = open();
+  base.fillStyle = getComputedStyle(document.body).backgroundColor || '#fff'; base.fillRect(area.x, area.y, area.w, area.h);
+  walk({
+    view: area,
+    ctx: open,
+    canvas: (node, rect, alpha, clip) => { if (intersect(rect, intersect(area, clip))) { layers.push({ kind: 'canvas', node, rect, alpha, clip }); current = null; } },
+  }, root);
+  return layers;
 }

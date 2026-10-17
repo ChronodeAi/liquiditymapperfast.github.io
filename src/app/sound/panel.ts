@@ -37,7 +37,7 @@ export function buildSoundPanel(store: Store, sounds: Sounds, rerender: () => vo
     body.append(el('div', { class: 'tier-row' },
       el('label', { class: 'tier-name' }, on, el('span', { class: 'name', textContent: tier.name }), el('span', { class: 'desc', textContent: tn(index + 1, '{n} note', '{n} notes') })),
       el('label', { class: 'tier-usd' }, el('span', { class: 'muted', textContent: '≥ $' }), amount),
-      el('span', { class: 'tier-test' }, button(t('▲ Buy'), () => sounds.test(tier.id, 'buy'), t('Hear a {tier} buy', { tier: tier.name })), button(t('▼ Sell'), () => sounds.test(tier.id, 'sell'), t('Hear a {tier} sell', { tier: tier.name }))),
+      el('span', { class: 'tier-test' }, button(t('Buy'), () => sounds.test(tier.id, 'buy'), t('Hear a {tier} buy', { tier: tier.name }), 'tier-buy'), button(t('Sell'), () => sounds.test(tier.id, 'sell'), t('Hear a {tier} sell', { tier: tier.name }), 'tier-sell')),
     ));
   });
 
@@ -91,7 +91,7 @@ export function burstSizeRows(store: Store, onChange: () => void = () => {}): HT
 function panelSounds(store: Store, p: PanelSounds, alerts: Alerts, set: (change: Partial<SoundSettings>) => void, body: HTMLElement, rerender: () => void): void {
   const change = <K extends keyof PanelSounds>(panel: K, patch: Partial<PanelSounds[K]>): void => set({ panels: { ...store.state.sounds.panels, [panel]: { ...store.state.sounds.panels[panel], ...patch } } });
   const tests = (kind: Parameters<Alerts['test']>[0], both = true): HTMLElement => el('div', { class: 'tier-test' },
-    ...(both ? [button(t('▲ Buy'), () => alerts.test(kind, 'buy'), t('Hear this sound for buying')), button(t('▼ Sell'), () => alerts.test(kind, 'sell'), t('Hear this sound for selling'))] : [button(t('Test'), () => alerts.test(kind, null), t('Hear this sound'))]));
+    ...(both ? [button(t('Buy'), () => alerts.test(kind, 'buy'), t('Hear this sound for buying'), 'tier-buy'), button(t('Sell'), () => alerts.test(kind, 'sell'), t('Hear this sound for selling'), 'tier-sell')] : [button(t('Test'), () => alerts.test(kind, null), t('Hear this sound'))]));
 
   body.append(heading(t('Per panel')));
   body.append(note(t('Each panel can make its own sound about something rare that happens in it. Everything here is off until you choose it, obeys the switch and volume above, and no more than four sounds can play in ten seconds. Rising notes mean buying, falling notes mean selling.')));

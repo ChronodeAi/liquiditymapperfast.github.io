@@ -1,12 +1,13 @@
 import { Hub } from './hub.ts';
 import { ServerSource } from './server-source.ts';
 import { BrowserSource } from './browser-source.ts';
-import { chooseCoin, currentCoin, forCoin, keepCoinRecordings, type CoinChoice } from './coin.ts';
+import { chooseCoin, currentCoin, forCoin, keepCoinRecordings, scaledUsd, type CoinChoice } from './coin.ts';
 import { withAnchor } from './vwap/settings.ts';
 import type { DataSource } from './source.ts';
 import { loadKernels } from './kernels.ts';
 import { Store, initialState } from './store.ts';
 import { applyTheme } from './theme.ts';
+import { UiGlass } from './glass/ui-glass.ts';
 import { Sounds } from './sound/sounds.ts';
 import { Alerts } from './sound/alerts.ts';
 import { Toolbar } from './toolbar.ts';
@@ -106,6 +107,7 @@ async function main(): Promise<void> {
   const cvd = new CvdPane(flowCol, store, hub, heat.view);
   // The phone's Candle view: a tab of its own that fills the area (panes/candle-pane.ts); it counts the markets the map's footprint counts.
   const candle = new CandlePane(main, store, hub, kernels, s => heat.footprintMarkets(s));
+  toolbar.tapeFields = () => candle.settingsFields();
   const arrange = new Layout(main, chart, side, [
     { id: 'heat', root: heat.root, min: 240 },
     { id: 'bars', root: bars.root, height: 84, min: 56, head: bars.header },
@@ -152,12 +154,24 @@ async function main(): Promise<void> {
   // The trade dust: asked for while the bubbles and their Live trades switch are both on; arrivals redraw the dust alone.
   // The Candle view's trail reads the same orders, so they are asked for while it is shown whatever the bubbles' switches say.
   const candleShown = (): boolean => dock.tab === 'candle' && isPhone();
-  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown();
-  dock.onChange = () => { candle.setShown(candleShown()); hub.setTape(tapeWanted()); };
+  // The glass around the chart (glass/ui-glass.ts): lit by the large orders where the map shows them.
+  const glass = new UiGlass((price, t) => heat.liveSpot(price, t), () => hub.tape);
+  cvd.onLargeFlow = (x, y, usd) => glass.pulse(x, y, usd, scaledUsd(100_000), usd > 0 ? 0 : 1);
+  const applyMaterial = (): void => {
+    glass.setPalette(applyTheme(store.state.theme));
+    glass.setOn(store.state.material === 'glass');
+    document.documentElement.dataset.material = glass.on ? 'glass' : 'solid';
+  };
+  // On a phone the Tape keeps the market's orders from the page's opening, whichever tab shows, so the ring runs there always.
+  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone();
+  // The map and the book are covered while the Candle tab shows: they draw nothing then, and catch up when they show again.
+  const coverPanes = (): void => { const covered = candleShown(); heat.setSuspended(covered); ladder.setSuspended(covered); };
+  dock.onChange = () => { candle.setShown(candleShown()); coverPanes(); hub.setTape(tapeWanted()); };
   hub.setTape(tapeWanted());
-  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); };
-  // Trades recovered from a venue's history (the browser engine): the Candle view asks again, and no flow burst is sounded over them.
-  hub.onRecovered = (id, from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); candle.recovered(id, from); };
+  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); };
+  applyMaterial();
+  // Trades recovered from a venue's history (the browser engine): no flow burst is sounded over them.
+  hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.keyHistory = hub.keyHistory;
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
@@ -167,7 +181,7 @@ async function main(): Promise<void> {
   hub.onAbsorptionChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.absorptionInfo = () => heat.absorptionThresholdText();
   // Hovering a theme shows it everywhere without saving it; leaving the menu puts the saved one back.
-  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; applyTheme(name); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(name); toolbar.previewTheme(name); };
+  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; glass.setPalette(applyTheme(name)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(name); toolbar.previewTheme(name); };
   heat.onStats = () => toolbar.sync(store.state, heat.window);
 
   // An address like #guide/mirror opens the guide there.
@@ -194,7 +208,7 @@ async function main(): Promise<void> {
   });
 
   // The profile column and axis are narrower on a phone; everything that aligns to them has to redraw when that changes.
-  onLayoutMode(() => { layout(); heat.invalidate(); lower(); toolbar.sync(store.state, heat.window); candle.setShown(candleShown()); hub.setTape(tapeWanted()); });
+  onLayoutMode(() => { layout(); heat.invalidate(); lower(); toolbar.sync(store.state, heat.window); candle.setShown(candleShown()); coverPanes(); hub.setTape(tapeWanted()); });
   const layout = () => {
     const s = store.state;
     document.documentElement.style.setProperty('--gutter', `${gutter(s)}px`);
@@ -211,7 +225,8 @@ async function main(): Promise<void> {
     if (changed.has('keepAwake')) wake.set(state.keepAwake);
     // Every time on the page is written from the one setting: say it changed, and have what shows times draw again.
     if (changed.has('timeZone')) { setTimeZone(state.timeZone); heat.invalidate(); lower(); cvd.invalidate(); showStatus(); }
-    if (changed.has('theme')) { applyTheme(state.theme); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(state.theme); }
+    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, cvd, candle]) p.setPalette(state.theme); }
+    if (changed.has('material')) { applyMaterial(); hub.setTape(tapeWanted()); }
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('status') || changed.has('connected') || changed.has('mark')) showStatus();
     if (changed.has('show')) layout();
@@ -259,7 +274,7 @@ async function main(): Promise<void> {
   window.setInterval(() => { void hub.loadSeries(true); }, 60_000);
   // OI is sampled about once a minute on the server; asking more often than that keeps the newest bar from lagging by a whole refresh.
   window.setInterval(() => { void hub.loadOi(); }, 20_000);
-  (window as unknown as { __hlm: unknown }).__hlm = { store, hub, heat, ladder, cvd, candle, sounds, alerts };
+  (window as unknown as { __hlm: unknown }).__hlm = { store, hub, heat, ladder, cvd, candle, sounds, alerts, glass };
 }
 
 main().catch(error => {

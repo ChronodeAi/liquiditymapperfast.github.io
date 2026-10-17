@@ -33,6 +33,7 @@ import { DRAG_MIN_PX, selects } from '../range/selection.ts';
 import { drawVenueMark } from '../venue-marks.ts';
 import type { RangeTool } from '../range/tool.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
+import { flowEndChange, type FlowEnd } from '../cvd/flash.ts';
 
 const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif', MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const PAD = 6, LINE_H = 12;
@@ -65,6 +66,9 @@ const fit = (ctx: CanvasRenderingContext2D, text: string, width: number): string
  * perpetual, with the exchanges ranked by volume and the labels on the left so nothing sits on the ends of the
  * lines. The numbers come from `cvd/model.ts` and the words from `cvd/text.ts`; this class is the canvas, the pointer and the controls.
  */
+/** How long a line end's flash lasts (ms). */
+const FLASH_LIFE_MS = 750;
+
 export class CvdPane {
   readonly root = el('section', { class: 'pane cvd' });
   readonly controls = el('div', { class: 'pane-head' });
@@ -74,6 +78,19 @@ export class CvdPane {
   #noticeKey = ''; #noticeRows: string[] = [];
   #canvas = document.createElement('canvas');
   #ctx: CanvasRenderingContext2D;
+  /**
+   * The flashes at the lines' ends (Karl, 2026-10-17): each line's end as it last stood (`cvd/flash.ts`), and the flashes its changes started,
+   * drawn on a canvas of their own over the lines so a flash animates without the column being drawn again; whether the window drawn ends
+   * at the live edge (only there do they flash), and the frame or, with reduced motion, the timer that draws them next.
+   */
+  #flashCanvas = el('canvas', { class: 'cvd-flash', ariaHidden: 'true' });
+  #flashCtx: CanvasRenderingContext2D;
+  #ends = new Map<string, FlowEnd>();
+  #flashes: { x: number; y: number; k: number; color: string; at: number }[] = [];
+  #atLive = false;
+  #flashFrame = 0; #flashTimer = 0;
+  /** A change large enough to be seen across the page (window CSS px, signed USD): the glass sends a wave from there (set by the page). */
+  onLargeFlow: (x: number, y: number, usd: number) => void = () => {};
   #w = 0; #h = 0; #dpr = 1; #frame = 0;
   #palette: Palette = PALETTES.light!;
   #ranker = new Ranker();
@@ -111,9 +128,9 @@ export class CvdPane {
   constructor(host: HTMLElement, private store: Store, private hub: Hub, private view: View) {
     this.#strip = new CvdStrip(store, hub); this.#rankingKey = rankingKey(store.state.cvd);
     this.root.append(this.controls, this.#strip.root, this.#notice, this.#wrap);
-    this.#wrap.append(this.#canvas);
+    this.#wrap.append(this.#canvas, this.#flashCanvas);
     host.append(this.root);
-    this.#ctx = this.#canvas.getContext('2d')!;
+    this.#ctx = this.#canvas.getContext('2d')!; this.#flashCtx = this.#flashCanvas.getContext('2d')!;
     new ResizeObserver(() => this.#resize()).observe(this.#wrap);
     this.#buildControls();
     this.#bindInput();
@@ -168,7 +185,7 @@ export class CvdPane {
   }
   /** Trades that printed just now, for the blink of the dot rows. */
   flash(prints: readonly Print[]): void { this.#strip.flash(prints); }
-  dispose(): void { window.clearInterval(this.#timer); this.#strip.dispose(); }
+  dispose(): void { window.clearInterval(this.#timer); window.clearTimeout(this.#flashTimer); this.#strip.dispose(); }
 
   /** What the last frame drew. */
   get snapshot(): CvdSnapshot {
@@ -320,6 +337,9 @@ export class CvdPane {
     this.#w = Math.max(1, Math.floor(r.width)); this.#h = Math.max(1, Math.floor(r.height)); this.#dpr = window.devicePixelRatio || 1;
     this.#canvas.width = Math.round(this.#w * this.#dpr); this.#canvas.height = Math.round(this.#h * this.#dpr);
     this.#canvas.style.width = `${this.#w}px`; this.#canvas.style.height = `${this.#h}px`;
+    this.#flashCanvas.width = this.#canvas.width; this.#flashCanvas.height = this.#canvas.height;
+    this.#flashCanvas.style.width = this.#canvas.style.width; this.#flashCanvas.style.height = this.#canvas.style.height;
+    this.#flashes = [];
     this.#modelKey = '';
     this.invalidate();
   }
@@ -375,6 +395,8 @@ export class CvdPane {
 
     this.#gutter = Math.max(GUTTER_MIN, Math.min(GUTTER_MAX, Math.round(this.#w * 0.34)));
     const plotW = Math.max(20, this.#w - this.#gutter - PAD), columns = Math.max(24, Math.min(900, Math.floor(plotW)));
+    // The lines' ends flash only in a window that ends now (within a column): not in a replay, nor on a map moved back into the past.
+    this.#atLive = !replaying() && t1 >= Date.now() - Math.max(2_000, (t1 - t0) / columns);
     const key = [this.hub.flow.version, columns, Math.floor(t0 / Math.max(1000, spanMs / columns)), Math.floor(now / 1000), cfg.span, cfg.rank, cfg.top, cfg.heights, cfg.auto, cfg.refreshMin, cfg.pinned.join(','), cfg.quietFlag, cfg.rebase, s.scope, s.disabledVenues.join(','), ids.length, this.#price.length, priceId ?? ''].join('|');
     if (key !== this.#modelKey || !this.#model) {
       this.#model = buildModel({ flow: this.hub.flow, ids, kindOf: id => kindOf(s.markets, id), t0, t1, columns, now, settings: cfg, ranker: this.#ranker });
@@ -502,6 +524,71 @@ export class CvdPane {
     // The line ends at the right edge with nothing laid over it: a dot says where "now" is.
     if (lastC >= 0) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X(lastC), Y(lane.last[lastC]!), 2.4, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
+    if (lastC >= 0) this.#flashEnd(lane, X(lastC), Y(lane.last[lastC]!), this.#atLive && lastC === columns - 1 && this.#scroll === 0, p);
+  }
+
+  /**
+   * The line's end flashes when its running delta moved since the last drawing: green when buying moved it, red when selling did, as wide
+   * as the change was large. Read from the series itself, not the drawn line, and only from the seconds at its live edge (`flowEndChange`),
+   * so a window that slides or rebases, or older history loaded under the line, flashes nothing. Only at the live edge; a change large
+   * enough is sent on as a wave (`onLargeFlow`).
+   */
+  #flashEnd(lane: LaneLine, x: number, y: number, live: boolean, p: Palette): void {
+    const key = `${lane.id}|${lane.kind}`, series = lane.series;
+    if (!series || series.empty) { this.#ends.delete(key); return; }
+    const { end, change } = flowEndChange(series, this.#ends.get(key), performance.now());
+    if (end) this.#ends.set(key, end); else this.#ends.delete(key);
+    if (!live) return;
+    const min = scaledUsd(5_000);
+    if (!(Math.abs(change) >= min)) return;
+    const k = Math.min(1, Math.log10(Math.abs(change) / min) / 2), color = change > 0 ? p.bid : p.ask;
+    this.#flashes.push({ x, y, k, color, at: performance.now() });
+    if (this.#flashes.length > 48) this.#flashes.splice(0, this.#flashes.length - 48);
+    if (Math.abs(change) >= scaledUsd(100_000)) { const r = this.#canvas.getBoundingClientRect(); this.onLargeFlow(r.left + x, r.top + y, change); }
+    this.#animateFlashes();
+  }
+
+  /**
+   * Draw the flashes: on every display frame while one runs, or with reduced motion, where a flash is its halo alone, at full and then gone
+   * at half its life, once for each change of what shows (a timer clears each halo on time).
+   */
+  #animateFlashes(): void {
+    const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      if (this.#flashFrame) { cancelAnimationFrame(this.#flashFrame); this.#flashFrame = 0; }
+      window.clearTimeout(this.#flashTimer); this.#flashTimer = 0;
+      const now = performance.now(), half = FLASH_LIFE_MS / 2;
+      this.#flashes = this.#flashes.filter(f => now - f.at < half);
+      this.#paintFlashes(now, true);
+      if (!this.#flashes.length) return;
+      const next = Math.min(...this.#flashes.map(f => f.at + half)) - now;
+      this.#flashTimer = window.setTimeout(() => { this.#flashTimer = 0; this.#animateFlashes(); }, Math.max(0, next) + 1);
+      return;
+    }
+    if (this.#flashFrame) return;
+    const draw = (): void => {
+      this.#flashFrame = 0;
+      const now = performance.now();
+      this.#flashes = this.#flashes.filter(f => now - f.at < FLASH_LIFE_MS);
+      this.#paintFlashes(now, false);
+      if (this.#flashes.length && !document.hidden) this.#flashFrame = requestAnimationFrame(draw);
+    };
+    this.#flashFrame = requestAnimationFrame(draw);
+  }
+  #paintFlashes(now: number, reduced: boolean): void {
+    const ctx = this.#flashCtx;
+    ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0); ctx.clearRect(0, 0, this.#w, this.#h);
+    for (const f of this.#flashes) {
+      const age = now - f.at, t = age / FLASH_LIFE_MS, fade = reduced ? (t < 0.5 ? 1 : 0) : (1 - t) ** 2;
+      // A halo on the dot, and a ring running out from it as far as the change was large.
+      ctx.globalAlpha = 0.55 * fade; ctx.fillStyle = f.color;
+      ctx.beginPath(); ctx.arc(f.x, f.y, 2.6 + 2.2 * f.k, 0, Math.PI * 2); ctx.fill();
+      if (!reduced) {
+        ctx.globalAlpha = 0.7 * fade; ctx.strokeStyle = f.color; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(f.x, f.y, 3 + (5 + 9 * f.k) * Math.sqrt(t), 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   /** A small triangle on the line where a burst of buying or selling was seen while the page was open (up for buying, down for selling). */

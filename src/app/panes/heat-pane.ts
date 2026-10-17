@@ -16,6 +16,7 @@ import { clock, dayOfMonth, price as fmtPrice, tickLabel, usd, zoneName, zoneOff
 import type { Store, AppState, CandleRow } from '../store.ts';
 import { cumulative, groupLevels, type Grouped } from './levels-data.ts';
 import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.ts';
+import { fitText } from '../text-fit.ts';
 import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } from '../prints.ts';
 import { tradedHeader, tradedLines, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
 import { flowIds, flowLoadIds, mapVenues } from '../cvd/ids.ts';
@@ -156,6 +157,8 @@ export class HeatPane {
   #dataVersion = 0; #rasteredVersion = -1; #rasteredKey = ''; #lastRasterAt = 0;
   #liveMargin = 0;
   #palette = PALETTES.light!;
+  /** The frame's corner radius (CSS `--radius`, read when the palette changes): the legend plate has the corners the page's boxes have. */
+  #radius = 3;
   /** Colour window from the raster's percentiles (nextBaseline): new for a new view, then held, or blended toward the cells every 10 s in Auto. */
   #baseline: Baseline | null = null;
   #forceBaseline = true;
@@ -253,7 +256,11 @@ export class HeatPane {
 
   get plotW(): number { return Math.max(1, this.#w - gutter(this.store.state)); }
   get plotH(): number { return Math.max(1, this.#h - TIME_H); }
-  setPalette(name: string): void { this.#palette = PALETTES[name] ?? PALETTES.light!; this.gl.setLut(buildLut(this.#palette.dark)); this.invalidate(); }
+  setPalette(name: string): void {
+    this.#palette = PALETTES[name] ?? PALETTES.light!;
+    this.#radius = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--radius')) || 0;
+    this.gl.setLut(buildLut(this.#palette.dark)); this.invalidate();
+  }
 
   /** Executions per candle for the bar-stats strip (loaded only while the footprint is on). */
   get footprintData(): FootprintData { return this.#footprint; }
@@ -266,7 +273,18 @@ export class HeatPane {
     this.#baseline = nextBaseline(this.#baseline, this.stats, { auto: this.store.state.heat.auto, force: this.#forceBaseline, spanP: this.view.p1 - this.view.p0, now: performance.now() });
     this.#forceBaseline = false;
   }
-  invalidate(): void { this.#dirty = true; if (!this.#frame) this.#frame = requestAnimationFrame(() => { this.#frame = 0; this.#render(); }); }
+  invalidate(): void { this.#dirty = true; if (!this.#frame && !this.#suspended) this.#frame = requestAnimationFrame(() => { this.#frame = 0; this.#render(); }); }
+  /**
+   * Covered by a view of its own (the phone's Candle tab): nothing is drawn, the dust included, until it shows again, when it draws at once.
+   * A covered map drew at 1 x 1 px every frame, and its dust some 55 times a second (measured 2026-10-16).
+   */
+  #suspended = false;
+  setSuspended(on: boolean): void {
+    if (on === this.#suspended) return;
+    this.#suspended = on;
+    if (on && this.#pulseFrame) { cancelAnimationFrame(this.#pulseFrame); this.#pulseFrame = 0; }
+    if (!on) this.invalidate();
+  }
   dataChanged(): void { this.#dataVersion++; this.invalidate(); }
 
   #resize(): void {
@@ -293,8 +311,20 @@ export class HeatPane {
   /** Whether the dust is drawn: the bubbles and their Live trades switch on, something held, and not in replay (it holds only what arrived live). */
   #dustOn(state: AppState): boolean { return state.show.bubbles && state.tradeBubbles.live && this.hub.tape !== null && !replaying(); }
 
+  /**
+   * Where an order at `price` that traded at `t` sits on the screen (window CSS px), for the glass's light (glass/ui-glass.ts); null when
+   * the map does not show that time or price, is hidden, or replays.
+   */
+  liveSpot(price: number, t: number): { x: number; y: number } | null {
+    if (this.#suspended || replaying() || this.root.hidden) return null;
+    const pw = this.plotW, ph = this.plotH, x = this.view.xOf(t, pw), y = this.view.yOf(price, ph);
+    if (!(x >= 0 && x <= pw + 2 && y >= 0 && y <= ph)) return null;
+    const r = this.overlay.getBoundingClientRect();
+    return r.width > 0 ? { x: r.left + Math.min(x, pw), y: r.top + y } : null;
+  }
+
   /** Orders arrived for the dust: it is redrawn on the next frame, alone (the overlay's price line follows with its own next frame). */
-  tapeArrived(): void { if (!this.#dustFrame && !document.hidden) this.#dustFrame = requestAnimationFrame(() => { this.#dustFrame = 0; this.#drawDust(); }); }
+  tapeArrived(): void { if (!this.#dustFrame && !document.hidden && !this.#suspended) this.#dustFrame = requestAnimationFrame(() => { this.#dustFrame = 0; this.#drawDust(); }); }
 
   /** The dust's renderer, made the first time it is shown (null where the card cannot draw it, said once in the console). */
   #ensureDust(): TapeGL | null {
@@ -319,7 +349,7 @@ export class HeatPane {
     this.#dustDrawn = now;
     const fading = dust.draw(this.view, style, this.#dustDpr(), `${style.floorUsd}|${p.bid}|${p.ask}`, reduced ? Infinity : now);
     if (fading && !this.#dustFrame && !document.hidden) {
-      const next = (time: number): void => { this.#dustFrame = 0; if (time - this.#dustDrawn >= 30) this.#drawDust(); else if (!document.hidden) this.#dustFrame = requestAnimationFrame(next); };
+      const next = (time: number): void => { this.#dustFrame = 0; if (this.#suspended) return; if (time - this.#dustDrawn >= 30) this.#drawDust(); else if (!document.hidden) this.#dustFrame = requestAnimationFrame(next); };
       this.#dustFrame = requestAnimationFrame(next);
     }
   }
@@ -704,13 +734,17 @@ export class HeatPane {
       }
     }
     // A translucent plate keeps the text readable over bright heat.
-    const shownTitle = phone ? `${name}  ${state.timeframe}` : title;
-    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif'; const titleW = ctx.measureText(shownTitle).width;
-    ctx.font = '11px ui-sans-serif, system-ui, sans-serif'; const detailW = detail ? ctx.measureText(detail).width : 0, tailW = tail ? ctx.measureText(tail).width + 10 : 0;
-    const note = phone && borrowed ? borrowed.replace(/^s*·s*/, '') : '', noteW = note ? ctx.measureText(note).width : 0;
+    // The map's corner tools (Go to, Select, Recenter) lie over the top right of the plot: the text ends before them (with an ellipsis) instead of running under them.
+    const corner = this.root.querySelector<HTMLElement>('.map-tools'), room = Math.max(160, this.plotW - 20 - (corner ? corner.offsetWidth + 8 : 0));
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    const wide = (text: string): number => ctx.measureText(text).width, tailW = tail ? wide(tail) + 10 : 0;
+    detail = fitText(wide, detail, room);
+    const note = fitText(wide, phone && borrowed ? borrowed.replace(/^\s*·\s*/, '') : '', room), noteW = note ? wide(note) : 0, detailW = detail ? wide(detail) : 0;
+    ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
+    const shownTitle = fitText(wide, phone ? `${name}  ${state.timeframe}` : title, room - tailW), titleW = wide(shownTitle);
     const plateW = Math.max(titleW + tailW, detailW, noteW) + 14, plateH = (detail ? 36 : 22) + (note ? 14 : 0);
     this.#legendBox = { right: 6 + plateW, bottom: 6 + plateH };
-    ctx.globalAlpha = 0.82; ctx.fillStyle = p.panel; ctx.beginPath(); ctx.roundRect(6, 6, plateW, plateH, 6); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.82; ctx.fillStyle = p.panel; ctx.beginPath(); ctx.roundRect(6, 6, plateW, plateH, Math.min(6, this.#radius * 2)); ctx.fill(); ctx.globalAlpha = 1;
     ctx.textAlign = 'left'; ctx.fillStyle = p.text; ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
     ctx.fillText(shownTitle, 12, 16);
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
@@ -794,13 +828,16 @@ export class HeatPane {
   #paintHistoryStart(ctx: CanvasRenderingContext2D, pw: number, ph: number, p: Palette): void {
     const since = this.hub.recordedSince, v = this.view;
     if (!(since > v.t0 && since < v.t1)) return;
-    const x = Math.round(v.xOf(since, pw)) + 0.5, young = this.#placeholder() !== null;
-    const label = young && x > 330 ? t('Grey: the current book copied back, not recorded history. Depth is recorded while this page is open')
-      : young && x >= 215 ? t('Grey: copied back · recorded from {time}', { time: clock(since) }) : t('depth recorded from {time}', { time: clock(since) });
+    const x = Math.round(v.xOf(since, pw)) + 0.5, young = this.#placeholder() !== null, time = clock(since);
+    const wordings = young ? [t('Grey: the current book copied back, not recorded history. Depth is recorded while this page is open'), t('Grey: copied back · recorded from {time}', { time }), t('depth recorded from {time}', { time })]
+      : [t('depth recorded from {time}', { time })];
     ctx.save();
     ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.55; ctx.setLineDash([2, 4]);
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ph); ctx.stroke(); ctx.setLineDash([]);
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif'; ctx.fillStyle = p.muted; ctx.globalAlpha = 0.85; ctx.textBaseline = 'top';
+    // The longest wording that fits in the grey, left of the line (measured, so in any language); else the shortest, on the side with more room, ending in "…" if even that is too long.
+    const wide = (text: string): number => ctx.measureText(text).width, room = Math.max(x - 12, pw - x - 12);
+    const shortest = wordings[wordings.length - 1]!, fitting = wordings.find(text => wide(text) <= x - 12) ?? shortest, label = wide(fitting) <= room ? fitting : fitText(wide, shortest, room);
     // The legend plate takes the top-left corner of the map: a note that would run under it goes beneath it instead.
     const w = ctx.measureText(label).width, right = x >= w + 12, left = right ? x - 6 - w : x + 6, box = this.#legendBox;
     let top = left < box.right + 8 ? box.bottom + 6 : 6;
@@ -1477,10 +1514,10 @@ export class HeatPane {
   #startPulse(): void {
     const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.#drawPulse(performance.now(), reduced);
-    if (this.#pulseFrame || reduced || !this.#pulseRects.some(r => r.active)) return;
+    if (this.#pulseFrame || reduced || this.#suspended || !this.#pulseRects.some(r => r.active)) return;
     const tick = (time: number): void => {
       this.#pulseFrame = 0;
-      if (document.hidden || !this.#pulseRects.some(r => r.active)) return;
+      if (document.hidden || this.#suspended || !this.#pulseRects.some(r => r.active)) return;
       if (time - this.#pulseDrawn >= 50) this.#drawPulse(time, false);
       this.#pulseFrame = requestAnimationFrame(tick);
     };

@@ -5,7 +5,7 @@ import { Ranker } from '../src/app/cvd/rank.ts';
 import { buildModel, type CvdModel } from '../src/app/cvd/model.ts';
 import { CVD_DEFAULTS, readCvd } from '../src/app/cvd/settings.ts';
 import { aggregateHover, aggregateLabel, divergence, rowHover, rowLabel, signedUsd, windowName } from '../src/app/cvd/text.ts';
-import { hueGap, hueOf, laneColors } from '../src/app/cvd/colors.ts';
+import { hueGap, hueOf, laneColors, nearDirection } from '../src/app/cvd/colors.ts';
 import { PALETTES, contrastRatio } from '../src/app/theme.ts';
 
 const NOW = Date.UTC(2026, 9, 6, 12, 30, 0);
@@ -201,7 +201,9 @@ test('lane colours are the same blue and amber on every theme, except where a th
     const spotHue = hueOf(c.spot)!, perpHue = hueOf(c.perp)!;
     assert.ok(hueGap(spotHue, perpHue) >= 60, `${id}: spot and perpetual are two different hues`);
   }
-  const blues = [...spots].filter(([id]) => id !== 'colorblind').map(([, color]) => hueOf(color)!);
+  // Blue, except for a theme whose own buy or sell is near the blue or the amber (the colour-blind themes, a teal buy).
+  const exempt = (id: string): boolean => nearDirection('#3d8bfd', PALETTES[id]!) || nearDirection('#ffb648', PALETTES[id]!);
+  const blues = [...spots].filter(([id]) => !exempt(id)).map(([, color]) => hueOf(color)!);
   assert.ok(blues.every(h => hueGap(h, hueOf('#3d8bfd')!) < 12), 'blue, give or take the nudge toward the text colour that contrast asks for');
   assert.ok(hueGap(hueOf(spots.get('colorblind')!)!, hueOf('#3d8bfd')!) > 60, 'the colour-blind theme has a hue that is not its buy colour');
 });

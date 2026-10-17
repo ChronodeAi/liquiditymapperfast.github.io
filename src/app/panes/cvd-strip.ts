@@ -47,6 +47,11 @@ export class CvdStrip {
   #sizes: { key: string; answer: SizesAnswer } | null = null;
   #asking = false; #askedAt = 0; #failed = false;
   #flash = new Map<number, number>(); #flashTimer = 0;
+  /**
+   * The abacus (Karl, 2026-10-17): where each row's leading ring sits now and how fast it moves, so it slides to a new share on a spring
+   * with a little overshoot instead of jumping, and when the strip last drew (the spring's clock).
+   */
+  #beads = new Map<string, { x: number; v: number }>(); #lastDraw = 0;
   #disposed = false;
 
   constructor(private store: Store, private hub: Hub) {
@@ -137,6 +142,9 @@ export class CvdStrip {
     const data = this.#data;
     if (!data || this.root.hidden || this.#w < 120 || this.#h < 1) return;
     const ctx = this.#ctx, g = GEOMETRY, p = this.#palette, ch = this.#chrome, W = this.#w, H = this.#h, now = performance.now(), r = g.dot / 2;
+    const still = reducedMotion(), dt = Math.min(50, Math.max(0, now - (this.#lastDraw || now))) / 1000;
+    this.#lastDraw = now;
+    let moving = false;
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     // The sunken well: dark along the top and left, light along the bottom and right.
     ctx.fillStyle = ch.well; ctx.fillRect(0, 0, W, H);
@@ -182,8 +190,29 @@ export class CvdStrip {
       if (rowData.partial) ctx.globalAlpha = 0.55;
       const { dots, lead } = ledRow(share, n);
       dots.forEach((dot, i) => led(x0 + i * g.pitch + r, cy, r, colorOf(dot), levelOf(dot), false));
-      // The leading edge of the side that is ahead wears a ring: the peak lamp of a level meter.
-      if (lead >= 0 && lead < n) { ctx.beginPath(); ctx.arc(x0 + lead * g.pitch + r, cy, r + 2, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.strokeStyle = rgba(buyAhead ? p.bid : p.ask, 0.4); ctx.stroke(); }
+      // A trade of this size just printed: a light runs along the row from its lamp, over the dots.
+      const printed = this.#flash.get(index);
+      if (flashing && printed !== undefined && !still) {
+        const at = (now - printed) / FLASH_MS * (n + 2) - 1, fade = 1 - (now - printed) / FLASH_MS;
+        for (let i = Math.max(0, Math.floor(at - 2)); i <= Math.min(n - 1, Math.ceil(at + 2)); i++) {
+          const k = Math.max(0, 1 - Math.abs(i - at) / 2) * fade; if (k <= 0) continue;
+          ctx.beginPath(); ctx.arc(x0 + i * g.pitch + r, cy, r + 1, 0, Math.PI * 2); ctx.fillStyle = rgba(mixHex(lamp, '#ffffff', 0.45), 0.75 * k); ctx.fill();
+        }
+        moving = true;
+      }
+      // The leading edge of the side that is ahead wears a ring: the peak lamp of a level meter. It slides to a new place as an abacus bead
+      // does, on a spring that overshoots a little and settles.
+      if (lead >= 0 && lead < n) {
+        const bead = this.#beads.get(rowData.key) ?? { x: lead, v: 0 };
+        if (still || Math.abs(bead.x - lead) > n) { bead.x = lead; bead.v = 0; }
+        else {
+          const w = 18, zeta = 0.55;
+          bead.v += (-w * w * (bead.x - lead) - 2 * zeta * w * bead.v) * dt; bead.x += bead.v * dt;
+          if (Math.abs(bead.x - lead) < 0.01 && Math.abs(bead.v) < 0.05) { bead.x = lead; bead.v = 0; } else moving = true;
+        }
+        this.#beads.set(rowData.key, bead);
+        ctx.beginPath(); ctx.arc(x0 + bead.x * g.pitch + r, cy, r + 2, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.strokeStyle = rgba(buyAhead ? p.bid : p.ask, 0.4); ctx.stroke();
+      }
       ctx.textAlign = 'right';
       if (rowData.weight !== null || rowData.key.startsWith('size:')) {
         // A size row: its share of the volume in ten dots and a number.
@@ -210,6 +239,7 @@ export class CvdStrip {
       let shown = text; while (shown.length > 4 && ctx.measureText(shown).width > room) shown = `${shown.slice(0, -2)}…`;
       ctx.fillText(shown, dotsX0, top + (y - top) / 2);
     }
+    if (moving) this.#schedule();
   }
 
   // ---- pointer --------------------------------------------------------------------------------------------------------------------

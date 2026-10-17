@@ -6,7 +6,9 @@ let widthAt100 = 0;
 
 /** Size of the name that spans about half the chart, within sensible limits. */
 function nameSize(ctx: CanvasRenderingContext2D, width: number): number {
-  if (!widthAt100) { ctx.font = `700 100px ${FONT}`; widthAt100 = ctx.measureText(NAME).width || 1; }
+  // Measured between save and restore: the caller's own save comes after this, so the first paint kept the 100 px bold font for whatever
+  // it drew next (a giant "GMT-3" over the time axis until the first data arrived).
+  if (!widthAt100) { ctx.save(); ctx.font = `700 100px ${FONT}`; widthAt100 = ctx.measureText(NAME).width || 1; ctx.restore(); }
   return Math.max(14, Math.min(72, Math.floor(width * 0.5 / (widthAt100 / 100))));
 }
 

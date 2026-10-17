@@ -1,4 +1,4 @@
-import { PALETTES } from '../theme.ts';
+import { PALETTES, mixHex, textOn } from '../theme.ts';
 import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
@@ -613,11 +613,6 @@ export class LtPane extends TimePane {
   }
 }
 
-const hexMix = (a: string, b: string, t: number): string => {
-  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16), k = Math.max(0, Math.min(1, t));
-  const channel = (shift: number) => Math.round(((pa >> shift) & 255) * (1 - k) + ((pb >> shift) & 255) * k);
-  return '#' + [channel(16), channel(8), channel(0)].map(v => v.toString(16).padStart(2, '0')).join('');
-};
 /** Strip under the chart with the enabled per-candle statistics, aligned to the candle slots (footprint on); the Stats button chooses, orders and configures them. */
 export class BarStatsPane extends TimePane {
   /** The strip is too short for a popup drawn on it, so the cell's popup is a page element. */
@@ -749,14 +744,17 @@ export class BarStatsPane extends TimePane {
           continue;
         }
         const t = strength(def, value, scale), tone = (value - (def.center ?? 0)) >= 0 ? p.candleUp : p.candleDown;
+        // A filled cell takes its colours from the theme (the page's own colour toward its accent, or toward the side's colour) and its figures
+        // from textOn: a fixed light ramp made a row of pale bars on every dark theme.
+        const fill = def.scale === 'sequential' ? mixHex(p.panel, p.ui, 0.12 + 0.76 * t) : def.scale === 'diverging' ? mixHex(mixHex(p.panel, tone, 0.18), tone, t) : p.panel;
         if (filled) {
-          ctx.fillStyle = def.scale === 'sequential' ? hexMix('#e4e8ff', '#2b3fd6', t) : def.scale === 'diverging' ? hexMix(hexMix('#ffffff', tone, 0.18), tone, t) : p.panel;
+          ctx.fillStyle = fill;
           ctx.fillRect(x, y, w, rowH - 1);
           if (def.scale === 'plain') { ctx.strokeStyle = p.line; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, rowH - 2); }
         }
-        if (unusual?.[i]) { ctx.save(); ctx.lineWidth = 1.6; ctx.strokeStyle = p.dark ? '#ffffff' : '#14171c'; ctx.globalAlpha = 0.95; ctx.strokeRect(x + 0.8, y + 0.8, Math.max(1, w - 1.6), rowH - 2.6); ctx.restore(); }
+        if (unusual?.[i]) { ctx.save(); ctx.lineWidth = 1.6; ctx.strokeStyle = p.text; ctx.globalAlpha = 0.95; ctx.strokeRect(x + 0.8, y + 0.8, Math.max(1, w - 1.6), rowH - 2.6); ctx.restore(); }
         if (slot >= 48) {
-          ctx.fillStyle = filled ? (def.scale === 'plain' ? p.text : t > 0.55 ? '#ffffff' : '#14171c') : def.scale === 'diverging' ? tone : p.text;
+          ctx.fillStyle = filled ? (def.scale === 'plain' ? p.text : textOn(fill, 1, p)) : def.scale === 'diverging' ? tone : p.text;
           ctx.globalAlpha = filled ? 1 : 0.6 + 0.4 * t;
           ctx.fillText(def.format(value), x + w / 2, y + (rowH - 1) / 2); ctx.globalAlpha = 1;
         }

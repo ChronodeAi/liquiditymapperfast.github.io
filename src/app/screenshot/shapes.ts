@@ -87,8 +87,11 @@ export function blockArrow(a: Pt, b: Pt, size: number): Pt[] {
   return [at(0, half), at(neck, half), at(neck, headHalf), at(length, 0), at(neck, -headHalf), at(neck, -half), at(0, -half)];
 }
 
+/** A 2D context on the page or off it (a moving picture's frames are drawn off it). */
+type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 /** A closed outline with its corners rounded by `radius` (kept small enough for the shortest edge). */
-function roundedOutline(ctx: CanvasRenderingContext2D, points: readonly Pt[], radius: number): void {
+function roundedOutline(ctx: Ctx2D, points: readonly Pt[], radius: number): void {
   const n = points.length, last = points[n - 1]!, first = points[0]!;
   ctx.beginPath(); ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
   for (let i = 0; i < n; i++) { const p = points[i]!, q = points[(i + 1) % n]!; ctx.arcTo(p.x, p.y, q.x, q.y, radius); }
@@ -129,8 +132,11 @@ export function worthKeeping(shape: Shape): boolean {
 /** The text size for a stroke width (the same three steps the person picks). */
 export const textSize = (width: number): number => width <= 2 ? 16 : width <= 4 ? 22 : 32;
 
-/** Pixelate and blur read the picture under them: `base` is the unmarked selection at `scale` canvas pixels per CSS pixel. */
-export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, base: CanvasImageSource, scale: number): void {
+/**
+ * Pixelate and blur read the picture under them: `base` is the unmarked page at `scale` canvas pixels per CSS pixel, its top-left corner
+ * at `origin` (a moving picture's frame holds only the selected area).
+ */
+export function drawShape(ctx: Ctx2D, shape: Shape, base: CanvasImageSource, scale: number, origin: Pt = { x: 0, y: 0 }): void {
   ctx.save();
   ctx.scale(scale, scale);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -184,7 +190,7 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, base: Can
       const factor = Math.max(2, shape.strength), sw = Math.max(1, Math.round(r.w * scale / factor)), sh = Math.max(1, Math.round(r.h * scale / factor));
       const small = document.createElement('canvas'); small.width = sw; small.height = sh;
       const sctx = small.getContext('2d')!;
-      sctx.imageSmoothingEnabled = true; sctx.drawImage(base, r.x * scale, r.y * scale, r.w * scale, r.h * scale, 0, 0, sw, sh);
+      sctx.imageSmoothingEnabled = true; sctx.drawImage(base, (r.x - origin.x) * scale, (r.y - origin.y) * scale, r.w * scale, r.h * scale, 0, 0, sw, sh);
       ctx.imageSmoothingEnabled = shape.kind === 'blur'; ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(small, 0, 0, sw, sh, r.x, r.y, r.w, r.h);
       break;
@@ -193,12 +199,12 @@ export function drawShape(ctx: CanvasRenderingContext2D, shape: Shape, base: Can
   ctx.restore();
 }
 
-/** `liquiditymapperfast-2026-10-05-1432-07.png`, on the computer's clock or, with `utc`, on UTC (the clock the page's axis is on). */
-export function fileName(when: Date, utc = false): string {
+/** `liquiditymapperfast-2026-10-05-1432-07.png` (or `.gif`), on the computer's clock or, with `utc`, on UTC (the clock the page's axis is on). */
+export function fileName(when: Date, utc = false, extension: 'png' | 'gif' = 'png'): string {
   const p = (n: number): string => String(n).padStart(2, '0');
   const [y, mo, d, h, mi, s] = utc ? [when.getUTCFullYear(), when.getUTCMonth(), when.getUTCDate(), when.getUTCHours(), when.getUTCMinutes(), when.getUTCSeconds()]
     : [when.getFullYear(), when.getMonth(), when.getDate(), when.getHours(), when.getMinutes(), when.getSeconds()];
-  return `liquiditymapperfast-${y}-${p(mo! + 1)}-${p(d!)}-${p(h!)}${p(mi!)}-${p(s!)}.png`;
+  return `liquiditymapperfast-${y}-${p(mo! + 1)}-${p(d!)}-${p(h!)}${p(mi!)}-${p(s!)}.${extension}`;
 }
 
 /** The address as a picture's corner mark says it: no scheme and no trailing slash. */
@@ -215,7 +221,7 @@ export function markPlacement(picture: { w: number; h: number }, textWidth: numb
 }
 
 /** Paint the corner mark over `area` (in the context's own units): a dim pill with the address in it. */
-export function paintMark(ctx: CanvasRenderingContext2D, area: Rect, text: string): void {
+export function paintMark(ctx: Ctx2D, area: Rect, text: string): void {
   ctx.save();
   ctx.font = '600 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
   const at = markPlacement({ w: area.w, h: area.h }, ctx.measureText(text).width);

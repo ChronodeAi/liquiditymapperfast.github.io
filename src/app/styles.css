@@ -1,5 +1,9 @@
 :root {
   --bg: #fff; --panel: #fff; --text: #1b1d21; --muted: #7b8088; --line: #e7e9ec; --accent: #1b1d21;
+  /* A drawn check mark (mask it in the colour of the text): a typed one looks as its font draws it. */
+  /* Drawn sliders, the key that opens a feature's settings (a split button's right part): clearer than a gear at 10 px. */
+  --mark-settings: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M3.5 6.5h17M3.5 12h17M3.5 17.5h17'/%3E%3Ccircle cx='9' cy='6.5' r='2.7' fill='black' stroke='none'/%3E%3Ccircle cx='15.5' cy='12' r='2.7' fill='black' stroke='none'/%3E%3Ccircle cx='7.5' cy='17.5' r='2.7' fill='black' stroke='none'/%3E%3C/svg%3E");
+  --mark-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5l5 5L20 6.5'/%3E%3C/svg%3E");
   --ui: #2f6bff; --bid: #0fa44a; --bid-soft: #cdeed8; --ask: #e0066f; --ask-soft: #ffd0e6; --gutter: 192px;
   font: 12px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
@@ -13,24 +17,91 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 40px; padding: 4px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .toolbar .brand { font-weight: 700; letter-spacing: .02em; margin-right: 4px; }
 .toolbar .spacer { flex: 1; min-width: 0; }
+/* The full top bar as a console of decks (toolbar.ts #arrange): framed groups of up to two rows, wrapping as whole decks, Tools at the right
+   end. Their frames are the theme's (chrome.css). */
+.toolbar.cockpit { align-items: stretch; gap: 4px 3px; padding: 2px 6px 5px; }
+/* One height for every control in a deck's row: a button ran 22.2 px, a select 24, and the rows rode at different heights. */
+.toolbar.cockpit :is(button, select) { box-sizing: border-box; height: 22px; padding: 0 5px; }
+.toolbar.cockpit .led-btn { padding-left: 19px; }
+.toolbar.cockpit .led-btn::before { left: 6px; }
+.toolbar .deck-time .seg { display: grid; grid-template-columns: repeat(4, auto); }
+.toolbar .deck-time .seg button { margin-left: -1px; margin-top: -1px; border-radius: 0; }
+.toolbar .deck-time .seg button:nth-child(4n + 1) { margin-left: 0; }
+.toolbar .deck-time .seg button:nth-child(-n + 4) { margin-top: 0; }
+.toolbar .deck-heat select { max-width: 104px; }
+/* The last row's select (Smoothing) is as wide as its longest choice in every language: "Glättung: auto" and "Сглаживание: авто" were cut at
+   104 px, and the word that changes is the one after the colon. A held width for each language, so the bar still never moves. */
+.toolbar .deck-heat .deck-row:last-child select { max-width: none; }
+/* The source's choices grow as the venues connect: a held width, so the selects beside it never move. */
+.toolbar .deck-heat select.heat-source { width: 96px; }
+.toolbar.cockpit select.market { width: 172px; }
+/* A notice lies over the top of the chart, not in the bar's flow: the bar keeps its height when one comes or goes. */
+.toolbar.cockpit { position: relative; z-index: 30; }
+.toolbar.cockpit .notice { position: absolute; left: 8px; right: 8px; top: calc(100% + 4px); z-index: 45; box-shadow: 2px 2px 0 var(--shadow); }
+/* Two at once (a venue this place cannot reach, a coin that is not on the list) lie one under the other, not on the same spot. */
+.toolbar.cockpit .notice:not([hidden]) ~ .notice:not([hidden]) { top: calc(100% + 40px); }
+
+.toolbar .deck { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-inline-size: 0; margin: 0; padding: 1px 4px 5px; }
+.toolbar .deck > legend { padding: 0 4px; margin-left: -2px; font-size: 10px; line-height: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.toolbar .deck-row { display: flex; align-items: center; gap: 4px; }
+.toolbar .deck-tools { margin-left: auto; }
+/* The last deck's title is the page's name, in its own case. */
+.toolbar .deck.deck-tools > legend { text-transform: none; letter-spacing: 0; font-weight: 700; color: var(--text); }
+/* The page's own deck is a grid: what it opens on the left (Guide, Author), the tools on the right as marks (the screenshot, installing),
+   both rows on the same two columns. Installing keeps its place whether the browser offers it or not, so the deck never changes; where it
+   is not offered, Author takes the row. */
+.toolbar.cockpit .deck-tools .deck-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 4px; }
+.toolbar.cockpit .deck-tools .deck-row > button { width: 100%; min-width: 0; justify-content: center; text-align: center; }
+.toolbar.cockpit .deck-tools .deck-row > button.install { position: relative; font-size: 0; padding: 0; }
+.toolbar.cockpit .deck-tools .deck-row > button.install::before { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5v11M7.5 10L12 14.5 16.5 10M4.5 15.5v4h15v-4'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5v11M7.5 10L12 14.5 16.5 10M4.5 15.5v4h15v-4'/%3E%3C/svg%3E") center / contain no-repeat; }
+.toolbar.cockpit .deck-tools .deck-row:has(> button.install[hidden]) > :first-child { grid-column: 1 / -1; }
+/* A monospaced face is wider: the text-mode bar a size smaller, so its decks fit as the others do. */
+html[data-frame="textmode"] .toolbar.cockpit { font-size: 10.5px; }
+html[data-frame="textmode"] .toolbar.cockpit :is(button, select) { padding: 2px 4px; }
+html[data-frame="textmode"] .toolbar.cockpit .led-btn { padding-left: 17px; }
+html[data-frame="textmode"] .toolbar.cockpit .led-btn::before { left: 5px; }
+.toolbar .deck .chips:empty { display: none; }
+/* Eleven pane switches in two rows of a grid; the overlap of their outlines kept across the rows too. */
+.toolbar .deck-panels .seg.toggles { display: grid; grid-template-columns: repeat(6, auto); }
+.toolbar .deck-panels .seg.toggles button { margin-left: -1px; margin-top: -1px; border-radius: 0; }
+.toolbar.cockpit .deck-panels .seg.toggles button { padding-left: 4px; padding-right: 4px; }
+.toolbar .deck-panels .seg.toggles button:nth-child(6n + 1) { margin-left: 0; }
+.toolbar .deck-panels .seg.toggles button:nth-child(-n + 6) { margin-top: 0; }
+/* The count holds its width whatever it says (11/11, 10/11), so the bar never moves when a venue drops or returns (Karl, 2026-10-17). */
+/* The count holds its room from the first frame (empty until the venues report) and never changes the button's size: the bar must not move
+   when a venue drops or comes back (Karl, 2026-10-17). */
+.venues-btn .count { display: inline-block; min-width: 5.6ch; margin-left: 6px; text-align: right; line-height: 1; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.venues-btn .count[hidden] { display: none; }
+.venues-btn[data-state="warn"] { border-color: var(--warn); }
+.venues-btn[data-state="warn"] .count { color: var(--warn); }
 :is(.toolbar, .sheet) .heatctl { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
-:is(.toolbar, .sheet) .scale { display: inline-flex; flex-direction: column; gap: 1px; width: 136px; }
+:is(.toolbar, .sheet) .scale { display: inline-flex; flex-direction: column; gap: 1px; width: 120px; }
 :is(.toolbar, .sheet) .legend { display: flex; justify-content: space-between; align-items: center; height: 14px; border: 1px solid var(--line); border-radius: var(--radius); padding: 0 4px; }
-:is(.toolbar, .sheet) .legend i { font-style: normal; font-size: 9px; line-height: 1; color: #fff; text-shadow: 0 0 2px #000, 0 0 3px #000; }
+:is(.toolbar, .sheet) .legend i { font-style: normal; font-size: 9px; line-height: 1; color: #fff; }
+/* The words sit on the colour ramp, which starts near white on a light theme: a dark chip under each keeps white readable (a blurred shadow
+   did it, and blur is not used). The Bevel frame draws its own (chrome.css). */
+:root:not([data-frame="bevel"]) :is(.toolbar, .sheet) .legend i { padding: 1px 3px; background: rgba(0, 0, 0, .62); }
 :is(.toolbar, .sheet) .scale input[type=range] { width: 100%; height: 10px; margin: 0; accent-color: var(--text); }
-/* The bar along the bottom: desktop only (a phone's top bar carries the connection dot and Settings carries the rest). */
-.statusbar { display: none; align-items: center; gap: 4px 16px; min-height: 24px; padding: 2px 12px; border-top: 1px solid var(--line); background: var(--panel); font-size: 11px; color: var(--muted); }
+/* The bar along the bottom: desktop only (a phone's top bar carries the connection dot and Settings carries the rest). Above the panes: a column
+   taller than the window (four optional panes on a short screen) paints beyond its own box, and the bar must stay readable. */
+.statusbar { position: relative; z-index: 6; display: none; align-items: center; gap: 4px 16px; min-height: 24px; padding: 2px 12px; border-top: 1px solid var(--line); background: var(--panel); font-size: 11px; color: var(--muted); }
 html[data-layout="desktop"] .statusbar { display: flex; }
 .statusbar .spacer { flex: 1; min-width: 0; }
 .statusbar .status-item[hidden] { display: none; }
+/* One line each, cut with an ellipsis where the bar is short: a longer language wrapped its words and made the bar taller (Russian at 1024 px). */
+.statusbar .status-item { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The price and the connection word never give way, nor do the buttons at the end: the words beside them are what is cut, not a number or a label. */
+.statusbar .status-item.status-mark, .statusbar .status-item.status-conn, .statusbar .status-controls { flex: none; }
 .statusbar .status-conn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ask); margin-right: 6px; }
 .statusbar .status-conn[data-state="live"]::before { background: var(--bid); }
-.statusbar .status-venues[data-state="some"], .statusbar .status-mark[data-state="stale"] { color: var(--ask); }
-.statusbar .status-venues[data-state="none"] { color: var(--ask); font-weight: 600; }
-.statusbar .status-save[data-state="off"], .statusbar .status-save[data-state="failed"] { color: var(--ask); }
+.statusbar .status-venues[data-state="some"], .statusbar .status-mark[data-state="stale"] { color: var(--warn); }
+.statusbar .status-venues[data-state="none"] { color: var(--warn); font-weight: 600; }
+.statusbar .status-save[data-state="off"], .statusbar .status-save[data-state="failed"] { color: var(--warn); }
 .statusbar .status-save[data-state="failed"] { font-weight: 600; }
 .statusbar .status-controls { display: inline-flex; align-items: center; gap: 6px; }
 .statusbar .status-controls button { padding: 0 6px; min-height: 20px; font-size: 11px; }
+.statusbar .status-controls .led-btn { padding-left: 18px; }
+.statusbar .status-controls .led-btn::before { left: 6px; }
 .chip.more-chip { color: var(--muted); border-style: dashed; }
 .toolbar .status { font-size: 11px; color: var(--muted); }
 .toolbar .status::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ask); margin-right: 6px; }
@@ -43,6 +114,8 @@ button.on { background: var(--text); color: var(--bg); border-color: var(--text)
 .seg button { border-radius: 0; margin-left: -1px; }
 .seg button:first-child { border-radius: var(--radius) 0 0 var(--radius); margin-left: 0; }
 .seg button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+/* The buttons overlap by a pixel, so the next one's edge ran across the keyboard's ring: the focused one lies above its neighbours. */
+.seg button:focus-visible { position: relative; z-index: 1; }
 .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
 .chip { padding: 1px 8px; border-radius: var(--radius); font-size: 11px; }
 .chip.off { color: var(--muted); text-decoration: line-through; background: transparent; }
@@ -50,13 +123,25 @@ button.on { background: var(--text); color: var(--bg); border-color: var(--text)
 /* A venue this location cannot reach: not a toggle, so it looks like a plain tag with a dashed edge. */
 .chip.blocked { color: var(--muted); border: 1px dashed var(--line); cursor: help; }
 .chip.blocked.faulty { border-color: color-mix(in srgb, var(--ask) 55%, var(--line)); color: var(--ask); }
+/* Drawn marks, in the colour of the text beside them (a typed ⊘ ⚠ … ⓘ looks as its font draws it): refused here, failing, still connecting, information. */
+.chip-mark, .notice-mark { display: inline-block; flex: none; background: currentColor; -webkit-mask: var(--mark) center / contain no-repeat; mask: var(--mark) center / contain no-repeat; }
+.chip-mark { width: 11px; height: 11px; margin-right: 4px; vertical-align: -1px; }
+.notice-mark { width: 14px; height: 14px; }
+.mark-ban { --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='8.5'/%3E%3Cpath d='M6 18L18 6'/%3E%3C/svg%3E"); }
+.mark-warn { --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3.5L21.5 20h-19z'/%3E%3Cpath d='M12 10v4.5M12 17.4h.01'/%3E%3C/svg%3E"); }
+.mark-wait { --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h.01M12 12h.01M19 12h.01'/%3E%3C/svg%3E"); }
+.mark-info { --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.5M12 7.6h.01'/%3E%3C/svg%3E"); }
+.notice-mark.mark-ban { color: var(--ask); }
+.notice-mark.mark-info { color: var(--ui); }
 .blocked-chips:empty { display: none; }
 .toolbar .notice { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: var(--radius); font-size: 12px; border: 1px solid color-mix(in srgb, var(--ask) 45%, var(--line)); background: color-mix(in srgb, var(--ask) 12%, var(--panel)); }
 .toolbar .notice[hidden] { display: none; }
+/* A notice that only informs (the coin is not on the list) takes the theme's accent; one that reports a fault keeps the warning colour. */
+.notice.info { border-color: color-mix(in srgb, var(--ui) 45%, var(--line)); background: color-mix(in srgb, var(--ui) 12%, var(--panel)); }
 .toolbar .notice-close { margin-left: auto; width: 24px; height: 22px; --cross: 9px; }
 .venue-list .blocked { color: var(--ask); }
 .seg.scope.inert { opacity: .6; }
-.seg.scope button.on { background: var(--ui); border-color: var(--ui); color: #fff; }
+.seg.scope button.on { background: var(--ui); border-color: var(--ui); color: var(--on-ui, #fff); }
 
 main { --side-w: 420px; --flow-w: 300px; display: grid; grid-template-columns: var(--flow-w) 6px minmax(0, 1fr) 6px var(--side-w); min-height: 0; }
 .chart-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -84,6 +169,11 @@ main { --side-w: 420px; --flow-w: 300px; display: grid; grid-template-columns: v
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6.5'/%3E%3Cpath d='M12 2v4M12 18v4M2 12h4M18 12h4'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='6.5'/%3E%3Cpath d='M12 2v4M12 18v4M2 12h4M18 12h4'/%3E%3C/svg%3E") center / contain no-repeat; }
 .pane.heat .map-recenter:hover, .pane.heat .map-select:hover, .pane.heat .map-goto:hover { background: var(--panel); }
+/* On a window this narrow the three buttons over the top right of the map would hide the title and the figures beside it: they shrink to their drawings. */
+@media (max-width: 1560px) {
+  html[data-layout="desktop"] .pane.heat .map-tools :is(.map-goto, .map-select, .map-recenter) { font-size: 0; gap: 0; padding: 0 7px; }
+  html[data-layout="desktop"] .pane.heat .map-tools .map-select { padding-left: 21px; }
+}
 .pane.ladder { flex: 1 1 auto; }
 .pane.cvd { flex: 1 1 auto; }
 .cvd-wrap { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
@@ -98,9 +188,19 @@ main { --side-w: 420px; --flow-w: 300px; display: grid; grid-template-columns: v
 .cvd-notice-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .cvd-notice-btn { flex: 0 0 auto; white-space: nowrap; }
 .cvd-wrap canvas { position: absolute; left: 0; top: 0; display: block; }
+.cvd-wrap canvas.cvd-flash { pointer-events: none; }
 .pane.cvd .cvd-span-select { display: none; }
 .pane.cvd .pane-head .cvd-gear { margin-left: auto; }
 .pane.cvd .pane-head .help { margin-left: 4px; }
+/* On the desktop the title and its "?" share the first line with the gear at the end of it, and the span buttons take the second line whole
+   (a phone swaps the buttons for a select). */
+html[data-layout="desktop"] .pane.cvd .pane-head strong { order: 0; }
+html[data-layout="desktop"] .pane.cvd .pane-head button.help { order: 1; margin-left: 0; }
+html[data-layout="desktop"] .pane.cvd .pane-head .cvd-gear { order: 2; margin-left: auto; }
+html[data-layout="desktop"] .pane.cvd .pane-head .cvd-seg { order: 3; flex: 1 1 100%; }
+html[data-layout="desktop"] .pane.cvd .pane-head .cvd-seg button { flex: 1 1 0; }
+/* The book's Recenter sits at the end of the first line, beside the title and the "?", not alone on the last one. */
+.pane.ladder .pane-head .recenter-btn { margin-left: auto; }
 .pane > canvas { flex: 1 1 auto; width: 100%; min-height: 0; display: block; }
 
 .pane-head { display: flex; align-items: center; gap: 10px; min-height: 26px; padding: 2px 10px; flex: 0 0 auto; flex-wrap: wrap; border-bottom: 1px solid var(--line); font-size: 11px; }
@@ -112,6 +212,8 @@ main { --side-w: 420px; --flow-w: 300px; display: grid; grid-template-columns: v
 .pane-head .readout b { color: var(--text); }
 .pane-head .readout b.bid { color: var(--bid); }
 .pane-head .readout b.ask { color: var(--ask); }
+/* Six controls fill this header: its figures (Bid, Ask, imbalance) take a line under them instead of the sliver that is left. */
+html[data-layout="desktop"] .pane.lt .pane-head .readout { flex: 1 0 100%; order: 9; padding-bottom: 2px; }
 .ctl { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .ctl[hidden] { display: none; }
 .ctl select, .pane-head button { padding: 1px 6px; font-size: 11px; }
@@ -134,6 +236,8 @@ pre.fatal { position: fixed; inset: 20px; color: var(--ask); white-space: pre-wr
 .splitter::after { content: ""; position: absolute; inset: -3px; }
 .grip { cursor: grab; touch-action: none; color: var(--muted); user-select: none; margin-right: -4px; font-size: 14px; line-height: 1; position: relative; z-index: 6; /* above a splitter's wider touch zone, which would otherwise take the touch */ }
 .pane.moving { box-shadow: inset 0 0 0 2px var(--muted); }
+/* A pane's grip: two columns of three dots, drawn (a typed braille character looks as its font draws it). */
+.pane-head > .grip { box-sizing: content-box; flex: none; width: 10px; height: 15px; background: radial-gradient(circle, currentColor 1.2px, transparent 1.6px) 0 0 / 5px 5px; background-origin: content-box; background-clip: content-box; }
 .ladder-scroll { flex: 1 1 auto; min-height: 0; overflow-x: auto; overflow-y: hidden; }
 .ladder-scroll canvas { display: block; }
 .pane .popover { position: absolute; z-index: 20; background: var(--panel); border: 1px solid var(--muted); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 4px; box-shadow: 3px 3px 0 var(--shadow); max-height: 70%; overflow: auto; }
@@ -149,13 +253,13 @@ pre.fatal { position: fixed; inset: 20px; color: var(--ask); white-space: pre-wr
 dialog.venues h3 { cursor: grab; touch-action: none; user-select: none; }
 /* The coin picker: a search over the coin list, one row per coin (name, markets, 24 h volume). */
 .coin-btn { font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
-.coin-btn::after { content: ' ▾'; font-weight: 400; opacity: .7; }
+.coin-btn::after { content: ""; display: inline-block; width: 0; height: 0; margin-left: 6px; vertical-align: 2px; border: 4px solid transparent; border-top-color: currentColor; border-bottom-width: 0; opacity: .7; }
 dialog.coins { width: min(420px, 92vw); }
 dialog.coins input[type=search] { width: 100%; box-sizing: border-box; margin: 8px 0 6px; }
 .coin-list { display: flex; flex-direction: column; max-height: min(52vh, 460px); overflow-y: auto; margin: 0 0 8px; }
 .coin-row { display: grid; grid-template-columns: 1fr auto 5.5em; gap: 12px; align-items: center; text-align: left; border: 0; border-radius: 0; background: none; padding: 5px 6px; }
-.coin-row:hover, .coin-row:focus-visible { background: var(--hover, rgba(127, 127, 127, .14)); }
-.coin-row.on { background: var(--line); }
+.coin-row:hover, .coin-row:focus-visible { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.coin-row.on { background: color-mix(in srgb, var(--ui) 16%, var(--panel)); color: var(--text); font-weight: 650; }
 .coin-name { font-weight: 600; }
 .coin-volume { text-align: right; }
 dialog.coins p { margin: 4px 0; max-width: 46ch; }
@@ -182,7 +286,7 @@ dialog.coins p { margin: 4px 0; max-width: 46ch; }
 .author-card { display: flex; align-items: center; gap: 12px; }
 .author-card strong { font-size: 15px; }
 .author-card p { margin: 2px 0 0; color: var(--muted); }
-.avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--text); color: var(--bg); font: 700 20px/1 ui-sans-serif, system-ui, sans-serif; flex: 0 0 auto; }
+.avatar { width: 44px; height: 44px; border-radius: var(--radius); display: grid; place-items: center; background: var(--text); color: var(--bg); font: 700 20px/1 ui-sans-serif, system-ui, sans-serif; flex: 0 0 auto; }
 .author-body .lead { margin: 4px 0 0; font-size: 13px; line-height: 1.5; }
 .author-body .fine { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
 .author-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
@@ -194,15 +298,15 @@ dialog.coins p { margin: 4px 0; max-width: 46ch; }
 dialog.shot { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; overflow: hidden; color: #f2f4f7; font: 12px/1.35 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
 dialog.shot::backdrop { background: transparent; }
 .shot-stage { position: absolute; left: 0; top: 0; display: block; touch-action: none; }
-.shot-hint { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; text-align: center; text-shadow: 0 2px 18px rgba(0, 0, 0, .55); }
+.shot-hint { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; text-align: center; text-shadow: 2px 2px 0 rgba(0, 0, 0, .45); }
 .shot-hint[hidden] { display: none; }
 .shot-hint strong { font-size: clamp(28px, 4.4vw, 58px); font-weight: 700; letter-spacing: .01em; color: #fff; }
 .shot-hint span { font-size: 13px; color: rgba(255, 255, 255, .78); }
-.shot-bar { position: absolute; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; max-width: calc(100vw - 16px); padding: 6px; border-radius: var(--radius); background: rgba(22, 25, 31, .94); border: 1px solid rgba(255, 255, 255, .1); box-shadow: 3px 3px 0 var(--shadow); backdrop-filter: blur(12px); }
+.shot-bar { position: absolute; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; max-width: calc(100vw - 16px); padding: 6px; border-radius: var(--radius); background: rgba(22, 25, 31, .94); border: 1px solid rgba(255, 255, 255, .1); box-shadow: 3px 3px 0 var(--shadow); }
 .shot-bar[hidden] { display: none; }
 .shot-group { display: flex; align-items: center; gap: 2px; padding: 0 6px; border-left: 1px solid rgba(255, 255, 255, .12); }
 .shot-group:first-child { border-left: 0; padding-left: 0; }
-.shot-group[hidden] { display: none; }
+.shot-group[hidden], .shot-bar [hidden] { display: none; }
 .shot-label { color: rgba(255, 255, 255, .6); font-size: 11px; margin-right: 6px; }
 .shot-group input[type=range] + .shot-label { margin-left: 6px; }
 .shot-toggle { height: 28px; padding: 0 8px; border-radius: var(--radius); color: #e6e9ee; font-size: 11px; white-space: nowrap; background: rgba(255, 255, 255, .08); }
@@ -211,7 +315,7 @@ dialog.shot::backdrop { background: transparent; }
 .shot-bar button { font: inherit; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .shot-btn { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: var(--radius); color: #e6e9ee; }
 .shot-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .12); }
-.shot-btn.on { background: #4da3ff; color: #06101f; }
+.shot-btn.on, .shot-btn.on:hover:not(:disabled) { background: #4da3ff; color: #06101f; }
 .shot-btn:disabled { opacity: .3; cursor: default; }
 .shot-dot { width: 22px; height: 22px; padding: 0; border-radius: 50%; display: grid; place-items: center; }
 .shot-dot::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 0 1px rgba(255, 255, 255, .35) inset; }
@@ -223,13 +327,24 @@ dialog.shot::backdrop { background: transparent; }
 .shot-primary { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px 0 10px; border-radius: var(--radius); background: #4da3ff !important; color: #06101f !important; font-weight: 650 !important; }
 .shot-primary:hover { background: #7ab8ff !important; }
 .shot-close:hover:not(:disabled) { background: rgba(255, 69, 58, .85); color: #fff; }
-.shot-text { position: absolute; min-width: 140px; padding: 0 3px; margin: 0; border: 1px dashed rgba(255, 255, 255, .8); border-radius: var(--radius); background: rgba(0, 0, 0, .18); outline: none; text-shadow: 0 0 3px rgba(0, 0, 0, .55); }
+/* The GIF: its length and what the area makes, Record and Stop in a red that keeps white text readable, the progress of a recording, and the finished GIF playing over its area. */
+.shot-value { color: #f2f4f7; font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 30px; margin-left: 6px; }
+.shot-wide { min-width: 150px; }
+.shot-note { color: rgba(255, 255, 255, .62); font-size: 11px; margin: 0 8px; white-space: nowrap; }
+.shot-primary.shot-rec { background: #d70015 !important; color: #fff !important; }
+.shot-primary.shot-rec:hover { background: #f0263a !important; }
+.shot-progress { position: relative; display: block; width: 120px; height: 6px; margin: 0 4px 0 2px; overflow: hidden; background: rgba(255, 255, 255, .14); }
+.shot-progress-fill { position: absolute; inset: 0; background: #ff453a; transform-origin: 0 50%; transform: scaleX(0); }
+.shot-preview { position: absolute; display: block; pointer-events: none; }
+.shot-preview[hidden] { display: none; }
+.shot-text { position: absolute; min-width: 140px; padding: 0 3px; margin: 0; border: 1px dashed rgba(255, 255, 255, .8); border-radius: var(--radius); background: rgba(0, 0, 0, .18); outline: none; text-shadow: 1px 1px 0 rgba(0, 0, 0, .55); }
 .toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 400; max-width: min(92vw, 460px); padding: 11px 16px; border-radius: var(--radius); background: var(--text); color: var(--bg); font-size: 13px; line-height: 1.4; box-shadow: 3px 3px 0 var(--shadow); }
 .shot-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); padding: 9px 16px; border-radius: var(--radius); background: rgba(22, 25, 31, .95); color: #f2f4f7; font-size: 12.5px; box-shadow: 3px 3px 0 var(--shadow); z-index: 500; animation: shot-toast 2.4s ease both; }
 @keyframes shot-toast { 0% { opacity: 0; transform: translate(-50%, 8px); } 12%, 82% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
 
 /* The guide (guide/guide.ts): contents on the left, text and moving pictures on the right. */
-button.guide-btn { border-color: var(--text); font-weight: 600; }
+/* The Guide is told apart by its bold label alone: a lasting outline looked held and left it no hover (Karl, 2026-10-17). */
+button.guide-btn { font-weight: 600; }
 dialog.guide { width: min(1180px, 96vw); height: min(860px, 93vh); max-width: none; max-height: none; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text); overflow: hidden; box-shadow: 3px 3px 0 var(--shadow); }
 dialog.guide[open] { display: grid; grid-template-rows: auto minmax(0, 1fr); }
 dialog.guide::backdrop { background: rgba(8, 10, 14, .5);  }
@@ -246,7 +361,7 @@ dialog.guide::backdrop { background: rgba(8, 10, 14, .5);  }
 .guide-link .num, .guide-section h2 .num { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; background: color-mix(in srgb, var(--text) 8%, transparent); font-size: 10.5px; font-weight: 650; color: var(--muted); }
 .guide-link:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
 .guide-link.on { background: color-mix(in srgb, var(--ui) 14%, transparent); color: var(--text); font-weight: 600; }
-.guide-link.on .num { background: var(--ui); color: #fff; }
+.guide-link.on .num { background: var(--ui); color: var(--on-ui, #fff); }
 .guide-scroll { overflow-y: auto; scroll-behavior: auto; scrollbar-width: thin; padding: 6px 0 60px; }
 .guide-article { max-width: 780px; margin: 0 auto; padding: 0 36px; }
 .guide-section { padding-top: 26px; }
@@ -258,7 +373,7 @@ dialog.guide::backdrop { background: rgba(8, 10, 14, .5);  }
 .guide-section kbd, .keys-list kbd { display: inline-block; min-width: 20px; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--radius); background: color-mix(in srgb, var(--text) 5%, var(--panel)); font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; }
 .guide-section code { padding: 1px 5px; border-radius: var(--radius); background: color-mix(in srgb, var(--text) 7%, transparent); font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .guide-section .note { display: block; margin: 14px 0; padding: 11px 14px; border-left: 3px solid var(--ui); border-radius: 0 var(--radius) var(--radius) 0; background: color-mix(in srgb, var(--ui) 8%, transparent); font-size: 13px; line-height: 1.6; }
-.guide-section .note.warn { border-left-color: #f5a524; background: color-mix(in srgb, #f5a524 11%, transparent); }
+.guide-section .note.warn { border-left-color: var(--caution); background: color-mix(in srgb, var(--caution) 11%, transparent); }
 .guide-section .note b { display: block; margin-bottom: 2px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 table.keys { width: 100%; margin: 4px 0 16px; border-collapse: collapse; font-size: 13.5px; }
 table.keys td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -304,7 +419,7 @@ ol.steps { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 8px; line
 .panel h4 { margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 10px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
 .panel-note { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 /* An exchange's mark (venue-marks.ts) beside its name: its brand colour and monogram, a notch in the corner for a spot market. Drawn, not an image. */
-.venue-mark { display: inline-grid; place-items: center; position: relative; flex: 0 0 auto; vertical-align: -2px; overflow: hidden; border-radius: 2px;
+.venue-mark { display: inline-grid; place-items: center; position: relative; flex: 0 0 auto; vertical-align: -2px; overflow: hidden; border-radius: min(2px, var(--radius));
   background: var(--mark-bg); color: var(--mark-fg); font-style: normal; font-weight: 700; line-height: 1; letter-spacing: -0.02em;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mark-fg) 28%, transparent); }
 .venue-mark::before { content: attr(data-mark); }
@@ -374,11 +489,15 @@ ol.steps { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 8px; line
 .keylevel-grid input[type=checkbox] { margin: 0; width: 15px; height: 15px; accent-color: var(--ui); cursor: pointer; }
 .panel .field { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; align-items: center; padding: 7px 8px; margin: 0 -8px; border-radius: var(--radius); }
 .panel .field > select, .panel .field > input[type=number] { width: 150px; }
+/* A long choice ("Aggregated: every market switched on") does not fit 150 px beside the name: the select takes a line of its own under it. */
+.panel .field.pin-field > select { width: 100%; }
 /* A size (ui.ts sizeRow): the sign, the value box and the menu of common sizes, together as wide as a select. */
 .size-ctl { display: flex; align-items: center; gap: 4px; width: 150px; }
 .size-ctl .size-sign { flex: none; width: 14px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
 .size-ctl .size-value { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
 .size-ctl .size-menu { flex: none; width: 34px; padding-left: 4px; padding-right: 0; }
+/* A typed value was 19 px tall beside a 26 px menu in the same row. */
+:root:not([data-frame="bevel"]) .panel :is(select, input[type="text"], input[type="number"], .size-value) { height: 26px; min-height: 26px; }
 .size-hint { color: var(--warn, var(--muted)); }
 /* The same box in a pane's header (the Liquidity Tracker's Min and Max), as small as the header's selects. */
 .ctl .size-ctl { width: auto; gap: 2px; }
@@ -391,15 +510,15 @@ ol.steps { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 8px; line
 .panel .switch { position: relative; width: 34px; height: 20px; flex: none; }
 .panel .switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
 .panel .switch i { position: absolute; inset: 0; border-radius: var(--radius); background: color-mix(in srgb, var(--text) 22%, transparent); transition: background .15s; }
-.panel .switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 3px 3px 0 var(--shadow); transition: transform .15s; }
+.panel .switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; box-shadow: 3px 3px 0 var(--shadow); transition: transform .15s; }
 .panel .switch input:checked + i { background: var(--ui); }
 .panel .switch input:checked + i::after { transform: translateX(14px); }
 .panel .switch input:focus-visible + i { outline: 2px solid var(--ui); outline-offset: 2px; }
 .panel .seg button { padding: 3px 10px; }
-.panel .seg button.on { background: var(--ui); border-color: var(--ui); color: #fff; }
+.panel .seg button.on { background: var(--ui); border-color: var(--ui); color: var(--on-ui, #fff); }
 .panel .pin-field { grid-template-columns: minmax(0, 1fr); row-gap: 6px; align-items: start; }
-.panel .pin-chip.on { background: var(--ui); border-color: var(--ui); color: #fff; }
-button.open { border-color: var(--ui); box-shadow: 0 0 0 1px var(--ui) inset; }
+.panel .pin-chip.on { background: var(--ui); border-color: var(--ui); color: var(--on-ui, #fff); }
+button.open { border-color: var(--ui); }
 .panel .sortable { display: grid; gap: 3px; margin-top: 8px; }
 .panel .srow { display: grid; grid-template-columns: 18px 16px minmax(0, 1fr) 26px; align-items: center; gap: 6px; padding: 4px 6px 4px 4px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); transition: transform .14s ease, box-shadow .14s ease, border-color .14s; }
 .panel .srow b { font-weight: 600; }
@@ -419,22 +538,40 @@ button.open { border-color: var(--ui); box-shadow: 0 0 0 1px var(--ui) inset; }
 .menu-item.plain { grid-template-columns: minmax(0, 1fr) 14px; }
 .menu-item:disabled { opacity: .45; cursor: default; }
 .menu-title { display: none; }
-.menu-item .tick { color: var(--ui); font-weight: 700; }
+.menu-item .tick { color: var(--ui); }
+/* The chosen row's tick is a drawn check, 1em of the row's text (the Bevel frame draws its own on a tick that has no size of its text). */
+.menu-item.current .tick::before { content: ""; display: block; width: 1em; height: 1em; margin: 0 auto; background: currentColor; -webkit-mask: var(--mark-check) center / contain no-repeat; mask: var(--mark-check) center / contain no-repeat; }
 .swatch { display: inline-flex; border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); border-radius: var(--radius); overflow: hidden; }
 .swatch i { display: block; width: 11px; height: 16px; }
 .theme-btn { display: inline-flex; align-items: center; gap: 8px; }
 .theme-btn .swatch i { width: 8px; height: 12px; }
-.theme-btn::after { content: "▾"; color: var(--muted); font-size: 10px; }
+.theme-btn::after { color: var(--muted); }
 
 /* The lamp of a button that switches a feature on (Trades, Absorption, Highlights, Sound, the colour range's Auto): lit while it is on. */
+/* A split button (toolbar.ts `splitButton`): the switch and its settings key joined as one control, each with a hover and a press of its own.
+   The key is a fixed width and the pair never changes size as the feature goes on or off. */
+.split { display: inline-flex; align-items: stretch; }
+.split > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split > .split-cfg { position: relative; flex: none; width: 22px; margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+/* The gear is centred on the key whatever padding a frame gives the bar's buttons. */
+.split > .split-cfg::before { content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); background: currentColor; -webkit-mask: var(--mark-settings) center / contain no-repeat; mask: var(--mark-settings) center / contain no-repeat; }
+.split > :hover, .split > :focus-visible, .split > .open { z-index: 1; }
+.split > button:first-child:is(:hover, :focus-visible, .open) { position: relative; }
+/* In the bar a split button is as narrow as it reads, so the console keeps one row from 1600 px with the Chart deck's eight keys. */
+.toolbar.cockpit .split > .split-cfg { width: 16px; }
+.toolbar.cockpit .split > .split-cfg::before { width: 10px; height: 10px; }
+.toolbar.cockpit .split > .led-btn { padding-left: 17px; padding-right: 4px; }
+.toolbar.cockpit .split > .led-btn::before { left: 5px; }
+html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; }
 .led-btn { position: relative; padding-left: 22px; }
-.led-btn::before { content: ""; position: absolute; left: 8px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--muted); opacity: .55; transition: background .2s, box-shadow .2s; }
+.led-btn::before { content: ""; position: absolute; left: 8px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--edge); opacity: 1; transition: background .2s, box-shadow .2s; }
 .led-btn[data-state="on"]::before { background: var(--bid); opacity: 1; }
+/* Held sound is a caution, not a failure: amber, never the sell colour (theme.ts CAUTION). */
 .sound-btn[data-state="locked"]::before { background: #e6a700; opacity: 1; }
 .sound-btn.flash::before { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bid) 35%, transparent); }
 .sound-state { font-size: 11px; color: var(--muted); }
 .sound-state[data-state="on"] { color: var(--bid); }
-.sound-state[data-state="locked"] { color: #b88700; }
+.sound-state[data-state="locked"] { color: var(--caution); }
 .panel .tier-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -8px; border-radius: var(--radius); }
 .panel .tier-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .panel .tier-name { display: grid; grid-template-columns: 18px auto; column-gap: 9px; align-items: center; cursor: pointer; }
@@ -444,6 +581,10 @@ button.open { border-color: var(--ui); box-shadow: 0 0 0 1px var(--ui) inset; }
 .panel .tier-usd input { width: 92px; }
 .panel .tier-test { display: inline-flex; gap: 4px; }
 .panel .tier-test button { padding: 2px 8px; font-size: 11px; }
+/* The triangle before Buy and Sell is drawn, not typed into the word. */
+.panel .tier-test button.tier-buy::before, .panel .tier-test button.tier-sell::before { content: ""; display: inline-block; width: 0; height: 0; margin-right: 5px; vertical-align: 1px; border-left: 4px solid transparent; border-right: 4px solid transparent; }
+.panel .tier-test button.tier-buy::before { border-bottom: 6px solid currentColor; }
+.panel .tier-test button.tier-sell::before { border-top: 6px solid currentColor; }
 
 /* The keyboard shortcuts list (toolbar.ts openShortcuts). */
 .keys-list h4 { margin: 10px 0 4px; }
@@ -464,8 +605,9 @@ button.open { border-color: var(--ui); box-shadow: 0 0 0 1px var(--ui) inset; }
 .pane.heat .map-goto::before { content: ""; width: 13px; height: 13px; background: currentColor;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='5' width='18' height='16'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Crect x='3' y='5' width='18' height='16'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E") center / contain no-repeat; }
-.goto-row { display: flex; gap: 6px; }
-.goto-time { flex: 1; min-width: 0; padding: 3px 6px; font: inherit; }
+.goto-row { display: flex; flex-wrap: wrap; gap: 6px; }
+/* The date and time take a line whole (beside two buttons it lost its "PM"); the buttons sit under it. */
+.goto-time { flex: 1 1 100%; min-width: 0; padding: 3px 6px; font: inherit; }
 /* The replay bar (replay/bar.ts): on the map, above its time axis. */
 .pane.heat .replay-bar { position: absolute; z-index: 3; left: 8px; bottom: 30px; display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 11px; color: var(--text); background: var(--face, var(--panel)); border-radius: var(--radius); box-shadow: inset 1px 1px 0 var(--hi, transparent), inset -1px -1px 0 var(--lo, transparent), 2px 2px 0 var(--shadow); }
 .pane.heat .replay-bar[hidden] { display: none; }

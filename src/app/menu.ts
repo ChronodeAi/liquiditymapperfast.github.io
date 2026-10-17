@@ -28,7 +28,7 @@ export function openMenu(anchor: HTMLElement, items: readonly MenuItem[], curren
   const rows = items.map(item => {
     const isCurrent = item.id === current;
     const swatch = item.swatch ? [el('span', { class: 'swatch' }, ...item.swatch.map(color => { const dot = el('i'); dot.style.background = color; return dot; }))] : [];
-    const row = el('button', { type: 'button', class: (isCurrent ? 'menu-item current' : 'menu-item') + (swatch.length ? '' : ' plain'), role: 'option', disabled: item.disabled === true }, ...swatch, el('span', { class: 'label', textContent: item.label }), el('span', { class: 'tick', textContent: isCurrent ? '✓' : '' }));
+    const row = el('button', { type: 'button', class: (isCurrent ? 'menu-item current' : 'menu-item') + (swatch.length ? '' : ' plain'), role: 'option', disabled: item.disabled === true }, ...swatch, el('span', { class: 'label', textContent: item.label }), el('span', { class: 'tick' }));
     row.setAttribute('aria-selected', String(isCurrent)); row.dataset.id = item.id;
     row.onpointerenter = () => handlers.onPreview(item.id);
     row.onfocus = () => handlers.onPreview(item.id);
@@ -64,7 +64,15 @@ export function openMenu(anchor: HTMLElement, items: readonly MenuItem[], curren
   }
   root.onpointerleave = () => handlers.onPreview(null);
   anchor.classList.add('open'); scrim.sync(); place();
+  // A preview restyles the whole page, and another frame's rows are taller or shorter: the list grew past the window's edge (the last themes
+  // vanished while the pointer was on it, Karl 2026-10-17) and its rows slid under a still pointer, previewing a neighbour. The menu keeps
+  // the sizes it opened with, so a preview changes colours and type, never where a row is.
+  for (const row of rows) { const h = `${row.offsetHeight}px`; Object.assign(row.style, { height: h, minHeight: h, maxHeight: h, paddingTop: '0', paddingBottom: '0' }); }
+  if (!compactBar()) Object.assign(root.style, { boxSizing: 'border-box', width: `${root.offsetWidth}px`, height: `${root.offsetHeight}px` });
   document.addEventListener('pointerdown', onPointer, true); document.addEventListener('keydown', onKey, true); window.addEventListener('resize', place);
-  rows[Math.max(0, items.findIndex(item => item.id === current))]?.focus({ preventScroll: true });
+  const chosen = rows[Math.max(0, items.findIndex(item => item.id === current))];
+  chosen?.focus({ preventScroll: true });
+  // A list cut to the window (the theme list is taller than a short one) scrolls to the chosen row, so a person can see where they are.
+  chosen?.scrollIntoView({ block: 'nearest' });
   return { close };
 }

@@ -48,6 +48,15 @@ export const valueAreaKey = (ids: readonly string[], step: number, share: number
 /** The perpetuals whose open interest is added together with every venue on (market-choice.ts). */
 export { oiVenueIds } from './market-choice.ts';
 
+/**
+ * The market the page starts on: Binance's perpetual, the most liquid of the venues, where the page reads one (Karl, 2026-10-17: not
+ * Hyperliquid's, which only came first in the venue list); else the reference price's market, else the first.
+ */
+export function defaultMarket(markets: readonly { instrumentId?: string; venue?: string; marketType?: string }[], reference: string): string {
+  const binance = markets.find(m => m.venue === 'binance' && m.marketType === 'perpetual' && m.instrumentId);
+  return binance?.instrumentId || reference || markets[0]?.instrumentId || '';
+}
+
 export class Hub {
   readonly worker: Worker;
   #ready: Promise<void>;
@@ -251,7 +260,7 @@ export class Hub {
   async start(): Promise<void> {
     const boot = await this.source.bootstrap();
     if (Number.isFinite(boot.now) && boot.now > 0) this.#sourceSkew = Date.now() - boot.now;
-    const marketId = this.store.state.marketId || boot.markInstrumentId || boot.markets[0]?.instrumentId || '';
+    const marketId = this.store.state.marketId || defaultMarket(boot.markets, boot.markInstrumentId);
     this.#noteRecorded(boot.recorded);
     this.#reference = boot.markInstrumentId; this.#oiReferences = boot.oiReferences ?? [];
     this.store.set({ markets: boot.markets, marketId, mark: { price: boot.markPrice, asOf: boot.asOf }, layers: boot.layers ?? {} });
@@ -304,7 +313,7 @@ export class Hub {
     const { markets, marketId } = this.store.state;
     if (key(boot.markets) === key(markets)) return;
     const gone = marketId !== '' && !boot.markets.some(m => m.instrumentId === marketId);
-    this.store.set({ markets: boot.markets, ...(gone ? { marketId: boot.markInstrumentId || boot.markets[0]?.instrumentId || '' } : {}) });
+    this.store.set({ markets: boot.markets, ...(gone ? { marketId: defaultMarket(boot.markets, boot.markInstrumentId) } : {}) });
   }
 
   #tick(tick: TickMessage): void {

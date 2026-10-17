@@ -1,9 +1,8 @@
-import { TIMEFRAMES, type Hub } from '../hub.ts';
-import type { AppState, CandleRow, Store } from '../store.ts';
+import type { Hub } from '../hub.ts';
+import type { AppState, Store } from '../store.ts';
 import type { Kernels } from '../kernels.ts';
-import { FootprintData, imbalance, volText, type Bar } from './footprint.ts';
+import { volText } from './footprint.ts';
 import { groupLevels, type Grouped } from './levels-data.ts';
-import { barPieces, rankVenues } from './ladder-pieces.ts';
 import { setText } from './lower-panes.ts';
 import { activeIds } from '../scope.ts';
 import { PALETTES, mixHex, resolveThemeId, rgb, textOn, type Palette } from '../theme.ts';
@@ -11,18 +10,16 @@ import { t } from '../i18n.ts';
 import { helpButton } from '../help.ts';
 import { el } from '../dom.ts';
 import { GestureRecognizer, bindTouch } from '../touch.ts';
-import { pageNow, replaying } from '../replay/clock.ts';
+import { replaying } from '../replay/clock.ts';
 import { price as fmtPrice } from '../format.ts';
 import { scaledUsd } from '../coin.ts';
 import { drawVenueMark } from '../venue-marks.ts';
 import { niceStep } from '../view.ts';
 import { STRIDE, type TapeRing } from '../tape/ring.ts';
-import { TrailGL, type FlashSprite } from '../candle/trail-gl.ts';
+import { ROW_TEXELS, TrailGL, type FlashSprite } from '../candle/trail-gl.ts';
 import * as M from '../candle/model.ts';
-import type { CoverageAnswer } from '../../shared/coverage.ts';
-import type { RecoveryReport } from '../../shared/engine.ts';
 
-const NUM_FONT = '10.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+const NUM_FONT = '10.5px ui-monospace, SFMono-Regular, Menlo, monospace', BOLD_NUM = `700 ${NUM_FONT}`;
 const SMALL_FONT = '10px ui-sans-serif, system-ui, sans-serif';
 /** How long an arrival keeps its tick on the rail (ms), after its flash has gone. */
 const RAIL_MS = 2_500;
@@ -30,36 +27,25 @@ const RAIL_MS = 2_500;
 const PAINT_MS = 50;
 /** The most exchange marks in the trail at once (its newest whale-sized orders). */
 const MAX_TRAIL_MARKS = 10;
-/** How often the candle's own bars are asked for again; between answers the price moves the forming one. */
-const CANDLES_MS = 15_000;
-/** How often the markets' coverage is asked for again while the view shows (and at once after a recovery). */
-const COVERAGE_MS = 3_000;
-/** How long after the view opens, or the page comes back, a recovery starts: the feeds reconnect first, and the gap ends where they do. */
-const RECOVER_OPEN_MS = 800, RECOVER_RETURN_MS = 1_500;
-
-/** The forming bar as drawn: open, high, low and close. */
-interface Ohlc { t: number; o: number; h: number; l: number; c: number }
 
 /**
- * The phone's Candle view (a tab of its own, see dock.ts): the candle under way for the view's own timeframe filling the screen's price
- * axis, its footprint inside it, the live book on both sides, the price line, the arrival rail where large orders flash as they come in,
- * and behind all of it the trade trail of the last seconds (candle/trail-gl.ts) flowing from the rail to the left edge. Every column and
- * scale is worked out in candle/model.ts.
+ * The phone's Tape view (a tab of its own, see dock.ts; it was the Candle view until 2026-10-17): one continuous tape of the market since
+ * the page opened, filling the screen's price axis, the live book on both sides, the price line, the arrival rail where large orders flash
+ * as they come in, and behind all of it the trade trail of the last seconds (candle/trail-gl.ts) flowing from the rail to the left edge.
+ * Every column and scale is worked out in candle/model.ts.
  *
- * What it reads is what the page already holds: the tape ring of the trade dust (asked for while this view is shown), the footprint of the
- * markets the map's footprint counts (its own FootprintData, one bar), the live levels frame, and the chart market's bars of the view's
- * timeframe. It does nothing while it is not shown: no drawing, no requests, no timers.
+ * The middle column is the tape: every market order the page has received since it opened (candle/model.ts `TapeTally`), bought against
+ * sold at each price, for the markets the map's footprint counts. Nothing is fetched and nothing resets (Karl, 2026-10-17: the page opens
+ * at once, and a bar that starts again every minute broke the flow); a page that was hidden got no orders meanwhile, and the header says
+ * how long that was. The tape is kept whether the view shows or not; drawing, timers and asking happen only while it shows.
  *
  * Venues: the small orders stay anonymous dots; an order from the Bar stats' whale size up carries its exchange's mark beside it in the
  * trail, fading with it, and the largest flashes on the rail show the mark of the exchange that sent them for a moment. They are drawn on
- * a canvas of their own between the trail and the book, at the trail's pace, so the book and the candle are not redrawn for them.
- *
- * Coverage (shared/coverage.ts): the footprint counts every market the map's footprint counts, but judges (the imbalance colours, the point
- * of control) only over the markets whose trades were recorded without a break since the bar opened, live or recovered (`coveredMarkets`).
- * The other markets' part of each row is drawn on, faint and neutral, and the header says how many of the markets are fully covered. On
- * open and on return from the background the view asks the source to recover the bar's missing trades from the venues' history, then the
- * bar before (shared/recovery.ts); recovered trades never flash or sound (the rail and the trail are the live trade dust's alone).
+ * a canvas of their own between the trail and the book, at the trail's pace, so the book and the tape are not redrawn for them.
  */
+/** A palette's colours as the trail's renderer takes them (0-1 RGB). */
+interface RendererTones { p: Palette; bid: [number, number, number]; ask: [number, number, number]; mid: [number, number, number]; bookBid: [number, number, number]; bookAsk: [number, number, number] }
+
 export class CandlePane {
   readonly root = el('div', { class: 'pane candle' });
   readonly header: HTMLElement;
@@ -68,48 +54,42 @@ export class CandlePane {
   #marks = el('canvas', { class: 'candle-marks' });
   #canvas = el('canvas', { class: 'candle-fg' });
   #ctx: CanvasRenderingContext2D; #marksCtx: CanvasRenderingContext2D;
-  /** The glass's rectangle as the candle was last drawn (CSS px), for the trail's frosted part. */
-  #glassRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
-  #trail: TrailGL | null = null; #trailFailed = false; #trailRing: TapeRing | null = null;
+  /** The stretches of the column frosted milky on the glass (CSS px): none for the tape, which shows what the page has received. */
+  #frost: { y0: number; y1: number }[] = [];
+  /** The book's rows per device row for the glass (trail-gl.ts `setRows`: the bars, their pulses, the bars before), reused; and whether the glass holds any. */
+  #brickRows = new Float32Array(0); #rowsLive = false;
+  /**
+   * Liquidity added and pulled per row (candle/model.ts `PulseTracker`), fed once per levels frame (`#pulseAsOf`) on the row step it was
+   * started for; the price's path over the last window, for the rows it passed; and the clock the glass's pulses are timed on.
+   */
+  #pulses = new M.PulseTracker(); #pulseStep = 0; #pulseAsOf = 0; #pulseBase = performance.now(); #pulseBooks = '';
+  #markPath: { t: number; price: number }[] = [];
+  /** The trail's renderer; whether it cannot run here (no WebGL2), or its context is lost until the browser gives it back. */
+  #trail: TrailGL | null = null; #trailFailed = false; #trailLost = false; #trailRing: TapeRing | null = null;
   #readout = el('span', { class: 'readout' });
   #settings: M.CandleSettings;
-  #fp = new FootprintData();
-  #candles: CandleRow[] = []; #candleKey = ''; #candleAt = 0; #candleBusy = false;
-  /** The extremes the price reached in the forming bar between answers, so a high is not lost until the next one. */
-  #live: Ohlc | null = null;
+  /** The tape since the page opened, how far into the ring it has read, and what it missed while the page was hidden (no orders came meanwhile). */
+  #tape = new M.TapeTally(Date.now()); #tapeSeen = 0; #gaps = new M.TapeGaps(Date.now(), document.hidden);
   #palette: Palette = PALETTES.dark!;
   #w = 0; #h = 0; #dpr = 1;
-  #shown = false; #frame = 0; #paintTimer = 0; #lastPaint = 0; #trailTimer = 0; #trailRaf = 0; #trailChain = 0; #trailDue = 0; #tick = 0;
+  #shown = false; #frame = 0; #paintTimer = 0; #lastPaint = 0; #trailRaf = 0; #trailTimer = 0; #trailChain = 0; #trailDrawn = 0; #trailDirty = false; #marksDrawn = false;
   #zoom = 1; #zoom0 = 1; #pan = 0;
   #layout: M.CandleLayout | null = null; #scale: M.PriceScale | null = null; #step = 0;
   /** The book's venues in a held order (most liquidity in view first), kept for a minute so a venue's piece keeps its place. */
-  #order: { key: string; ids: string[]; at: number } | null = null;
   #maskKey = '';
   #reduced = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
-  /** The markets' trade coverage over the bar and the one before (null: none yet, or a source that cannot say), what it was asked for, and when. */
-  #coverage: CoverageAnswer | null = null; #coverageKey = ''; #coverageAt = 0; #coverageBusy = false;
-  /** A recovery from the venues' history: due (its timer), under way, and asked for again while under way. */
-  #recoverTimer = 0; #recovering = false; #recoverAgain = false;
-  /** What the last few recoveries did (pages, rows, what stopped them, each market's gaps and what of them was filled), newest last, for a look from the console. */
-  readonly recoveries: RecoveryReport[] = [];
 
   constructor(parent: HTMLElement, private store: Store, private hub: Hub, private kernels: Kernels, private markets: (state: AppState) => string[]) {
     let saved: unknown = null;
     try { saved = JSON.parse(window.localStorage.getItem(M.CANDLE_SETTINGS_KEY) ?? 'null'); } catch { saved = null; }
     this.#settings = M.readCandleSettings(saved);
-    const s = this.#settings;
-    const select = (label: string, options: [string, string][], value: string, change: (v: string) => void): HTMLLabelElement => {
-      const box = el('select', { onchange: () => change(box.value) });
-      for (const [v, text] of options) box.append(el('option', { value: v, textContent: text }));
-      box.value = value;
-      return el('label', { class: 'ctl' }, label, box);
-    };
+    // A look to try from the address (?rows=delta&pulse=deposit&glass=bricks): a phone has no console. It is kept like a choice in Settings.
+    const asked = new URLSearchParams(location.search), tried: Record<string, string> = {};
+    for (const k of ['rows', 'pulse', 'glass', 'style'] as const) { const v = asked.get(k); if (v) tried[k] = v; }
+    if (Object.keys(tried).length) { this.#settings = M.readCandleSettings({ ...this.#settings, ...tried }); try { window.localStorage.setItem(M.CANDLE_SETTINGS_KEY, JSON.stringify(this.#settings)); } catch { /* storage unavailable */ } }
+    // The header is the readout alone (Karl, 2026-10-17): the view's choices are in Settings (`settingsFields`), so the tape has the screen.
     this.header = el('div', { class: 'pane-head' },
-      el('strong', { textContent: t('Candle') }),
-      select(t('Timeframe'), M.CANDLE_TIMEFRAMES.map(tf => [tf, tf]), s.tf, v => this.#set({ tf: v })),
-      select(t('Look'), [['phosphor', t('Phosphor')], ['etched', t('Etched')], ['beads', t('Beads')]], s.style, v => this.#set({ style: v as M.TrailStyle })),
-      select(t('Trail'), M.TRAIL_WINDOWS.map(ms => [String(ms), ms < 60_000 ? t('{n} s', { n: ms / 1000 }) : t('{n} min', { n: ms / 60_000 })]), String(s.trailMs), v => this.#set({ trailMs: Number(v) })),
-      (() => { const box = el('input', { type: 'checkbox', checked: s.glass, onchange: () => this.#set({ glass: box.checked }) }); return el('label', { class: 'ctl' }, box, t('Glass')); })(),
+      el('strong', { textContent: t('Tape') }),
       helpButton('candlePane'),
       this.#readout);
     this.#body.append(this.#trailCanvas, this.#marks, this.#canvas);
@@ -119,96 +99,112 @@ export class CandlePane {
     new ResizeObserver(() => this.#resize()).observe(this.#body);
     this.#bindGestures();
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden || !this.#shown) return;
-      // Back from the background (a phone suspends the page): what the recording missed meanwhile is asked of the venues' history.
-      this.#refreshCandles(true); this.#refreshCoverage(true); this.invalidate(); this.#scheduleTrail(0); this.#scheduleRecovery(RECOVER_RETURN_MS);
+      // A phone suspends a page in the background and no orders come: the tape has a gap there, which the header owns up to (`TapeGaps`).
+      if (document.hidden) { this.#gaps.hide(Date.now()); return; }
+      this.#gaps.show(Date.now());
+      if (!this.#shown) return;
+      this.invalidate(); this.#scheduleTrail(0);
     });
+    // The card can take a context back (a phone short of memory does): the glass then falls back to the page's canvas, as where WebGL2 is
+    // missing, the book's fill included, until the context is given back; then the renderer is made again whole (`#ensureTrail`).
+    this.#trailCanvas.addEventListener('webglcontextlost', e => {
+      e.preventDefault();
+      this.#trailLost = true; this.#trail = null; this.#trailRing = null; this.#rowsLive = false;
+      this.invalidate();
+    });
+    this.#trailCanvas.addEventListener('webglcontextrestored', () => { this.#trailLost = false; this.invalidate(); this.#scheduleTrail(0); });
+  }
+
+  /** The view's choices as labelled controls, made afresh for each opening of Settings (the toolbar lays them out as its own rows). */
+  settingsFields(): [string, HTMLSelectElement][] {
+    const s = this.#settings;
+    const select = (label: string, options: [string, string][], value: string, change: (v: string) => void): [string, HTMLSelectElement] => {
+      const box = el('select', { ariaLabel: label, onchange: () => change(box.value) });
+      for (const [v, text] of options) box.append(el('option', { value: v, textContent: text }));
+      box.value = value;
+      return [label, box];
+    };
+    return [
+      select(t('Look'), [['phosphor', t('Phosphor')], ['etched', t('Etched')], ['beads', t('Beads')]], s.style, v => this.#set({ style: v as M.TrailStyle })),
+      select(t('Trail'), M.TRAIL_WINDOWS.map(ms => [String(ms), ms < 60_000 ? t('{n} s', { n: ms / 1000 }) : t('{n} min', { n: ms / 60_000 })]), String(s.trailMs), v => this.#set({ trailMs: Number(v) })),
+      select(t('Glass'), [['off', t('Off')], ['panes', t('Panes')], ['bricks', t('Bricks')]], s.glass, v => this.#set({ glass: v as M.GlassKind })),
+      select(t('Rows'), [['glow', t('Glow')], ['lean', t('Lean')], ['delta', t('Delta')]], s.rows, v => this.#set({ rows: v as M.RowLook })),
+      select(t('Pulses'), [['pressure', t('Pressure')], ['deposit', t('Deposit')], ['off', t('Off')]], s.pulse, v => this.#set({ pulse: v as M.PulseLook })),
+    ];
   }
 
   #set(patch: Partial<M.CandleSettings>): void {
     const next = M.readCandleSettings({ ...this.#settings, ...patch });
-    const tfChanged = next.tf !== this.#settings.tf;
     this.#settings = next;
     try { window.localStorage.setItem(M.CANDLE_SETTINGS_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
-    if (tfChanged) { this.#candles = []; this.#live = null; this.#candleKey = ''; this.#refreshCandles(true); this.#refreshCoverage(true); this.#scheduleRecovery(RECOVER_OPEN_MS); }
     this.invalidate(); this.#scheduleTrail(0);
   }
 
+  /** The pulses of the glass book as they stand, for a look from the console. */
+  get pulses(): ReadonlyMap<string, M.Pulse> { return this.#pulses.pulses; }
+
+  /** Settings from outside the header (a look tried from the console or a test page), checked as a saved value is. */
+  applySettings(patch: Partial<M.CandleSettings>): void { this.#set(patch); }
+
   setPalette(name: string): void { this.#palette = PALETTES[resolveThemeId(name)] ?? PALETTES.dark!; this.invalidate(); this.#scheduleTrail(0); }
 
-  /** Shown or not (the phone's tab is this view's): only a shown view draws, asks or keeps a timer. */
+  /** Shown or not (the phone's tab is this view's): only a shown view draws (the tape is kept either way). */
   setShown(on: boolean): void {
     if (on === this.#shown) return;
     this.#shown = on;
-    if (on) {
-      this.#resize(); this.#refreshCandles(true); this.#refreshCoverage(true); this.invalidate(); this.#scheduleTrail(0); this.#scheduleRecovery(RECOVER_OPEN_MS);
-      // The countdown and the bars' and coverage's refresh; a page that is not shown asks for nothing (it draws nothing either: no frames come).
-      this.#tick = window.setInterval(() => { if (document.hidden) return; this.#refreshCandles(false); this.#refreshCoverage(false); this.#writeReadout(); }, 1_000);
-    } else {
-      window.clearInterval(this.#tick); this.#tick = 0; window.clearTimeout(this.#recoverTimer); this.#recoverTimer = 0;
+    if (on) { this.#resize(); this.invalidate(); this.#scheduleTrail(0); }
+    else {
       this.#cancelTrail(); window.clearTimeout(this.#paintTimer); this.#paintTimer = 0;
       if (this.#frame) { cancelAnimationFrame(this.#frame); this.#frame = 0; }
     }
   }
   get shown(): boolean { return this.#shown; }
 
-  /** A gap of a market was filled from its venue's history: the bar's coverage and rows are asked for again when the market is one of the view's. */
-  recovered(id: string, from: number): void {
-    if (!this.#shown || !this.markets(this.store.state).includes(id)) return;
-    this.#fp.refresh(from); this.#refreshCoverage(true); this.invalidate();
+  /** The market changed: the view starts from its whole span again. */
+  marketChanged(): void { this.#zoom = 1; this.#pan = 0; this.invalidate(); }
+
+  /**
+   * Orders arrived: into the tape whether the view shows or not; when it shows on a page that shows, to the trail on its next frame, the
+   * rail with the book and the waves. Orders that came while it did not are passed over for the waves, never sent at once on its return.
+   */
+  tapeArrived(): void {
+    this.#feedTape();
+    if (!this.#shown || document.hidden) { this.#waveSeen = this.hub.tape?.written ?? 0; return; }
+    this.#waveArrivals(); this.#scheduleTrail(0); this.invalidate();
   }
 
-  /** The market changed: its bars and its forming candle are another market's (and the markets counted may be others). */
-  marketChanged(): void {
-    this.#candles = []; this.#live = null; this.#candleKey = ''; this.#zoom = 1; this.#pan = 0; this.#coverage = null;
-    if (this.#shown) { this.#refreshCandles(true); this.#refreshCoverage(true); this.#scheduleRecovery(RECOVER_OPEN_MS); }
-    this.invalidate();
-  }
-
-  /** The markets' trade coverage over the bar under way and the one before, asked again every COVERAGE_MS (or now). */
-  #refreshCoverage(force: boolean): void {
-    const source = this.hub.source, state = this.store.state, markets = this.markets(state);
-    if (!this.#shown || !source.coverage || !markets.length || replaying()) { if (!source.coverage) this.#coverage = null; return; }
-    const tfMs = TIMEFRAMES[this.#settings.tf] ?? 300_000, now = this.hub.sourceNow(), barT = Math.floor(now / tfMs) * tfMs, key = `${markets.join(',')}|${barT}`;
-    if (this.#coverageBusy || (!force && key === this.#coverageKey && performance.now() - this.#coverageAt < COVERAGE_MS)) return;
-    this.#coverageBusy = true;
-    source.coverage(markets, 'trades', barT - tfMs, now + 1).then(answer => {
-      this.#coverage = answer; this.#coverageKey = key; this.invalidate();
-    }, () => { this.#coverage = null; this.#coverageKey = key; }).finally(() => { this.#coverageBusy = false; this.#coverageAt = performance.now(); });
-  }
-
-  /** A recovery in `delay` ms (one due at a time: a page that flaps between shown and hidden asks once), of `only` those markets when given. */
-  #scheduleRecovery(delay: number, only?: readonly string[]): void {
-    if (!this.hub.source.recover) return;
-    window.clearTimeout(this.#recoverTimer);
-    this.#recoverTimer = window.setTimeout(() => { this.#recoverTimer = 0; void this.#recover(only); }, delay);
+  /** The ring's new orders into the tape, each once (a ring started again is read from its start). */
+  #feedTape(): void {
+    const ring = this.hub.tape; if (!ring) return;
+    if (ring.written < this.#tapeSeen) this.#tapeSeen = 0;
+    if (ring.written > this.#tapeSeen) this.#gaps.arrived(Date.now());
+    const d = ring.data;
+    for (let k = Math.max(this.#tapeSeen, ring.first); k < ring.written; k++) {
+      const at = (k % ring.capacity) * STRIDE, id = ring.ids[d[at + 3]!], off = d[at + 1]!;
+      if (id) this.#tape.add(id, ring.p0 + off, d[at + 2]!, M.ringSlack(off));
+    }
+    this.#tapeSeen = ring.written;
   }
 
   /**
-   * Ask the source to fill the bar's missing trades from the venues' history, then the bar before's: the chart market first, then the others
-   * the view counts (`only`: just these). One at a time; asked again while one runs, it runs once more after. Markets that joined while it
-   * ran (on a cold start the venues come up over the first seconds) get one of their own after it.
+   * Large orders just arrived start waves through the glass from the rail, at their price (Karl, 2026-10-17: the ripples of the page's
+   * glass, here too): as large as the order, a buy's or a sell's; only for the view's markets, and not with reduced motion. `#waveSeen` is
+   * the ring's write number read up to, moved on with every arrival whether the view shows or not (`tapeArrived`).
    */
-  async #recover(only?: readonly string[]): Promise<void> {
-    const recover = this.hub.source.recover?.bind(this.hub.source), state = this.store.state, counted = this.markets(state);
-    const markets = only ? counted.filter(id => only.includes(id)) : counted;
-    if (!recover || !this.#shown || document.hidden || replaying() || !markets.length) return;
-    if (this.#recovering) { this.#recoverAgain = true; return; }
-    const tfMs = TIMEFRAMES[this.#settings.tf] ?? 300_000, now = this.hub.sourceNow(), barT = Math.floor(now / tfMs) * tfMs;
-    const ids = markets.includes(state.marketId) ? [state.marketId, ...markets.filter(id => id !== state.marketId)] : markets;
-    this.#recovering = true; this.#writeReadout();
-    try { this.recoveries.push(await recover({ ids, windows: [{ from: barT, to: now }, { from: barT - tfMs, to: barT }] })); if (this.recoveries.length > 4) this.recoveries.shift(); }
-    catch (error) { console.warn('the trades the recording missed could not be recovered:', error); }
-    finally {
-      this.#recovering = false; this.#fp.refresh(barT - tfMs); this.#refreshCoverage(true); this.invalidate(); this.#writeReadout();
-      const joined = this.markets(this.store.state).filter(id => !counted.includes(id));
-      if (this.#recoverAgain) { this.#recoverAgain = false; this.#scheduleRecovery(RECOVER_OPEN_MS); }
-      else if (joined.length) this.#scheduleRecovery(RECOVER_OPEN_MS, joined);
+  #waveSeen = 0;
+  #waveArrivals(): void {
+    const ring = this.hub.tape, trail = this.#trail, l = this.#layout, s = this.#scale;
+    if (!ring) return;
+    const from = Math.max(this.#waveSeen, ring.first, ring.written - 4000); this.#waveSeen = ring.written;
+    if (!trail || !l || !s || !this.#glassOn() || this.#reduced?.matches || replaying()) return;
+    const hidden = this.#hiddenOf(ring), d = ring.data, min = scaledUsd(25_000);
+    for (let k = from; k < ring.written; k++) {
+      const at = (k % ring.capacity) * STRIDE, usd = d[at + 2]!;
+      if (!(Math.abs(usd) >= min) || hidden.has(d[at + 3]!)) continue;
+      const y = M.yOf(s, ring.p0 + d[at + 1]!);
+      if (y >= s.y0 && y <= s.y1) trail.wave(l.railX0 + 10.5, y, usd, min, usd > 0 ? 0 : 1);
     }
   }
-
-  /** Orders arrived for the trail: drawn on the next trail frame, and the rail's ticks with the book. */
-  tapeArrived(): void { if (!this.#shown) return; this.#scheduleTrail(0); this.invalidate(); }
 
   invalidate(): void {
     if (!this.#shown || this.#frame || this.#paintTimer) return;
@@ -257,32 +253,6 @@ export class CandlePane {
     this.#canvas.addEventListener('dblclick', reset);
   }
 
-  /** The chart market's bars of the view's timeframe, asked again every CANDLES_MS (or now, after a change). */
-  #refreshCandles(force: boolean): void {
-    const state = this.store.state, tf = this.#settings.tf, tfMs = TIMEFRAMES[tf] ?? 300_000, key = `${state.marketId}|${tf}`;
-    if (!this.#shown || !state.marketId || this.#candleBusy) return;
-    if (!force && key === this.#candleKey && performance.now() - this.#candleAt < CANDLES_MS) return;
-    this.#candleBusy = true;
-    const now = Date.now();
-    this.hub.source.candles(state.marketId, tf, now - 4 * tfMs, now + tfMs).then(rows => {
-      if (key !== `${this.store.state.marketId}|${this.#settings.tf}`) return;
-      this.#candles = rows; this.#candleKey = key; this.#candleAt = performance.now(); this.invalidate();
-    }, () => { this.#candleAt = performance.now(); }).finally(() => { this.#candleBusy = false; });
-  }
-
-  /** The forming bar: the venue's bar when it has one, moved by the price since, its extremes kept between answers. */
-  #forming(barT: number, mark: number): Ohlc | null {
-    const row = this.#candles.find(r => r[0] === barT), before = [...this.#candles].reverse().find(r => r[0] < barT);
-    const live = this.#live && this.#live.t === barT ? this.#live : null;
-    const open = row?.[1] ?? live?.o ?? before?.[4] ?? (mark > 0 ? mark : 0);
-    if (!(open > 0)) return null;
-    let h = Math.max(row?.[2] ?? open, live?.h ?? open), l = Math.min(row?.[3] ?? open, live?.l ?? open);
-    const c = mark > 0 ? mark : row?.[4] ?? open;
-    h = Math.max(h, c); l = Math.min(l, c);
-    this.#live = { t: barT, o: open, h, l, c };
-    return this.#live;
-  }
-
   #paint(): void {
     this.#lastPaint = performance.now();
     const w = this.#w, h = this.#h, ctx = this.#ctx, p = this.#palette, state = this.store.state;
@@ -290,29 +260,23 @@ export class CandlePane {
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const l = M.candleLayout(w, h); this.#layout = l;
-    if (replaying()) { this.#scale = null; this.#message(ctx, l, t('The Candle view shows the live market only.')); return; }
-    const tf = this.#settings.tf, tfMs = TIMEFRAMES[tf] ?? 300_000, now = pageNow(), barT = Math.floor(now / tfMs) * tfMs;
-    const mark = state.mark.price, bar = this.#forming(barT, mark);
-    if (!bar) { this.#scale = null; this.#message(ctx, l, t('Waiting for the market…')); return; }
-    const fpBar = this.#fp.bars.get(barT), fpStep = this.#fp.step;
-    let lo = bar.l, hi = bar.h;
-    if (fpBar && fpStep > 0) for (const r of fpBar.rows) if (r[1] + r[2] > 0) { lo = Math.min(lo, r[0]); hi = Math.max(hi, r[0] + fpStep); }
-    const scale = M.priceSpan(lo, hi, mark, l.plotY0, l.plotY1, this.#zoom, this.#pan); this.#scale = scale;
-    // The footprint of the bar (and the one before it): the markets the map's footprint counts, on rows tall enough to read.
-    const markets = this.markets(state);
-    if (markets.length) this.#fp.ensure(markets.join(','), tf, { t0: barT, t1: now, p0: scale.p0, p1: scale.p1 }, M.rowStepFor(this.#fp.fine, scale), (inst, tf2, from, to, rows, lines, budget, venues) => this.hub.footprint(inst, tf2, from, to, rows, lines, budget, venues), () => this.invalidate(), [], this.hub.sourceNow());
-    else this.#fp.clear();
-    const step = fpStep > 0 ? fpStep : niceStep(scale.p1 - scale.p0, (scale.y1 - scale.y0) / 18); this.#step = step;
-    // Judged over the markets recorded without a break since the bar opened, by the coverage record (none until it answers).
-    const covered = M.coveredMarkets(this.#coverage, markets, barT);
+    if (replaying()) { this.#scale = null; this.#message(ctx, l, t('The Tape view shows the live market only.')); return; }
+    const mark = state.mark.price, range = this.#tape.range;
+    if (!(mark > 0) && !range) { this.#scale = null; this.#message(ctx, l, t('Waiting for the market…')); return; }
+    // Every price the tape traded at, and the price now, in view (pinch and drag move from there).
+    const lo = Math.min(range?.lo ?? mark, mark > 0 ? mark : Infinity), hi = Math.max(range?.hi ?? mark, mark > 0 ? mark : -Infinity);
+    const scale = M.priceSpan(lo, hi, mark > 0 ? mark : (lo + hi) / 2, l.plotY0, l.plotY1, this.#zoom, this.#pan); this.#scale = scale;
+    const markets = this.markets(state); this.#marketsNow = markets;
+    const fine = this.#tape.fine, step = fine > 0 ? M.rowStepFor(fine, scale) : niceStep(scale.p1 - scale.p0, (scale.y1 - scale.y0) / 18); this.#step = step;
+    const rows = this.#tape.rows(step, markets);
     this.#paintRuler(ctx, l, p);
     ctx.save(); ctx.beginPath(); ctx.rect(0, l.plotY0, l.axisX0, l.plotY1 - l.plotY0); ctx.clip();
     this.#paintBook(ctx, l, scale, step, mark, state, p);
-    this.#paintCandle(ctx, l, scale, bar, fpBar, fpStep, covered, markets, p);
+    this.#paintTape(ctx, l, scale, rows, step, p);
     this.#paintRail(ctx, l, scale, step, p);
     ctx.restore();
-    this.#paintAxis(ctx, l, scale, mark, bar, p);
-    this.#writeReadout(covered.size, markets.length);
+    this.#paintAxis(ctx, l, scale, mark, { o: this.#tape.first || mark, c: mark }, p);
+    this.#writeReadout(markets.length);
     this.#scheduleTrail(0);
   }
 
@@ -322,14 +286,12 @@ export class CandlePane {
     this.#trail?.clear();
   }
 
-  /** What the header last said: how many of the markets counted are fully covered (none is said before the bar has been looked at). */
-  #lastCovered = 0; #lastMarkets = 0;
-  #writeReadout(covered = this.#lastCovered, markets = this.#lastMarkets): void {
-    this.#lastCovered = covered; this.#lastMarkets = markets;
+  /** The header: since when the tape runs, how many markets it counts, and how long it missed while the page was hidden (its gaps), if it did. */
+  #writeReadout(markets: number): void {
     if (!this.#shown) return;
-    const tf = this.#settings.tf, tfMs = TIMEFRAMES[tf] ?? 300_000, now = pageNow(), left = Math.floor(now / tfMs) * tfMs + tfMs - now;
-    const parts = [tf, t('closes in {time}', { time: M.countdownText(left) }), t('{n} selected · {m} fully covered', { n: markets, m: covered })];
-    if (this.#recovering) parts.push(t('recovering earlier trades…'));
+    const since = new Date(this.#tape.since), clock = `${String(since.getHours()).padStart(2, '0')}:${String(since.getMinutes()).padStart(2, '0')}`;
+    const parts = [t('since {time}', { time: clock }), t('{n} markets', { n: markets })], missed = this.#gaps.missedMs;
+    if (missed > 0) parts.push(t('{n} min missed while hidden', { n: Math.max(1, Math.round(missed / 60_000)) }));
     setText(this.#readout, parts.join(' · '));
   }
 
@@ -346,22 +308,66 @@ export class CandlePane {
     }
   }
 
-  /** The venues in their held order: re-ranked once a minute or when the set changes. */
-  #venueOrder(g: Grouped): string[] {
-    const key = [...g.ids].sort().join(','), now = performance.now();
-    if (this.#order && this.#order.key === key && now - this.#order.at < 60_000) return this.#order.ids;
-    const sum = new Map(g.ids.map((id, k) => { let s = 0; for (let i = 0; i < g.nBins; i++) s += g.bid[k]![i]! + g.ask[k]![i]!; return [id, s] as const; }));
-    const ids = rankVenues(g.ids, id => sum.get(id) ?? 0);
-    this.#order = { key, ids, at: now };
-    return ids;
+  /**
+   * Feed the pulse tracker a levels frame it has not seen (`asOf`): every row in view of either side with its resting USD, the rows a
+   * matching trade of the view's markets reached in the last window (a buy reaches the asks it walked, a sell the bids) and the rows the
+   * price passed in it. A new row step starts the tracker again. Returns the pulses as they stand.
+   */
+  #trackPulses(g: Grouped, step: number, mark: number, markBin: number, asOf: number): ReadonlyMap<string, M.Pulse> {
+    if (this.#settings.glass === 'off' || this.#settings.pulse === 'off') return this.#pulses.pulses;
+    const now = performance.now();
+    // The shader's times count from this clock; moved up while no pulse is out, so a page open for days keeps them exact in a float.
+    if (!this.#pulses.pulses.size && now - this.#pulseBase > 3_600_000) this.#pulseBase = now;
+    this.#markPath.push({ t: now, price: mark });
+    while (this.#markPath.length > 1 && this.#markPath[0]!.t < now - M.PULSE_WINDOW_MS) this.#markPath.shift();
+    if (step !== this.#pulseStep) { this.#pulses.reset(); this.#pulseStep = step; }
+    if (asOf === this.#pulseAsOf) return this.#pulses.pulses;
+    this.#pulseAsOf = asOf;
+    // Other books in the totals (a venue switched on or off, the Spot / Perp filter) change every row at once: that is not liquidity moving.
+    const books = g.ids.join(',');
+    if (books !== this.#pulseBooks) { this.#pulses.reset(); this.#pulseBooks = books; }
+    const rows = new Map<string, { side: 'bid' | 'ask'; usd: number }>();
+    for (let i = 0; i < g.nBins; i++) {
+      const bin = g.bin0 + i;
+      if (bin >= markBin) rows.set(`ask:${bin}`, { side: 'ask', usd: g.totalAsk[i]! });
+      if (bin <= markBin) rows.set(`bid:${bin}`, { side: 'bid', usd: g.totalBid[i]! });
+    }
+    const traded = new Set<string>(), ring = this.hub.tape;
+    if (ring && ring.written > 0) {
+      const hidden = this.#hiddenOf(ring), src = this.hub.sourceNow(), d = ring.data;
+      for (const [a, b] of ring.runs(src - M.PULSE_WINDOW_MS, src + 2_000)) for (let k = a; k < b; k++) {
+        const at = (k % ring.capacity) * STRIDE;
+        if (hidden.has(d[at + 3]!) || ring.t0 + d[at]! < src - M.PULSE_WINDOW_MS) continue;
+        const side = d[at + 2]! > 0 ? 'ask' : 'bid', lo = Math.floor((ring.p0 + d[at + 4]!) / step), hi = Math.floor((ring.p0 + d[at + 5]!) / step);
+        for (let bin = lo; bin <= hi && bin - lo < 64; bin++) traded.add(`${side}:${bin}`);
+      }
+    }
+    const touched = new Set<string>();
+    let pLo = Infinity, pHi = -Infinity; for (const m of this.#markPath) { pLo = Math.min(pLo, m.price); pHi = Math.max(pHi, m.price); }
+    if (pHi >= pLo) for (let bin = Math.floor(pLo / step); bin <= Math.floor(pHi / step) && bin - Math.floor(pLo / step) < 256; bin++) { touched.add(`ask:${bin}`); touched.add(`bid:${bin}`); }
+    this.#pulses.frame(now, rows, traded, touched, scaledUsd(10_000));
+    return this.#pulses.pulses;
   }
 
-  /** The live book on the rows of the footprint: asks above the price growing right of the candle, bids below growing left, in venue pieces. */
+  /**
+   * No book to draw: the glass's rows emptied too, or its fill (the shader's, on glass) would stay behind with no outline over it.
+   */
+  #clearGlassRows(): void {
+    const trail = this.#trail; if (!trail || !this.#rowsLive) return;
+    const H = this.#trailCanvas.height, n = Math.max(1, H) * 4 * ROW_TEXELS;
+    if (this.#brickRows.length !== n) this.#brickRows = new Float32Array(n); else this.#brickRows.fill(0);
+    trail.setRows(this.#brickRows, H); this.#rowsLive = false;
+  }
+
+  /** The live book on the rows of the footprint: asks above the price growing right of the candle, bids below growing left. */
   #paintBook(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, step: number, mark: number, state: AppState, p: Palette): void {
-    const frame = state.levels; if (!frame || !(mark > 0) || !(step > 0)) return;
+    const frame = state.levels; if (!frame || !(mark > 0) || !(step > 0)) { this.#clearGlassRows(); return; }
     const g = groupLevels(this.kernels, frame, activeIds(state), step, s.p0, s.p1);
-    if (!g.ids.length) return;
-    const order = this.#venueOrder(g), at = order.map(id => g.ids.indexOf(id)), markBin = Math.floor(mark / step);
+    if (!g.ids.length) { this.#clearGlassRows(); return; }
+    // The book's rows are the levels kernel's, which puts a level at one price in its row by plain division (crates/hlm-kernels
+    // `spread_levels`), so the price's row is found the same way: forgiven as the tape's rows are, an ask at the price itself could fall
+    // below the row the asks start from. The tape and the rail take the footprint's rule (shared/footprint.ts `binOf`).
+    const markBin = Math.floor(mark / step);
     let max = 0;
     const top: { side: 'bid' | 'ask'; i: number; usd: number }[] = [];
     for (let i = 0; i < g.nBins; i++) {
@@ -369,10 +375,14 @@ export class CandlePane {
       if (bin >= markBin) { max = Math.max(max, g.totalAsk[i]!); top.push({ side: 'ask', i, usd: g.totalAsk[i]! }); }
       if (bin <= markBin) { max = Math.max(max, g.totalBid[i]!); top.push({ side: 'bid', i, usd: g.totalBid[i]! }); }
     }
-    if (!(max > 0)) return;
-    // The book is the setting, the candle the subject: each side a silhouette, a faint fill in venue pieces under a crisp outer edge, so
-    // the trail behind it stays readable and the shape of the book reads at a glance.
-    const sideW = l.bidX1 - l.bidX0, rowPx = step * (s.y1 - s.y0) / (s.p1 - s.p0);
+    if (!(max > 0)) { this.#clearGlassRows(); return; }
+    // The book is the setting, the candle the subject: each side a silhouette, one faint fill under a crisp outer edge, so the trail behind
+    // it stays readable and the shape of the book reads at a glance. Its exchanges are the Book tab's: shaded pieces here read as two
+    // tones of one book (Karl, 2026-10-16).
+    const sideW = l.bidX1 - l.bidX0, rowPx = step * (s.y1 - s.y0) / (s.p1 - s.p0), bricks = this.#settings.glass === 'bricks';
+    const trail = this.#trail, tdpr = trail?.dpr ?? 1, H = this.#trailCanvas.height, glassRows = this.#settings.glass !== 'off' && trail !== null;
+    if (glassRows) { if (this.#brickRows.length !== H * 4 * ROW_TEXELS) this.#brickRows = new Float32Array(H * 4 * ROW_TEXELS); else this.#brickRows.fill(0); }
+    const pulses = this.#trackPulses(g, step, mark, markBin, frame.asOf);
     for (const side of ['ask', 'bid'] as const) {
       const color = side === 'ask' ? p.ask : p.bid, edge: { y0: number; y1: number; w: number }[] = [];
       for (let i = 0; i < g.nBins; i++) {
@@ -380,14 +390,27 @@ export class CandlePane {
         const y0 = M.yOf(s, (bin + 1) * step), y1 = y0 + rowPx; if (y1 < s.y0 || y0 > s.y1) continue;
         const total = side === 'ask' ? g.totalAsk[i]! : g.totalBid[i]!;
         edge.push({ y0, y1, w: total / max * sideW });
-        if (!(total > 0)) continue;
-        const values = at.map(k => (side === 'ask' ? g.ask[k]! : g.bid[k]!)[i] ?? 0);
-        ctx.fillStyle = color;
-        for (const piece of barPieces(order, values, max, 0, sideW, 2)) {
-          ctx.globalAlpha = piece.rank < 0 ? 0.07 : (p.dark ? (piece.rank % 2 ? 0.13 : 0.21) : (piece.rank % 2 ? 0.1 : 0.17));
-          const x = side === 'ask' ? l.askX0 + piece.x : l.bidX1 - piece.x - piece.w;
-          ctx.fillRect(x, y0, Math.max(0.5, piece.w), rowPx);
+        const key = `${side}:${bin}`, pulse = pulses.get(key);
+        if (glassRows && (total > 0 || pulse)) {
+          // The row on the glass: its bar, its pulse (sign times strength, 2 more when traded; when it began), its bar before the change.
+          // A brick leaves a device row's gap below it; a pane's rows meet.
+          const r0 = Math.max(0, Math.round(y0 * tdpr)), r1 = Math.min(H, Math.round((y0 + rowPx) * tdpr) - (bricks ? 1 : 0)), bidSide = side === 'bid';
+          for (let r = r0; r < r1; r++) {
+            const at = r * 4 * ROW_TEXELS, b = this.#brickRows;
+            b[at + (bidSide ? 0 : 1)] = total / max * sideW * tdpr; b[at + 2] = r + 0.5 - r0; b[at + 3] = r1 - (r + 0.5);
+            if (pulse) {
+              b[at + 4 + (bidSide ? 0 : 1)] = pulse.sign * (pulse.strength + (pulse.traded ? 2 : 0)); b[at + 6 + (bidSide ? 0 : 1)] = pulse.at - this.#pulseBase;
+              b[at + 8 + (bidSide ? 0 : 1)] = Math.min(pulse.before / max, 1.2) * sideW * tdpr;
+            }
+          }
         }
+        if (!(total > 0)) continue;
+        const w = total / max * sideW;
+        // On glass the fill is the glass's (trail-gl.ts), so a row's pulse can brighten or dim it; the outline below draws its shape.
+        if (glassRows) continue;
+        ctx.fillStyle = color; ctx.globalAlpha = p.dark ? 0.18 : 0.14;
+        ctx.fillRect(side === 'ask' ? l.askX0 : l.bidX1 - w, y0, Math.max(0.5, w), rowPx);
+
       }
       if (!edge.length) continue;
       edge.sort((a, b) => a.y0 - b.y0);
@@ -398,6 +421,7 @@ export class CandlePane {
       ctx.lineTo(inner, edge[edge.length - 1]!.y1); ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    if (glassRows) { trail.setRows(this.#brickRows, H); this.#rowsLive = true; }
     // The two largest levels each side say their size, at the bar's outer end.
     ctx.font = SMALL_FONT; ctx.textBaseline = 'middle'; ctx.fillStyle = p.text;
     for (const side of ['ask', 'bid'] as const) {
@@ -411,74 +435,63 @@ export class CandlePane {
   }
 
   /**
-   * The hollow candle with its footprint inside: sells left of the middle, buys right. Each row's bar is what every market counted traded
-   * there; its inner part, the fully covered markets', carries the judgement (the side's colour where it traded 1.15 times the other) and
-   * the point of control is theirs, while the outer part, the markets covered in part, is faint and neutral. With no market fully covered
-   * nothing is judged.
+   * The tape: every price the page's orders traded at since it opened, sold left of the middle and bought right, for the markets the
+   * map's footprint counts. Each row's winning side shows more strongly the more it won (the Rows look), and the busiest row is outlined.
+   * Solid, the column is a panel the full height of the plot that hides the trail; as glass it is the glass's own (trail-gl.ts).
    */
-  #paintCandle(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, bar: Ohlc, fpBar: Bar | undefined, step: number, covered: ReadonlySet<string>, markets: readonly string[], p: Palette): void {
-    const x0 = l.candleX0, x1 = l.candleX1, split = (x0 + x1) / 2, half = (x1 - x0) / 2 - 2, up = bar.c >= bar.o, col = up ? p.candleUp : p.candleDown;
-    const judged = covered.size > 0, whole = judged && markets.every(id => covered.has(id));
-    const rows = fpBar && step > 0 ? fpBar.rows.flatMap((r, i) => r[1] + r[2] > 0 ? [{ r, split: M.splitRow(r[1], r[2], fpBar.parts?.[i], covered, markets) }] : []) : [];
-    let top = bar.h, bottom = bar.l;
-    for (const { r } of rows) { top = Math.max(top, r[0] + step); bottom = Math.min(bottom, r[0]); }
-    // The candle's column is a panel of its own: the trail passes behind it, never through its numbers. Solid, it hides the trail; glass,
-    // the trail shows through it frosted (trail-gl.ts) under a tint dense enough for the numbers, with a lit edge and a darker one.
-    const yTop = M.yOf(s, top) - 3, yBottom = M.yOf(s, bottom) + 3, glass = this.#settings.glass;
-    this.#glassRect = glass ? { x0, y0: Math.max(s.y0, yTop), x1, y1: Math.min(s.y1, yBottom) } : null;
-    ctx.fillStyle = p.panel; ctx.globalAlpha = glass ? (p.dark ? 0.42 : 0.5) : 1; ctx.fillRect(x0, yTop, x1 - x0, yBottom - yTop); ctx.globalAlpha = 1;
-    const bodyTop = M.yOf(s, Math.max(bar.o, bar.c)), bodyBottom = Math.max(bodyTop + 1.5, M.yOf(s, Math.min(bar.o, bar.c)));
-    // The body is the denser part of the glass: on a light page nearly opaque ink (lighter would turn a muddy grey), on a dark one a tint.
-    const bodyFill = p.dark ? mixHex(p.panel, p.text, 0.07) : mixHex(p.text, p.panel, 0.04), bodyAlpha = glass ? (p.dark ? 0.72 : 0.94) : 1;
-    const bodyShown = mixHex(p.bg, bodyFill, bodyAlpha);
-    ctx.fillStyle = bodyFill; ctx.globalAlpha = bodyAlpha; ctx.fillRect(x0, bodyTop, x1 - x0, bodyBottom - bodyTop); ctx.globalAlpha = 1;
-    if (glass) {
-      ctx.fillStyle = '#ffffff'; ctx.globalAlpha = p.dark ? 0.16 : 0.7; ctx.fillRect(x0, yTop, 1, yBottom - yTop); ctx.fillRect(x0, yTop, x1 - x0, 1);
-      ctx.fillStyle = '#000000'; ctx.globalAlpha = p.dark ? 0.45 : 0.12; ctx.fillRect(x1 - 1, yTop, 1, yBottom - yTop); ctx.fillRect(x0, yBottom - 1, x1 - x0, 1);
-      ctx.globalAlpha = 1;
-    }
-    // A bar some market was not recorded for whole: its range with no rows is hatched, not left empty, so "not recorded" never reads as "nothing traded".
-    if (!whole) {
-      const seen = rows.length ? { hi: M.yOf(s, Math.max(...rows.map(x => x.r[0])) + step), lo: M.yOf(s, Math.min(...rows.map(x => x.r[0]))) } : null;
-      ctx.save(); ctx.beginPath(); ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
-      if (seen) ctx.rect(x1, seen.hi, x0 - x1, seen.lo - seen.hi);
-      ctx.clip('evenodd');
-      ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.16; ctx.lineWidth = 1; ctx.beginPath();
-      for (let x = x0 - (yBottom - yTop); x < x1; x += 7) { ctx.moveTo(x, yBottom); ctx.lineTo(x + (yBottom - yTop), yTop); }
-      ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
-    }
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
-    ctx.moveTo(split, M.yOf(s, bar.h)); ctx.lineTo(split, bodyTop); ctx.moveTo(split, bodyBottom); ctx.lineTo(split, M.yOf(s, bar.l)); ctx.stroke();
-    ctx.strokeRect(x0 + 0.75, bodyTop, x1 - x0 - 1.5, bodyBottom - bodyTop);
-    if (rows.length) {
-      const rowPx = step * (s.y1 - s.y0) / (s.p1 - s.p0), rh = Math.max(1, rowPx - (rowPx > 4 ? 1 : 0));
-      let busiest = 0; for (const { r } of rows) busiest = Math.max(busiest, r[1], r[2]);
-      // The point of control of the covered markets alone (none when no market is).
-      const poc = judged ? M.pocIndex(rows.map(({ r, split: c }) => [r[0], c.buy, c.sell] as const)) : -1;
-      ctx.font = NUM_FONT; ctx.textBaseline = 'middle';
-      rows.forEach(({ r: [low, buy, sell], split: c }, i) => {
-        const y = M.yOf(s, low + step); if (y + rh < s.y0 || y > s.y1) return;
-        const inBody = y + rh / 2 >= bodyTop && y + rh / 2 <= bodyBottom, side = judged ? imbalance(c.buy, c.sell) : null;
-        // The bar's length is what every market traded; its inner part the covered markets', in proportion, the rest outside it.
-        const sw = Math.sqrt(sell / busiest) * half, bw = Math.sqrt(buy / busiest) * half;
-        const swIn = sell > 0 ? sw * c.sell / sell : 0, bwIn = buy > 0 ? bw * c.buy / buy : 0;
-        ctx.globalAlpha = side === 'sell' ? 0.95 : side === 'buy' ? 0.38 : 0.5; ctx.fillStyle = p.candleDown; ctx.fillRect(split - 1 - swIn, y, swIn, rh);
-        ctx.globalAlpha = side === 'buy' ? 0.95 : side === 'sell' ? 0.38 : 0.5; ctx.fillStyle = p.candleUp; ctx.fillRect(split + 1, y, bwIn, rh);
-        ctx.globalAlpha = p.dark ? 0.2 : 0.16; ctx.fillStyle = p.muted;
-        if (sw > swIn) ctx.fillRect(split - 1 - sw, y, sw - swIn, rh);
-        if (bw > bwIn) ctx.fillRect(split + 1 + bwIn, y, bw - bwIn, rh);
-        ctx.globalAlpha = 1;
-        if (rh >= 11) {
-          // A small row's numbers are the ink faded, not the muted grey: on the dark body grey would barely read.
-          const small = buy + sell < busiest * 0.04, ink = inBody ? textOn(bodyShown, 1, p) : p.text;
-          ctx.fillStyle = ink; ctx.globalAlpha = small ? 0.55 : 1;
-          ctx.textAlign = 'right'; if (sell >= 1) ctx.fillText(volText(sell), split - 4, y + rh / 2);
-          ctx.textAlign = 'left'; if (buy >= 1) ctx.fillText(volText(buy), split + 4, y + rh / 2);
-          ctx.globalAlpha = 1;
+  #paintTape(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, tape: readonly (readonly [number, number, number])[], step: number, p: Palette): void {
+    const x0 = l.candleX0, x1 = l.candleX1, split = (x0 + x1) / 2, half = (x1 - x0) / 2 - 2;
+    const judged = true, glass = this.#glassOn(), look = this.#settings.rows;
+    const rows = step > 0 ? tape.flatMap(r => r[1] + r[2] > 0 ? [{ r, split: { buy: r[1], sell: r[2] } }] : []) : [];
+    this.#frost = [];
+    if (!glass) { ctx.fillStyle = p.panel; ctx.fillRect(x0, s.y0, x1 - x0, s.y1 - s.y0); }
+    ctx.strokeStyle = p.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(split + 0.5, s.y0); ctx.lineTo(split + 0.5, s.y1); ctx.stroke();
+    if (!rows.length) return;
+    const rowPx = step * (s.y1 - s.y0) / (s.p1 - s.p0), rh = Math.max(1, rowPx - (rowPx > 4 ? 1 : 0));
+    let busiest = 0, maxNet = 0;
+    for (const { r, split: c } of rows) { busiest = Math.max(busiest, r[1], r[2]); if (judged) maxNet = Math.max(maxNet, Math.abs(c.buy - c.sell)); }
+    // The point of control: the row where the most traded.
+    const poc = judged ? M.pocIndex(rows.map(({ r, split: c }) => [r[0], c.buy, c.sell] as const)) : -1;
+    ctx.textBaseline = 'middle';
+    rows.forEach(({ r: [low, buy, sell], split: c }, i) => {
+      const y = M.yOf(s, low + step); if (y + rh < s.y0 || y > s.y1) return;
+      // Which side won, and how strongly that shows (0 to 1, continuous).
+      const e = judged ? M.rowEmphasis(c.buy, c.sell, maxNet) : null, win = e?.side ?? null, k = !e ? 0 : look === 'lean' ? e.lean : e.net;
+      // The bar's length is what traded there, the busiest row's the full half.
+      const sw = Math.sqrt(sell / busiest) * half, bw = Math.sqrt(buy / busiest) * half;
+      const swIn = sell > 0 ? sw * c.sell / sell : 0, bwIn = buy > 0 ? bw * c.buy / buy : 0;
+      if (look === 'glow' && e && win && k > 0.02) {
+        ctx.globalAlpha = (p.dark ? 0.46 : 0.32) * k; ctx.fillStyle = win === 'buy' ? p.candleUp : p.candleDown; ctx.fillRect(x0 + 1, y, x1 - x0 - 2, rh);
+      }
+      const strong = 0.32 + 0.63 * k, weak = Math.max(0.1, 0.32 - 0.22 * k), plain = 0.5;
+      if (look === 'delta' && e) {
+        // Both sides faint at their sizes, and one solid bar from the middle toward the winner, as long as the difference.
+        ctx.globalAlpha = p.dark ? 0.2 : 0.16; ctx.fillStyle = p.candleDown; ctx.fillRect(split - 1 - swIn, y, swIn, rh);
+        ctx.fillStyle = p.candleUp; ctx.fillRect(split + 1, y, bwIn, rh);
+        if (win && maxNet > 0) {
+          const dw = Math.sqrt(Math.abs(c.buy - c.sell) / maxNet) * half;
+          ctx.globalAlpha = 0.92; ctx.fillStyle = win === 'buy' ? p.candleUp : p.candleDown; ctx.fillRect(win === 'buy' ? split + 1 : split - 1 - dw, y, dw, rh);
         }
-        if (i === poc) { ctx.strokeStyle = p.poc; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.75, y + 0.25, x1 - x0 - 1.5, rh - 0.5); }
-      });
-    }
+      } else {
+        ctx.globalAlpha = !e ? plain : win === 'sell' ? strong : weak; ctx.fillStyle = p.candleDown; ctx.fillRect(split - 1 - swIn, y, swIn, rh);
+        ctx.globalAlpha = !e ? plain : win === 'buy' ? strong : weak; ctx.fillStyle = p.candleUp; ctx.fillRect(split + 1, y, bwIn, rh);
+      }
+      ctx.globalAlpha = p.dark ? 0.2 : 0.16; ctx.fillStyle = p.muted;
+      if (sw > swIn) ctx.fillRect(split - 1 - sw, y, sw - swIn, rh);
+      if (bw > bwIn) ctx.fillRect(split + 1 + bwIn, y, bw - bwIn, rh);
+      ctx.globalAlpha = 1;
+      if (rh >= 11) {
+        // The winner's number in full and bolder the more it won; the loser's fading with it. A small row's numbers are the ink faded.
+        const small = buy + sell < busiest * 0.04, ink = p.text, fade = small ? 0.55 : 1;
+        ctx.fillStyle = ink;
+        ctx.font = win === 'sell' && k > 0.45 ? BOLD_NUM : NUM_FONT; ctx.globalAlpha = fade * (win === 'buy' ? 1 - 0.5 * k : 1);
+        ctx.textAlign = 'right'; if (sell >= 1) ctx.fillText(volText(sell), split - 4, y + rh / 2);
+        ctx.font = win === 'buy' && k > 0.45 ? BOLD_NUM : NUM_FONT; ctx.globalAlpha = fade * (win === 'sell' ? 1 - 0.5 * k : 1);
+        ctx.textAlign = 'left'; if (buy >= 1) ctx.fillText(volText(buy), split + 4, y + rh / 2);
+        ctx.globalAlpha = 1;
+      }
+      if (i === poc) { ctx.strokeStyle = p.poc; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.75, y + 0.25, x1 - x0 - 1.5, rh - 0.5); }
+    });
   }
 
   /** The orders of the ring that arrived at or after `since` (the page's clock), inside the view's markets. */
@@ -489,7 +502,8 @@ export class CandlePane {
       for (let k = Math.max(a.from, ring.first); k < a.to; k++) {
         const at = (k % ring.capacity) * STRIDE, d = ring.data;
         if (hidden.has(d[at + 3]!)) continue;
-        out.push({ price: ring.p0 + d[at + 1]!, usd: d[at + 2]!, at: a.at, inst: d[at + 3]! });
+        const off = d[at + 1]!;
+        out.push({ price: ring.p0 + off, usd: d[at + 2]!, at: a.at, inst: d[at + 3]!, slack: M.ringSlack(off) });
       }
     }
     return out;
@@ -518,7 +532,7 @@ export class CandlePane {
   }
 
   /** Prices down the right edge, the price line across everything, and its tag. */
-  #paintAxis(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, mark: number, bar: Ohlc, p: Palette): void {
+  #paintAxis(ctx: CanvasRenderingContext2D, l: M.CandleLayout, s: M.PriceScale, mark: number, bar: { o: number; c: number }, p: Palette): void {
     const pStep = niceStep(s.p1 - s.p0, Math.max(3, (s.y1 - s.y0) / 56));
     ctx.font = SMALL_FONT; ctx.fillStyle = p.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     const markY = mark > 0 ? M.yOf(s, mark) : -100;
@@ -542,20 +556,19 @@ export class CandlePane {
    */
   #drawMarks(ring: TapeRing, l: M.CandleLayout, s: M.PriceScale, now: number, page: number, hidden: ReadonlySet<number>, reduced: boolean): void {
     const ctx = this.#marksCtx, step = this.#step;
-    ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0); ctx.clearRect(0, 0, this.#w, this.#h);
+    ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0);
+    if (this.#marksDrawn) ctx.clearRect(0, 0, this.#w, this.#h);
+    let drawn = false;
     const whale = scaledUsd(this.store.state.barStatOptions.whaleUsd), win = this.#settings.trailMs;
     const big: { x: number; y: number; id: string; a: number }[] = [];
-    for (const [a, b] of ring.runs(now - win, now + 2_000)) {
-      for (let k = a; k < b; k++) {
-        const at = (k % ring.capacity) * STRIDE, d = ring.data, usd = Math.abs(d[at + 2]!);
-        if (usd < whale || hidden.has(d[at + 3]!)) continue;
-        const age = now - (ring.t0 + d[at]!); if (age > win || age < -1_500) continue;
-        big.push({ x: M.trailX(l, age, win), y: M.yOf(s, ring.p0 + d[at + 1]!), id: ring.ids[d[at + 3]!] ?? '', a: Math.max(0.25, (1 - age / win) ** 1.2) });
-      }
+    for (const o of this.#whalesOf(ring, whale, now, win)) {
+      if (hidden.has(o.inst)) continue;
+      const age = now - o.t; if (age > win || age < -1_500) continue;
+      big.push({ x: M.trailX(l, age, win), y: M.yOf(s, o.price), id: ring.ids[o.inst] ?? '', a: Math.max(0.25, (1 - age / win) ** 1.2) });
     }
     for (const m of big.slice(-MAX_TRAIL_MARKS)) {
       if (m.y < s.y0 || m.y > s.y1 || !m.id) continue;
-      ctx.globalAlpha = m.a; drawVenueMark(ctx, m.id, m.x - 9, m.y - 9, 10);
+      ctx.globalAlpha = m.a; drawVenueMark(ctx, m.id, m.x - 9, m.y - 9, 10); drawn = true;
     }
     if (!reduced && step > 0) {
       // The marks of the largest flashes, from the large arrivals alone (a later small order must not keep one up or move it).
@@ -564,50 +577,92 @@ export class CandlePane {
         .sort((a, b) => b.largest - a.largest).slice(0, 3);
       for (const c of cells) {
         const y = M.yOf(s, (c.bin + 0.5) * step), id = ring.ids[c.largestInst]; if (!id || y < s.y0 || y > s.y1) continue;
-        ctx.globalAlpha = Math.max(0, 1 - (page - c.at) / M.FLASH_MARK_MS); drawVenueMark(ctx, id, l.railX0 - 8, y, 11);
+        ctx.globalAlpha = Math.max(0, 1 - (page - c.at) / M.FLASH_MARK_MS); drawVenueMark(ctx, id, l.railX0 - 8, y, 11); drawn = true;
       }
     }
-    ctx.globalAlpha = 1;
-  }
-
-  #ensureTrail(ring: TapeRing): TrailGL | null {
-    if (this.#trail && this.#trailRing === ring) return this.#trail;
-    if (this.#trailFailed) return null;
-    try { this.#trail = new TrailGL(this.#trailCanvas, ring); this.#trailRing = ring; this.#maskKey = ''; this.#trail.resize(this.#w, this.#h, Math.min(this.#dpr, 1.5)); }
-    catch (error) { this.#trailFailed = true; console.warn('the trade trail cannot be drawn here:', error); }
-    return this.#trail;
+    ctx.globalAlpha = 1; this.#marksDrawn = drawn;
   }
 
   /**
-   * The next trail frame in `delay` ms, or sooner when one is already due later (an arrival must not wait out the slow clock: its flash is
-   * short). One chain only: the timer or the frame it asked for is cancelled when the view is hidden, and a callback from before is ignored.
+   * The ring's orders from `whale` USD up, held as they arrive (each order is looked at once, not every frame), with their absolute time and
+   * price; started again after a rebase or a clear of the ring, or another whale size, and those older than the window let go.
    */
-  #scheduleTrail(delay: number): void {
+  #whales: { t: number; price: number; inst: number }[] = []; #whaleScan = 0; #whaleEpoch = -1; #whaleUsd = 0; #whaleWin = 0;
+  #whalesOf(ring: TapeRing, whale: number, now: number, win: number): readonly { t: number; price: number; inst: number }[] {
+    // Read again from the window's start when the ring, the whale size or the window changed (a longer window reaches orders never read).
+    if (ring.epoch !== this.#whaleEpoch || whale !== this.#whaleUsd || ring.written < this.#whaleScan || win !== this.#whaleWin) {
+      this.#whales = []; this.#whaleEpoch = ring.epoch; this.#whaleUsd = whale; this.#whaleWin = win;
+      this.#whaleScan = ring.runs(now - win, now + 2_000)[0]?.[0] ?? ring.written;
+    }
+    const d = ring.data;
+    for (let k = Math.max(this.#whaleScan, ring.first); k < ring.written; k++) {
+      const at = (k % ring.capacity) * STRIDE;
+      if (Math.abs(d[at + 2]!) >= whale) this.#whales.push({ t: ring.t0 + d[at]!, price: ring.p0 + d[at + 1]!, inst: d[at + 3]! });
+    }
+    this.#whaleScan = ring.written;
+    const cutoff = now - win - 2_000;
+    if (this.#whales.length && this.#whales[0]!.t < cutoff) this.#whales = this.#whales.filter(o => o.t >= cutoff);
+    return this.#whales;
+  }
+
+  /** The trail's renderer, made on first use and again for a new ring or a context given back (its programs, textures and waves with it). */
+  #ensureTrail(ring: TapeRing): TrailGL | null {
+    if (this.#trail && this.#trailRing === ring) return this.#trail;
+    if (this.#trailFailed || this.#trailLost) return null;
+    try { this.#trail = new TrailGL(this.#trailCanvas, ring); this.#trailRing = ring; this.#maskKey = ''; this.#maskSet = null; this.#trail.resize(this.#w, this.#h, Math.min(this.#dpr, 1.5)); }
+    catch (error) {
+      // Lost again while it was made: it is made once more when the context comes back.
+      if (this.#trailCanvas.getContext('webgl2')?.isContextLost()) { this.#trailLost = true; this.#trail = null; return null; }
+      // No glass then either: the candle is painted again with its panel and its veil on the page's canvas.
+      this.#trailFailed = true; console.warn('the trade trail cannot be drawn here:', error); this.invalidate();
+    }
+    return this.#trail;
+  }
+
+  /** Whether the candle is glass: chosen, and drawable (the glass is the trail's renderer; without WebGL, or while its context is lost, it is solid whatever the setting). */
+  #glassOn(): boolean { return this.#settings.glass !== 'off' && !this.#trailFailed && !this.#trailLost; }
+
+  /**
+   * The trail runs while the view shows: a frame per display frame (at most 60 a second; with reduced motion one a second), each moving it by
+   * its clock alone, which costs a few uniforms (trail-gl.ts). Moving it only when it had gone a pixel, five times a second over a minute,
+   * read as a page running at 5 frames a second on a phone (Karl, Pixel 10, 2026-10-16). This asks for the next frame to be drawn whatever
+   * the pace (a change of scale, look or data) and starts the loop when it is not running. With reduced motion it waits out the second in
+   * a timer, whatever asked, so nothing redraws more often than that. The loop stops when the view or the page is hidden or nothing moves
+   * (no order in the window, no flash, no pulse), and a frame asked for before a stop is ignored (`#trailChain`).
+   */
+  #scheduleTrail(_delay = 0): void {
     if (!this.#shown) return;
-    const due = performance.now() + delay;
-    if ((this.#trailTimer || this.#trailRaf) && due >= this.#trailDue) return;
-    this.#cancelTrail();
-    this.#trailDue = due;
+    this.#trailDirty = true;
+    if (this.#trailRaf || this.#trailTimer) return;
     const chain = this.#trailChain;
-    this.#trailTimer = window.setTimeout(() => {
-      this.#trailTimer = 0;
-      this.#trailRaf = requestAnimationFrame(() => { this.#trailRaf = 0; if (chain === this.#trailChain) this.#drawTrail(); });
-    }, delay);
+    const step = (time: number): void => {
+      this.#trailRaf = 0;
+      if (chain !== this.#trailChain || !this.#shown || document.hidden) return;
+      const reduced = this.#reduced?.matches ?? false, gap = reduced ? 1_000 : 1_000 / 60 - 3;
+      let more = true;
+      if ((this.#trailDirty && !reduced) || time - this.#trailDrawn >= gap) { this.#trailDirty = false; this.#trailDrawn = time; more = this.#drawTrail(); }
+      if (!more) return;
+      if (reduced) {
+        this.#trailTimer = window.setTimeout(() => { this.#trailTimer = 0; if (chain === this.#trailChain) this.#trailRaf = requestAnimationFrame(step); }, Math.max(0, gap - (performance.now() - this.#trailDrawn)));
+      } else this.#trailRaf = requestAnimationFrame(step);
+    };
+    this.#trailRaf = requestAnimationFrame(step);
   }
   #cancelTrail(): void {
-    window.clearTimeout(this.#trailTimer); this.#trailTimer = 0;
     if (this.#trailRaf) { cancelAnimationFrame(this.#trailRaf); this.#trailRaf = 0; }
+    if (this.#trailTimer) { window.clearTimeout(this.#trailTimer); this.#trailTimer = 0; }
     this.#trailChain++;
   }
 
-  /** The trail and the rail's flashes, then the next frame: soon while a flash fades, else when the trail has moved about a pixel. */
-  #drawTrail(): void {
-    if (!this.#shown || document.hidden) return;
+  /** One frame of the trail, the rail's flashes and the marks. False when there is nothing to draw (the loop then stops until asked again). */
+  #drawTrail(): boolean {
+    if (!this.#shown || document.hidden) return false;
     const ring = this.hub.tape, l = this.#layout, s = this.#scale, p = this.#palette;
-    if (!ring || !l || !s || replaying()) { this.#trail?.clear(); return; }
-    const trail = this.#ensureTrail(ring); if (!trail) return;
-    const hidden = this.#hidden(ring), maskKey = [...hidden].join(',');
-    if (maskKey !== this.#maskKey) { trail.setMask([...hidden]); this.#maskKey = maskKey; }
+    if (!ring || !l || !s || replaying()) { this.#trail?.clear(); return false; }
+    const trail = this.#ensureTrail(ring); if (!trail) return false;
+    const hidden = this.#hiddenOf(ring);
+    if (hidden !== this.#maskSet) { const maskKey = [...hidden].join(','); if (maskKey !== this.#maskKey) { trail.setMask([...hidden]); this.#maskKey = maskKey; } this.#maskSet = hidden; }
+    const tones = this.#tonesOf(p);
     const reduced = this.#reduced?.matches ?? false, page = performance.now(), step = this.#step;
     // The trail's right edge is the exchange's now: the source's clock, or the newest order when the page's clock runs behind it.
     const sourceNow = this.hub.sourceNow(), newest = ring.written > 0 ? ring.t0 + ring.data[((ring.written - 1) % ring.capacity) * STRIDE]! : 0;
@@ -616,13 +671,47 @@ export class CandlePane {
     const lit = reduced || !(step > 0) ? [] : M.flashes(this.#arrivals(ring, page - M.FLASH_MS, hidden), step, lo, page);
     const flashes: FlashSprite[] = lit.map(c => ({ x: railX, y: M.yOf(s, (c.bin + 0.5) * step), r: M.flashRadius(c.largest, lo, hiUsd), share: c.buy / (c.buy + c.sell), k: c.k }));
     trail.draw({
-      style: this.#settings.style, dark: p.dark, bid: rgb(p.candleUp), ask: rgb(p.candleDown), mid: rgb(p.dark ? '#d8dce4' : '#3a3f48'),
+      style: this.#settings.style, dark: p.dark, bid: tones.bid, ask: tones.ask, mid: tones.mid,
       now, windowMs: this.#settings.trailMs, x0: l.trailX0, x1: l.trailX1, y0: s.y0, y1: s.y1, p0: s.p0, p1: s.p1,
       floorUsd: scaledUsd(100), ceilUsd: scaledUsd(250_000), opacity: p.dark ? 0.8 : 0.85, flashes,
-      glass: this.#settings.glass ? this.#glassRect : null,
+      // The three pieces of glass, welded across the gaps between them; the rail stays in the open.
+      glass: this.#settings.glass === 'off' ? null : {
+        y0: s.y0, y1: s.y1, frost: this.#frost, bricks: this.#settings.glass === 'bricks', pulse: reduced ? 'off' : this.#settings.pulse, nowMs: page - this.#pulseBase,
+        // The book's fill as the page's canvas lays it with glass off; a breath on the bricks, whose glass is already the bar's colour.
+        fill: this.#settings.glass === 'bricks' ? 0.05 : p.dark ? 0.18 : 0.14, bookBid: tones.bookBid, bookAsk: tones.bookAsk,
+        pieces: [{ x0: 2, x1: l.bidX1, candle: false }, { x0: l.candleX0, x1: l.candleX1, candle: true }, { x0: l.askX0, x1: l.askX1 + 2, candle: false }],
+      },
     });
     this.#drawMarks(ring, l, s, now, page, hidden, reduced);
-    const pxMs = this.#settings.trailMs / Math.max(1, l.trailX1 - l.trailX0);
-    this.#scheduleTrail(reduced ? 1_000 : flashes.length ? 50 : Math.max(50, Math.min(250, pxMs)));
+    // Something still moves: an order in the window (it ages across it), a flash, or a pulse or a wave on the book's glass (the waves are
+    // stepped only with glass, so without it one still queued would keep the loop going for nothing).
+    return ring.runs(now - this.#settings.trailMs, now + 2_000).length > 0 || flashes.length > 0 || (!reduced && (this.#pulseShowing(page) || (this.#glassOn() && trail.waving)));
+  }
+
+  /** Whether a pulse is still on the book's glass now: chosen, drawable, and one younger than its life (the tracker forgets them only on a frame). */
+  #pulseShowing(page: number): boolean {
+    if (!this.#glassOn() || this.#settings.pulse === 'off') return false;
+    for (const p of this.#pulses.pulses.values()) if (page - p.at < M.PULSE_LIFE_MS) return true;
+    return false;
+  }
+
+  /** The palette's colours as the renderer takes them (0-1 RGB), worked out once a palette. */
+  #tones: RendererTones | null = null;
+  #tonesOf(p: Palette): RendererTones {
+    if (this.#tones?.p !== p) this.#tones = { p, bid: rgb(p.candleUp), ask: rgb(p.candleDown), mid: rgb(p.dark ? '#d8dce4' : '#3a3f48'), bookBid: rgb(p.bid), bookAsk: rgb(p.ask) };
+    return this.#tones;
+  }
+  #maskSet: Set<number> | null = null;
+
+  /** `#hidden` for a frame: worked out again only when the ring's markets or the view's change (the map's footprint markets come back as the same list while they hold). */
+  #hiddenMemo: { markets: readonly string[]; ids: number; set: Set<number> } | null = null;
+  /** The view's markets as the last drawing of the book and the candle found them: a frame of the trail reads these, not the map's rule again. */
+  #marketsNow: readonly string[] | null = null;
+  #hiddenOf(ring: TapeRing): Set<number> {
+    const markets = this.#marketsNow ?? this.markets(this.store.state), m = this.#hiddenMemo;
+    if (m && m.markets === markets && m.ids === ring.ids.length) return m.set;
+    const set = this.#hidden(ring);
+    this.#hiddenMemo = { markets, ids: ring.ids.length, set };
+    return set;
   }
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Hub, mergeLive } from '../src/app/hub.ts';
+import { Hub, mergeLive, defaultMarket } from '../src/app/hub.ts';
 import { Store, initialState, type CandleRow } from '../src/app/store.ts';
 import type { BootstrapState, DataSource, LiveHandlers, TickMessage } from '../src/app/source.ts';
 import type { FlowFrame } from '../src/shared/flow.ts';
@@ -102,4 +102,12 @@ test('when the live stream comes back after a break, the flow history is asked f
   handlers().onClose(1, 'host'); handlers().onOpen();
   await hub.ensureFlow(['ref:BTC'], 9 * HOUR);
   assert.equal(source.flowCalls, 2, 'the seconds missed while it was down come with the history');
+});
+
+test('the page starts on the Binance perpetual where it reads one, else the reference market, else the first', () => {
+  const markets = [{ instrumentId: 'hyperliquid:BTC', venue: 'hyperliquid', marketType: 'perpetual' }, { instrumentId: 'binance-spot:BTCUSDT', venue: 'binance-spot', marketType: 'spot' }, { instrumentId: 'binance:BTCUSDT', venue: 'binance', marketType: 'perpetual' }];
+  assert.equal(defaultMarket(markets, 'hyperliquid:BTC'), 'binance:BTCUSDT');
+  assert.equal(defaultMarket(markets.slice(0, 2), 'hyperliquid:BTC'), 'hyperliquid:BTC', 'no Binance perpetual: the reference');
+  assert.equal(defaultMarket(markets.slice(0, 2), ''), 'hyperliquid:BTC', 'no reference either: the first');
+  assert.equal(defaultMarket([], ''), '');
 });

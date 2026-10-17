@@ -1,5 +1,5 @@
 import { venueLabel } from '../venues.ts';
-import { activeIds, kindOf } from '../scope.ts';
+import { activeIds, emptyScopeMessage, kindOf } from '../scope.ts';
 import { el } from '../dom.ts';
 import { setTip } from '../tip.ts';
 import { helpButton } from '../help.ts';
@@ -255,7 +255,10 @@ export class LadderPane {
     l.step = step; // later events in the same frame build on this one
     this.store.set({ grouping: step });
   }
-  invalidate(): void { if (!this.#frame) this.#frame = requestAnimationFrame(() => { this.#frame = 0; this.#render(); }); }
+  invalidate(): void { if (this.#suspended) { this.#owed = true; return; } if (!this.#frame) this.#frame = requestAnimationFrame(() => { this.#frame = 0; this.#render(); }); }
+  /** Covered by a view of its own (the phone's Candle tab): nothing is drawn until it shows again (pull/stack still takes its snapshots as the frames arrive). */
+  #suspended = false; #owed = false;
+  setSuspended(on: boolean): void { if (on === this.#suspended) return; this.#suspended = on; if (!on && this.#owed) { this.#owed = false; this.invalidate(); } }
   /**
    * A new levels frame: pull/stack takes its snapshot here when one is due, not when the book is drawn. A hidden or covered window draws
    * nothing (the browser stops animation frames) while the frames keep coming, and the first draw after more than `GAP_MS` started the
@@ -297,9 +300,11 @@ export class LadderPane {
     setTip(curves, t('Compact: a running-total line for each of the largest venues, ranked by traded volume over the flow column\'s ranking window. Hover a line to see it alone.'));
     this.controls.append(title, helpButton('orderBook'),
       this.#select(t('Mode'), [['aggregated', t('Aggregated')], ['single', t('Single')], ['compact', t('Compact')]], () => s().ladderMode, v => this.store.set({ ladderMode: v as AppState['ladderMode'] })),
+      // The header's one action is on its first line, beside the title, the "?" and the mode: alone on the last line it read as an afterthought.
+      recenter,
       group, curves,
       this.#select(t('Show'), [['both', t('Levels + cum')], ['levels', t('Levels')], ['cumulative', t('Cumulative')]], () => s().ladderShow, v => this.store.set({ ladderShow: v as AppState['ladderShow'] })),
-      pull, this.#booksButton, recenter);
+      pull, this.#booksButton);
     this.syncVenues();
   }
 
@@ -373,6 +378,8 @@ export class LadderPane {
     if (pullS) this.#pull.noteMark(mark);
     else this.#pull.clear();
     const ids = state.ladderMode === 'single' ? books : activeIds(state);
+    // With every venue switched off (or the Spot / Perp filter leaving none) there is nothing to list: say so, not a column of bare prices.
+    if (!ids.length) { ctx.fillStyle = p.muted; ctx.fillText(emptyScopeMessage(state) ?? (frame.books.length ? t('No venues are enabled.') : t('Waiting for order book…')), 12, 20); return; }
     const cells = state.ladderMode === 'aggregated' && ids.length > 1;
     const cellW = cells ? Math.max(CELL_MIN, Math.min(CELL_MAX, Math.floor((width - PRICE_W - USD_W - (pullS ? PS_W : 0) - 8 - MIN_BAR_W) / ids.length))) : 0;
     const balanceH = state.highlight.on ? BALANCE_H : 0;

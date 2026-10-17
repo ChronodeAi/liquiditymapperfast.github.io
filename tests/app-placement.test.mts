@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EDGE, FLOOR, GAP, chooseSide, dragTo, placeOn } from '../src/app/placement.ts';
+import { EDGE, FLOOR, GAP, anchorBox, chooseSide, dragTo, placeOn } from '../src/app/placement.ts';
 
 // Where a panel opens and where it may be dragged, as numbers. The first case is measured: Karl's screen (3840 x 1970 at 150%, so 2560 x 1313
 // CSS pixels), the Stats button of the bar stats at 915-934, and the panel's contents about 1,990 px tall (the body alone was 1,922).
@@ -62,4 +62,16 @@ test('dragging keeps the window inside the page, lets the panel grow toward the 
   const small = dragTo({ left: 0, top: 9_999 }, { width: 300, need: 90 }, VIEW);
   assert.equal(small.top, VIEW.height - EDGE - 90, 'a window shorter than the floor may go as low as its own height allows');
   assert.equal(dragTo({ left: 0, top: 0 }, { width: 5_000, need: 100 }, { width: 800, height: 600 }).left, EDGE, 'a window wider than the page is held at the left edge');
+});
+
+test(`a panel opened from a button of a top-bar deck is placed by the whole deck, so it does not cover the deck's other row of buttons`, () => {
+  const button = { left: 1010, top: 8, right: 1090, bottom: 31 };
+  const deck = { left: 1000, top: 2, right: 1300, bottom: 78 };                                          // two rows of buttons
+  const box = anchorBox(button, deck);
+  assert.deepEqual(box, { left: 1010, right: 1090, top: 2, bottom: 78 }, "the button's own sides, so the panel lines up with it; the deck's top and bottom");
+  const at = placeOn(chooseSide(box, 400, VIEW), box, 400, 380, 'left', VIEW);
+  assert.equal(at.top, deck.bottom + GAP, 'it begins under the deck, not under the first row');
+  assert.equal(at.left, button.left, 'and keeps to its button sideways');
+  assert.equal(placeOn('below', button, 400, 380, 'left', VIEW).top, button.bottom + GAP, "by the button alone it began at the first row's foot, over the second");
+  assert.equal(anchorBox(button, null), button, 'a button outside any deck keeps its own box');
 });

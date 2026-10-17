@@ -18,7 +18,7 @@ import { SCOPE_OPTIONS, activeIds, chipClick, heatmapSourceOf, kindOf, scopeCoun
 import { HIGHLIGHT_LIMITS } from './anomaly.ts';
 import { rangeRow, switchRow, note, togglePanel, checkRow, heading, selectRow, numberRow, openedPanel, button, sizeRow } from './ui.ts';
 import { SIZE_MAX_USD } from './sizes.ts';
-import { GROUP_TITLES, SHORTCUTS, type ShortcutGroup } from './shortcuts.ts';
+import { GROUP_TITLES, SHORTCUTS, togglePatch, type Feature, type ShortcutGroup } from './shortcuts.ts';
 import { buildLayoutsPanel, type LayoutsPanelState, type PaneHost } from './layouts/panel.ts';
 import { clampGoTo, formatDateTime, parseDateTime } from './price-line.ts';
 import { ABSORPTION_LIMITS, type AbsorptionSettings } from './absorption.ts';
@@ -37,7 +37,7 @@ import type { Alerts } from './sound/alerts.ts';
 import type { Panel } from './ui.ts';
 import { HEAT_STYLES, legendBackground, type HeatStyleId } from './heatmap/lut.ts';
 import { CONTRAST } from './heatmap/window.ts';
-import { compactBar, onLayoutMode } from './device.ts';
+import { compactBar, isPhone, onLayoutMode } from './device.ts';
 import { openSheet, type Sheet } from './sheet.ts';
 import { wakeLockSupported } from './wake.ts';
 import { LANGUAGES, language, pickLanguage, saveLanguage, savedLanguage } from './i18n.ts';
@@ -71,13 +71,34 @@ function setValue(control: HTMLSelectElement | HTMLInputElement, value: string):
 /** Light or dim a button's lamp (`.led-btn`): it says whether the feature the button opens is on. Written only when it changes. */
 function lamp(button: HTMLElement, on: boolean): void { const state = on ? 'on' : 'off'; if (button.dataset.state !== state) button.dataset.state = state; }
 
+/**
+ * A split button (Karl, 2026-10-17): `main` switches its feature on or off in one click and its lamp says which; the small key joined to its
+ * right, with drawn sliders, opens the feature's settings. The pair is one element, so the deck and the phone's Settings lay it out whole.
+ */
+function splitButton(main: HTMLButtonElement, key: HTMLButtonElement): HTMLElement { return el('span', { class: 'split' }, main, key); }
+
+/** The settings key of a split button, named for its feature (`Settings: VWAP`) for a tooltip and a screen reader. */
+function settingsKey(name: string): HTMLButtonElement {
+  const label = `${t('Settings')}: ${name}`;
+  return el('button', { type: 'button', class: 'split-cfg', ariaLabel: label, tip: label });
+}
+
+/**
+ * One deck of the full top bar: a framed group (a fieldset, whose legend sits in the frame line) of up to two rows of controls. Its frame is
+ * the theme's (chrome.css): an etched group box on the bevel, a double rule in text mode, a hairline pair in the editor.
+ */
+function deck(id: string, title: string, ...rows: HTMLElement[][]): HTMLElement {
+  return el('fieldset', { class: `deck deck-${id}` }, el('legend', { textContent: title }),
+    ...rows.filter(r => r.length).map(r => el('div', { class: 'deck-row' }, ...r)));
+}
+
 /** Top bar: market, timeframe, layer, pane toggles, heatmap colour, venues, theme. */
 export class Toolbar {
   readonly root = el('header', { class: 'toolbar' });
   /** The coin every view shows; choosing another loads the page again for it (app/coin.ts). */
   #coin = el('button', { type: 'button', class: 'coin-btn', textContent: currentCoin().coin, ariaLabel: t('Coin'), tip: t('Coin: which coin every view shows. Choosing another loads the page again for it.'), onclick: () => { void lazy(() => import('./coin-dialog.ts')).then(m => m?.openCoinDialog()); } });
   /** Says once why the page is on BTC when another coin was asked for. */
-  #coinNotice = el('div', { class: 'notice', role: 'status', hidden: true });
+  #coinNotice = el('div', { class: 'notice info', role: 'status', hidden: true });
   #market = el('select', { class: 'market', ariaLabel: t('Market'), tip: t("Market: whose candles, footprint and open interest the chart shows. The heatmap always combines every enabled venue's book, whatever is chosen here.") });
   #timeframes = el('div', { class: 'seg' });
   #layer = el('select', { ariaLabel: t('Layer'), tip: t('Layer drawn on the map. Liquidity is the order-book heatmap; liquidation, stop-loss and take-profit layers are upcoming (they need data a static page cannot hold a key for).') });
@@ -99,10 +120,21 @@ export class Toolbar {
   #venueMenu: Panel | null = null;
   #alerts: Alerts | null = null;
   /**
-   * The features that are switched on and set in a panel: one button each, whose lamp (`.led-btn`) is lit while the feature is on. Trades
+   * The features that are switched on and set in a panel: one button each, whose lamp (`.led-btn`) is lit while the feature is on. The Chart
+   * and Alerts decks' are split buttons (`splitButton`: the button switches, its key opens the panel). Trades
    * and Absorption mark market orders on the map, Highlights and Sound point out what is unusual, so they stand in those pairs.
    */
   #trades = el('button', { class: 'led-btn', textContent: t('Trades'), tip: HELP.bubbles.tip });
+  /** The settings keys of the Chart deck's split buttons (`splitButton`): each opens its feature's panel, which is placed from the key. */
+  #settingsKeys: Record<Exclude<Feature, 'highlights'>, HTMLButtonElement> = {
+    trades: settingsKey(t('Trades')), footprint: settingsKey(t('Footprint')), vwap: settingsKey(t('VWAP')), keyLevels: settingsKey(t('Key levels')),
+    liquidations: settingsKey(t('Liquidations')), traded: settingsKey(t('Volume profile')), absorption: settingsKey(t('Absorption')),
+  };
+  /** The Alerts deck's settings keys: Highlights and Sound are switched and set the same way. */
+  #alertKeys = { highlights: settingsKey(t('Highlights')), sound: settingsKey(t('Sound')) };
+  #alertSplits: { highlights: HTMLElement; sound: HTMLElement } | null = null;
+  /** The split buttons themselves (the button and its key), built once the buttons and keys exist. */
+  #splits: Record<Exclude<Feature, 'highlights'>, HTMLElement> | null = null;
   #absorption = el('button', { class: 'led-btn', textContent: t('Absorption'), tip: HELP.absorption.tip });
   /** Liquidations on the map (liquidations.ts), set in its panel. */
   #liquidations = el('button', { class: 'led-btn', textContent: t('Liquidations'), tip: HELP.liquidations.tip });
@@ -158,8 +190,11 @@ export class Toolbar {
     smooth: el('select', { ariaLabel: t('Smoothing'), tip: t('Vertical smoothing when price rows get thin (zoomed out): Auto smooths with a ~5 px Gaussian below 15 px per row, so far walls stay visible; Off draws every row exactly.') }),
     auto: el('button', { class: 'led-btn', textContent: t('Auto'), tip: t('Auto: the colour window follows the data (recomputed on recenter, market change, zoom and every 10 s). Off: it stays where it is.') }),
   };
-  #source = el('select', { ariaLabel: t('Source'), tip: t('Heatmap source') });
+  #source = el('select', { class: 'heat-source', ariaLabel: t('Source'), tip: t('Heatmap source') });
   #theme = el('button', { class: 'theme-btn', tip: t('Theme: hover to preview, click to keep') });
+  /** Solid or glass, in any theme (store `material`): a lamp on the full bar, a switch in a phone's Settings. */
+  #glass = el('button', { type: 'button', class: 'led-btn glass-btn', textContent: t('Glass'), tip: t('Glass: the bars and panels around the chart turn to glass, and large orders send light through it') });
+  #glassSwitch = el('input', { type: 'checkbox' });
   /** The page's language: the code of the one in use, and a menu of the others (a language is chosen before the page is built, so choosing one reloads it). */
   /** Which clock the page's times are on: UTC, or the computer's own. */
   #zone = el('button', { class: 'zone-btn' });
@@ -174,6 +209,13 @@ export class Toolbar {
   #status = el('span', { class: 'status', tip: t('Connection to the data source: live when frames are arriving.') });
   #brand = el('span', { class: 'brand', textContent: 'LiquidityMapperFast' });
   #venuesButton: HTMLElement | null = null;
+  /** The Venues button's word, and on the full bar how many of the venues with a book are switched on. */
+  #venuesLabel = el('span', { textContent: t('Venues') });
+  #venuesCount = el('span', { class: 'count' });
+  /** The venues with a book now (from the last frame), for the switches the full bar's Venues button opens. */
+  #venueList: readonly string[] = [];
+  /** Opens the dialog that chooses which exchanges feed the page. */
+  #openFeeds: () => void = () => {};
   /** The venues the source last reported, and the ones with a book on the map (chips for chosen venues that have none say why). */
   #entries: readonly VenueEntry[] = [];
   #drawn: ReadonlySet<string> = new Set();
@@ -201,7 +243,7 @@ export class Toolbar {
   constructor(private store: Store, private venueControl: VenueControl) {
     const missing = coinChoice().notice;
     if (missing) {
-      this.#coinNotice.append(el('span', { class: 'notice-mark', textContent: 'ⓘ', ariaHidden: 'true' }), el('span', { textContent: missing.reason === 'unreadable' ? t('The coin list could not be read, so only BTC is offered.') : t('{coin} is not on the coin list, so the page is on BTC.', { coin: missing.coin }) }),
+      this.#coinNotice.append(el('span', { class: 'notice-mark mark-info', ariaHidden: 'true' }), el('span', { textContent: missing.reason === 'unreadable' ? t('The coin list could not be read, so only BTC is offered.') : t('{coin} is not on the coin list, so the page is on BTC.', { coin: missing.coin }) }),
         el('button', { class: 'notice-close', tip: t('Dismiss'), ariaLabel: t('Dismiss'), onclick: () => { this.#coinNotice.hidden = true; } }));
       this.#coinNotice.hidden = false;
     }
@@ -217,44 +259,65 @@ export class Toolbar {
       const button = el('button', { textContent: label, tip: HELP[key as HelpId].tip, onclick: () => this.store.set({ show: { ...this.store.state.show, [key]: !this.store.state.show[key] } }) });
       this.#toggleButtons.push(button); this.#toggles.append(button);
     }
-    this.#trades.onclick = () => {
+    this.#settingsKeys.trades.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => this.#buildTrades(tools, body, () => this.#tradePanel?.render(build));
-      this.#tradePanel = this.#track(togglePanel(this.#trades, { title: t('Trades'), width: 380, align: 'left', onClose: () => { this.#tradePanel = null; } }, build), build);
+      this.#tradePanel = this.#track(togglePanel(this.#settingsKeys.trades, { title: t('Trades'), width: 380, align: 'left', onClose: () => { this.#tradePanel = null; } }, build), build);
     };
-    this.#footprint.onclick = () => {
+    this.#trades.onclick = () => this.store.set(togglePatch(this.store.state, 'trades'));
+    this.#settingsKeys.footprint.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => buildFootprintPanel(this.store, this.flow, tools, body, () => this.#footprintPanel?.render(build));
-      this.#footprintPanel = this.#track(togglePanel(this.#footprint, { title: t('Footprint'), width: 440, align: 'left', onClose: () => { this.#footprintPanel = null; } }, build), build);
+      this.#footprintPanel = this.#track(togglePanel(this.#settingsKeys.footprint, { title: t('Footprint'), width: 440, align: 'left', onClose: () => { this.#footprintPanel = null; } }, build), build);
     };
-    this.#vwap.onclick = () => {
+    this.#footprint.onclick = () => this.store.set(togglePatch(this.store.state, 'footprint'));
+    this.#settingsKeys.vwap.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => buildVwapPanel(this.store, tools, body, () => this.#vwapPanel?.render(build), this.whaleInfo);
-      this.#vwapPanel = this.#track(togglePanel(this.#vwap, { title: t('VWAP'), width: 420, align: 'left', stays: true, onClose: () => { this.#vwapPanel = null; if (this.store.state.vwapAnchoring) this.store.set({ vwapAnchoring: false }); } }, build), build);
+      this.#vwapPanel = this.#track(togglePanel(this.#settingsKeys.vwap, { title: t('VWAP'), width: 420, align: 'left', stays: true, onClose: () => { this.#vwapPanel = null; if (this.store.state.vwapAnchoring) this.store.set({ vwapAnchoring: false }); } }, build), build);
     };
-    this.#keyLevels.onclick = () => {
+    this.#vwap.onclick = () => this.store.set(togglePatch(this.store.state, 'vwap'));
+    this.#settingsKeys.keyLevels.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => buildKeyLevelPanel(this.store, tools, body, () => this.#keyLevelPanel?.render(build), this.keyHistory);
-      this.#keyLevelPanel = this.#track(togglePanel(this.#keyLevels, { title: t('Key levels'), width: 420, align: 'left', onClose: () => { this.#keyLevelPanel = null; } }, build), build);
+      this.#keyLevelPanel = this.#track(togglePanel(this.#settingsKeys.keyLevels, { title: t('Key levels'), width: 420, align: 'left', onClose: () => { this.#keyLevelPanel = null; } }, build), build);
     };
-    this.#liquidations.onclick = () => {
+    this.#keyLevels.onclick = () => this.store.set(togglePatch(this.store.state, 'keyLevels'));
+    this.#settingsKeys.liquidations.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => this.#buildLiquidations(tools, body, () => this.#liquidationPanel?.render(build));
-      this.#liquidationPanel = this.#track(togglePanel(this.#liquidations, { title: t('Liquidations'), width: 400, align: 'left', onClose: () => { this.#liquidationPanel = null; } }, build), build);
+      this.#liquidationPanel = this.#track(togglePanel(this.#settingsKeys.liquidations, { title: t('Liquidations'), width: 400, align: 'left', onClose: () => { this.#liquidationPanel = null; } }, build), build);
+    };
+    this.#liquidations.onclick = () => this.store.set(togglePatch(this.store.state, 'liquidations'));
+    this.#alertSplits = { highlights: splitButton(this.#highlights, this.#alertKeys.highlights), sound: splitButton(this.#soundButton, this.#alertKeys.sound) };
+    const k = this.#settingsKeys;
+    this.#splits = {
+      trades: splitButton(this.#trades, k.trades), footprint: splitButton(this.#footprint, k.footprint), vwap: splitButton(this.#vwap, k.vwap),
+      keyLevels: splitButton(this.#keyLevels, k.keyLevels), liquidations: splitButton(this.#liquidations, k.liquidations),
+      traded: splitButton(this.#traded, k.traded), absorption: splitButton(this.#absorption, k.absorption),
     };
     for (const [value, label] of SCOPE_OPTIONS) this.#scope.append(el('button', { textContent: label, onclick: () => this.store.set({ scope: value }) }));
-    this.#soundButton.onclick = () => {
+    this.#alertKeys.sound.onclick = () => {
       const sounds = this.#sounds; if (!sounds) return;
       const build = (tools: HTMLElement, body: HTMLElement): void => { tools.append(helpButton('sounds')); buildSoundPanel(this.store, sounds, () => this.#soundPanel?.render(build), tools, body, this.#alerts); };
-      this.#soundPanel = this.#track(togglePanel(this.#soundButton, { title: t('Sounds'), width: 420, align: 'left', onClose: () => { this.#soundPanel = null; } }, build), build);
+      this.#soundPanel = this.#track(togglePanel(this.#alertKeys.sound, { title: t('Sounds'), width: 420, align: 'left', onClose: () => { this.#soundPanel = null; } }, build), build);
     };
-    this.#highlights.onclick = () => {
+    this.#soundButton.onclick = () => {
+      const on = !this.store.state.sounds.on, sounds = this.#sounds;
+      this.store.set({ sounds: { ...this.store.state.sounds, on } });
+      // The press is the gesture a browser waits for before it lets a page play sound.
+      if (on && sounds) void sounds.engine.unlock().then(() => this.store.set({ soundState: sounds.engine.state }));
+    };
+    this.#alertKeys.highlights.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => { tools.append(helpButton('highlights')); this.#buildHighlights(tools, body); };
-      this.#track(togglePanel(this.#highlights, { title: t('Highlights'), width: 380, align: 'left' }, build), build);
+      this.#track(togglePanel(this.#alertKeys.highlights, { title: t('Highlights'), width: 380, align: 'left' }, build), build);
     };
-    this.#traded.onclick = () => {
+    this.#highlights.onclick = () => this.store.set(togglePatch(this.store.state, 'highlights'));
+    this.#settingsKeys.traded.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => buildTradedPanel(this.store, tools, body, () => this.#tradedPanel?.render(build), () => gridStepFor(this.store.state.mark.price > 0 ? this.store.state.mark.price : 1));
-      this.#tradedPanel = this.#track(togglePanel(this.#traded, { title: t('Volume profile'), width: 520, align: 'left', onClose: () => { this.#tradedPanel = null; } }, build), build);
+      this.#tradedPanel = this.#track(togglePanel(this.#settingsKeys.traded, { title: t('Volume profile'), width: 520, align: 'left', onClose: () => { this.#tradedPanel = null; } }, build), build);
     };
-    this.#absorption.onclick = () => {
+    this.#traded.onclick = () => this.store.set(togglePatch(this.store.state, 'traded'));
+    this.#settingsKeys.absorption.onclick = () => {
       const build = (tools: HTMLElement, body: HTMLElement): void => this.#buildAbsorption(tools, body, () => this.#absorptionPanel?.render(build));
-      this.#absorptionPanel = this.#track(togglePanel(this.#absorption, { title: t('Absorption'), width: 400, align: 'left', onClose: () => { this.#absorptionPanel = null; } }, build), build);
+      this.#absorptionPanel = this.#track(togglePanel(this.#settingsKeys.absorption, { title: t('Absorption'), width: 400, align: 'left', onClose: () => { this.#absorptionPanel = null; } }, build), build);
     };
+    this.#absorption.onclick = () => this.store.set(togglePatch(this.store.state, 'absorption'));
     for (const style of HEAT_STYLES) this.#heat.style.append(new Option(style.label, style.id));
     this.#heat.style.onchange = () => this.store.set({ heat: { ...this.store.state.heat, style: this.#heat.style.value as HeatStyleId } });
     this.#heat.contrast.oninput = () => this.store.set({ heat: { ...this.store.state.heat, contrast: Number(this.#heat.contrast.value) } });
@@ -274,12 +337,18 @@ export class Toolbar {
     this.#author.onclick = () => { toggleAuthor(this.#author); };
     this.#shot.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3V19H4z"/><circle cx="12" cy="13.4" r="3.3"/></svg>';
     this.venueControl.watch?.(entries => { this.#entries = entries; this.#notice.update(entries); this.#showIdle(this.#drawn); });
-    const venues = el('button', { textContent: t('Venues'), tip: t('Choose which exchanges feed the map. The choice is kept in this browser; nothing changes until you press Apply.'), onclick: () => void openVenueDialog(this.venueControl, () => this.#selectionProduct(), () => this.onVenuesApplied()) });
+    this.#openFeeds = () => void openVenueDialog(this.venueControl, () => this.#selectionProduct(), () => this.onVenuesApplied());
+    // On the full bar the venues are no longer chips beside it: the button opens their switches (and, from there, the feeds); on a phone,
+    // whose Settings lists every chip, it chooses the feeds.
+    const venues = el('button', { class: 'venues-btn', tip: t('Choose which exchanges feed the map. The choice is kept in this browser; nothing changes until you press Apply.'),
+      onclick: () => { if (compactBar()) this.#openFeeds(); else this.#openVenueMenu(venues, this.#venueList); } }, this.#venuesLabel, this.#venuesCount);
     this.#heatScale.append(this.#heat.legend, this.#heat.contrast);
     this.#fillHeatControls();
     this.#more.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>';
     this.#more.onclick = () => this.#toggleSheet();
     this.#awake.onchange = () => this.store.set({ keepAwake: this.#awake.checked });
+    this.#glass.onclick = () => this.store.set({ material: this.store.state.material === 'glass' ? 'solid' : 'glass' });
+    this.#glassSwitch.onchange = () => this.store.set({ material: this.#glassSwitch.checked ? 'glass' : 'solid' });
     const shoot = this.#shot.onclick;
     // The screenshot is of the page, so Settings must be out of the picture before it is taken.
     this.#shot.onclick = event => { if (!this.#sheet) { shoot?.call(this.#shot, event); return; } this.#sheet.close(); requestAnimationFrame(() => requestAnimationFrame(() => { shoot?.call(this.#shot, event); })); };
@@ -371,6 +440,9 @@ export class Toolbar {
 
   hostStatusControls(host: HTMLElement): void { this.#statusHost = host; this.#arrange(); }
 
+  /** The Tape view's choices (panes/candle-pane.ts `settingsFields`), a section of the phone's Settings; set by the page. */
+  tapeFields: (() => [string, HTMLElement][]) | null = null;
+
   /** Put Recenter in a corner of the map `host` (on the full toolbar; the compact bar keeps it beside the timeframes). */
   placeRecenter(host: HTMLElement): void { this.#mapHost = host; this.#arrange(); }
 
@@ -383,16 +455,32 @@ export class Toolbar {
       if (inCorner) { this.#mapTools.replaceChildren(this.#goto, this.#rangeCorner, this.#recenter); this.#mapHost!.prepend(this.#mapTools); }
       const host = this.#statusHost;
       // With a status bar the connection state and the language and theme buttons live there.
-      host?.replaceChildren(this.#layouts, this.#keys, this.#zone, this.#language, this.#theme);
-      this.root.replaceChildren(this.#brand, this.#coin, this.#market, this.#venuesButton!, this.#source, this.#timeframes, this.#layer, this.#toggles, this.#footprint, this.#trades, this.#liquidations, this.#absorption, this.#traded, this.#keyLevels, this.#vwap, this.#highlights, this.#soundButton, this.#range,
-        this.#heatctl, this.#scope, this.#chips, this.#blocked, ...(inCorner ? [] : [this.#recenter]), this.#spacer, this.#install.root, this.#guide, this.#shot, this.#author, ...(host ? [] : [this.#zone, this.#language, this.#theme, this.#status]), this.#notice.root, this.#coinNotice);
+      host?.replaceChildren(this.#layouts, this.#keys, this.#zone, this.#language, this.#theme, this.#glass);
+      // A console of decks, each a framed group of what belongs together, at most two rows tall, wrapping as whole decks (Karl,
+      // 2026-10-16: one wrapping row read as a jumble). The venues are switched from the Venues button, not listed as chips.
+      setTip(this.#venuesButton!, t('Venues: switch each exchange on or off for the map, the book and the flow column, or choose which ones feed the page'));
+      this.root.classList.add('cockpit');
+      const sp = this.#splits!;
+      // The name of the page is the last deck's title: what it holds is about the page itself (the guide, the author, installing it).
+      this.root.replaceChildren(
+        deck('market', t('Market'), [this.#coin, this.#market], [this.#scope, this.#venuesButton!]),
+        deck('time', t('Time'), [this.#timeframes], inCorner ? [] : [this.#recenter]),
+        deck('heat', t('Heatmap'), [this.#source, this.#layer, this.#heat.style], [this.#heatScale, this.#heat.auto, this.#heat.smooth]),
+        deck('panels', t('Panels'), [this.#toggles]),
+        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, this.#range]),
+        deck('alerts', t('Alerts'), [this.#alertSplits!.highlights], [this.#alertSplits!.sound]),
+        deck('tools', 'LiquidityMapperFast', [this.#guide, this.#shot], [this.#author, this.#install.root, ...(host ? [] : [this.#zone, this.#language, this.#theme, this.#glass, this.#status])]),
+        this.#notice.root, this.#coinNotice);
       return;
     }
     // A phone has Range in Settings and Recenter beside the timeframes: the map's corner stays clear.
     this.#mapTools.remove();
+    setTip(this.#venuesButton!, t('Choose which exchanges feed the map. The choice is kept in this browser; nothing changes until you press Apply.'));
+    this.root.classList.remove('cockpit');
     this.root.replaceChildren(
       el('div', { class: 'tb-bar' },
-        el('div', { class: 'tb-row tb-main' }, this.#brand, this.#coin, this.#market, this.#spacer, this.#status, this.#more),
+        // The coin alone (Karl, 2026-10-17): the market is chosen in Settings, where the venues are.
+        el('div', { class: 'tb-row tb-main' }, this.#brand, this.#coin, this.#spacer, this.#status, this.#more),
         el('div', { class: 'tb-row tb-time' }, this.#timeframes, this.#recenter)),
       this.#notice.root, this.#coinNotice);
   }
@@ -404,33 +492,37 @@ export class Toolbar {
     const section = (title: string, children: HTMLElement[], action?: HTMLElement): HTMLElement =>
       el('section', { class: 'sheet-sec' }, el('div', { class: 'sheet-sec-head' }, el('h4', { textContent: title }), ...(action ? [action] : [])), ...children);
     // The sheet's own heading says "Venues", so the button beside it says what it does.
-    this.#venuesButton!.textContent = t('Choose…');
+    this.#venuesLabel.textContent = t('Choose…'); this.#venuesCount.hidden = true;
     this.#sheet = openSheet(t('Settings'), body => {
       this.#heatctl.replaceChildren();
       body.append(
         section(t('Tools'), [el('div', { class: 'sheet-tiles' }, this.#range, this.#guide, this.#shot, this.#author, this.#install.root)]),
-        section(t('Show'), [this.#toggles, el('div', { class: 'sheet-tiles' }, this.#footprint, this.#trades, this.#liquidations, this.#absorption, this.#traded, this.#keyLevels, this.#vwap), el('p', { class: 'sheet-note', textContent: t('Depth, OI, Delta, LT and Footprint each add a tab to the bar under the map.') })]),
+        section(t('Panels'), [this.#toggles, el('p', { class: 'sheet-note', textContent: t('Depth, OI, Delta, LT and Footprint each add a tab to the bar under the map.') })]),
+        section(t('Chart'), [el('div', { class: 'sheet-tiles' }, ...(['footprint', 'trades', 'liquidations', 'absorption', 'traded', 'keyLevels', 'vwap'] as const).map(f => this.#splits![f]))]),
+        // Only a phone has the Tape tab; a touch tablet keeps the desktop's panes and gets this sheet without it.
+        ...(this.tapeFields && isPhone() ? [section(t('Tape'), this.tapeFields().map(([label, control]) => field(label, control)), helpButton('candlePane'))] : []),
         section(t('Heatmap'), [
           field(t('Layer'), this.#layer), field(t('Source'), this.#source), field(t('Colours'), this.#heat.style),
           field(t('Contrast'), this.#heatScale, true), field(t('Colour range'), this.#heat.auto), field(t('Smoothing'), this.#heat.smooth)], helpButton('heatmap')),
-        section(t('Venues'), [field(t('Markets'), this.#scope, true), el('div', { class: 'sheet-chips' }, this.#chips, this.#blocked)], this.#venuesButton!),
-        section(t('Alerts'), [el('div', { class: 'sheet-tiles' }, this.#highlights, this.#soundButton)]),
-        section(t('Appearance'), [field(t('Language'), this.#language), field(t('Theme'), this.#theme), field(t('Time zone'), this.#zone),
+        section(t('Venues'), [field(t('Market'), this.#market, true), field(t('Markets'), this.#scope, true), el('div', { class: 'sheet-chips' }, this.#chips, this.#blocked)], this.#venuesButton!),
+        section(t('Alerts'), [el('div', { class: 'sheet-tiles' }, this.#alertSplits!.highlights, this.#alertSplits!.sound)]),
+        section(t('Appearance'), [field(t('Language'), this.#language), field(t('Theme'), this.#theme),
+          field(t('Glass'), el('label', { class: 'switch', tip: t('Glass: the bars and panels around the chart turn to glass, and large orders send light through it') }, this.#glassSwitch, el('i'))), field(t('Time zone'), this.#zone),
           ...(wakeLockSupported() ? [field(t('Keep screen on'), el('label', { class: 'switch', tip: t('Stops the screen turning off while this page is open. A screen that sleeps stops the recording, and the map then has a gap where it was.') }, this.#awake, el('i')))] : [])]));
-    }, () => { this.#sheet = null; this.#more.classList.remove('open'); this.#venuesButton!.textContent = t('Venues'); });
+    }, () => { this.#sheet = null; this.#more.classList.remove('open'); this.#venuesLabel.textContent = t('Venues'); this.#venuesCount.hidden = false; });
     this.#more.classList.add('open');
   }
 
   /** Update controls from state; `window` is the USD range currently mapped onto the colour ramp. Only touches DOM that changed, so open dropdowns and clicks survive 4 Hz data frames. */
   sync(state: AppState, window: { lo: number; hi: number }): void {
     const instruments = state.markets.filter(m => m.instrumentId);
-    const short = compactBar(), marketKey = instruments.map(m => m.instrumentId).join(',') + (short ? '|short' : '');
+    const marketKey = instruments.map(m => m.instrumentId).join(',');
     if (this.#market.dataset.key !== marketKey) {
-      // The phone's top bar has room for about two dozen characters, so "perpetual" becomes "perp".
+      // Short on both bars: the phone's has room for about two dozen characters, and the full one's sits in a deck titled Market. So
+      // "perpetual" becomes "perp".
       const label = (m: (typeof instruments)[number]): string => {
         const venue = venueLabel(m.instrumentId ?? ''), symbol = String(m.symbol ?? m.instrumentId);
         const kind = m.marketType === 'perpetual' ? t('perpetual') : m.marketType === 'spot' ? t('spot') : m.marketType ?? '';
-        if (!short) return `${venue} · ${symbol} · ${kind}`;
         // A symbol that already says "PERP" needs no type after it.
         const type = m.marketType === 'perpetual' ? (/perp/i.test(symbol) ? '' : t('perp')) : kind;
         return [venue, symbol, type].filter(Boolean).join(' ');
@@ -444,6 +536,8 @@ export class Toolbar {
     this.#toggleButtons.forEach((b, i) => b.classList.toggle('on', state.show[PANE_TOGGLES[i]![0]]));
     lamp(this.#heat.auto, state.heat.auto); lamp(this.#trades, state.show.bubbles); lamp(this.#liquidations, state.liquidations.on); lamp(this.#absorption, state.absorption.on); lamp(this.#highlights, state.highlight.on); lamp(this.#traded, state.show.traded); lamp(this.#keyLevels, state.keyLevels.on); lamp(this.#vwap, state.vwap.on); lamp(this.#footprint, state.show.footprint); lamp(this.#range, state.rangeTool || state.range !== null); lamp(this.#rangeCorner, state.rangeTool || state.range !== null);
     if (this.#awake.checked !== state.keepAwake) this.#awake.checked = state.keepAwake;
+    lamp(this.#glass, state.material === 'glass');
+    if (this.#glassSwitch.checked !== (state.material === 'glass')) this.#glassSwitch.checked = state.material === 'glass';
     setValue(this.#heat.smooth, state.heat.smooth);
     setValue(this.#heat.style, state.heat.style); setValue(this.#heat.contrast, String(state.heat.contrast));
     const legendKey = `${state.heat.style}|${state.theme}`;
@@ -464,17 +558,19 @@ export class Toolbar {
     const live = state.connected ? 'live' : 'down';
     if (this.#status.dataset.state !== live) this.#status.dataset.state = live;
     const books = state.levels?.books ?? [];
-    const sourceKey = books.map(b => b.id).join(',') + (short ? '|short' : '');
+    const sourceKey = books.map(b => b.id).join(',');
     if (this.#source.dataset.key !== sourceKey) {
-      // The phone's Settings already says "Heatmap" above this choice.
-      const prefix = short ? '' : `${t('Heatmap:')} `;
-      this.#source.replaceChildren(new Option(`${prefix}${short ? t('Aggregated') : t('aggregated')}`, 'aggregated'), ...books.map(b => new Option(`${prefix}${venueLabel(b.id)}`, b.id)));
+      // The phone's Settings and the full bar's deck already say "Heatmap" above this choice.
+      this.#source.replaceChildren(new Option(t('Aggregated'), 'aggregated'), ...books.map(b => new Option(venueLabel(b.id), b.id)));
       this.#source.dataset.key = sourceKey;
     }
     const shown = heatmapSourceOf(state);
     setValue(this.#source, shown);
     const venues = [...new Set(books.map(b => b.venue))];
     this.#drawn = new Set(venues); this.#showIdle(this.#drawn);
+    this.#venueList = venues;
+    const count = venues.length ? `${venues.filter(v => !state.disabledVenues.includes(v)).length}/${venues.length}` : '';
+    if (this.#venuesCount.textContent !== count) this.#venuesCount.textContent = count;
     const scoped = (v: string) => !scopedOut(state, v);
     const counts = scopeCounts(state);
     [...this.#scope.children].forEach((b, i) => { const [value] = SCOPE_OPTIONS[i]!; b.classList.toggle('on', state.scope === value); setTip(b as HTMLElement, value === 'all' ? t('Every enabled venue') : (value === 'spot' ? t('Spot venues only ({n} enabled)', { n: counts[value] }) : t('Perpetual venues only ({n} enabled)', { n: counts[value] }))); });
@@ -509,9 +605,12 @@ export class Toolbar {
   }
   #buildVenueMenu(tools: HTMLElement, body: HTMLElement, venues: readonly string[]): void {
     tools.replaceChildren(
+      el('button', { type: 'button', textContent: t('Choose…'), tip: t('Choose which exchanges feed the map. The choice is kept in this browser; nothing changes until you press Apply.'), onclick: () => { this.#venueMenu?.close(); this.#openFeeds(); } }),
       el('button', { type: 'button', textContent: t('All on'), tip: t('Show every venue'), onclick: () => this.store.set({ disabledVenues: [] }) }),
       el('button', { type: 'button', textContent: t('All off'), tip: t('Hide every venue'), onclick: () => this.store.set({ disabledVenues: [...venues] }) }));
     body.replaceChildren(note(t('Chips are switches: a venue that is off keeps its book but is left out of the map, the book and the flow column.')));
+    // On the full bar the venues that cannot be reached are said here, not beside the button: the bar must not change its width for them.
+    if (!compactBar() && this.#blocked.childElementCount) body.append(el('div', { class: 'sheet-chips' }, this.#blocked));
     for (const group of exchangeGroups(venues)) {
       const head = heading(venueLabel(group.key)); head.prepend(venueMark(group.key, 13));
       body.append(head);
@@ -532,8 +631,9 @@ export class Toolbar {
     if (key === this.#idleKey) return;
     this.#idleKey = key;
     this.#blocked.replaceChildren(
-      ...blocked.map(v => el('span', { class: 'chip blocked', textContent: `⊘ ${v.name}`, tip: `${v.name}: ${VPN_HINT}` })),
-      ...shown.map(v => el('span', { class: v.kind === 'faulty' ? 'chip blocked faulty' : 'chip blocked', textContent: `${v.kind === 'faulty' ? '⚠' : '…'} ${v.name}`, tip: idleText(v) })));
+      ...blocked.map(v => el('span', { class: 'chip blocked', tip: `${v.name}: ${VPN_HINT}` }, el('i', { class: 'chip-mark mark-ban', ariaHidden: 'true' }), v.name)),
+      ...shown.map(v => el('span', { class: v.kind === 'faulty' ? 'chip blocked faulty' : 'chip blocked', tip: idleText(v) }, el('i', { class: `chip-mark ${v.kind === 'faulty' ? 'mark-warn' : 'mark-wait'}`, ariaHidden: 'true' }), v.name)));
+    if (this.#venuesButton) { const state = this.#blocked.childElementCount ? 'warn' : ''; if ((this.#venuesButton.dataset.state ?? '') !== state) this.#venuesButton.dataset.state = state; }
   }
 
   /** The sound engine the Sounds panel controls. */

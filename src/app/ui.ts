@@ -1,7 +1,7 @@
 import { el } from './dom.ts';
 import { compactBar, onLayoutMode } from './device.ts';
 import { scrimFor } from './sheet.ts';
-import { EDGE, chooseSide, placeOn, type Side } from './placement.ts';
+import { EDGE, anchorBox, chooseSide, placeOn, type Side } from './placement.ts';
 import { makeDraggable } from './drag.ts';
 import { t } from './i18n.ts';
 import { sizeText, takeSize, type SizeRule, type SizeWhy } from './sizes.ts';
@@ -66,7 +66,9 @@ export function openPanel(anchor: HTMLElement, options: PanelOptions, build: (to
     if (compactBar()) { drag.reset(); side = null; root.style.top = ''; root.style.left = ''; root.style.width = ''; root.style.maxHeight = ''; return; }
     root.style.width = `${Math.min(width, window.innerWidth - 2 * EDGE)}px`;
     if (drag.moved()) { drag.clamp(); return; }
-    const a = anchor.getBoundingClientRect(), box = { left: a.left, top: a.top, right: a.right, bottom: a.bottom };
+    // A button of a top-bar deck places its panel by the whole deck: under the button alone the panel hid the deck's other row of buttons.
+    const a = anchor.getBoundingClientRect(), deck = anchor.closest('fieldset.deck')?.getBoundingClientRect();
+    const box = anchorBox({ left: a.left, top: a.top, right: a.right, bottom: a.bottom }, deck ? { left: deck.left, top: deck.top, right: deck.right, bottom: deck.bottom } : null);
     const need = natural(), view = { width: window.innerWidth, height: window.innerHeight };
     if (side === null || rechoose) side = chooseSide(box, need, view);
     const at = placeOn(side, box, need, root.offsetWidth, options.align ?? 'left', view);
@@ -141,12 +143,18 @@ export function rangeRow(name: string, description: string, o: { min: number; ma
     el('span', { class: 'slider' }, input, out));
 }
 
+/** How much room a choice's words need beside a name: a letter counts one, a Chinese, Japanese or Korean character about two. */
+const roomFor = (text: string): number => [...text].reduce((sum, char) => sum + (char.charCodeAt(0) >= 0x2e80 ? 2 : 1), 0);
+
 export function selectRow(name: string, description: string, options: readonly [value: string, label: string][], value: string, onChange: (value: string) => void): HTMLElement {
   const select = el('select');
   for (const [v, label] of options) select.append(new Option(label, v));
   select.value = value; select.onchange = () => onChange(select.value);
-  return el('label', { class: 'field', tip: description },
+  // A long choice ("Aggregated: every market switched on") does not fit the 150 px select beside the name: the select takes a line of its own under it (pin-field).
+  const row = el('label', { class: 'field', tip: description },
     el('span', { class: 'label' }, el('span', { class: 'name', textContent: name }), el('span', { class: 'desc', textContent: description })), select);
+  if (options.some(([, label]) => roomFor(label) > 18)) row.classList.add('pin-field');
+  return row;
 }
 
 export function numberRow(name: string, description: string, o: { min: number; step: number; value: number; max?: number }, onChange: (value: number) => void): HTMLElement {
@@ -219,7 +227,7 @@ export function segmented(options: readonly [value: string, label: string][], va
   return group;
 }
 
-export const button = (label: string, onclick: () => void, title = ''): HTMLButtonElement => el('button', { type: 'button', textContent: label, tip: title, onclick });
+export const button = (label: string, onclick: () => void, title = '', cls = ''): HTMLButtonElement => el('button', { type: 'button', textContent: label, tip: title, onclick, class: cls });
 
 // ---- reorderable list ----------------------------------------------------------------------------------------------
 
