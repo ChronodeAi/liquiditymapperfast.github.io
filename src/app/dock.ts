@@ -1,5 +1,5 @@
 import { el } from './dom.ts';
-import { layoutMode, onLayoutMode } from './device.ts';
+import { layoutMode, onLayoutMode, type LayoutMode } from './device.ts';
 import type { AppState } from './store.ts';
 import { t } from './i18n.ts';
 
@@ -39,15 +39,17 @@ export const DOCK_TABS: readonly TabSpec[] = [
 ];
 
 /**
- * The tab a phone opens on is the Tape (Karl, 2026-10-17); a desktop has the map. The key is new with that choice, so a phone that kept the
- * Map from before opens on the Tape once and keeps whatever is chosen after.
+ * The tab a phone opens on is the Tape (Karl, 2026-10-17); a desktop has the map. Only a tab that was tapped is saved, and the key is new
+ * with that choice, so a phone that kept the Map from before opens on the Tape once and keeps whatever is chosen after.
  */
-const KEY = 'hlm-dock-tab-v2', SIZE_KEY = 'hlm-dock-size';
+const KEY = 'hlm-dock-tab-v3', SIZE_KEY = 'hlm-dock-size';
 /** Thickness of the handle in px (the stylesheet gives it the same). */
 const GRIP = 20;
 type Axis = 'portrait' | 'landscape';
-const firstTab = (): DockTab => layoutMode() === 'desktop' ? 'map' : 'candle';
-const read = (): DockTab => { try { const id = window.localStorage.getItem(KEY); return DOCK_TABS.some(t => t.id === id) ? id as DockTab : firstTab(); } catch { return firstTab(); } };
+/** The tab shown when none was ever chosen: the map on a desktop, the Tape on a phone. */
+export const defaultTab = (mode: LayoutMode): DockTab => mode === 'desktop' ? 'map' : 'candle';
+/** The tab that was last tapped, or null: then the default of the layout the page is in NOW applies, so a window that becomes a phone's (a browser's phone view, a rotated tablet) opens on the Tape too, not only a page loaded as one. */
+const read = (): DockTab | null => { try { const id = window.localStorage.getItem(KEY); return DOCK_TABS.some(t => t.id === id) ? id as DockTab : null; } catch { return null; } };
 
 /** The tabs available for these pane switches, in order. */
 export const tabsFor = (show: AppState['show']): DockTab[] => DOCK_TABS.filter(t => !t.needs || show[t.needs]).map(t => t.id);
@@ -68,7 +70,7 @@ export class Dock {
   readonly root = el('nav', { class: 'dock', role: 'tablist', ariaLabel: t('Panels') });
   /** The handle between the map and the pane; `<main>` holds it so the stylesheet can place it between them. */
   readonly grip = el('div', { class: 'dock-grip', role: 'separator', ariaLabel: t('Resize the panel'), tip: t('Drag to resize the panel. Double-tap to reset it.') }, el('i'));
-  #wanted: DockTab = read();
+  #wanted: DockTab | null = read();
   #tab: DockTab = 'map';
   #buttons = new Map<DockTab, HTMLButtonElement>();
   #sizes: Record<string, number> = {};
@@ -95,7 +97,7 @@ export class Dock {
   sync(show: AppState['show']): void {
     const available = new Set(tabsFor(show));
     for (const [id, button] of this.#buttons) button.hidden = !available.has(id);
-    this.#apply(resolveTab(this.#wanted, show));
+    this.#apply(resolveTab(this.#wanted ?? defaultTab(layoutMode()), show));
   }
 
   select(tab: DockTab): void {

@@ -680,7 +680,7 @@ export class Toolbar {
 
   #openThemes(): void {
     const items = THEME_ORDER.map(id => { const p = PALETTES[id]!; return { id, label: p.label, swatch: [p.bg, p.panel, p.text, p.bid, p.ask] }; });
-    openMenu(this.#theme, items, this.store.state.theme, { onPreview: id => this.onPreviewTheme(id), onSelect: id => this.store.set({ theme: id }) });
+    openMenu(this.#theme, items, this.store.state.theme, { onPreview: id => this.onPreviewTheme(id), onSelect: id => this.store.set({ theme: id, themePicked: true }) });
   }
 
   #buildHighlights(_tools: HTMLElement, body: HTMLElement): void {

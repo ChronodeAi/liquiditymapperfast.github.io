@@ -137,6 +137,8 @@ export interface AppState {
   /** Instrument ids that get their own book in Single mode (empty = every enabled venue). */
   ladderVenues: string[];
   theme: string;
+  /** Whether the theme was picked from the menu: a saved one that was not is the page's default of the time, not a choice (`initialState`). */
+  themePicked: boolean;
   /** What the chrome around the chart is made of, in any theme: solid, or glass that the market's large orders light (glass/ui-glass.ts). */
   material: 'solid' | 'glass';
   followLive: boolean;
@@ -158,7 +160,7 @@ export interface AppState {
 
 type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 
-const PERSISTED: (keyof AppState)[] = ['keepAwake', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderVenue', 'ladderVenues', 'theme', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets'];
+const PERSISTED: (keyof AppState)[] = ['keepAwake', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets'];
 function readSaved(): Partial<AppState> {
   try { const raw = window.localStorage.getItem('hlm-app-v2'); return raw ? JSON.parse(raw) as Partial<AppState> : {}; } catch { return {}; }
 }
@@ -217,12 +219,15 @@ export function readSettings(saved: Partial<Record<keyof AppState, unknown>>): S
   };
 }
 
+/** The theme a page opens in, on a desktop and on a phone. */
+export const DEFAULT_THEME = 'light';
+
 export function initialState(): AppState {
   const saved = readSaved();
   const state: AppState = {
     connected: false, status: t('connecting'), markets: [], marketId: '', seriesInstrument: '', mark: { price: 0, asOf: 0 }, levels: null, bookGone: {},
     layers: {}, candles: [], oi: [], oiInstrument: '', oiParts: [], oiPrice: 0, sounds: { ...DEFAULT_SOUNDS }, soundState: 'locked', lastSound: 0, vwapAnchoring: false, heatmapSource: 'aggregated', disabledVenues: [],
-    ladderVenue: '', ladderVenues: [], replay: null, theme: 'terminal', material: 'solid', followLive: true, keepAwake: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
+    ladderVenue: '', ladderVenues: [], replay: null, theme: DEFAULT_THEME, themePicked: false, material: 'solid', followLive: true, keepAwake: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
     ...saved, ...readSettings(saved),
   };
   // The volume profile (the traded column, now with its lines on the chart) is off unless chosen: a save from before it had settings of its
@@ -230,7 +235,11 @@ export function initialState(): AppState {
   if (saved.traded === undefined) state.show.traded = false;
   state.sounds = readSounds(saved.sounds);
   state.timeZone = saved.timeZone === 'utc' ? 'utc' : 'local';
+  // Terminal was the default for a day (2026-10-17), and every save of that day wrote it down whether chosen or not: a saved Terminal that
+  // was not picked from the menu goes back to the default, and the saves since carry the pick.
+  state.themePicked = saved.themePicked === true;
   state.theme = resolveThemeId(state.theme);
+  if (!state.themePicked && state.theme === 'terminal') state.theme = DEFAULT_THEME;
   state.material = saved.material === 'glass' ? 'glass' : 'solid';
   state.replay = null;
   return state;

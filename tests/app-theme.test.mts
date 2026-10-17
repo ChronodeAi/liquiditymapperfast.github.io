@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DEFAULT_THEME, initialState } from '../src/app/store.ts';
 import { CAUTION, FRAMES, FRAME_STRENGTH, PALETTES, THEME_ORDER, chromeFor, mixHex, resolveThemeId, rgb, textOn, themeColorOf, themeVars, type Palette } from '../src/app/theme.ts';
 
 const luminance = (hex: string): number => {
@@ -141,4 +142,23 @@ test(`the browser's own bars take the page's colour, and in the bevel frame the 
   assert.equal(themeColorOf(PALETTES.classic!), '#c0c0c0');
   assert.equal(themeColorOf(PALETTES.light!), PALETTES.light!.bg);
   assert.equal(themeColorOf(PALETTES.terminal!), PALETTES.terminal!.bg);
+});
+
+test('a page opens in Light, and a saved Terminal that was never picked (written while it was the default) goes back to it', () => {
+  const real = (globalThis as { window?: unknown }).window;
+  const load = (saved: Record<string, unknown> | null): { theme: string; themePicked: boolean } => {
+    (globalThis as { window?: unknown }).window = { innerWidth: 1600, localStorage: { getItem: () => saved ? JSON.stringify(saved) : null, setItem: () => {} } };
+    const state = initialState();
+    return { theme: state.theme, themePicked: state.themePicked };
+  };
+  try {
+    assert.equal(DEFAULT_THEME, 'light');
+    assert.deepEqual(load(null), { theme: 'light', themePicked: false });
+    assert.deepEqual(load({ theme: 'terminal' }), { theme: 'light', themePicked: false });
+    assert.deepEqual(load({ theme: 'terminal', themePicked: true }), { theme: 'terminal', themePicked: true });
+    assert.deepEqual(load({ theme: 'dark' }), { theme: 'dark', themePicked: false });
+    assert.deepEqual(load({ theme: 'no-such-theme' }), { theme: 'light', themePicked: false });
+  } finally {
+    if (real === undefined) delete (globalThis as { window?: unknown }).window; else (globalThis as { window?: unknown }).window = real;
+  }
 });
