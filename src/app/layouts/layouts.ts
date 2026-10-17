@@ -13,6 +13,18 @@ export const LAYOUTS_KEY = 'hlm-layouts-v1', MAX_LAYOUTS = 20, MAX_NAME = 40, FI
 export interface PaneArrangement { order: string[]; heights: Record<string, number>; sideW: number; flowW: number }
 export interface SavedLayout { name: string; savedAt: number; settings: Partial<Settings>; panes: PaneArrangement }
 
+/**
+ * How wide the flow column and the book start (px) in a window `width` px wide (Karl, 2026-10-17: on a large screen they began very narrow).
+ * The map takes the golden section of the window, 61.8 %, and the two columns share the rest, 19.1 % each, never less than they began at
+ * before (300 and 420), so a window under about 2200 px is as it was. The stylesheet says the same (`main` in styles.css: `max(420px, 19.1vw)`),
+ * so the columns follow the window until a column is dragged.
+ */
+export const COLUMN_SHARE = 0.191, MIN_FLOW_W = 300, MIN_SIDE_W = 420;
+export function defaultColumns(width: number): { flowW: number; sideW: number } {
+  const share = Math.round(Math.max(0, width) * COLUMN_SHARE);
+  return { flowW: Math.max(MIN_FLOW_W, share), sideW: Math.max(MIN_SIDE_W, share) };
+}
+
 /** A name as it is kept: spaces collapsed and trimmed, at most `MAX_NAME` characters; null when nothing is left. */
 export function cleanName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;

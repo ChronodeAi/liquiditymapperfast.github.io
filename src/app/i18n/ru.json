@@ -1363,7 +1363,7 @@
  "Panes": "Пластины",
  "Bricks": "Кирпичи",
  "Venues: switch each exchange on or off for the map, the book and the flow column, or choose which ones feed the page": "Биржи: включайте и выключайте каждую биржу для карты, стакана и колонки потока или выберите, какие биржи питают страницу",
- "Glass: the bars and panels around the chart turn to glass, and large orders send light through it": "Стекло: панели и полосы вокруг графика становятся стеклом, и крупные ордера пускают через него свет",
+ "Glass: the bars and panels around the chart turn to glass; large orders and large flow changes light it and send waves across the screen": "Стекло: панели и полосы вокруг графика становятся стеклом; крупные ордера и крупные изменения потока освещают его и пускают волны по всему экрану",
  "Colour-blind safe, light": "Для дальтоников, светлая",
  "High contrast": "Высокий контраст",
  "High contrast, light": "Высокий контраст, светлая",

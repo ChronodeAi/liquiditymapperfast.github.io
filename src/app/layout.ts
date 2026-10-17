@@ -1,10 +1,12 @@
 import { setTip } from './tip.ts';
 import { isPhone } from './device.ts';
 import { t } from './i18n.ts';
-import { arrangeOrder, fitHeights, type PaneArrangement } from './layouts/layouts.ts';
+import { arrangeOrder, defaultColumns, fitHeights, type PaneArrangement } from './layouts/layouts.ts';
 /** Resizable, reorderable layout: splitters between panes, persisted in localStorage. */
 interface Saved { sideW?: number; flowW?: number; heights?: Record<string, number>; order?: string[] }
 const KEY = 'hlm-layout-v2';
+/** The widths the columns had before they followed the window (420 and 300): a save holding one was written by a save of something else (a height), not by a drag. */
+const OLD_SIDE_W = 420, OLD_FLOW_W = 300;
 
 function read(): Saved { try { return JSON.parse(window.localStorage.getItem(KEY) ?? '{}') as Saved; } catch { return {}; } }
 function write(saved: Saved): void { try { window.localStorage.setItem(KEY, JSON.stringify(saved)); } catch { /* storage unavailable */ } }
@@ -20,12 +22,14 @@ export class Layout {
   #sideSplit: HTMLElement;
   /** The heights `#fit` last gave the panes under the map: a pane still at one of them was not resized by hand, and keeps its own height when saved. */
   #fitted = new Map<string, number>();
+  /** Whether each column was sized by hand (dragged, or from a saved layout): until then it follows the window (the stylesheet's `max(…, 19.1vw)`) and is not saved. */
+  #sideHand = false; #flowHand = false;
   /** The arrangement the page starts with when nothing is saved (the Default layout). */
   readonly #defaults: PaneArrangement;
 
   constructor(private main: HTMLElement, private chart: HTMLElement, private side: HTMLElement, panes: LayoutPane[], private flow: HTMLElement | null = null) {
     this.#panes = panes;
-    this.#defaults = { order: panes.map(p => p.id), heights: Object.fromEntries(panes.flatMap(p => p.height !== undefined ? [[p.id, p.height]] : [])), sideW: 420, flowW: 300 };
+    this.#defaults = { order: panes.map(p => p.id), heights: Object.fromEntries(panes.flatMap(p => p.height !== undefined ? [[p.id, p.height]] : [])), ...defaultColumns(window.innerWidth) };
     // Restore pane order and heights: the saved order, and a pane it does not know (one added since) after the others, so a new pane does
     // not undo a person's order.
     this.#panes = arrangeOrder(this.#saved.order ?? [], panes.map(p => ({ id: p.id, fixed: p.height !== undefined }))).map(id => panes.find(p => p.id === id)!);
@@ -38,24 +42,27 @@ export class Layout {
     const column = document.createElement('div'); column.className = 'splitter v'; setTip(column, t('Drag to resize'));
     this.main.insertBefore(column, this.side);
     this.#sideSplit = column;
-    this.#setSideWidth(this.#saved.sideW ?? 420);
-    this.#drag(column, (dx) => this.#setSideWidth(startSide - dx), () => { startSide = this.#sideWidth(); }, () => this.#persist());
+    if (this.#saved.sideW !== undefined && this.#saved.sideW !== OLD_SIDE_W) { this.#sideHand = true; this.#setSideWidth(this.#saved.sideW); }
+    this.#drag(column, (dx) => { this.#sideHand = true; this.#setSideWidth(startSide - dx); }, () => { startSide = this.#sideWidth(); }, () => this.#persist());
     let startSide = this.#sideWidth();
     if (this.flow) {
       const left = document.createElement('div'); left.className = 'splitter v'; setTip(left, t('Drag to resize'));
       this.main.insertBefore(left, this.chart);
       this.#flowSplit = left;
-      this.#setFlowWidth(this.#saved.flowW ?? 300);
-      this.#drag(left, (dx) => this.#setFlowWidth(startFlow + dx), () => { startFlow = this.#flowWidth(); }, () => this.#persist());
+      if (this.#saved.flowW !== undefined && this.#saved.flowW !== OLD_FLOW_W) { this.#flowHand = true; this.#setFlowWidth(this.#saved.flowW); }
+      this.#drag(left, (dx) => { this.#flowHand = true; this.#setFlowWidth(startFlow + dx); }, () => { startFlow = this.#flowWidth(); }, () => this.#persist());
       var startFlow = this.#flowWidth();
     }
     this.rebuild();
     window.addEventListener('resize', () => this.#fit());
   }
 
-  #flowWidth(): number { return parseFloat(getComputedStyle(this.main).getPropertyValue('--flow-w')) || 300; }
+  /** The column's width as it is laid out (the variable may be an expression of the window's width); a hidden column has none, so the saved or default one. */
+  #flowWidth(): number { return Math.round(this.flow?.getBoundingClientRect().width || this.#saved.flowW || defaultColumns(window.innerWidth).flowW); }
   #setFlowWidth(w: number): void { this.main.style.setProperty('--flow-w', `${Math.round(Math.max(200, Math.min(window.innerWidth * 0.5, w)))}px`); }
-  #sideWidth(): number { return parseFloat(getComputedStyle(this.main).getPropertyValue('--side-w')) || 420; }
+  #sideWidth(): number { return Math.round(this.side.getBoundingClientRect().width || this.#saved.sideW || defaultColumns(window.innerWidth).sideW); }
+  /** The widths to save: a column's only when it was sized by hand, so the others keep following the window. */
+  #widths(): Pick<Saved, 'sideW' | 'flowW'> { return { sideW: this.#sideHand ? this.#sideWidth() : undefined, flowW: this.#flowHand ? this.#flowWidth() : undefined }; }
   #setSideWidth(w: number): void { this.main.style.setProperty('--side-w', `${Math.round(Math.max(260, Math.min(window.innerWidth * 0.7, w)))}px`); }
   #height(pane: LayoutPane): number { return pane.root.getBoundingClientRect().height; }
   #setHeight(pane: LayoutPane, h: number): void { pane.root.style.flex = `0 0 ${Math.round(Math.max(pane.min ?? 70, h))}px`; }
@@ -69,7 +76,7 @@ export class Layout {
       const shown = Math.round(this.#height(p)), fitted = this.#fitted.get(p.id), own = this.#saved.heights?.[p.id];
       heights[p.id] = fitted !== undefined && own !== undefined && Math.abs(shown - fitted) <= 1 ? own : shown;
     }
-    write({ sideW: this.#sideWidth(), flowW: this.flow ? this.#flowWidth() : this.#saved.flowW, heights: { ...this.#saved.heights, ...heights }, order: this.#panes.map(p => p.id) });
+    write({ ...this.#widths(), heights: { ...this.#saved.heights, ...heights }, order: this.#panes.map(p => p.id) });
     this.#saved = read();
   }
 
@@ -138,7 +145,7 @@ export class Layout {
   }
 
   /** The arrangement the page starts with when nothing is saved. */
-  defaults(): PaneArrangement { return { ...this.#defaults, order: [...this.#defaults.order], heights: { ...this.#defaults.heights } }; }
+  defaults(): PaneArrangement { return { ...this.#defaults, ...defaultColumns(window.innerWidth), order: [...this.#defaults.order], heights: { ...this.#defaults.heights } }; }
 
   /** The panes as they are now: order, heights (a hidden pane's as it will come back), and the column widths. */
   arrangement(): PaneArrangement {
@@ -149,7 +156,7 @@ export class Layout {
       const own = this.#saved.heights?.[p.id] ?? p.height;
       heights[p.id] = Math.round(p.root.hidden || this.#fitted.has(p.id) ? own : this.#height(p));
     }
-    return { order: this.#panes.map(p => p.id), heights, sideW: Math.round(this.#sideWidth()), flowW: Math.round(this.flow ? this.#flowWidth() : this.#saved.flowW ?? 300) };
+    return { order: this.#panes.map(p => p.id), heights, sideW: this.#sideWidth(), flowW: this.flow ? this.#flowWidth() : this.#saved.flowW ?? defaultColumns(window.innerWidth).flowW };
   }
 
   /**
@@ -163,10 +170,14 @@ export class Layout {
     this.#panes = ids.map(id => this.#panes.find(p => p.id === id)!);
     const heights: Record<string, number> = { ...this.#saved.heights };
     for (const p of this.#panes) if (p.height !== undefined) { const h = a.heights[p.id] ?? heights[p.id] ?? p.height; this.#setHeight(p, h); heights[p.id] = Math.round(Math.max(p.min ?? 70, h)); }
-    this.#setSideWidth(a.sideW);
-    if (this.flow) this.#setFlowWidth(a.flowW);
+    // A width that is the default for this window is not a hand's: the column goes back to following the window.
+    const wide = defaultColumns(window.innerWidth);
+    this.#sideHand = a.sideW !== wide.sideW;
+    if (this.#sideHand) this.#setSideWidth(a.sideW); else this.main.style.removeProperty('--side-w');
+    if (this.flow) { this.#flowHand = a.flowW !== wide.flowW; if (this.#flowHand) this.#setFlowWidth(a.flowW); else this.main.style.removeProperty('--flow-w'); }
+    else this.#flowHand = a.flowW !== wide.flowW;
     // What was asked for, not what is measured (a pane hidden now has no height to measure); kept first, as the fit reads it.
-    write({ sideW: this.#sideWidth(), flowW: this.flow ? this.#flowWidth() : a.flowW, heights, order: ids });
+    write({ sideW: this.#sideHand ? this.#sideWidth() : undefined, flowW: this.#flowHand ? (this.flow ? this.#flowWidth() : a.flowW) : undefined, heights, order: ids });
     this.#saved = read();
     this.#reattach();
   }

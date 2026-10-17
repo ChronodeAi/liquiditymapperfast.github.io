@@ -39,8 +39,11 @@ export type CandleRow = [number, number, number, number, number, number, number?
 export type OiBar = [number, number, number, number, number];
 export interface LayerLevel { id: string; side: string; price: number; notionalUsd: number; active?: boolean; amount?: number }
 
-/** Which panes are on the first time. */
-export const DEFAULT_SHOW: AppState['show'] = { profile: true, traded: false, depth: true, oi: true, delta: false, ls: false, candles: true, footprint: false, lt: false, mirror: true, volume: true, bubbles: true, cvd: true, book: true };
+/**
+ * Which panes are on the first time. No pane under the map is (Karl, 2026-10-17: depth and open interest were, and no extra pane should be):
+ * each is one switch away. The flow column and the book beside the map are on.
+ */
+export const DEFAULT_SHOW: AppState['show'] = { profile: true, traded: false, depth: false, oi: false, delta: false, ls: false, candles: true, footprint: false, lt: false, mirror: true, volume: true, bubbles: true, cvd: true, book: true };
 /**
  * The panes a first visit starts with. The flow column and the book each take a few hundred pixels beside the map, so on a window that is wide enough
  * for the map to stay readable with both (a phone has its tabs instead) they start on; a medium window (a tablet held sideways, a small laptop)
@@ -137,6 +140,8 @@ export interface AppState {
   /** Instrument ids that get their own book in Single mode (empty = every enabled venue). */
   ladderVenues: string[];
   theme: string;
+  /** Which revision of the first-visit defaults the saved settings were written under (`DEFAULTS_REV`). */
+  defaultsRev: number;
   /** Whether the theme was picked from the menu: a saved one that was not is the page's default of the time, not a choice (`initialState`). */
   themePicked: boolean;
   /** What the chrome around the chart is made of, in any theme: solid, or glass that the market's large orders light (glass/ui-glass.ts). */
@@ -160,7 +165,7 @@ export interface AppState {
 
 type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 
-const PERSISTED: (keyof AppState)[] = ['keepAwake', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets'];
+const PERSISTED: (keyof AppState)[] = ['keepAwake', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets'];
 function readSaved(): Partial<AppState> {
   try { const raw = window.localStorage.getItem('hlm-app-v2'); return raw ? JSON.parse(raw) as Partial<AppState> : {}; } catch { return {}; }
 }
@@ -221,13 +226,20 @@ export function readSettings(saved: Partial<Record<keyof AppState, unknown>>): S
 
 /** The theme a page opens in, on a desktop and on a phone. */
 export const DEFAULT_THEME = 'light';
+/**
+ * The revision of the first-visit defaults. The page saves its whole settings on any change, so a default is written down whether chosen
+ * or not; when a default changes, a save from before it (an older or no revision) would keep the old one for ever. Revision 1: Depth and
+ * Open interest start off. A save of that kind holding both on, the old default, has them turned off once; one that holds only one of
+ * them on was a choice and is left.
+ */
+export const DEFAULTS_REV = 1;
 
 export function initialState(): AppState {
   const saved = readSaved();
   const state: AppState = {
     connected: false, status: t('connecting'), markets: [], marketId: '', seriesInstrument: '', mark: { price: 0, asOf: 0 }, levels: null, bookGone: {},
     layers: {}, candles: [], oi: [], oiInstrument: '', oiParts: [], oiPrice: 0, sounds: { ...DEFAULT_SOUNDS }, soundState: 'locked', lastSound: 0, vwapAnchoring: false, heatmapSource: 'aggregated', disabledVenues: [],
-    ladderVenue: '', ladderVenues: [], replay: null, theme: DEFAULT_THEME, themePicked: false, material: 'solid', followLive: true, keepAwake: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
+    ladderVenue: '', ladderVenues: [], replay: null, theme: DEFAULT_THEME, themePicked: false, defaultsRev: DEFAULTS_REV, material: 'solid', followLive: true, keepAwake: false, timeZone: 'local', hover: null, range: null, rangeTool: false,
     ...saved, ...readSettings(saved),
   };
   // The volume profile (the traded column, now with its lines on the chart) is off unless chosen: a save from before it had settings of its
@@ -238,6 +250,8 @@ export function initialState(): AppState {
   // Terminal was the default for a day (2026-10-17), and every save of that day wrote it down whether chosen or not: a saved Terminal that
   // was not picked from the menu goes back to the default, and the saves since carry the pick.
   state.themePicked = saved.themePicked === true;
+  if ((typeof saved.defaultsRev === 'number' ? saved.defaultsRev : 0) < 1 && state.show.depth && state.show.oi) state.show = { ...state.show, depth: false, oi: false };
+  state.defaultsRev = DEFAULTS_REV;
   state.theme = resolveThemeId(state.theme);
   if (!state.themePicked && state.theme === 'terminal') state.theme = DEFAULT_THEME;
   state.material = saved.material === 'glass' ? 'glass' : 'solid';
