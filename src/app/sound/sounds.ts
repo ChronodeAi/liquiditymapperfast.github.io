@@ -1,6 +1,6 @@
 import type { Store } from '../store.ts';
 import type { Print } from '../prints.ts';
-import { anomalies } from '../anomaly.ts';
+import { anomalies } from '../../shared/anomaly.ts';
 import { kindOf } from '../scope.ts';
 import { SoundEngine } from './engine.ts';
 import { Coalescer, chimeNotes, notesFor, tierOf, type SoundEvent } from './rules.ts';

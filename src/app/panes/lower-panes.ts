@@ -4,7 +4,7 @@ import { helpButton } from '../help.ts';
 import { TIMEFRAMES, type Hub } from '../hub.ts';
 import { DEFAULT_BAR_STATS, type Store, type AppState, type OiBar, type CandleRow } from '../store.ts';
 import { chainedOi, oiChangeByTime, oiDeltas, oiPartsUntil, oiSumOf, oiUsdChangeByTime, type OiPart } from '../oi-change.ts';
-import { anomalies, type HighlightOptions } from '../anomaly.ts';
+import { anomalies, type HighlightOptions } from '../../shared/anomaly.ts';
 import { venueLabel } from '../venues.ts';
 import { activeIds, emptyScopeMessage, marketIds } from '../scope.ts';
 import { ASKS, BIDS, DepthBars, fitsBars, neededBars, pixelFlags, sideFlags } from '../depth-bars.ts';

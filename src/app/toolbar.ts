@@ -15,7 +15,7 @@ import { openVenueDialog } from './venue-dialog.ts';
 import type { VenueControl } from './source.ts';
 import { coverage } from './panes/levels-data.ts';
 import { SCOPE_OPTIONS, activeIds, chipClick, heatmapSourceOf, kindOf, scopeCounts, scopedOut } from './scope.ts';
-import { HIGHLIGHT_LIMITS } from './anomaly.ts';
+import { HIGHLIGHT_LIMITS } from '../shared/anomaly.ts';
 import { rangeRow, switchRow, note, togglePanel, checkRow, heading, selectRow, numberRow, openedPanel, button, sizeRow } from './ui.ts';
 import { SIZE_MAX_USD } from './sizes.ts';
 import { GROUP_TITLES, SHORTCUTS, togglePatch, type Feature, type ShortcutGroup } from './shortcuts.ts';

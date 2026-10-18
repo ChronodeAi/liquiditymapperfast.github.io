@@ -6,7 +6,7 @@ import { clampContrast } from './heatmap/window.ts';
 import { LT_DEFAULTS, type LtParams } from './lt.ts';
 import { resolveThemeId } from './theme.ts';
 import { readStatOptions, type StatOptions } from './stat-options.ts';
-import { readHighlight, type HighlightOptions } from './anomaly.ts';
+import { readHighlight, type HighlightOptions } from '../shared/anomaly.ts';
 import { DEFAULT_SOUNDS, readSounds, type SoundSettings } from './sound/rules.ts';
 import { readCvd, type CvdSettings } from './cvd/settings.ts';
 import { readAbsorption, type AbsorptionSettings } from './absorption.ts';

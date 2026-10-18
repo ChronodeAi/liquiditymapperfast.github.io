@@ -7,7 +7,7 @@ import { burst } from '../cvd/burst.ts';
 import { flowIds } from '../cvd/ids.ts';
 import { familyKey, venueOfInstrument } from '../cvd/families.ts';
 import { activeIds, kindOf, marketIds } from '../scope.ts';
-import { anomalies } from '../anomaly.ts';
+import { anomalies } from '../../shared/anomaly.ts';
 import { oiChangeByTime } from '../oi-change.ts';
 import { signedUsd } from '../cvd/text.ts';
 import { venueLabel } from '../venues.ts';
@@ -19,8 +19,9 @@ import { usd } from '../format.ts';
 import { replaying } from '../replay/clock.ts';
 import { DepthWatch, depthMinutes } from './depth-watch.ts';
 import type { ColumnsFrame } from '../wire.ts';
+import type { SharpAnswer } from '../../shared/sharp/jev.ts';
 
-export type AlertPanel = 'flow' | 'bars' | 'book' | 'depth' | 'depthPane' | 'oi';
+export type AlertPanel = 'flow' | 'bars' | 'book' | 'depth' | 'depthPane' | 'oi' | 'sharp';
 /** What was decided for one alert: kept for the panel's "recent" list and for the harness; audible is false when the engine was locked or muted. */
 export interface AlertEntry { at: number; panel: AlertPanel; kind: AlertKind; side: 'buy' | 'sell' | null; text: string; audible: boolean }
 
@@ -45,6 +46,10 @@ const DEPTH_SETTLE_MS = 12_000;
 /** A minute judged later than this after it ended (a tab that slept, an answer that came late) is history: it does not sound. */
 const DEPTH_FRESH_MS = 90_000;
 const DEPTH_COOLDOWN_MS = 300_000;
+/** The sharp-move sound: the server is asked this often, an assessment older than the second is history, and a call is not repeated sooner than the third. */
+const SHARP_EVERY_MS = 30_000, SHARP_FRESH_MS = 90_000, SHARP_COOLDOWN_MS = 600_000;
+/** Jev's own confidence in its score, below which the score is not acted on. */
+const SHARP_MIN_CONFIDENCE = 0.5;
 /** The recorded columns of instruments over [from, to), one-minute steps (the page's data source). */
 export type ColumnsReader = (ids: string[], from: number, to: number) => Promise<ColumnsFrame>;
 
@@ -78,13 +83,20 @@ export class Alerts {
   /** For the Sounds panel: complete minutes the depth sound holds, and whether it is still loading the hours before. Null while it is off. */
   depthState: { minutes: number; loading: boolean } | null = null;
   onChange: () => void = () => {};
+  /** The sharp-move sound: the newest assessment seen (null: none yet, so the first answer is history), a question in flight, and when to ask next. */
+  #sharpSeen: number | null = null; #sharpBusy = false; #sharpNext = 0;
+  /** What the server said about the assessments (`reason` when it is off, `lastError` when its last try failed); null while the sound is off or unanswered. */
+  sharpState: { reason?: string; lastError?: string } | null = null;
+  /** Whether the data source can answer the sharp-move question (a local server can; the browser cannot). */
+  get sharpAvailable(): boolean { return this.sharp !== undefined; }
 
   /**
    * `ensure` asks for the flow history of instruments from a time on (the page's `ensureFlow`): the sum over a whole candle needs the whole
    * of it, and the flow column that normally asks for history may be hidden. Without it only what the flow book already holds can be summed.
-   * `columns` reads the recording for the depth sound; without it that sound never starts.
+   * `columns` reads the recording for the depth sound; without it that sound never starts. `sharp` asks the server for Jev's assessments;
+   * without it (the browser source) the sharp-move sound never starts.
    */
-  constructor(private host: AlertsHost, private flow: FlowBook, private player: Player, private clock: () => number = Date.now, private ensure?: (ids: readonly string[], from: number) => void, private columns?: ColumnsReader) {}
+  constructor(private host: AlertsHost, private flow: FlowBook, private player: Player, private clock: () => number = Date.now, private ensure?: (ids: readonly string[], from: number) => void, private columns?: ColumnsReader, private sharp?: () => Promise<SharpAnswer>) {}
 
   start(): void { if (this.#timer === undefined) this.#timer = window.setInterval(() => this.tick(this.clock()), 1000); }
   stop(): void { if (this.#timer !== undefined) window.clearInterval(this.#timer); this.#timer = undefined; }
@@ -92,7 +104,7 @@ export class Alerts {
   /** One look at everything (every second); `now` is the clock, so a test steps it. */
   tick(now: number): void {
     if (replaying()) return;
-    this.#flow(now); this.#book(now); this.#bars(now); this.#depthPane(now); this.#oi(now);
+    this.#flow(now); this.#book(now); this.#bars(now); this.#depthPane(now); this.#oi(now); this.#sharpMove(now);
   }
 
   get #s(): AppState { return this.host.state; }
@@ -260,6 +272,33 @@ export class Alerts {
     const change = oiChangeByTime(bars, s.oiParts, tf), changes = Float64Array.from(bars, bar => Math.abs(change.get(bar[0]) ?? 0));
     if (anomalies(changes, s.highlight).flag[closed] !== 1) return;
     this.#fire(now, 'oi', 'oi-jump', null, t('Open interest changed unusually in the candle that just closed'), 'oi-jump', 1_000);
+  }
+
+  // ---- Jev: a sharp move is likely ---------------------------------------------------------------------------------------------------
+
+  /**
+   * Asks the server for its assessments every 30 s while the rule is on. The server asks Jev once a minute; an assessment newer than the last
+   * one seen, fresh, scoring at least the rule's and with Jev confident of its score, sounds. What the first answer holds is history.
+   */
+  #sharpMove(now: number): void {
+    const s = this.#s, rule = s.sounds.panels.sharp, ask = this.sharp;
+    if (!s.sounds.on || !rule.on || !ask) { this.#sharpSeen = null; this.sharpState = null; return; }
+    if (this.#sharpBusy || now < this.#sharpNext) return;
+    this.#sharpBusy = true; this.#sharpNext = now + SHARP_EVERY_MS;
+    ask().then(answer => {
+      const current = this.#s.sounds.panels.sharp;
+      if (!this.#s.sounds.on || !current.on) return;
+      this.sharpState = answer.enabled ? { ...(answer.lastError ? { lastError: answer.lastError } : {}) } : { reason: answer.reason ?? '' };
+      const seen = this.#sharpSeen;
+      for (const v of answer.verdicts) {
+        if (seen === null || v.t <= seen || this.clock() - v.t > SHARP_FRESH_MS || replaying()) continue;
+        if (v.score < current.score || v.scoreConfidence < SHARP_MIN_CONFIDENCE) continue;
+        const up = v.direction === 'up';
+        this.#fire(this.clock(), 'sharp', 'sharp-move', up ? 'buy' : 'sell', t('Sharp move likely within 15 min ({p} % {way}), Jev score {score} of 4', { p: String(Math.round(v.directionP * 100)), way: up ? t('up') : t('down'), score: v.score.toFixed(1) }), 'sharp', SHARP_COOLDOWN_MS);
+      }
+      this.#sharpSeen = Math.max(seen ?? 0, ...answer.verdicts.map(v => v.t));
+      this.onChange();
+    }, () => { this.sharpState = { lastError: t('The server did not answer') }; }).finally(() => { this.#sharpBusy = false; });
   }
 
   /** Play a sample of a panel's alert (the Test buttons): works with sounds off, so a person can hear what the rule would sound like. */

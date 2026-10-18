@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_HIGHLIGHT, WARMUP, anomalies, readHighlight } from '../src/app/anomaly.ts';
+import { DEFAULT_HIGHLIGHT, WARMUP, anomalies, readHighlight } from '../src/shared/anomaly.ts';
 
 const steady = (n: number, value = 10) => Array.from({ length: n }, (_, i) => value + (i % 2 ? 1 : -1));
 

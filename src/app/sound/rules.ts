@@ -24,6 +24,8 @@ export interface PanelSounds {
   depthPane: { extreme: boolean; range: number; pct: number; hours: number };
   /** Open interest: a candle closed with an unusual change in open interest (the sensitivity is Highlights'). */
   oi: { jump: boolean };
+  /** Jev, asked once a minute by the local server, thinks a sharp move is coming (`alerts.ts`): at least `score` of 4. */
+  sharp: { on: boolean; score: number };
 }
 
 export const DEFAULT_PANEL_SOUNDS: Readonly<PanelSounds> = Object.freeze({
@@ -34,6 +36,7 @@ export const DEFAULT_PANEL_SOUNDS: Readonly<PanelSounds> = Object.freeze({
   // The 99th percentile of six hours: on 36 hours of BTC (2026-10-10, ±20 %) that sounded 10 times, the 95th 18 times.
   depthPane: { extreme: false, range: 0.2, pct: 99, hours: 6 },
   oi: { jump: false },
+  sharp: { on: false, score: 3 },
 });
 /** The bands the depth sound can add up, as the Depth pane's Range offers them. */
 export const DEPTH_RANGES = [0.01, 0.02, 0.05, 0.1, 0.2] as const;
@@ -53,6 +56,7 @@ export function readPanelSounds(saved: unknown): PanelSounds {
     depthPane: { extreme: flag(o.depthPane?.extreme, d.depthPane.extreme), range: DEPTH_RANGES.includes(o.depthPane?.range as never) ? o.depthPane!.range as number : d.depthPane.range,
       pct: Math.round(bound(o.depthPane?.pct, 90, 99.9, d.depthPane.pct) * 10) / 10, hours: Math.round(bound(o.depthPane?.hours, 2, DEPTH_MAX_HOURS, d.depthPane.hours)) },
     oi: { jump: flag(o.oi?.jump, d.oi.jump) },
+    sharp: { on: flag(o.sharp?.on, d.sharp.on), score: Math.round(bound(o.sharp?.score, 2, 4, d.sharp.score) * 2) / 2 },
   };
 }
 
@@ -165,7 +169,7 @@ export function chimeNotes(volume: number): Note[] {
 }
 
 /** What an alert sounds like. Each panel has its own register and wave, so the ear can tell the panel before the eye finds it. */
-export type AlertKind = 'flow-burst' | 'bar-delta' | 'wall-appeared' | 'wall-pulled' | 'imbalance' | 'depth-extreme' | 'oi-jump';
+export type AlertKind = 'flow-burst' | 'bar-delta' | 'wall-appeared' | 'wall-pulled' | 'imbalance' | 'depth-extreme' | 'oi-jump' | 'sharp-move';
 
 /**
  * Notes for a panel alert. Buying rises and selling falls (a bid-heavy book rises, an ask-heavy one falls), as the trade sounds do.
@@ -186,5 +190,6 @@ export function alertNotes(kind: AlertKind, side: 'buy' | 'sell' | null, volume:
     case 'imbalance': return (up ? [392, 493.88, 587.33] : [587.33, 493.88, 392]).map((freq, i) => ({ freq, gain: 0.14 * v, decay: 0.3, delay: i * 0.1, wave: 'triangle' as const }));
     case 'depth-extreme': return (up ? [220, 329.63] : [329.63, 220]).map((freq, i) => ({ freq, gain: (i ? 0.26 : 0.22) * v, decay: i ? 0.9 : 0.6, delay: i * 0.22, wave: 'sine' as const }));
     case 'oi-jump': return [{ freq: 1046.5, gain: 0.1 * v, decay: 0.12, delay: 0, wave: 'sine' }, { freq: 1046.5, gain: 0.1 * v, decay: 0.12, delay: 0.11, wave: 'sine' }];
+    case 'sharp-move': return (up ? [523.25, 659.25, 783.99] : [783.99, 659.25, 523.25]).map((freq, i) => ({ freq, gain: 0.16 * v, decay: 0.4, delay: i * 0.12, wave: 'sine' as const }));
   }
 }

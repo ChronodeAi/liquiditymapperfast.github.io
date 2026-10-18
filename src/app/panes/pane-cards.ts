@@ -1,5 +1,5 @@
 import type { InfoLine } from '../infobox.ts';
-import { anomalies, type HighlightOptions } from '../anomaly.ts';
+import { anomalies, type HighlightOptions } from '../../shared/anomaly.ts';
 import { clock, price as fmtPrice, usd } from '../format.ts';
 import { signedUsd } from '../cvd/text.ts';
 import { t } from '../i18n.ts';
