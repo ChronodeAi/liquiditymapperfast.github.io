@@ -70,7 +70,7 @@ A row is labelled from the later rows of the same coin: the largest absolute log
 
 The script also scores the confluence (below), recomputed from each row's logged values, so minutes logged before it existed count: the AUC of its |score| against sharpness, its direction on sharp rows, and its calls as trades held to the horizon (mean return signed by the call, beside every row's mean absolute return).
 
-Results: not measured yet. A first look on 2026-10-13 over the 119 minutes logged since 2026-10-12 labelled only 11 (the log has gaps and needs 48 earlier 15-minute returns), 9 of them sharp in a steady rally; the confluence made 1 call (right way, +22 bp at 15 minutes). That is a smoke test, not evidence. Run this after at least 48 h of log and record the table here.
+Results are recorded in `Research_Findings.md` (git-ignored, as AGENTS.md requires for research), not here. Run this after at least 48 h of log.
 
 ## Side by side: SubQ Snap (`SUBQ_API_KEY`)
 
