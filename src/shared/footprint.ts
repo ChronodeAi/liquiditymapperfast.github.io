@@ -206,28 +206,35 @@ export function parseRange(value: unknown, ids: readonly string[]): RangeAnswer 
 
 /**
  * The point of control and the value area of each of several windows (days, weeks, sessions), every instrument's volume added together on
- * rows of `step` over every price: see `shared/profile.ts`. `minutes` is the most minutes any instrument recorded in the window, so a reader
- * can tell a window recorded in part. A window in which nothing traded has null levels.
+ * rows of `step` over every price: see `shared/profile.ts`. `minutes` is the most minutes any instrument recorded in the window. `covered`
+ * (0..1) is how much of the window, up to the source's clock, the recording holds: each instrument's volume over its own recorded minutes
+ * stands for its rate, so the volume of the minutes it did not record is estimated and the share is the recorded part of the whole: an
+ * estimate, which assumes a venue trades at the same rate when it was not recorded. An instrument recorded in none of the window's
+ * minutes says nothing of its part, so the share is then 0 (not known). Absent from an older source, which a reader judges by
+ * `minutes`. A window in which nothing traded has null levels. `asOf` is the source's clock when it answered: a window that had ended a
+ * while before then will not change.
  */
-export interface ValueAreaWindow { from: number; to: number; minutes: number; total: number; poc: number | null; vah: number | null; val: number | null }
-export interface ValueAreaAnswer { step: number; share: number; windows: ValueAreaWindow[] }
+export interface ValueAreaWindow { from: number; to: number; minutes: number; total: number; poc: number | null; vah: number | null; val: number | null; covered?: number }
+export interface ValueAreaAnswer { step: number; share: number; windows: ValueAreaWindow[]; asOf?: number }
 /** The most windows one question may name, and the most time they may add up to (each minute of each is walked: a day takes about 90 ms). */
 export const MAX_VALUE_AREA_WINDOWS = 24, MAX_VALUE_AREA_SPAN_MS = 8 * 86_400_000;
 
 /** A value-area answer checked field by field against the windows asked for (same number, same order). */
 export function parseValueAreas(value: unknown, windows: readonly { from: number; to: number }[]): ValueAreaAnswer | null {
-  const body = value as { step?: unknown; share?: unknown; windows?: unknown } | null;
+  const body = value as { step?: unknown; share?: unknown; windows?: unknown; asOf?: unknown } | null;
   const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
   const price = (v: unknown): v is number | null => v === null || num(v);
   if (!body || !num(body.step) || !(body.step > 0) || !num(body.share) || !Array.isArray(body.windows) || body.windows.length !== windows.length) return null;
+  if (body.asOf !== undefined && !num(body.asOf)) return null;
   const out: ValueAreaWindow[] = [];
   for (let k = 0; k < windows.length; k++) {
     const w = body.windows[k] as Partial<Record<keyof ValueAreaWindow, unknown>> | null;
     if (!w || w.from !== windows[k]!.from || w.to !== windows[k]!.to || !num(w.minutes) || !Number.isInteger(w.minutes) || w.minutes < 0 || !num(w.total) || w.total < 0
       || !price(w.poc) || !price(w.vah) || !price(w.val) || (w.poc === null) !== (w.vah === null) || (w.poc === null) !== (w.val === null)) return null;
-    out.push({ from: w.from as number, to: w.to as number, minutes: w.minutes, total: w.total, poc: w.poc, vah: w.vah, val: w.val });
+    if (w.covered !== undefined && !(num(w.covered) && w.covered >= 0 && w.covered <= 1)) return null;
+    out.push({ from: w.from as number, to: w.to as number, minutes: w.minutes, total: w.total, poc: w.poc, vah: w.vah, val: w.val, ...(w.covered !== undefined ? { covered: w.covered as number } : {}) });
   }
-  return { step: body.step, share: body.share, windows: out };
+  return { step: body.step, share: body.share, windows: out, ...(body.asOf !== undefined ? { asOf: body.asOf as number } : {}) };
 }
 
 export interface FootprintBar {
@@ -739,29 +746,49 @@ export class FootprintRecorder {
 
   /**
    * The point of control and the value area of each window (see `ValueAreaAnswer`), holding `share` (0..1) of the volume, on rows of
-   * `rowStep`. Each window's minutes are looked up by their keys.
+   * `rowStep`; an instrument named twice counts once. Ended hours inside a window are read added together (`#hourRows`, built here when
+   * not held; `prepare` can build them first, a few at a time), the minutes around them one by one. `recorded` says how many minutes of
+   * [from, to) an instrument was recorded in (the coverage record, which tells a quiet minute from one nobody recorded); without it, the
+   * minutes with trades.
    */
-  valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): ValueAreaAnswer {
-    const out: ValueAreaWindow[] = [];
+  valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number, recorded?: (id: string, from: number, to: number) => number): ValueAreaAnswer {
+    const out: ValueAreaWindow[] = [], known = [...new Set(ids)], now = this.now();
     for (const w of windows) {
-      const rows = new Map<number, number>(), first = Math.ceil(w.from / MINUTE) * MINUTE;
-      let minutes = 0, total = 0;
-      for (const id of ids) {
+      const rows = new Map<number, number>(), first = Math.ceil(w.from / MINUTE) * MINUTE, end = Math.min(w.to, now);
+      // The window's time up to now, in minutes (the open minute in part), the basis of every instrument's recorded share.
+      const span = Math.max(0, (end - first) / MINUTE);
+      // An instrument recorded in none of it (or never) says nothing of its part: the share is not known, so it is none.
+      let minutes = 0, total = 0, estimate = 0, unknown = false;
+      for (const id of known) {
         const fine = this.#steps.get(id);
-        if (!fine) continue;
-        const held = this.#rowsIn(id, first, w.to);
-        let seen = 0;
-        for (let t = first; t < w.to; t += MINUTE) {
-          const bins = held.get(t); if (!bins) continue;
-          seen++;
-          for (const [bin, cell] of bins) { const v = cell[0] + cell[1], key = Math.floor(bin * fine / rowStep * (1 + 1e-12)); rows.set(key, (rows.get(key) ?? 0) + v); total += v; }
+        if (!fine) { unknown = true; continue; }
+        let usd = 0;
+        const add = (bin: number, v: number): void => { const key = Math.floor(bin * fine / rowStep * (1 + 1e-12)); rows.set(key, (rows.get(key) ?? 0) + v); usd += v; };
+        const minuteRows = (a: number, b: number): void => { if (b > a) for (const bins of this.#rowsIn(id, a, b).values()) for (const [bin, cell] of bins) add(bin, cell[0] + cell[1]); };
+        let at = first;
+        for (let h = Math.ceil(first / HOUR) * HOUR; h + HOUR <= w.to; h += HOUR) {
+          const hour = this.#hourRows(id, h, true);
+          if (!hour || hour.step !== fine) continue;
+          minuteRows(at, h);
+          for (let i = 0; i < hour.cells.length; i += 3) add(hour.cells[i]!, hour.cells[i + 1]! + hour.cells[i + 2]!);
+          at = h + HOUR;
         }
+        minuteRows(at, w.to);
+        const sums = this.#sums.get(id);
+        let seen = 0;
+        if (sums) for (let t = first; t < w.to; t += MINUTE) if (sums.has(t)) seen++;
         minutes = Math.max(minutes, seen);
+        total += usd;
+        // Its volume over the minutes it was recorded in stands for its rate over the minutes it was not.
+        const own = Math.min(span, recorded ? recorded(id, first, end) : seen);
+        if (own > 0) estimate += usd * span / own; else unknown = true;
       }
       const levels = levelsOf(rows, rowStep, share);
-      out.push({ from: w.from, to: w.to, minutes, total, poc: levels?.poc ?? null, vah: levels?.vah ?? null, val: levels?.val ?? null });
+      // Nothing traded on instruments all recorded: the share is how much of the window they were listened to.
+      const covered = unknown || !(span > 0) ? 0 : estimate > 0 ? Math.min(1, total / estimate) : 1;
+      out.push({ from: w.from, to: w.to, minutes, total, poc: levels?.poc ?? null, vah: levels?.vah ?? null, val: levels?.val ?? null, covered });
     }
-    return { step: rowStep, share, windows: out };
+    return { step: rowStep, share, windows: out, asOf: now };
   }
 
   /**

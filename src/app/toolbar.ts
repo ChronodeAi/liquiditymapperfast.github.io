@@ -154,6 +154,8 @@ export class Toolbar {
   whaleInfo: () => WhaleInfo | null = () => null;
   /** The key levels' candles (set by the page), for the panel to say whose they are and whether they could be read. */
   keyHistory: KeyLevelHistory | null = null;
+  /** The volume profile's candles of one bar size (set by the page), for its panel to say whether they could be read. */
+  profileHistory: ((barMs: number) => KeyLevelHistory) | null = null;
   /** Where the page's data comes from (set by the page): a page reading the exchanges itself keeps liquidations only while it is open. */
   sourceKind: 'server' | 'browser' = 'server';
   #highlights = el('button', { class: 'led-btn', textContent: t('Highlights'), tip: t('What stands out: unusual volume, open-interest changes and depth imbalance') });
@@ -309,7 +311,7 @@ export class Toolbar {
     };
     this.#highlights.onclick = () => this.store.set(togglePatch(this.store.state, 'highlights'));
     this.#settingsKeys.traded.onclick = () => {
-      const build = (tools: HTMLElement, body: HTMLElement): void => buildTradedPanel(this.store, tools, body, () => this.#tradedPanel?.render(build), () => gridStepFor(this.store.state.mark.price > 0 ? this.store.state.mark.price : 1));
+      const build = (tools: HTMLElement, body: HTMLElement): void => buildTradedPanel(this.store, tools, body, () => this.#tradedPanel?.render(build), () => gridStepFor(this.store.state.mark.price > 0 ? this.store.state.mark.price : 1), { browser: this.sourceKind === 'browser', candles: this.profileHistory });
       this.#tradedPanel = this.#track(togglePanel(this.#settingsKeys.traded, { title: t('Volume profile'), width: 520, align: 'left', onClose: () => { this.#tradedPanel = null; } }, build), build);
     };
     this.#traded.onclick = () => this.store.set(togglePatch(this.store.state, 'traded'));

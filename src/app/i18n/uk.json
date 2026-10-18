@@ -887,7 +887,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Скільки минулих малюється, враховуючи поточну (для кожної сесії).",
  "Extend untouched points of control": "Продовжувати недоторкані точки контролю",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Минула точка контролю, через яку ціна відтоді не проходила (оголена), продовжується пунктиром до місця, де її досягли, або до правого краю.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "День, тиждень або сесія, записані менш ніж за дев'ять із десяти своїх хвилин, малюються блідо. Чи проходила ціна через точку контролю, визначається за свічками ринку на графіку.",
  "On": "Увімк.",
  "Name": "Назва",
  "Starts": "Початок",
@@ -1423,5 +1422,15 @@
  "GIF saved": "GIF збережено",
  "This browser cannot copy a GIF, so it was saved as a file": "Цей браузер не вміє копіювати GIF, тому його збережено як файл",
  "GIF copied to the clipboard": "GIF скопійовано в буфер обміну",
- "Kept under {mb} MB: the faintest changes were left out": "Щоб вкластися в {mb} МБ, найслабші зміни пропущено"
+ "Kept under {mb} MB: the faintest changes were left out": "Щоб вкластися в {mb} МБ, найслабші зміни пропущено",
+ "Worked out from": "Розраховується з",
+ "The recording": "Запис",
+ "{market} candles": "Свічки {market}",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "Запис: угоди всіх майданчиків, які рахує колонка потоку, поки він їх зберігає. Свічки: одного ринку, на місяці назад, оцінка.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Ця сторінка зберігає угоди за один день і лише поки вона відкрита: вона рахує щонайбільше сьогоднішній день і останню сесію і жодного тижня. Давніші рахуйте за свічками.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "Запис зберігає угоди за тиждень: він рахує щонайбільше останні сім днів або сесій і поточний тиждень. Давніші рахуйте за свічками.",
+ "No market of this coin has candles the page can read.": "Жоден ринок цієї монети не має свічок, які сторінка може прочитати.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "За {minutes}-хвилинними свічками {market}, обсяг кожної розподілено рівномірно по її діапазону: один ринок і оцінка, позначена ≈. За шість записаних днів верх і низ зони вартості здебільшого були за один-два рядки від записаних (низ одного разу за 4 і одного разу за 10 рядків); де за двома цінами наторгували майже однаково, точка контролю може опинитися на іншій.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "День, тиждень або сесія малюються, лише якщо є дев'ять десятих із них: свічок або угод запису, оцінених за обсягом кожного майданчика, поки він записувався. Чи проходила ціна через точку контролю, визначається за свічками ринку на графіку.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Дні, тижні й сесії беруться із запису, наскільки він зберігає угоди (тиждень; день на сторінці, яка сама читає біржі), або зі свічок найбільш торгованого ринку: це оцінка, позначена ≈, на місяці назад."
 }

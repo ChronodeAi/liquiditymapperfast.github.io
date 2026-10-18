@@ -174,6 +174,7 @@ async function main(): Promise<void> {
   hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.keyHistory = hub.keyHistory;
+  toolbar.profileHistory = barMs => hub.profileHistory(barMs);
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
   // A click on the map while placing a VWAP anchor: the anchor, for the coin on the page.
   heat.onAnchor = at => { const s = store.state; store.set({ vwap: withAnchor({ ...s.vwap, on: true }, currentCoin().coin, at, Date.now()), vwapAnchoring: false }); };

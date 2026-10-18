@@ -42,6 +42,18 @@ export function historyTarget(chartId: string, coin: Coin): HistoryTarget | null
   return null;
 }
 
+/**
+ * Whose candles the volume profile's days, weeks and sessions are worked out from when they come from candles: the most traded market that
+ * lists the coin (Binance's perpetual first), whatever the chart shows, so the lines of one coin do not change with the chart's market.
+ */
+export function profileTarget(coin: Coin): HistoryTarget | null {
+  for (const venue of FALLBACK) {
+    const listing = coin.markets[venue], id = instrumentIdFor(venue, coin);
+    if (CANDLE_VENUES.includes(venue) && listing && id) return { id, listing, own: false };
+  }
+  return null;
+}
+
 export class KeyLevelHistory {
   #key = '';
   #id = '';
@@ -60,8 +72,11 @@ export class KeyLevelHistory {
   version = 0;
   state: 'idle' | 'loading' | 'ready' | 'unavailable' = 'idle';
 
-  /** `refreshMs`: how often the newest bars are asked again (the VWAP wants them every minute). */
-  constructor(private get: Fetcher, private now: () => number = Date.now, private refreshMs: number = REFRESH_MS) {}
+  /**
+   * `refreshMs`: how often the newest bars are asked again (the VWAP wants them every minute). `maxBackMs`: how far back bars are kept
+   * (the key levels' two months; the volume profile's past weeks reach further).
+   */
+  constructor(private get: Fetcher, private now: () => number = Date.now, private refreshMs: number = REFRESH_MS, private maxBackMs: number = MAX_BACK_MS) {}
 
   get id(): string { return this.#id; }
   get barMs(): number { return this.#barMs; }
@@ -109,7 +124,7 @@ export class KeyLevelHistory {
   }
 
   #merge(rows: readonly CandleRow[]): void {
-    const byStart = new Map<number, CandleRow>(this.#bars.map(r => [r[0], r])), oldest = this.now() - MAX_BACK_MS - DAY;
+    const byStart = new Map<number, CandleRow>(this.#bars.map(r => [r[0], r])), oldest = this.now() - this.maxBackMs - DAY;
     for (const r of rows) if (Number.isFinite(r[0]) && r[2] >= r[3]) byStart.set(r[0], r);
     // A page open for weeks would otherwise keep every bar it ever read: none older than the levels can reach is kept.
     this.#bars = [...byStart.values()].filter(r => r[0] >= oldest).sort((x, y) => x[0] - y[0]);

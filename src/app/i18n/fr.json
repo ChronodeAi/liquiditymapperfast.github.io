@@ -875,7 +875,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Combien de passés sont tracés, celui en cours compris (de chaque session).",
  "Extend untouched points of control": "Prolonger les points de contrôle non touchés",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Un point de contrôle passé que le prix n'a pas retraversé depuis (un point nu) se prolonge en pointillé jusqu'à là où il a été atteint, ou jusqu'au bord droit.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "Un jour, une semaine ou une session enregistré sur moins de neuf minutes sur dix est tracé pâle. Le passage du prix par un point de contrôle est lu dans les bougies du marché affiché.",
  "On": "Activé",
  "Name": "Nom",
  "Starts": "Début",
@@ -1404,5 +1403,15 @@
  "GIF saved": "GIF enregistré",
  "This browser cannot copy a GIF, so it was saved as a file": "Ce navigateur ne peut pas copier un GIF, donc il a été enregistré en fichier",
  "GIF copied to the clipboard": "GIF copié dans le presse-papiers",
- "Kept under {mb} MB: the faintest changes were left out": "Maintenu sous {mb} Mo : les changements les plus légers ont été omis"
+ "Kept under {mb} MB: the faintest changes were left out": "Maintenu sous {mb} Mo : les changements les plus légers ont été omis",
+ "Worked out from": "Calculé à partir de",
+ "The recording": "L'enregistrement",
+ "{market} candles": "Bougies de {market}",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "L'enregistrement : les transactions de toutes les plateformes que compte la colonne de flux, tant qu'il les garde. Bougies : celles d'un seul marché, sur des mois, une estimation.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Cette page garde une journée de transactions, et seulement tant qu'elle est ouverte : elle calcule au plus aujourd'hui et la dernière session, et aucune semaine. Pour les plus anciennes, calcule-les à partir des bougies.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "L'enregistrement garde une semaine de transactions : il calcule au plus les sept derniers jours ou sessions et la semaine en cours. Pour les plus anciens, calcule-les à partir des bougies.",
+ "No market of this coin has candles the page can read.": "Aucun marché de cette crypto n'a de bougies que la page puisse lire.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "Des bougies de {minutes} minutes de {market}, le volume de chacune réparti également sur son étendue : un seul marché, et une estimation, marquée ≈. Sur six jours enregistrés, le haut et le bas de la zone de valeur se sont le plus souvent trouvés à une ou deux lignes de ceux de l'enregistrement (le bas une fois à 4 et une fois à 10 lignes) ; là où deux prix ont presque autant échangé, le point de contrôle peut tomber sur l'autre.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "Un jour, une semaine ou une session n'est tracé que si l'on en détient neuf dixièmes : des bougies, ou des transactions de l'enregistrement, estimées d'après le volume de chaque plateforme pendant qu'elle était enregistrée. Le passage du prix par un point de contrôle est lu dans les bougies du marché affiché.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Les jours, semaines et sessions viennent de l'enregistrement, aussi loin qu'il garde les transactions (une semaine ; une journée sur une page qui lit elle-même les plateformes), ou des bougies du marché le plus échangé : une estimation, marquée ≈, qui remonte sur des mois."
 }

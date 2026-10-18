@@ -8,8 +8,9 @@ import { QuotaLedger } from '../src/core/quota.mts';
 import { levelsOf, pointOfControl, valueArea } from '../src/shared/profile.ts';
 import { FootprintRecorder, parseProfile, parseValueAreas } from '../src/shared/footprint.ts';
 import { dayWindows, fromWall, lastWindows, offsetMs, sessionWindows, weekWindows, type SessionDef } from '../src/app/traded/sessions.ts';
-import { TRADED_DEFAULTS, readTraded, resolveZone } from '../src/app/traded/settings.ts';
-import { answerLevels, linesWindows, requestStep, touchedAt } from '../src/app/traded/levels.ts';
+import { TRADED_DEFAULTS, linesCount, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
+import { answerLevels, candleBarMs, candleLevels, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt } from '../src/app/traded/levels.ts';
+import { TradeCoverage, recordedMinutes } from '../src/shared/coverage.ts';
 import { tradedRows } from '../src/app/traded.ts';
 import { initialState } from '../src/app/store.ts';
 
@@ -170,4 +171,87 @@ test('the volume profile is off unless chosen: a first visit and a save from bef
     saved({ show: { traded: true }, traded: {} }); assert.equal(initialState().show.traded, true, 'switched on since');
     saved({ show: { traded: false }, traded: {} }); assert.equal(initialState().show.traded, false);
   } finally { g.window = had; }
+});
+
+test('from the recording only what it still holds is offered: as many days or sessions as days kept, the week under way, none on a page that keeps a day', () => {
+  assert.deepEqual((['day', 'week', 'sessions'] as const).map(p => recordedCount(p, 7 * DAY)), [7, 1, 7]);
+  assert.deepEqual((['day', 'week', 'sessions'] as const).map(p => recordedCount(p, DAY)), [1, 0, 1]);
+  assert.equal(linesCount({ ...TRADED_DEFAULTS, period: 'week', count: 5 }, 7 * DAY), 1, 'the previous weeks are no longer recorded');
+  assert.equal(linesCount({ ...TRADED_DEFAULTS, period: 'week', count: 5, source: 'candles' }, 7 * DAY), 5, 'candles reach back');
+  assert.equal(readTraded({}).source, 'recorded', 'a save from before the choice');
+  assert.equal(readTraded({ source: 'candles' }).source, 'candles'); assert.equal(readTraded({ source: 'tea leaves' }).source, 'recorded');
+  // Weeks in UTC on Sunday 2026-10-18: this week began on the 12th, inside the seven days; the week of the 5th did not.
+  const now = Date.UTC(2026, 9, 18, 15), weeks = linesWindows({ ...TRADED_DEFAULTS, period: 'week', zone: 'UTC', count: 5, source: 'candles' }, 'utc', now - 30 * DAY, now, now);
+  assert.equal(weeks.length, 5);
+  assert.deepEqual(recordedWindows(weeks, now, 7 * DAY).map(w => new Date(w.from).toISOString().slice(0, 10)), ['2026-10-12']);
+  assert.equal(linesWindows({ ...TRADED_DEFAULTS, period: 'week' }, 'utc', now - 30 * DAY, now, now, 0).length, 0, 'none asked, none drawn');
+  // Without the source's own estimate, a window is judged by the minutes of its best-recorded venue.
+  assert.equal(recordedShare({ from: 0, to: 100 * MIN, minutes: 45 }, 50 * MIN), 0.9);
+  assert.equal(recordedShare({ from: 0, to: 100 * MIN, minutes: 45, covered: 0.3 }, 50 * MIN), 0.3);
+});
+
+test('candles give a value area with each bar\'s volume spread evenly over its range, and say how many of the window\'s bars were there', () => {
+  const B = 5 * MIN, T = 1_800_000_000_000 - (1_800_000_000_000 % B);
+  // Bars in coins: 10 at 85,000-85,040, 1 at 85,100 (no range), 1 at 84,900-85,000, and one before the window.
+  const bars: [number, number, number, number, number, number][] = [[T, 0, 85_040, 85_000, 85_020, 10], [T + B, 0, 85_100, 85_100, 85_100, 1], [T + 2 * B, 0, 85_000, 84_900, 84_950, 1], [T - B, 0, 90_000, 80_000, 85_000, 1_000]];
+  const r = candleLevels(bars, T, T + 3 * B, B, 20, 0.7, T + 3 * B);
+  assert.equal(r.covered, 1, 'the bar before the window does not count');
+  // 850,200 USD spread over 85,000-85,040 is two rows of 425,100 (with 85,100 and the low bar about 16 % of the volume): the 70 % is those two rows.
+  assert.deepEqual([r.levels!.val, r.levels!.vah], [85_000, 85_040]);
+  assert.ok(r.levels!.poc === 85_010 || r.levels!.poc === 85_030, `POC ${r.levels!.poc}`);
+  // A bar missing; and the candles known only to inside the second bar: the window under way is worked out to there.
+  assert.equal(candleLevels([bars[0]!, bars[2]!], T, T + 3 * B, B, 20, 0.7, T + 3 * B).covered, 2 / 3);
+  assert.equal(candleLevels(bars, T, T + 3 * B, B, 20, 0.7, T + B + 30_000).covered, 1, 'one bar ended by then, and it is there');
+  assert.equal(candleLevels([], T, T + 3 * B, B, 20, 0.7, T + 3 * B).levels, null);
+  const session = (start: string, on = true) => ({ id: 's', name: 'S', zone: 'UTC', start, end: '18:00', on, weekdays: false });
+  assert.equal(candleBarMs({ period: 'week', sessions: [session('09:17')] }), B, 'days and weeks start on five minutes');
+  assert.equal(candleBarMs({ period: 'sessions', sessions: [session('09:30'), session('13:17')] }), MIN, 'a session at :17');
+  assert.equal(candleBarMs({ period: 'sessions', sessions: [session('09:30'), session('13:17', false)] }), B, 'one switched off does not count');
+});
+
+test('a value area counts an instrument named twice once and says how much of the window the recording holds, weighting each venue by its volume', () => {
+  const T0 = 1_800_000_000_000 - (1_800_000_000_000 % HOUR), now = T0 + 3 * HOUR, recorder = new FootprintRecorder(null, () => now);
+  const at = (inst: string, id: string, price: number, usd: number, t: number) => ({ instrumentId: inst, tradeId: id, side: 'buy', price, notionalUsd: usd, sourceTimestamp: t });
+  // a: a trade every minute for three hours at 85,000; b: ten times bigger, at 86,000, only in the last hour.
+  const fills = [];
+  for (let m = 0; m < 180; m++) fills.push(at('a:BTC', 'a' + m, 85_001, 1_000, T0 + m * MIN + 1_000));
+  for (let m = 120; m < 180; m++) fills.push(at('b:BTC', 'b' + m, 86_001, 10_000, T0 + m * MIN + 1_000));
+  recorder.ingest(fills);
+  const w = [{ from: T0, to: T0 + 3 * HOUR }];
+  const once = recorder.valueAreas(['a:BTC', 'b:BTC'], w, 20, 0.7), twice = recorder.valueAreas(['a:BTC', 'a:BTC', 'b:BTC'], w, 20, 0.7);
+  assert.deepEqual(twice.windows, once.windows, 'a named twice weighs as once');
+  assert.equal(once.asOf, now);
+  // Without a record of when each was listened to, the minutes with trades: b looks recorded for an hour, and its 600K stands for 1.8M.
+  assert.equal(once.windows[0]!.covered!.toFixed(4), ((180_000 + 600_000) / (180_000 + 1_800_000)).toFixed(4));
+  // With the coverage record saying b was listened to all along (quiet before), the window is whole.
+  assert.equal(recorder.valueAreas(['a:BTC', 'b:BTC'], w, 20, 0.7, () => 180).windows[0]!.covered, 1);
+  // A venue recorded in none of it, or never, says nothing of its part: the share is not known.
+  assert.equal(recorder.valueAreas(['a:BTC', 'b:BTC'], w, 20, 0.7, id => id === 'a:BTC' ? 180 : 0).windows[0]!.covered, 0);
+  assert.equal(recorder.valueAreas(['a:BTC', 'c:BTC'], w, 20, 0.7).windows[0]!.covered, 0);
+  // The window under way: its share is of the time so far, on the same basis for every venue (half a minute in, half a minute recorded).
+  let clock = now + 30_000;
+  const later = new FootprintRecorder(null, () => clock);
+  later.ingest([at('a:BTC', 'x', 85_001, 1_000, now + 10_000)]);
+  const open = () => later.valueAreas(['a:BTC'], [{ from: now, to: now + HOUR }], 20, 0.7, (_id, from, to) => (to - from) / MIN).windows[0]!.covered;
+  assert.equal(open(), 1);
+  clock = now + 60_000; assert.equal(open(), 1, 'nor when the next minute begins');
+  // The ended hours read added together give what the minutes do (the profile column reads minutes).
+  const levels = answerLevels(recorder.profile(['a:BTC', 'b:BTC'], T0, T0 + 3 * HOUR, 20), 20, 0.7)!;
+  assert.deepEqual([once.windows[0]!.poc, once.windows[0]!.vah, once.windows[0]!.val], [levels.poc, levels.vah, levels.val]);
+  assert.equal(parseValueAreas({ ...once, windows: [{ ...once.windows[0], covered: 1.5 }] }, w), null, 'a share above 1');
+  assert.equal(parseValueAreas({ ...once, asOf: 'now' }, w), null);
+  const { covered: _c, ...older } = once.windows[0]!, { asOf: _a, ...olderAnswer } = once;
+  assert.equal(parseValueAreas({ ...olderAnswer, windows: [older] }, w)!.windows[0]!.covered, undefined, 'an older server: no share, nothing refused');
+});
+
+test('the minutes recorded come from the coverage record: a quiet minute listened to counts, one nobody recorded does not, one held from before the record counts', () => {
+  const T0 = 1_800_000_000_000 - (1_800_000_000_000 % HOUR), coverage = new TradeCoverage(null, () => T0 + HOUR);
+  coverage.recovered('a:BTC', T0 + 10 * MIN, T0 + 20 * MIN);
+  coverage.recovered('a:BTC', T0 + 30 * MIN, T0 + 30 * MIN + 30_000);
+  // Minutes with trades: two from before a's record began (counted), one inside a stretch (not twice), one in a gap since (not counted).
+  const held = new Set([T0 + 2 * MIN, T0 + 3 * MIN, T0 + 15 * MIN, T0 + 40 * MIN]);
+  assert.equal(recordedMinutes(coverage, 'a:BTC', T0, T0 + HOUR, t => held.has(t)), 2 + 10 + 0.5);
+  assert.equal(recordedMinutes(coverage, 'b:BTC', T0, T0 + HOUR, t => held.has(t)), 4, 'no record at all: every minute held is from before it');
+  assert.equal(recordedMinutes(coverage, 'b:BTC', T0, T0 + HOUR, () => false), 0);
+  assert.equal(recordedMinutes(coverage, 'a:BTC', T0 + HOUR, T0, () => true), 0);
 });

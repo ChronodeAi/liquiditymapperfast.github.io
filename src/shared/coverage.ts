@@ -183,6 +183,22 @@ export function coveredMs(merged: readonly (readonly [number, number])[], from: 
   let ms = 0; for (const [a, b] of merged) ms += Math.max(0, Math.min(b, to) - Math.max(a, from));
   return ms;
 }
+/**
+ * How many minutes of [from, to) `id`'s trades were recorded in: the time its stretches cover, in minutes, and a minute the recording holds
+ * from before the record was kept for it (before its first stretch, or with none at all) as a whole one. A quiet minute that was listened
+ * to counts; one nobody recorded does not, even with trades in it (a page back from the background hands on what its socket held, and
+ * that is not all there was).
+ */
+export function recordedMinutes(coverage: TradeCoverage, id: string, from: number, to: number, held: (minute: number) => boolean): number {
+  if (!(to > from)) return 0;
+  const spans = coverage.covered(id, from, to), kept = coverage.spans(id)[0]?.from ?? Infinity;
+  let ms = coveredMs(spans, from, to);
+  for (let t = Math.floor(from / MINUTE) * MINUTE, j = 0; t < Math.min(to, kept); t += MINUTE) {
+    while (j < spans.length && spans[j]![1] <= t) j++;
+    if (!(j < spans.length && spans[j]![0] < t + MINUTE) && held(t)) ms += Math.min(t + MINUTE, to) - Math.max(t, from);
+  }
+  return ms / MINUTE;
+}
 /** Whether merged stretches cover all of [from, to). */
 export const coversAll = (merged: readonly (readonly [number, number])[], from: number, to: number): boolean => !(to > from) || coveredMs(merged, from, to) >= to - from;
 

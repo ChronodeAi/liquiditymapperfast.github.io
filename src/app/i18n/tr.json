@@ -869,7 +869,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Kaç geçmiş olanın çizileceği, süren dahil (her seans için).",
  "Extend untouched points of control": "Dokunulmamış kontrol noktalarını uzat",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Fiyatın o zamandan beri içinden geçmediği geçmiş bir kontrol noktası (çıplak), ulaşıldığı yere ya da sağ kenara kadar noktalı olarak uzanır.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "Dakikalarının onda dokuzundan azı kaydedilmiş bir gün, hafta ya da seans soluk çizilir. Fiyatın bir kontrol noktasından geçip geçmediği grafikteki piyasanın mumlarından okunur.",
  "On": "Açık",
  "Name": "Ad",
  "Starts": "Başlangıç",
@@ -1390,5 +1389,15 @@
  "GIF saved": "GIF kaydedildi",
  "This browser cannot copy a GIF, so it was saved as a file": "Bu tarayıcı GIF kopyalayamıyor, bu yüzden dosya olarak kaydedildi",
  "GIF copied to the clipboard": "GIF panoya kopyalandı",
- "Kept under {mb} MB: the faintest changes were left out": "{mb} MB'ın altında tutuldu: en zayıf değişiklikler atlandı"
+ "Kept under {mb} MB: the faintest changes were left out": "{mb} MB'ın altında tutuldu: en zayıf değişiklikler atlandı",
+ "Worked out from": "Hesaplandığı kaynak",
+ "The recording": "Kayıt",
+ "{market} candles": "{market} mumları",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "Kayıt: akış sütununun saydığı tüm borsaların işlemleri, sakladığı süre boyunca. Mumlar: tek bir piyasanınkiler, aylar öncesine kadar, bir tahmin.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Bu sayfa bir günlük işlemi, yalnızca açıkken saklar: en fazla bugünü ve son seansı hesaplar, haftayı hiç hesaplamaz. Daha eskileri için mumlardan hesaplayın.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "Kayıt bir haftalık işlemi saklar: en fazla son yedi günü ya da seansı ve süren haftayı hesaplar. Daha eskileri için mumlardan hesaplayın.",
+ "No market of this coin has candles the page can read.": "Bu coinin, sayfanın okuyabileceği mumları olan bir piyasası yok.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "{market} piyasasının {minutes} dakikalık mumlarından, her mumun hacmi aralığına eşit dağıtılarak: tek bir piyasa ve ≈ ile işaretlenen bir tahmin. Kaydedilmiş altı günde değer alanının üstü ve altı çoğunlukla kayıttakilerin bir iki satır yakınında çıktı (alt bir kez 4, bir kez 10 satır saptı); iki fiyatta neredeyse aynı işlem olduğunda kontrol noktası diğerine düşebilir.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "Bir gün, hafta ya da seans yalnızca onda dokuzu elde varsa çizilir: mumların ya da kaydın işlemlerinin; ikincisi her borsanın kaydedildiği sıradaki hacminden tahmin edilir. Fiyatın bir kontrol noktasından geçip geçmediği grafikteki piyasanın mumlarından okunur.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Günler, haftalar ve seanslar, işlemleri sakladığı kadar geriye (bir hafta; borsaları kendisi okuyan bir sayfada bir gün) kayıttan ya da en çok işlem gören piyasanın mumlarından gelir: ≈ ile işaretlenen ve aylar öncesine uzanan bir tahmin."
 }

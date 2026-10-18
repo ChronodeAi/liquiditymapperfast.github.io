@@ -7,7 +7,7 @@ import { TIMEFRAMES, valueAreaKey, type Hub, type RasterResult } from '../hub.ts
 import { gridStepFor } from '../../shared/grid.ts';
 import { MAX_PROFILE_INSTRUMENTS, type ProfileAnswer } from '../../shared/footprint.ts';
 import type { ValueLevels } from '../../shared/profile.ts';
-import { answerLevels, linesWindows, requestStep, touchedAt } from '../traded/levels.ts';
+import { DRAWN_SHARE, answerLevels, candleBarMs, candleLevels, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt } from '../traded/levels.ts';
 import type { ProfileWindow } from '../traded/sessions.ts';
 import type { Kernels } from '../kernels.ts';
 import { PALETTES, rgb, textOn, type Palette } from '../theme.ts';
@@ -36,10 +36,11 @@ import { PRICE_SPAN_SHARE, TIME_SPAN_MS, holdPixel, limitFactor, regionAt, wheel
 import { t } from '../i18n.ts';
 import { currentCoin, scaledUsd } from '../coin.ts';
 import { linesToAsk } from '../sizes.ts';
-import { resolveZone } from '../traded/settings.ts';
+import { linesCount, resolveZone } from '../traded/settings.ts';
+import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { MAX_BACK_MS, barMsFor, keyLines, neededFrom, type KeyLine } from '../keylevels/levels.ts';
 import { anyLine } from '../keylevels/settings.ts';
-import { historyTarget, type HistoryTarget } from '../keylevels/history.ts';
+import { historyTarget, profileTarget, type HistoryTarget } from '../keylevels/history.ts';
 import { paintKeyLevels, paintKeyTags, placeKeyTags, underTag, type KeyTag } from '../keylevels/paint.ts';
 import { sessionsOf, vwapBarMs, vwapSeries, whaleSeries } from '../vwap/vwap.ts';
 import { anchorsOf } from '../vwap/settings.ts';
@@ -174,6 +175,8 @@ export class HeatPane {
   #levelsMemo: { answer: ProfileAnswer; step: number; share: number; levels: ValueLevels | null } | null = null;
   /** The days, weeks or sessions the lines are drawn for, and what they were worked out for. */
   #vaWindows: { key: string; windows: ProfileWindow[] } | null = null;
+  /** Levels of days, weeks or sessions worked out from candles, by window, bar size, rows and share; a window under way with the candles' version. */
+  readonly #candleLevels = new Map<string, ValueLevels | null>();
   /** The key levels' market and zone, how far back their candles are needed, and their lines, each kept until what it depends on changes. */
   #keyContext: { key: string; target: HistoryTarget | null; zone: string; barMs: number } | null = null;
   #keyFrom: { key: string; from: number } | null = null;
@@ -1197,46 +1200,95 @@ export class HeatPane {
     return this.#keyLines.lines;
   }
 
-  /** The days, weeks or sessions the lines are drawn for (worked out again when the settings, the view's minutes or the clock's minute change). */
+  /** How much of its trades the page's data source keeps (a server a week, a page reading the exchanges itself a day). */
+  #recordingKeeps(): number { return this.hub.source.kind === 'browser' ? BROWSER_RETENTION_MS : RETENTION_MS; }
+  /**
+   * The days, weeks or sessions the lines are drawn for (worked out again when the settings, the view's minutes or the clock's minute
+   * change): from the recording, only as many as it can still work out and only those that began inside what it keeps.
+   */
   #linesWindows(state: AppState): ProfileWindow[] {
-    const v = this.view, MIN = 60_000, s = state.traded, now = pageNow();
-    const key = `${s.period}|${s.zone}|${s.count}|${JSON.stringify(s.sessions)}|${state.timeZone}|${Math.floor(v.t0 / MIN)}|${Math.ceil(v.t1 / MIN)}|${Math.floor(now / MIN)}`;
-    if (this.#vaWindows?.key !== key) this.#vaWindows = { key, windows: linesWindows(s, state.timeZone, v.t0, v.t1, now) };
+    const v = this.view, MIN = 60_000, s = state.traded, now = pageNow(), real = Date.now(), keeps = this.#recordingKeeps();
+    const key = `${s.period}|${s.source}|${keeps}|${s.zone}|${s.count}|${JSON.stringify(s.sessions)}|${state.timeZone}|${Math.floor(v.t0 / MIN)}|${Math.ceil(v.t1 / MIN)}|${Math.floor(now / MIN)}|${Math.floor(real / MIN)}`;
+    if (this.#vaWindows?.key !== key) {
+      const windows = linesWindows(s, state.timeZone, v.t0, v.t1, now, linesCount(s, keeps));
+      this.#vaWindows = { key, windows: s.source === 'recorded' ? recordedWindows(windows, real, keeps) : windows };
+    }
     return this.#vaWindows.windows;
   }
-  /** Ask for the value areas of the days, weeks or sessions the lines are drawn for. */
+  /** The candles days, weeks and sessions are worked out from (`candles`): whose, and their size (the panel says the same). */
+  #profileCandles(state: AppState): { target: HistoryTarget | null; barMs: number } {
+    return { target: profileTarget(currentCoin()), barMs: candleBarMs(state.traded) };
+  }
+  /** Ask for what the lines of the days, weeks or sessions are worked out from: the recording's value areas, or the candles. */
   #ensureValueAreas(state: AppState): void {
     const s = state.traded;
     if (s.period === 'view' || (!s.poc && !s.va)) return;
     const windows = this.#linesWindows(state);
-    if (windows.length) this.hub.ensureValueAreas(flowIds(state, this.hub.flow.ids), windows, this.#levelStep(), s.share / 100);
+    if (!windows.length) return;
+    if (s.source === 'recorded') { this.hub.ensureValueAreas(flowIds(state, this.hub.flow.ids), windows, this.#levelStep(), s.share / 100); return; }
+    const { target, barMs } = this.#profileCandles(state), from = Math.min(...windows.map(w => w.from));
+    this.hub.profileHistory(barMs).ensure(target, Math.floor(from / barMs) * barMs, barMs, () => this.invalidate());
+  }
+  /**
+   * The levels of one window from the candles (`candleLevels`) and how far they reach (`upTo`: the candles known, `heldTo`, so a history
+   * that stopped being refreshed draws no further than it knows), or null when they cannot be drawn yet or at all: the history does not
+   * reach its start, the window has ended but the candles known do not reach its end, or fewer than `DRAWN_SHARE` of its bars up to there
+   * are there. A window whose bars are all final is worked out once; any other again when the candles change.
+   */
+  #windowFromCandles(state: AppState, w: ProfileWindow, step: number, share: number, now: number): { levels: ValueLevels; upTo: number } | null {
+    const { target, barMs } = this.#profileCandles(state), h = this.hub.profileHistory(barMs);
+    if (!target || h.id !== target.id || h.barMs !== barMs || h.heldFrom > w.from) return null;
+    // Replay: the candles up to its moment (a bar under way carries its future).
+    const heldTo = Math.min(h.heldTo, now);
+    if (w.to <= now && heldTo < w.to) return null;
+    // Ended a bar before the candles known reach: its bars are final. Until then it is worked out again as they come.
+    const ended = w.to + barMs <= heldTo;
+    const key = `${target.id}|${barMs}|${step}|${share}|${w.from}|${w.to}${ended ? '' : `|${h.version}|${Math.floor(heldTo / barMs)}`}`;
+    if (!this.#candleLevels.has(key)) {
+      // A bound on what is kept: the oldest go first (20 windows of each session at most are drawn).
+      if (this.#candleLevels.size > 400) for (const k of [...this.#candleLevels.keys()].slice(0, 200)) this.#candleLevels.delete(k);
+      const r = candleLevels(h.bars, w.from, w.to, barMs, step, share, heldTo);
+      this.#candleLevels.set(key, r.covered >= DRAWN_SHARE ? r.levels : null);
+    }
+    const levels = this.#candleLevels.get(key);
+    return levels ? { levels, upTo: Math.min(w.to, heldTo) } : null;
   }
 
   /**
    * The point of control (a line) and the value area high and low (dashed) on the chart, in the profile colour over a halo that keeps them
    * apart from the map: across the whole chart for what is on it, or over each day, week or session. A past point of control nobody has
-   * traded through since (a naked one) runs on, dotted, to where it was (or to the right edge). A window recorded for under nine in ten of its
-   * minutes is drawn faint.
+   * traded through since (a naked one) runs on, dotted, to where it was (or to the right edge). A day, week or session is drawn only when
+   * its source saw at least `DRAWN_SHARE` of it (the recording, weighted by each venue's volume; the candles, their bars): a part of one
+   * is not that period's profile. From candles the labels say ≈, an estimate.
    */
   #paintValueLines(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     const s = state.traded;
     if (!state.show.traded || (!s.poc && !s.va)) return;
     const v = this.view, p = this.#palette, now = pageNow(), step = this.#levelStep();
-    const segments: { x0: number; x1: number; levels: ValueLevels; faint: boolean; name: string; naked: number | null }[] = [];
+    const segments: { x0: number; x1: number; levels: ValueLevels; name: string; naked: number | null }[] = [];
     if (s.period === 'view') {
       const levels = this.#viewLevels();
-      if (levels) segments.push({ x0: 0, x1: pw, levels, faint: false, name: '', naked: null });
+      if (levels) segments.push({ x0: 0, x1: pw, levels, name: '', naked: null });
     } else {
-      const ids = flowIds(state, this.hub.flow.ids), share = s.share / 100;
-      for (const w of this.#linesWindows(state)) {
-        const held = this.hub.valueAreas.get(valueAreaKey(ids, step, share, w));
-        if (!held || held.poc === null || held.vah === null || held.val === null) continue;
-        if (replaying() && w.to > now) continue;
-        const end = Math.min(w.to, now), x0 = v.xOf(w.from, pw), x1 = v.xOf(end, pw);
+      const ids = flowIds(state, this.hub.flow.ids), share = s.share / 100, windows = this.#linesWindows(state);
+      for (const w of windows) {
+        // The levels and how far what they were worked out from reaches: a line is drawn no further than that.
+        let levels: ValueLevels | null = null, upTo = now;
+        if (s.source === 'candles') { const r = this.#windowFromCandles(state, w, step, share, now); if (r) { levels = r.levels; upTo = r.upTo; } }
+        else {
+          const held = this.hub.valueAreas.get(valueAreaKey(ids, step, share, w));
+          if (replaying() && w.to > now) continue;
+          // An answer from before the window ended is not that window's: it waits for the next (asked again within minutes).
+          if (held && held.poc !== null && held.vah !== null && held.val !== null && !(w.to <= now && held.asOf < w.to) && recordedShare(held, held.asOf) >= DRAWN_SHARE) {
+            levels = { poc: held.poc, vah: held.vah, val: held.val }; upTo = held.asOf;
+          }
+        }
+        if (!levels) continue;
+        const end = Math.min(w.to, now, upTo), x0 = v.xOf(w.from, pw), x1 = v.xOf(end, pw);
         let naked: number | null = null;
-        if (s.naked && w.to <= now) { const touched = touchedAt(held.poc, w.to, state.candles, step / 2); naked = touched === null ? pw : v.xOf(touched, pw); }
+        if (s.naked && w.to <= now) { const touched = touchedAt(levels.poc, w.to, state.candles, step / 2); naked = touched === null ? pw : v.xOf(touched, pw); }
         if (Math.max(x1, naked ?? x1) < 0 || x0 > pw) continue;
-        segments.push({ x0, x1, levels: { poc: held.poc, vah: held.vah, val: held.val }, faint: held.minutes < 0.9 * (end - w.from) / 60_000, name: w.name, naked });
+        segments.push({ x0, x1, levels, name: s.source === 'candles' ? `≈ ${w.name}`.trim() : w.name, naked });
       }
     }
     if (!segments.length) return;
@@ -1252,7 +1304,7 @@ export class HeatPane {
     const label = (text: string, x: number, price: number, rank: number): void => { const y = v.yOf(price, ph); if (y >= 6 && y <= ph - 6 && x >= 30) labels.push({ text, x, y, rank, alpha: ctx.globalAlpha }); };
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
     for (const seg of segments) {
-      ctx.globalAlpha = seg.faint ? 0.4 : 1;
+      ctx.globalAlpha = 1;
       const x0 = Math.max(-4, seg.x0), x1 = Math.min(pw + 4, seg.x1), { poc, vah, val } = seg.levels;
       if (s.va) { line(x0, x1, vah, 1, [6, 4]); line(x0, x1, val, 1, [6, 4]); }
       if (s.poc) { line(x0, x1, poc, 2, []); if (seg.naked !== null && seg.naked > x1) line(x1, Math.min(pw + 4, seg.naked), poc, 2, [2, 3]); }

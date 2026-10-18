@@ -42,6 +42,13 @@ export const COLUMNS_FULL_EVERY_MS = 3_600_000;
 export interface RasterResult { id: number; w: number; h: number; data: Float32Array; stats: RasterStats; bounds: Bounds }
 
 /** Owns data loading: bootstrap, live socket, candles, OI, recorded columns and the raster worker. */
+/**
+ * How long after a window ends its answer is still asked again: trades a venue sends late still reach the recording, and the footprint
+ * rechecks the hour before for them as well (`RECHECK_SPAN_MS` in panes/footprint.ts). An answer from a source that had passed this is kept for good.
+ */
+export const VALUE_AREA_SETTLE_MS = 60 * MINUTE;
+/** How far back the volume profile's candles reach: twenty weeks of lines and the week before the first. */
+export const PROFILE_CANDLES_BACK_MS = 21 * 7 * 86_400_000;
 /** A value area's key: the instruments, the row step and share it was read with, and its window. */
 export const valueAreaKey = (ids: readonly string[], step: number, share: number, w: { from: number; to: number }): string => `${ids.join(',')}|${step}|${share}|${w.from}-${w.to}`;
 
@@ -111,6 +118,7 @@ export class Hub {
   /** The hourly candles the key levels are read from, straight from the exchange (keylevels/history.ts). */
   readonly keyHistory = new KeyLevelHistory(webGet);
   readonly #vwapHistories = new Map<number, KeyLevelHistory>();
+  readonly #profileHistories = new Map<number, KeyLevelHistory>();
   /**
    * The whale VWAP's sums: the whole minutes answered (`rows`, before `to`) and since then the minutes added from the orders pushed live
    * (`tail`, from `to` on), so neither counts an order the other has. `since`: where the recording's count of large orders begins.
@@ -161,6 +169,15 @@ export class Hub {
       h = new KeyLevelHistory(webGet, Date.now, 60_000);
     } else this.#vwapHistories.delete(barMs);
     this.#vwapHistories.set(barMs, h);
+    return h;
+  }
+  /**
+   * The volume profile's candles of one bar size (`traded/levels.ts` `candleBarMs`: five minutes, or one for sessions off the five), for
+   * days, weeks and sessions worked out from candles: as far back as twenty weeks reach, the newest asked again every minute.
+   */
+  profileHistory(barMs: number): KeyLevelHistory {
+    let h = this.#profileHistories.get(barMs);
+    if (!h) { h = new KeyLevelHistory(webGet, Date.now, 60_000, PROFILE_CANDLES_BACK_MS); this.#profileHistories.set(barMs, h); }
     return h;
   }
   onLiquidationsChanged: () => void = () => {};
@@ -216,10 +233,10 @@ export class Hub {
   /** The traded-volume column's last answer, the row step it was asked on, and whether the source can answer at all. */
   traded: { step: number; answer: ProfileAnswer } | null = null;
   /**
-   * Value areas of days, weeks and sessions by window (`valueAreaKey`), with when each was answered: a window that had ended by then never
-   * changes, so it is asked once; the one under way is asked again after a while (`ensureValueAreas`).
+   * Value areas of days, weeks and sessions by window (`valueAreaKey`), with when each was answered (`at`), the source's clock then (`asOf`:
+   * what it reaches), and whether it can no longer change (`final`: answered a while after it ended), so it is not asked again (`ensureValueAreas`).
    */
-  readonly valueAreas = new Map<string, ValueAreaWindow & { at: number }>();
+  readonly valueAreas = new Map<string, ValueAreaWindow & { at: number; asOf: number; final: boolean }>();
   valueAreasState: 'ready' | 'unavailable' = 'ready';
   #vaLoading = false; #vaRetryAt = 0; #vaLastMs = 0;
   tradedState: 'ready' | 'unavailable' = 'ready';
@@ -287,7 +304,7 @@ export class Hub {
       onTape: batch => { if (!this.#tapeOn || !this.tape) return; this.tape.add(batch, this.#connection, performance.now(), Date.now()); this.onTape(); },
       onAbsorption: (groups, minutes) => { this.absorption.add(groups); this.absorption.addMinutes(minutes); this.onAbsorptionChanged(); },
       // The large orders of the stretch are in the recording now, not among the fresh ones: the window held is asked for again.
-      onRecovered: (id, from, to) => { this.#printsWindow = null; this.onRecovered(id, from, to); },
+      onRecovered: (id, from, to) => { this.#printsWindow = null; this.#dropValueAreas(id, from, to); this.onRecovered(id, from, to); },
       onPrints: items => {
         const fresh = this.prints.add(items.flatMap(row => { const p = fromWire(row); return p ? [p] : []; }));
         if (fresh.length) { this.#whaleTake(fresh); this.onPrints(fresh); this.onPrintsChanged(); }
@@ -528,15 +545,17 @@ export class Hub {
 
   /**
    * Make sure every window has its value area, on rows of `step` holding `share`. Safe to call every frame: one request at a time, at most a
-   * day of minutes in it (a day costs the recorder about 90 ms), finished windows asked once and the window under way again after a minute
-   * (five when an answer took longer than 300 ms). A source that cannot answer (an older server) is asked again a minute later.
+   * day of minutes in it (a day costs the recorder about 90 ms; a longer window goes alone), a window the source answered for at least
+   * `VALUE_AREA_SETTLE_MS` after it ended (by its own clock, `asOf`, or else when the question was sent) kept for good, and any other asked
+   * again after a minute (five when an answer took longer than 300 ms). A source that cannot answer (an older server) is asked again a
+   * minute later. A window a recovery filled trades into is asked again (`#dropValueAreas`).
    */
   ensureValueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], step: number, share: number): void {
     if (this.#vaLoading || !ids.length || !windows.length || !(step > 0)) return;
     const now = Date.now();
     if (this.valueAreasState === 'unavailable' && now < this.#vaRetryAt) return;
     const again = this.#vaLastMs > 300 ? 300_000 : 60_000;
-    const due = windows.filter(w => { const held = this.valueAreas.get(valueAreaKey(ids, step, share, w)); return !held || (w.to > held.at && now - held.at >= again); });
+    const due = windows.filter(w => { const held = this.valueAreas.get(valueAreaKey(ids, step, share, w)); return !held || (!held.final && now - held.at >= again); });
     if (!due.length) return;
     const batch: { from: number; to: number }[] = []; let span = 0;
     for (const w of [...due].sort((a, b) => b.to - a.to)) {
@@ -546,14 +565,20 @@ export class Hub {
     }
     this.#vaLoading = true;
     const started = performance.now();
+    const asked = Date.now();
     this.source.valueAreas([...ids], batch, step, share).then(answer => {
       this.#vaLastMs = performance.now() - started; this.valueAreasState = 'ready';
-      const at = Date.now();
-      answer.windows.forEach((w, i) => this.valueAreas.set(valueAreaKey(ids, step, share, batch[i]!), { ...w, at }));
+      const at = Date.now(), clock = answer.asOf ?? asked;
+      answer.windows.forEach((w, i) => this.valueAreas.set(valueAreaKey(ids, step, share, batch[i]!), { ...w, at, asOf: clock, final: clock >= w.to + VALUE_AREA_SETTLE_MS }));
       // A bound on what is held: the oldest answers go first.
       if (this.valueAreas.size > 600) for (const key of [...this.valueAreas.keys()].slice(0, this.valueAreas.size - 500)) this.valueAreas.delete(key);
       this.onTraded();
     }, () => { this.valueAreasState = 'unavailable'; this.#vaRetryAt = Date.now() + 60_000; this.onTraded(); }).finally(() => { this.#vaLoading = false; });
+  }
+
+  /** Forget the value areas of windows of `id` that [from, to) reaches into: trades were filled in there after they were answered. */
+  #dropValueAreas(id: string, from: number, to: number): void {
+    for (const [key, w] of this.valueAreas) if (w.from < to && w.to > from && key.slice(0, key.indexOf('|')).split(',').includes(id)) this.valueAreas.delete(key);
   }
 
   /**

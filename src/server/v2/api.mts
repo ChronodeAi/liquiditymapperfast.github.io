@@ -18,7 +18,7 @@ import type { MarketOrder } from '../../shared/orders.ts';
 import { FootprintRecorder } from './footprint.mts';
 import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
 import { RecordedBefore } from '../../shared/restart.ts';
-import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, tradeAnswer, type CoverageMetric } from './coverage.mts';
+import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageMetric } from './coverage.mts';
 import { venueForFeedId } from '../../core/venue-status.mts';
 import { FLOW_SEC, FlowRecorder, encodeFlowFrame, encodeFlowMinutes } from './flow.mts';
 import { FlowSources } from './flow-sources.mts';
@@ -522,7 +522,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
   /** The point of control and the value area of several windows (days, weeks, sessions): `w` is `from-to` pairs, `share` the value area's part (0..1). */
   const valueAreasRoute = (url: URL, res: ServerResponse) => {
-    const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean);
+    const ids = [...new Set((url.searchParams.get('inst') ?? '').split(',').filter(Boolean))];
     if (!ids.length || ids.length > MAX_RANGE_INSTRUMENTS) return sendJson(res, { error: `inst must name 1 to ${MAX_RANGE_INSTRUMENTS} instruments` }, 400);
     const windows = (url.searchParams.get('w') ?? '').split(',').filter(Boolean).map(pair => { const [a, b] = pair.split('-').map(Number); return { from: a!, to: b! }; });
     if (!windows.length || windows.length > MAX_VALUE_AREA_WINDOWS || windows.some(w => !Number.isSafeInteger(w.from) || !Number.isSafeInteger(w.to) || w.from < 0 || w.to <= w.from)) return sendJson(res, { error: `w must be 1 to ${MAX_VALUE_AREA_WINDOWS} windows written from-to in ms` }, 400);
@@ -530,7 +530,13 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const step = Number(url.searchParams.get('step')), share = Number(url.searchParams.get('share'));
     if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
     if (!(share > 0 && share <= 1)) return sendJson(res, { error: 'share must be above 0 and at most 1' }, 400);
-    sendJson(res, footprint.valueAreas(ids, windows, step, share));
+    // The ended hours the windows hold are added together first, a few at a time with the event loop let go between (`prepare`): a week of
+    // fourteen markets merged minute by minute on the request path would hold every other request. Each window's share of the recording
+    // comes from the coverage record, so a quiet minute is not taken for one nobody recorded.
+    const recorded = (id: string, from: number, to: number): number => recordedMinutes(coverage, id, from, to, t => footprint.holds(id, t));
+    windows.reduce((ready, w) => ready.then(() => footprint.prepare(ids, w.from, w.to, 3_600_000)), Promise.resolve())
+      .then(() => sendJson(res, footprint.valueAreas(ids, windows, step, share, recorded)))
+      .catch(error => { console.error('v2 /api/v2/value-areas failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); else res.end(); });
   };
   const flowRoute = (url: URL, res: ServerResponse) => {
     const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean).slice(0, MAX_FLOW_INSTRUMENTS);

@@ -881,7 +881,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Сколько прошлых рисуется, включая текущий (по каждой сессии).",
  "Extend untouched points of control": "Продлевать нетронутые точки контроля",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Прошлая точка контроля, через которую цена с тех пор не проходила (голая), тянется пунктиром до места, где её достигли, или до правого края.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "День, неделя или сессия, записанные меньше чем на девять десятых минут, рисуются бледно. Проходила ли цена через точку контроля, читается по свечам рынка на графике.",
  "On": "Вкл.",
  "Name": "Название",
  "Starts": "Начало",
@@ -1418,5 +1417,15 @@
  "GIF saved": "GIF сохранён",
  "This browser cannot copy a GIF, so it was saved as a file": "Этот браузер не умеет копировать GIF, поэтому он сохранён в файл",
  "GIF copied to the clipboard": "GIF скопирован в буфер обмена",
- "Kept under {mb} MB: the faintest changes were left out": "Чтобы уложиться в {mb} МБ, самые слабые изменения пропущены"
+ "Kept under {mb} MB: the faintest changes were left out": "Чтобы уложиться в {mb} МБ, самые слабые изменения пропущены",
+ "Worked out from": "Считается из",
+ "The recording": "Запись",
+ "{market} candles": "Свечи {market}",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "Запись: сделки всех площадок, которые считает колонка потока, пока она их хранит. Свечи: одного рынка, на месяцы назад, оценка.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Эта страница хранит сделки за один день и только пока она открыта: она считает не больше сегодняшнего дня и последней сессии и ни одной недели. Более ранние считайте по свечам.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "Запись хранит сделки за неделю: она считает не больше последних семи дней или сессий и текущую неделю. Более ранние считайте по свечам.",
+ "No market of this coin has candles the page can read.": "Ни у одного рынка этой монеты нет свечей, которые страница может прочитать.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "По {minutes}-минутным свечам {market}, объём каждой распределён равномерно по её диапазону: один рынок и оценка, помеченная ≈. За шесть записанных дней верх и низ зоны стоимости обычно были в одной-двух строках от записанных (низ однажды в 4 и однажды в 10 строках); где по двум ценам наторговали почти одинаково, точка контроля может оказаться на другой.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "День, неделя или сессия рисуются, только если есть девять десятых из них: свечей или сделок записи, оценённых по объёму каждой площадки, пока она записывалась. Проходила ли цена через точку контроля, читается по свечам рынка на графике.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Дни, недели и сессии берутся из записи, насколько она хранит сделки (неделя; день на странице, которая сама читает биржи), или из свечей самого торгуемого рынка: это оценка, помеченная ≈, на месяцы назад."
 }

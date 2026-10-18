@@ -875,7 +875,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Cuántos pasados se dibujan, el que está en curso incluido (de cada sesión).",
  "Extend untouched points of control": "Prolongar los puntos de control no tocados",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Un punto de control pasado por el que el precio no ha vuelto a negociar (uno desnudo) sigue, punteado, hasta donde se alcanzó o hasta el borde derecho.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "Un día, semana o sesión registrado en menos de nueve de cada diez de sus minutos se dibuja tenue. Si se negoció a través de un punto de control se lee de las velas del mercado del gráfico.",
  "On": "Activado",
  "Name": "Nombre",
  "Starts": "Empieza",
@@ -1404,5 +1403,15 @@
  "GIF saved": "GIF guardado",
  "This browser cannot copy a GIF, so it was saved as a file": "Este navegador no puede copiar un GIF, así que se guardó como archivo",
  "GIF copied to the clipboard": "GIF copiado al portapapeles",
- "Kept under {mb} MB: the faintest changes were left out": "Se mantuvo por debajo de {mb} MB: se omitieron los cambios más tenues"
+ "Kept under {mb} MB: the faintest changes were left out": "Se mantuvo por debajo de {mb} MB: se omitieron los cambios más tenues",
+ "Worked out from": "Calculado a partir de",
+ "The recording": "La grabación",
+ "{market} candles": "Velas de {market}",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "La grabación: las operaciones de todas las plataformas que cuenta la columna de flujo, mientras las conserva. Velas: las de un mercado, meses atrás, una estimación.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Esta página guarda un día de operaciones, y solo mientras está abierta: calcula como mucho hoy y la última sesión, y ninguna semana. Para las anteriores, calcúlalas a partir de velas.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "La grabación guarda una semana de operaciones: calcula como mucho los últimos siete días o sesiones y la semana en curso. Para los anteriores, calcúlalos a partir de velas.",
+ "No market of this coin has candles the page can read.": "Ningún mercado de esta moneda tiene velas que la página pueda leer.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "De las velas de {minutes} minutos de {market}, con el volumen de cada una repartido por igual en su rango: un mercado y una estimación, marcada con ≈. En seis días grabados, el máximo y el mínimo del área de valor quedaron casi siempre a una o dos filas de los de la grabación (el mínimo, una vez a 4 y otra a 10 filas); donde dos precios negociaron casi lo mismo, el punto de control puede caer en el otro.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "Un día, semana o sesión solo se dibuja cuando se tienen nueve décimas partes de él: de las velas, o de las operaciones de la grabación, estimadas a partir del volumen de cada plataforma mientras se grababa. Si se negoció a través de un punto de control se lee de las velas del mercado del gráfico.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Los días, semanas y sesiones salen de la grabación, hasta donde guarda operaciones (una semana; un día en una página que lee las plataformas por sí misma), o de las velas del mercado más negociado: una estimación, marcada con ≈, que llega meses atrás."
 }

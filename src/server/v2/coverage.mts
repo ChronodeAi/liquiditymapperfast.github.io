@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { TradeCoverage as CoverageCore, type CoverageRow, type CoverageStore, type SeamTrade, type SpanKind } from '../../shared/coverage.ts';
 import { RETENTION_MS } from '../../shared/recorder.ts';
 
-export { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, coverageWindow, depthAnswer, tradeAnswer, type CoverageMetric } from '../../shared/coverage.ts';
+export { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageMetric } from '../../shared/coverage.ts';
 
 type Row = { inst: string; metric: string; t0: number; t1: number; kind: string; first_id: string | null; first_t: number | null; last_id: string | null; last_t: number | null };
 const seam = (id: string | null, t: number | null): SeamTrade | undefined => id !== null && t !== null && Number.isFinite(t) ? { id, t } : undefined;

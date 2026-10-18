@@ -851,7 +851,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "绘制过去多少个，包括正在进行的（每个时段分别计）。",
  "Extend untouched points of control": "延长未触及的控制点",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "之后价格未曾穿越的过去控制点（裸控制点）以点线延伸到被触及处，或延伸到右边缘。",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "录制时间不足九成分钟的日、周或时段以浅色绘制。控制点是否被穿越，依据图表上市场的K线判断。",
  "On": "开启",
  "Name": "名称",
  "Starts": "开始",
@@ -1350,5 +1349,15 @@
  "GIF saved": "GIF 已保存",
  "This browser cannot copy a GIF, so it was saved as a file": "此浏览器无法复制 GIF，所以已保存为文件",
  "GIF copied to the clipboard": "GIF 已复制到剪贴板",
- "Kept under {mb} MB: the faintest changes were left out": "为保持在 {mb} MB 以下，省略了最细微的变化"
+ "Kept under {mb} MB: the faintest changes were left out": "为保持在 {mb} MB 以下，省略了最细微的变化",
+ "Worked out from": "计算来源",
+ "The recording": "录制数据",
+ "{market} candles": "{market} K 线",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "录制数据：流向栏所计入的所有交易所的成交，仅限其保留的时间。K 线：单一市场的数据，可回溯数月，属于估算。",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "此页面只保留一天的成交，而且仅在打开时：最多计算今天和最近一个时段，不计算任何一周。更早的请改用 K 线计算。",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "录制数据保留一周的成交：最多计算最近七天或七个时段，以及进行中的这一周。更早的请改用 K 线计算。",
+ "No market of this coin has candles the page can read.": "此币种没有页面能读取 K 线的市场。",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "依据 {market} 的 {minutes} 分钟 K 线，每根 K 线的成交量均匀分布在其区间内：单一市场的估算，标记为 ≈。在六个有录制数据的日子里，价值区高点和低点大多与录制数据相差一到两行（低点有一次差 4 行、一次差 10 行）；两个价格成交量几乎相同时，控制点可能落在另一个上。",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "日、周或时段只有在拥有其九成时才绘制：K 线的根数，或录制数据中的成交（依据各交易所被录制期间的成交量估算）。控制点是否被穿越，依据图表上市场的K线判断。",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "日、周和时段来自录制数据，范围以其保留的成交为限（一周；自行读取交易所的页面为一天），或来自成交最多的市场的 K 线：这是标记为 ≈ 的估算，可回溯数月。"
 }

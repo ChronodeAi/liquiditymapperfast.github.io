@@ -875,7 +875,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Quanti passati vengono disegnati, quello in corso compreso (di ogni sessione).",
  "Extend untouched points of control": "Prolunga i punti di controllo non toccati",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Un punto di controllo passato che il prezzo non ha più attraversato (uno nudo) prosegue tratteggiato fino a dove è stato raggiunto, o fino al bordo destro.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "Un giorno, settimana o sessione registrato per meno di nove minuti su dieci è disegnato sbiadito. Se un punto di controllo è stato attraversato si legge dalle candele del mercato sul grafico.",
  "On": "Attivo",
  "Name": "Nome",
  "Starts": "Inizio",
@@ -1404,5 +1403,15 @@
  "GIF saved": "GIF salvata",
  "This browser cannot copy a GIF, so it was saved as a file": "Questo browser non può copiare una GIF, quindi è stata salvata come file",
  "GIF copied to the clipboard": "GIF copiata negli appunti",
- "Kept under {mb} MB: the faintest changes were left out": "Tenuta sotto i {mb} MB: i cambiamenti più deboli sono stati tralasciati"
+ "Kept under {mb} MB: the faintest changes were left out": "Tenuta sotto i {mb} MB: i cambiamenti più deboli sono stati tralasciati",
+ "Worked out from": "Calcolato da",
+ "The recording": "La registrazione",
+ "{market} candles": "Candele di {market}",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "La registrazione: gli scambi di tutte le borse che la colonna del flusso conta, finché li conserva. Candele: quelle di un mercato, indietro di mesi, una stima.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Questa pagina conserva un giorno di scambi, e solo mentre è aperta: calcola al massimo oggi e l'ultima sessione, e nessuna settimana. Per quelle precedenti, calcolale dalle candele.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "La registrazione conserva una settimana di scambi: calcola al massimo gli ultimi sette giorni o sessioni e la settimana in corso. Per quelli precedenti, calcolali dalle candele.",
+ "No market of this coin has candles the page can read.": "Nessun mercato di questa moneta ha candele che la pagina possa leggere.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "Dalle candele da {minutes} minuti di {market}, con il volume di ciascuna distribuito uniformemente sul suo intervallo: un mercato e una stima, segnata con ≈. In sei giorni registrati il massimo e il minimo dell'area di valore sono risultati per lo più a una o due righe da quelli della registrazione (il minimo una volta a 4 e una a 10 righe); dove due prezzi hanno scambiato quasi lo stesso, il punto di controllo può cadere sull'altro.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "Un giorno, settimana o sessione è disegnato solo quando se ne hanno nove decimi: delle candele, o degli scambi della registrazione, stimati dal volume di ciascuna borsa mentre era registrata. Se un punto di controllo è stato attraversato si legge dalle candele del mercato sul grafico.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Giorni, settimane e sessioni vengono dalla registrazione, fin dove conserva gli scambi (una settimana; un giorno in una pagina che legge da sé le borse), o dalle candele del mercato più scambiato: una stima, segnata con ≈, che risale di mesi."
 }

@@ -851,7 +851,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "描く過去の数で、進行中のものも含みます（セッションごと）。",
  "Extend untouched points of control": "未到達のポイント・オブ・コントロールを延長",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "その後価格が通過していない過去のポイント・オブ・コントロール（ネイキッド）は、到達した所まで、または右端まで点線で延びます。",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "記録が分の9割に満たない日・週・セッションは薄く描きます。ポイント・オブ・コントロールを通過したかどうかは、チャート上の市場のローソク足から読み取ります。",
  "On": "オン",
  "Name": "名前",
  "Starts": "開始",
@@ -1350,5 +1349,15 @@
  "GIF saved": "GIF を保存しました",
  "This browser cannot copy a GIF, so it was saved as a file": "このブラウザーは GIF をコピーできないため、ファイルとして保存しました",
  "GIF copied to the clipboard": "GIF をクリップボードにコピーしました",
- "Kept under {mb} MB: the faintest changes were left out": "{mb} MB 未満に収めるため、ごくわずかな変化は省きました"
+ "Kept under {mb} MB: the faintest changes were left out": "{mb} MB 未満に収めるため、ごくわずかな変化は省きました",
+ "Worked out from": "計算の元",
+ "The recording": "記録",
+ "{market} candles": "{market} のローソク足",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "記録: フロー列が数えるすべての取引所の約定。保持している期間だけ。ローソク足: 1 つの市場のもので、数か月さかのぼれる推定値。",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "このページは約定を 1 日分、開いている間だけ保持します。計算できるのは今日と直近のセッションまでで、週は計算しません。それより前はローソク足から計算してください。",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "記録は約定を 1 週間分保持します。計算できるのは直近 7 日またはセッション 7 回までと進行中の週です。それより前はローソク足から計算してください。",
+ "No market of this coin has candles the page can read.": "このコインには、ページが読めるローソク足を持つ市場がありません。",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "{market} の {minutes} 分足から、各足の出来高をその値幅に均等に配分して計算します。1 つの市場による推定値で、≈ が付きます。記録のある 6 日間では、バリューエリアの高値と安値はたいてい記録のものから 1〜2 行以内でした(安値が 4 行と 10 行ずれた日が 1 日ずつ)。ほぼ同じだけ取引された価格が 2 つあると、ポイント・オブ・コントロールがもう一方になることがあります。",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "日・週・セッションは、その 9 割があるときだけ描きます。ローソク足の本数、または記録の約定(各取引所が記録されていた間の出来高から推定)です。ポイント・オブ・コントロールを通過したかどうかは、チャート上の市場のローソク足から読み取ります。",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "日・週・セッションは、記録が約定を保持している範囲(1 週間。取引所を自分で読むページでは 1 日)の記録から、または最も取引の多い市場のローソク足から計算します。後者は ≈ が付く推定値で、数か月さかのぼれます。"
 }

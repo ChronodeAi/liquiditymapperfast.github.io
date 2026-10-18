@@ -5,15 +5,23 @@ import { helpButton } from '../help.ts';
 import { compactBar } from '../device.ts';
 import { usd } from '../format.ts';
 import { t } from '../i18n.ts';
-import { MAX_COUNT, MAX_SESSIONS, ROW_MULTIPLES, SESSION_PRESETS, SHARES, ZONES, newSessionId, type TradedSettings } from './settings.ts';
+import { MAX_COUNT, MAX_SESSIONS, ROW_MULTIPLES, SESSION_PRESETS, SHARES, ZONES, newSessionId, recordedCount, type TradedSettings } from './settings.ts';
 import type { SessionDef } from './sessions.ts';
+import { candleBarMs } from './levels.ts';
+import { profileTarget, type KeyLevelHistory } from '../keylevels/history.ts';
+import { currentCoin } from '../coin.ts';
+import { venueLabel } from '../venues.ts';
+import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
+
+/** What the panel says about where days, weeks and sessions come from: whether the page reads the exchanges itself, and the candles. */
+export interface TradedSources { browser: boolean; candles: ((barMs: number) => KeyLevelHistory) | null }
 
 /**
  * The Volume profile panel: its first row switches the column (and with it the lines) on and off; then the column's bars and markers, how the point
  * of control and the value area are read, and the lines on the chart with what they are worked out over (what is on the chart, days, weeks
  * or sessions, which are edited here). `gridStep` is the map's grid step now, for the row sizes in dollars.
  */
-export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLElement, rebuild: () => void, gridStep: () => number): void {
+export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLElement, rebuild: () => void, gridStep: () => number, sources: TradedSources = { browser: false, candles: null }): void {
   const s = store.state.traded;
   const set = (change: Partial<TradedSettings>, again = false): void => { store.set({ traded: { ...store.state.traded, ...change } }); if (again) rebuild(); };
   tools.append(helpButton('traded'));
@@ -40,14 +48,29 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     body.append(selectRow(s.period === 'day' ? t('Days start in') : t('Weeks start in'), t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone })));
   }
   if (s.period !== 'view') {
-    body.append(
-      numberRow(t('How many'), t('How many past ones are drawn, the one under way among them (of each session).'), { min: 1, max: MAX_COUNT, step: 1, value: s.count }, count => set({ count: Math.max(1, Math.min(MAX_COUNT, Math.round(count))) })),
-      switchRow(t('Extend untouched points of control'), t('A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.'), s.naked, naked => set({ naked })),
-    );
+    const target = profileTarget(currentCoin()), market = target ? `${venueLabel(target.id)} ${target.listing.symbol}` : '';
+    body.append(selectRow(t('Worked out from'), t('The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market\'s, reaching back months, an estimate.'),
+      [['recorded', t('The recording')], ['candles', target ? t('{market} candles', { market }) : t('Candles')]], s.source, v => set({ source: v === 'candles' ? 'candles' : 'recorded' }, true)));
+    // From the recording, only as many as it still holds: a count it cannot work out is not offered.
+    const most = s.source === 'candles' ? MAX_COUNT : recordedCount(s.period, sources.browser ? BROWSER_RETENTION_MS : RETENTION_MS);
+    if (most >= 1) body.append(numberRow(t('How many'), t('How many past ones are drawn, the one under way among them (of each session).'), { min: 1, max: most, step: 1, value: Math.min(s.count, most) }, count => set({ count: Math.max(1, Math.min(most, Math.round(count))) })));
+    body.append(switchRow(t('Extend untouched points of control'), t('A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.'), s.naked, naked => set({ naked })));
+    if (s.source === 'recorded') {
+      body.append(note(sources.browser
+        ? t('This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.')
+        : t('The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.')));
+    } else if (!target) {
+      body.append(note(t('No market of this coin has candles the page can read.')));
+    } else {
+      // The candle size the lines use (five minutes, or one for a session off the five).
+      const fine = candleBarMs(s) === 60_000;
+      body.append(note(t('From the {minutes}-minute candles of {market}, each one\'s volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording\'s (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.', { minutes: fine ? 1 : 5, market })));
+      if (sources.candles?.(fine ? 60_000 : 300_000).state === 'unavailable') body.append(note(t('Its history could not be read just now; trying again in a minute.')));
+    }
   }
   if (s.period === 'sessions') body.append(sessionEditor(store, set));
   if (s.period !== 'view') {
-    body.append(note(t('A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.')));
+    body.append(note(t('A day, week or session is drawn only when nine in ten of it is held: of the candles\' bars, or of the recording\'s trades, estimated from each venue\'s volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.')));
   }
 }
 
@@ -56,10 +79,10 @@ function sessionEditor(store: Store, set: (change: Partial<TradedSettings>, agai
   const sessions = store.state.traded.sessions;
   const update = (id: string, change: Partial<SessionDef>, again = false): void => set({ sessions: store.state.traded.sessions.map(x => x.id === id ? { ...x, ...change } : x) }, again);
   const rows = sessions.map(x => {
-    const on = el('input', { type: 'checkbox', checked: x.on, ariaLabel: t('On') }); on.onchange = () => update(x.id, { on: on.checked });
+    const on = el('input', { type: 'checkbox', checked: x.on, ariaLabel: t('On') }); on.onchange = () => update(x.id, { on: on.checked }, true);
     const name = el('input', { type: 'text', value: x.name, maxLength: 40, ariaLabel: t('Name'), class: 'session-name' }); name.onchange = () => update(x.id, { name: name.value.trim().slice(0, 40) });
-    const start = el('input', { type: 'time', value: x.start, ariaLabel: t('Starts'), class: 'session-time' }); start.onchange = () => { if (/^\d{2}:\d{2}$/.test(start.value)) update(x.id, { start: start.value }); };
-    const end = el('input', { type: 'time', value: x.end, ariaLabel: t('Ends'), class: 'session-time' }); end.onchange = () => { if (/^\d{2}:\d{2}$/.test(end.value)) update(x.id, { end: end.value }); };
+    const start = el('input', { type: 'time', value: x.start, ariaLabel: t('Starts'), class: 'session-time' }); start.onchange = () => { if (/^\d{2}:\d{2}$/.test(start.value)) update(x.id, { start: start.value }, true); };
+    const end = el('input', { type: 'time', value: x.end, ariaLabel: t('Ends'), class: 'session-time' }); end.onchange = () => { if (/^\d{2}:\d{2}$/.test(end.value)) update(x.id, { end: end.value }, true); };
     const zone = el('select', { ariaLabel: t('Time zone'), class: 'session-zone' });
     for (const z of ZONES) if (z.zone !== 'page') zone.append(new Option(z.label, z.zone));
     if (![...zone.options].some(o => o.value === x.zone)) zone.append(new Option(x.zone, x.zone));

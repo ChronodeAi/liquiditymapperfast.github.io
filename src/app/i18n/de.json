@@ -869,7 +869,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "Wie viele vergangene gezeichnet werden, der laufende eingeschlossen (je Session).",
  "Extend untouched points of control": "Unberührte Points of Control verlängern",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "Ein vergangener Point of Control, durch den der Preis seither nicht gehandelt hat (ein nackter), läuft gepunktet weiter bis dorthin, wo er erreicht wurde, oder bis zum rechten Rand.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "Ein Tag, eine Woche oder Session, die für weniger als neun von zehn ihrer Minuten aufgezeichnet wurde, wird blass gezeichnet. Ob durch einen Point of Control gehandelt wurde, wird aus den Kerzen des Marktes auf dem Chart gelesen.",
  "On": "Ein",
  "Name": "Name",
  "Starts": "Beginnt",
@@ -1390,5 +1389,15 @@
  "GIF saved": "GIF gespeichert",
  "This browser cannot copy a GIF, so it was saved as a file": "Dieser Browser kann kein GIF kopieren, daher wurde es als Datei gespeichert",
  "GIF copied to the clipboard": "GIF in die Zwischenablage kopiert",
- "Kept under {mb} MB: the faintest changes were left out": "Unter {mb} MB gehalten: die schwächsten Änderungen wurden weggelassen"
+ "Kept under {mb} MB: the faintest changes were left out": "Unter {mb} MB gehalten: die schwächsten Änderungen wurden weggelassen",
+ "Worked out from": "Berechnet aus",
+ "The recording": "Die Aufzeichnung",
+ "{market} candles": "Kerzen von {market}",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "Die Aufzeichnung: die Trades aller Börsen, die die Flow-Spalte zählt, so weit sie sie aufbewahrt. Kerzen: die eines Marktes, Monate zurück, eine Schätzung.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "Diese Seite bewahrt einen Tag Trades auf, und nur solange sie offen ist: Sie berechnet höchstens heute und die letzte Session, und keine Woche. Für ältere berechne sie aus Kerzen.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "Die Aufzeichnung bewahrt eine Woche Trades auf: Sie berechnet höchstens die letzten sieben Tage oder Sessions und die laufende Woche. Für ältere berechne sie aus Kerzen.",
+ "No market of this coin has candles the page can read.": "Kein Markt dieses Coins hat Kerzen, die die Seite lesen kann.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "Aus den {minutes}-Minuten-Kerzen von {market}, das Volumen jeder Kerze gleichmäßig über ihre Spanne verteilt: ein Markt und eine Schätzung, mit ≈ markiert. An sechs aufgezeichneten Tagen lagen Value Area High und Low meist eine oder zwei Zeilen von denen der Aufzeichnung entfernt (das Low einmal 4 und einmal 10 Zeilen); wo zwei Preise fast gleich viel gehandelt wurden, kann der Point of Control auf dem anderen liegen.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "Ein Tag, eine Woche oder Session wird nur gezeichnet, wenn neun Zehntel davon vorliegen: von den Kerzen, oder von den Trades der Aufzeichnung, geschätzt aus dem Volumen jeder Börse, während sie aufgezeichnet wurde. Ob durch einen Point of Control gehandelt wurde, wird aus den Kerzen des Marktes auf dem Chart gelesen.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "Tage, Wochen und Sessions kommen aus der Aufzeichnung, so weit sie Trades aufbewahrt (eine Woche; einen Tag auf einer Seite, die die Börsen selbst liest), oder aus den Kerzen des meistgehandelten Marktes: eine Schätzung, mit ≈ markiert, die Monate zurückreicht."
 }

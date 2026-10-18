@@ -851,7 +851,6 @@
  "How many past ones are drawn, the one under way among them (of each session).": "그릴 지난 개수이며, 진행 중인 것도 포함합니다(세션마다).",
  "Extend untouched points of control": "닿지 않은 포인트 오브 컨트롤 연장",
  "A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.": "그 뒤로 가격이 지나가지 않은 지난 포인트 오브 컨트롤(네이키드)은 닿은 곳이나 오른쪽 끝까지 점선으로 이어집니다.",
- "A day, week or session recorded for less than nine in ten of its minutes is drawn faint. Whether a point of control was traded through is read from the candles of the market on the chart.": "분의 10분의 9보다 적게 기록된 날·주·세션은 흐리게 그립니다. 포인트 오브 컨트롤을 지나갔는지는 차트 시장의 캔들에서 읽습니다.",
  "On": "켜기",
  "Name": "이름",
  "Starts": "시작",
@@ -1350,5 +1349,15 @@
  "GIF saved": "GIF를 저장했습니다",
  "This browser cannot copy a GIF, so it was saved as a file": "이 브라우저는 GIF를 복사할 수 없어 파일로 저장했습니다",
  "GIF copied to the clipboard": "GIF를 클립보드에 복사했습니다",
- "Kept under {mb} MB: the faintest changes were left out": "{mb}MB 미만으로 맞추려고 아주 작은 변화는 뺐습니다"
+ "Kept under {mb} MB: the faintest changes were left out": "{mb}MB 미만으로 맞추려고 아주 작은 변화는 뺐습니다",
+ "Worked out from": "계산 원천",
+ "The recording": "기록",
+ "{market} candles": "{market} 캔들",
+ "The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market's, reaching back months, an estimate.": "기록: 플로 열이 세는 모든 거래소의 체결, 보관하는 동안만. 캔들: 한 시장의 것으로 몇 달 전까지, 추정치.",
+ "This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.": "이 페이지는 하루치 체결을, 열려 있는 동안만 보관합니다. 오늘과 마지막 세션까지만 계산하고 주는 계산하지 않습니다. 그보다 이전은 캔들로 계산하세요.",
+ "The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.": "기록은 일주일치 체결을 보관합니다. 최근 7일 또는 7개 세션과 진행 중인 주까지만 계산합니다. 그보다 이전은 캔들로 계산하세요.",
+ "No market of this coin has candles the page can read.": "이 코인에는 페이지가 읽을 수 있는 캔들을 가진 시장이 없습니다.",
+ "From the {minutes}-minute candles of {market}, each one's volume spread evenly over its range: one market, and an estimate, marked ≈. On six recorded days the value area high and low mostly came within a row or two of the recording's (the low once 4 and once 10 rows off); where two prices traded almost the same, the point of control can sit on the other.": "{market}의 {minutes}분 캔들에서, 각 캔들의 거래량을 그 범위에 고르게 나누어 계산합니다. 한 시장의 추정치이며 ≈로 표시합니다. 기록이 있는 6일 동안 밸류 에어리어 고점과 저점은 대개 기록의 것과 한두 행 이내였습니다(저점이 한 번은 4행, 한 번은 10행 차이). 거의 같은 양이 거래된 가격이 둘이면 포인트 오브 컨트롤이 다른 쪽에 올 수 있습니다.",
+ "A day, week or session is drawn only when nine in ten of it is held: of the candles' bars, or of the recording's trades, estimated from each venue's volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.": "날·주·세션은 그 10분의 9가 있을 때만 그립니다. 캔들의 봉, 또는 기록의 체결(각 거래소가 기록되던 동안의 거래량으로 추정)입니다. 포인트 오브 컨트롤을 지나갔는지는 차트 시장의 캔들에서 읽습니다.",
+ "Days, weeks and sessions come from the recording, as far back as it keeps trades (a week; a day on a page that reads the exchanges itself), or from the candles of the most traded market: an estimate, marked ≈, that reaches back months.": "날·주·세션은 기록이 체결을 보관하는 범위(일주일, 거래소를 직접 읽는 페이지에서는 하루)의 기록에서, 또는 가장 많이 거래되는 시장의 캔들에서 계산합니다. 캔들은 ≈로 표시되는 추정치이며 몇 달 전까지 거슬러 갑니다."
 }

@@ -7,8 +7,9 @@ import { knownZone, localZone, minutesOf, type SessionDef } from './sessions.ts'
  * - whether the column marks the point of control and the value area, which share of the volume the value area holds, and the size of the
  *   price rows they are read from (a multiple of the map's grid step: the column's own rows follow the zoom, these must not);
  * - the lines on the chart: the point of control, the value area high and low, their labels, and what they are worked out over: what is on
- *   the chart, each day or week of a zone, or sessions; how many past ones are drawn, and whether a point of control nobody has traded
- *   through since (a naked one) runs on to the right.
+ *   the chart, each day or week of a zone, or sessions; what days, weeks and sessions are worked out from (the recording, as far back as it
+ *   keeps trades, or the most traded venue's candles, an estimate that reaches back further); how many past ones are drawn, and whether a
+ *   point of control nobody has traded through since (a naked one) runs on to the right.
  */
 export interface TradedSettings {
   bars: 'split' | 'delta';
@@ -19,9 +20,14 @@ export interface TradedSettings {
   rows: number;
   poc: boolean; va: boolean; labels: boolean;
   period: 'view' | 'day' | 'week' | 'sessions';
+  /**
+   * What days, weeks and sessions are worked out from: `recorded`, the recording's trades on the flow column's venues (only as far back as
+   * the recording keeps them: `recordedCount`), or `candles`, one venue's candles with each one's volume spread over its range (`candleLevels`).
+   */
+  source: 'recorded' | 'candles';
   /** The zone days and weeks start in: `page` (the page's clock, UTC or this computer's), `local`, `UTC` or an IANA name. */
   zone: string;
-  /** How many past days, weeks or sessions (of each session) are drawn, the open one among them. */
+  /** How many past days, weeks or sessions (of each session) are drawn, the open one among them (from the recording, at most `recordedCount`). */
   count: number;
   naked: boolean;
   sessions: SessionDef[];
@@ -30,6 +36,21 @@ export interface TradedSettings {
 export const ROW_MULTIPLES = [0.25, 0.5, 1, 2, 5, 10] as const;
 export const SHARES = [50, 60, 68, 70, 75, 80, 85, 90, 95] as const;
 export const MAX_SESSIONS = 8, MAX_COUNT = 20;
+
+const DAY = 86_400_000;
+/**
+ * How many days, weeks or sessions (of each) the recording can still work out, the open one among them, when it keeps `retentionMs` of
+ * trades: those that began inside it (`recordedWindows`). Days and sessions: one a day kept. Weeks: the one under way, which began at most
+ * seven days ago, and none when less than a week is kept (a page reading the exchanges itself keeps a day). Older ones are no longer there.
+ */
+export function recordedCount(period: TradedSettings['period'], retentionMs: number): number {
+  if (period === 'week') return retentionMs >= 7 * DAY ? 1 : 0;
+  return Math.max(0, Math.floor(retentionMs / DAY));
+}
+/** How many past ones are drawn: the setting, and from the recording no more than it can still work out. */
+export function linesCount(s: TradedSettings, retentionMs: number): number {
+  return s.source === 'candles' ? s.count : Math.min(s.count, recordedCount(s.period, retentionMs));
+}
 
 /** The zones offered by name: the page's clock, UTC, this computer, and the cities whose markets set the usual sessions. */
 export const ZONES: readonly { zone: string; label: string }[] = [
@@ -52,7 +73,7 @@ const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!,
 
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
   bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true,
-  period: 'view', zone: 'page', count: 5, naked: true,
+  period: 'view', source: 'recorded', zone: 'page', count: 5, naked: true,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
 
@@ -89,6 +110,7 @@ export function readTraded(saved: unknown): TradedSettings {
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels),
     period: oneOf(['view', 'day', 'week', 'sessions'] as const, s.period, d.period),
+    source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
     zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), sessions,
   };
 }

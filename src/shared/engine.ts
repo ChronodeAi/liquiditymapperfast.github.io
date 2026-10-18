@@ -15,7 +15,7 @@ import { browserVenues, type BrowserVenue } from './venues.ts';
 import { BTC, SCALES, type Coin, type MarketVenue } from './coins.ts';
 import type { BookConnector, TradeEvent } from './connector.ts';
 import { packLt, type ColumnSet, type ColumnsFrame } from './columns.ts';
-import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, coveredMs, depthAnswer, tradeAnswer, type CoverageAnswer, type CoverageMetric, type CoverageStore } from './coverage.ts';
+import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, coveredMs, depthAnswer, recordedMinutes, tradeAnswer, type CoverageAnswer, type CoverageMetric, type CoverageStore } from './coverage.ts';
 import { RECOVERY_BUDGET, historySource, planRecovery, rebuildOrders, runRecovery, trimUnknown, webHistoryFetch, type HistoryFetch, type HistorySource, type HistoryTrade, type RecoveryBudget, type RecoveryResult } from './recovery.ts';
 
 /**
@@ -371,7 +371,10 @@ export class Engine {
   /** Traded volume by price for these instruments over [from, to) (the traded-volume column). */
   profile(ids: readonly string[], from: number, to: number, rowStep: number): ProfileAnswer { return this.footprints.profile(ids, from, to, rowStep); }
   range(ids: readonly string[], from: number, to: number, band: { p0: number; p1: number } | null, rowStep: number): RangeAnswer { return this.footprints.range(ids, from, to, band, rowStep); }
-  valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): ValueAreaAnswer { return this.footprints.valueAreas(ids, windows, rowStep, share); }
+  /** The value area of each window, each instrument's share of it judged by the coverage record (the page is not always open). */
+  valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): ValueAreaAnswer {
+    return this.footprints.valueAreas(ids, windows, rowStep, share, (id, from, to) => recordedMinutes(this.tradeCoverage, id, from, to, t => this.footprints.holds(id, t)));
+  }
 
   /** The trades of these instruments added together by size over each of the last `windows` minutes (the page's strip). */
   sizes(ids: readonly string[], windows: readonly number[], cuts: readonly number[] = []): SizesAnswer { return this.footprints.sizes(ids, windows, this.#cuts(cuts)); }
