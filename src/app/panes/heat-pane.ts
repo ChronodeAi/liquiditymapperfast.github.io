@@ -34,7 +34,7 @@ import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
 import { venueLabel } from '../venues.ts';
 import { describeSources } from '../cell-sources.ts';
-import { anomalies, type Anomalies } from '../anomaly.ts';
+import { anomalies, type Anomalies } from '../../shared/anomaly.ts';
 import { paintWatermark } from '../watermark.ts';
 import { FootprintData, FootprintLod, VENUE_LINES, candleBody, footprintLayout, paintFootprint, rowCellAt, rowCellLines, visibilityFactor, type Bar as FootprintBar, type LodFrame, type RowCell } from './footprint.ts';
 import { layoutInfo, paintInfoBox, type InfoLine } from '../infobox.ts';

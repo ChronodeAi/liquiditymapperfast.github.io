@@ -1,3 +1,4 @@
+import type { SharpAnswer, SharpVerdict } from '../shared/sharp/jev.ts';
 import type { PrintSumsAnswer, SumRow } from '../shared/print-sums.ts';
 import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
@@ -62,6 +63,24 @@ export async function getOi(inst: string, tf: string, from: number, to: number, 
 /** A venue's long/short readings for one market (the server reads them from the venue when asked, see shared/long-short.ts); `signal` cancels. */
 export async function getLongShort(inst: string, metric: LsMetric, tf: string, from: number, to: number, signal?: AbortSignal): Promise<LsSeries> {
   return parseLsSeries(await (await request(`/api/v2/long-short?inst=${encodeURIComponent(inst)}&metric=${metric}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`, signal)).json());
+}
+/**
+ * Jev's sharp-move assessments (a server from before them answers 404, which is an error here). Checked field by field: a verdict that
+ * is not what `SharpVerdict` says is dropped rather than sounded.
+ */
+export async function getSharp(): Promise<SharpAnswer> {
+  const body = await (await request('/api/v2/sharp')).json() as { enabled?: unknown; reason?: unknown; lastError?: unknown; coin?: unknown; verdicts?: unknown };
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const verdicts = (Array.isArray(body.verdicts) ? body.verdicts : []).filter((v: Partial<Record<keyof SharpVerdict, unknown>> | null): v is SharpVerdict =>
+    typeof v === 'object' && v !== null && finite(v.t) && typeof v.coin === 'string' && finite(v.price) && finite(v.score) && v.score >= 0 && v.score <= 4 && finite(v.scoreConfidence)
+    && (v.direction === 'up' || v.direction === 'down') && finite(v.directionP) && typeof v.model === 'string' && typeof v.concepts === 'object' && v.concepts !== null);
+  return {
+    enabled: body.enabled === true,
+    ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
+    ...(typeof body.lastError === 'string' ? { lastError: body.lastError } : {}),
+    coin: typeof body.coin === 'string' ? body.coin : null,
+    verdicts,
+  };
 }
 /** Taker flow per second for the instruments, as the server records it. */
 export async function getFlow(ids: string[], from: number, to: number): Promise<FlowFrame> {

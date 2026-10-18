@@ -34,6 +34,9 @@ import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
 import { sendVerdict, type FrameKind } from './backpressure.mts';
 import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
+import { SharpWatch } from './sharp.mts';
+import { HEAT_MINUTES, HEAT_ROWS, HEAT_ROW_BP, SHARP_HISTORY_MS, type SharpInputs } from '../../shared/sharp/features.ts';
+import { ltIndex } from '../../shared/lt-sample.ts';
 
 type App = ReturnType<typeof createLocalServer>;
 /** `oiSampling`: read the open interest of the venues the feed manager does not (oi-sampler.mts); a live server only, never a test. */
@@ -630,6 +633,87 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
 
   /**
+   * What the sharp-move watch reads (shared/sharp/features.ts, docs/sharp-moves.md): the coin of the chart's own market, and every spot and
+   * perpetual market of it the server records, as the recordings hold them for the minute that ends at `now`.
+   */
+  const sharpRead = (now: number): SharpInputs | null => {
+    type Row = { instrumentId?: unknown; id?: unknown; venue?: unknown; base?: unknown; baseNormalized?: unknown; marketType?: unknown; symbol?: unknown };
+    const all = [...(app.state.markets ?? []), ...extra.markets()] as Row[];
+    const idOf = (m: Row): string => String(m.instrumentId ?? m.id ?? '');
+    const coinOf = (m: Row): string => String(m.baseNormalized ?? m.base ?? '').toUpperCase().replace(/^XBT$/, 'BTC');
+    const markId = String(app.state.markInstrumentId ?? '');
+    const mark = all.find(m => idOf(m) === markId);
+    // Without the market in the list the coin is the symbol's prefix before its quote.
+    const coin = mark ? coinOf(mark) : markId.split(':').pop()!.replace(/-PERP$/, '').replace(/(USDT|USDC|USD)$/, '').toUpperCase();
+    if (!coin) return null;
+    const mine = all.filter(m => coinOf(m) === coin && idOf(m));
+    const spotIds = mine.filter(m => m.marketType === 'spot').map(idOf), perpIds = mine.filter(m => m.marketType === 'perpetual').map(idOf);
+    const ids = [...spotIds, ...perpIds];
+    const binanceSpot = mine.find(m => m.marketType === 'spot' && m.venue === 'binance');
+    const binanceSpotId = binanceSpot ? idOf(binanceSpot) : null;
+    const binancePerp = mine.find(m => m.marketType === 'perpetual' && m.venue === 'binance');
+    const refPerpId = binancePerp ? idOf(binancePerp) : perpIds[0] ?? null;
+
+    const frame = flow.minutes(ids, now - SHARP_HISTORY_MS, now);
+    const spot = frame.instruments.filter(s => spotIds.includes(s.id)), perp = frame.instruments.filter(s => perpIds.includes(s.id));
+
+    // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours.
+    const lt = ltIndex(25), depthByMinute = new Map<number, { t: number; bidUsd: number; askUsd: number; ltBid: number; ltAsk: number }>();
+    for (const id of ids) {
+      const step = recorder.steps.get(id); if (!step) continue;
+      for (const column of recorder.query(id, now - 6 * 3_600_000, now)) {
+        let bestBid = -Infinity, bestAsk = Infinity;
+        for (let i = 0; i < column.bins.length; i++) { const bin = column.bins[i]!; if (column.bid[i]! > 0 && bin > bestBid) bestBid = bin; if (column.ask[i]! > 0 && bin < bestAsk) bestAsk = bin; }
+        if (!Number.isFinite(bestBid) && !Number.isFinite(bestAsk)) continue;
+        const middle = ((Number.isFinite(bestBid) ? bestBid : bestAsk) + (Number.isFinite(bestAsk) ? bestAsk : bestBid) + 1) / 2 * step;
+        let row = depthByMinute.get(column.t); if (!row) { row = { t: column.t, bidUsd: 0, askUsd: 0, ltBid: 0, ltAsk: 0 }; depthByMinute.set(column.t, row); }
+        for (let i = 0; i < column.bins.length; i++) {
+          if (Math.abs((column.bins[i]! + 0.5) * step - middle) > middle * 0.01) continue;
+          row.bidUsd += column.bid[i]!; row.askUsd += column.ask[i]!;
+        }
+        if (column.lt && lt >= 0) { row.ltBid += column.lt[lt]!; row.ltAsk += column.lt[lt + 1]!; }
+      }
+    }
+    // The image arm's heatmap: the last two hours of minute columns around the price, summed over the coin's books.
+    let heat: SharpInputs['heat'];
+    const refSeries = perp.find(s => s.id === refPerpId) ?? perp[0] ?? spot[0];
+    const p0 = refSeries ? [...refSeries.px].reverse().find(p => p > 0) ?? 0 : 0;
+    if (subqKey && p0 > 0) {
+      const from = now - HEAT_MINUTES * 60_000, cells = HEAT_MINUTES * HEAT_ROWS;
+      heat = { bid: new Float64Array(cells), ask: new Float64Array(cells), price: new Float64Array(HEAT_MINUTES) };
+      for (const id of ids) {
+        const step = recorder.steps.get(id); if (!step) continue;
+        for (const column of recorder.query(id, from, now)) {
+          const c = Math.floor((column.t - from) / 60_000); if (c < 0 || c >= HEAT_MINUTES) continue;
+          for (let i = 0; i < column.bins.length; i++) {
+            const r = Math.floor(((column.bins[i]! + 0.5) * step / p0 - 1) * 1e4 / HEAT_ROW_BP) + HEAT_ROWS / 2;
+            if (r < 0 || r >= HEAT_ROWS) continue;
+            heat.bid[c * HEAT_ROWS + r]! += column.bid[i]!; heat.ask[c * HEAT_ROWS + r]! += column.ask[i]!;
+          }
+        }
+      }
+      if (refSeries) for (let k = 0; k < refSeries.px.length; k++) {
+        const c = Math.round((refSeries.t0 + k * 60_000 - from) / 60_000);
+        if (c >= 0 && c < HEAT_MINUTES && refSeries.px[k]! > 0) heat.price[c] = refSeries.px[k]!;
+      }
+    }
+    const idSet = new Set(ids);
+    const band = prints.sums.bands[2] ?? prints.sums.bands.at(-1) ?? NaN;
+    return {
+      now, coin, spot, perp, binanceSpotId, refPerpId,
+      depth: [...depthByMinute.values()].sort((a, b) => a.t - b.t),
+      liquidations: liquidations.query(now - SHARP_HISTORY_MS, now, LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER).filter(l => idSet.has(l.id)).map(l => ({ t: l.t, side: l.side, usd: l.usd })),
+      oi: refPerpId ? oiBarsOf(refPerpId, 60_000, now - 2 * 3_600_000, now, false).map(b => ({ t: b[0], close: b[4] })) : [],
+      whale: (prints.printSums(ids, now - 3_600_000, now, band, 60_000)?.rows ?? []).map(r => ({ t: r[0], buyUsd: r[1], sellUsd: r[3] })),
+      ...(heat ? { heat } : {}),
+    };
+  };
+  const subqKey = process.env.SUBQ_API_KEY || undefined;
+  const sharp = new SharpWatch({ dir: persist ? dataDir : null, read: sharpRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey });
+  sharp.start();
+  const sharpRoute = (res: ServerResponse) => sendJson(res, sharp.answer());
+
+  /**
    * The footprint's lists of large orders for the minutes recorded before they were kept (see `FootprintRecorder.fillLists`), filled from the
    * prints ten minutes per turn of the event loop, newest first, once the server is up: a week of them in one read held the loop for 12 s.
    * In memory only (those minutes age out within the week). Until a minute has its list, a size line through it falls back to the boxes.
@@ -667,6 +751,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/price-history': priceHistoryRoute(url, res); return true;
           case '/api/v2/oi': oi(url, res); return true;
           case '/api/v2/long-short': longShortRoute(url, res); return true;
+          case '/api/v2/sharp': sharpRoute(res); return true;
           case '/api/v2/footprint': footprintRoute(url, res); return true;
           case '/api/v2/prints': printsRoute(url, res); return true;
           case '/api/v2/print-sums': printSumsRoute(url, res); return true;
@@ -693,7 +778,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     },
     close() {
       closed = true;
-      clearInterval(loop); clearTimeout(absorptionWarm); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
+      clearInterval(loop); clearTimeout(absorptionWarm); sharp.stop(); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
       for (const client of wss.clients) client.terminate();
       // Each part gets its turn even when one of them fails, so what can still be written is (the open minutes and the open orders are written here).
       for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => footprint.close(), () => coverage.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {

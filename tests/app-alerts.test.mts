@@ -319,3 +319,51 @@ test('Test plays a sample whatever the switches say', async () => {
   await new Promise(r => setImmediate(r));
   assert.equal(player.played.length, 1);
 });
+
+// ---- Jev: a sharp move is likely ----------------------------------------------------------------------------------------------------
+
+const verdict = (t: number, score: number, direction: 'up' | 'down' = 'down', scoreConfidence = 0.8) =>
+  ({ t, coin: 'BTC', price: 100_000, concepts: {}, score, scoreConfidence, direction, directionP: 0.7, model: 'jev-1.13.0' });
+
+test('the sharp-move sound treats the first answer as history, then sounds only a new, fresh, high-scoring, confident assessment', async () => {
+  let verdicts = [verdict(T - 60_000, 4)];
+  const state: AppState = initialState();
+  state.sounds = readSounds({ on: true, volume: 1, panels: { sharp: { on: true, score: 3 } } });
+  const player = new FakePlayer();
+  let now = T;
+  const alerts = new Alerts({ state }, new FlowBook(), player, () => now, undefined, undefined, async () => ({ enabled: true, coin: 'BTC', verdicts }));
+  const step = async (by: number): Promise<void> => { now += by; alerts.tick(now); await new Promise(r => setImmediate(r)); };
+
+  await step(0);
+  assert.equal(player.played.length, 0, 'what was there when the rule came on is history');
+  verdicts = [...verdicts, verdict(T + 0, 2.5)];
+  await step(30_000);
+  assert.equal(player.played.length, 0, 'a score under the rule is not a call');
+  verdicts = [...verdicts, verdict(T + 60_000, 3.5, 'down', 0.3)];
+  await step(30_000);
+  assert.equal(player.played.length, 0, 'Jev is not sure of its score');
+  verdicts = [...verdicts, verdict(T + 60_000 - 120_000, 4)];
+  await step(30_000);
+  assert.equal(player.played.length, 0, 'an assessment older than the newest seen is not new');
+  verdicts = [...verdicts, verdict(now - 20_000, 3.5, 'down')];
+  await step(30_000);
+  assert.equal(player.played.length, 1, 'a fresh score of 3.5');
+  assert.deepEqual(player.played[0]!.map(n => n.freq), [783.99, 659.25, 523.25], 'falling for down');
+  assert.match(alerts.log[0]!.text, /Sharp move likely within 15 min \(70 % down\), Jev score 3\.5 of 4/);
+  verdicts = [...verdicts, verdict(now - 5_000, 4, 'up')];
+  await step(30_000);
+  assert.equal(player.played.length, 1, 'the cool-down is ten minutes');
+});
+
+test('the sharp-move sound asks nothing while its rule is off, and reports why the server is silent', async () => {
+  let asked = 0;
+  const state: AppState = initialState();
+  state.sounds = readSounds({ on: true, volume: 1, panels: { sharp: { on: false, score: 3 } } });
+  const alerts = new Alerts({ state }, new FlowBook(), new FakePlayer(), () => T, undefined, undefined, async () => { asked++; return { enabled: false, reason: 'TYPESAFE_API_KEY is not set', coin: null, verdicts: [] }; });
+  alerts.tick(T); await new Promise(r => setImmediate(r));
+  assert.equal(asked, 0);
+  state.sounds = readSounds({ on: true, volume: 1, panels: { sharp: { on: true, score: 3 } } });
+  alerts.tick(T + 1000); await new Promise(r => setImmediate(r));
+  assert.equal(asked, 1);
+  assert.deepEqual(alerts.sharpState, { reason: 'TYPESAFE_API_KEY is not set' });
+});
