@@ -7,7 +7,9 @@ import { MAX_CROSSED_BP, crossedByBp, valueBook, withFar, type ValuedBook } from
 import { FAR_STALE_MS, FarPoller, farSource, freshFar, type FarBook } from '../../shared/far-book.ts';
 import { OiSampler, oiHistoryWriter } from './oi-sampler.mts';
 import { LS_METRICS, LongShortCache, type LsMetric } from '../../shared/long-short.ts';
-import { webGet } from '../../shared/history.ts';
+import { webGet, type Fetcher } from '../../shared/history.ts';
+import { PriceHistoryCache, PRICE_QUERY_BARS, priceListing } from '../../shared/price-history.ts';
+import { BTC } from '../../shared/coins.ts';
 import { TOUCH_HINT_MS } from '../../shared/levels.ts';
 import { COLUMNS_PER_REQUEST } from '../../shared/columns.ts';
 import { DepthRecorder, COLUMN_MS, HOT_MS, SAMPLE_MS, STALE_MS } from './recorder.mts';
@@ -33,7 +35,7 @@ import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, with
 
 type App = ReturnType<typeof createLocalServer>;
 /** `oiSampling`: read the open interest of the venues the feed manager does not (oi-sampler.mts); a live server only, never a test. */
-export interface V2Options { dataDir: string; liveMs?: number; persist?: boolean; heartbeatMs?: number; oiSampling?: boolean }
+export interface V2Options { dataDir: string; liveMs?: number; persist?: boolean; heartbeatMs?: number; oiSampling?: boolean; priceHistoryGet?: Fetcher }
 export interface V2Handle {
   recorder: DepthRecorder; footprint: FootprintRecorder; prints: PrintStream; liquidations: LiquidationStream; flow: FlowRecorder; absorption: AbsorptionRecorder; extra: ExtraVenues; close(): void; handle(req: IncomingMessage, res: ServerResponse): boolean;
   /** Venues (the part of an instrument id before the colon) whose book is being left off the map, with the reason. */
@@ -88,7 +90,7 @@ const BAD_CUTS = (floor: number): string => `cuts must be up to ${MAX_CUTS} size
 const BAD_SERIES = 'inst and a supported tf are required';
 
 /** Attach the v2 data plane (depth recorder, live WebSocket, series endpoints) to a running local server. */
-export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, heartbeatMs = HEARTBEAT_MS, oiSampling = false }: V2Options): V2Handle {
+export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, heartbeatMs = HEARTBEAT_MS, oiSampling = false, priceHistoryGet = webGet }: V2Options): V2Handle {
   let store: SqliteColumnStore | null = null;
   if (persist) { fs.mkdirSync(dataDir, { recursive: true }); store = new SqliteColumnStore(path.join(dataDir, 'depth-v2.sqlite')); }
   // A day of columns in memory; older ones are read back from the store when a question reaches them.
@@ -394,6 +396,15 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   // Long/short ratios as the venues publish them, read when asked for and kept in memory only (shared/long-short.ts): nothing of the
   // history store's budget, and nothing new asked while no page shows the pane (a read already under way finishes).
   const longShort = new LongShortCache(webGet, false);
+  const priceHistory = new PriceHistoryCache(priceHistoryGet);
+  const priceHistoryRoute = (url: URL, res: ServerResponse) => {
+    const id = url.searchParams.get('inst') ?? '', tfMs = timeframeMs(url.searchParams.get('tf'));
+    const target = priceListing(BTC, id);
+    if (!target || target.id !== id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
+    const span = windowOf(url, Date.now() + 1, 500 * tfMs);
+    if (!span || span.to - span.from > PRICE_QUERY_BARS * tfMs) return sendJson(res, { error: BAD_WINDOW }, 400);
+    priceHistory.series(target, tfMs, span.from, span.to).then(answer => sendJson(res, answer), () => sendJson(res, { error: 'price history could not be read' }, 502));
+  };
   const longShortRoute = (url: URL, res: ServerResponse) => {
     const id = url.searchParams.get('inst') ?? '', tf = url.searchParams.get('tf') ?? '1h', tfMs = timeframeMs(tf), metric = url.searchParams.get('metric') ?? 'accounts';
     if (!id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
@@ -597,6 +608,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/state': bootstrap(res); return true;
           case '/api/v2/columns': columns(url, res); return true;
           case '/api/v2/candles': candles(url, res); return true;
+          case '/api/v2/price-history': priceHistoryRoute(url, res); return true;
           case '/api/v2/oi': oi(url, res); return true;
           case '/api/v2/long-short': longShortRoute(url, res); return true;
           case '/api/v2/footprint': footprintRoute(url, res); return true;

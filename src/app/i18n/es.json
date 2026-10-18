@@ -1404,5 +1404,10 @@
  "GIF saved": "GIF guardado",
  "This browser cannot copy a GIF, so it was saved as a file": "Este navegador no puede copiar un GIF, así que se guardó como archivo",
  "GIF copied to the clipboard": "GIF copiado al portapapeles",
- "Kept under {mb} MB: the faintest changes were left out": "Se mantuvo por debajo de {mb} MB: se omitieron los cambios más tenues"
+ "Kept under {mb} MB: the faintest changes were left out": "Se mantuvo por debajo de {mb} MB: se omitieron los cambios más tenues",
+ "Price · {market} · {timeframe}": "Precio · {market} · {timeframe}",
+ "Reading price history…": "Leyendo el historial de precios…",
+ "Price history could not be loaded; trying again in a minute.": "No se pudo cargar el historial de precios; se volverá a intentar en un minuto.",
+ "Price history is stale; trying again in a minute.": "El historial de precios está desactualizado; se volverá a intentar en un minuto.",
+ "No price history for this time.": "No hay historial de precios para este período."
 }

@@ -1350,5 +1350,10 @@
  "GIF saved": "GIF 已保存",
  "This browser cannot copy a GIF, so it was saved as a file": "此浏览器无法复制 GIF，所以已保存为文件",
  "GIF copied to the clipboard": "GIF 已复制到剪贴板",
- "Kept under {mb} MB: the faintest changes were left out": "为保持在 {mb} MB 以下，省略了最细微的变化"
+ "Kept under {mb} MB: the faintest changes were left out": "为保持在 {mb} MB 以下，省略了最细微的变化",
+ "Price · {market} · {timeframe}": "价格 · {market} · {timeframe}",
+ "Reading price history…": "正在读取价格历史…",
+ "Price history could not be loaded; trying again in a minute.": "无法加载价格历史；将在一分钟后重试。",
+ "Price history is stale; trying again in a minute.": "价格历史已过期；将在一分钟后重试。",
+ "No price history for this time.": "此时间段没有价格历史。"
 }

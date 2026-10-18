@@ -1350,5 +1350,10 @@
  "GIF saved": "GIF を保存しました",
  "This browser cannot copy a GIF, so it was saved as a file": "このブラウザーは GIF をコピーできないため、ファイルとして保存しました",
  "GIF copied to the clipboard": "GIF をクリップボードにコピーしました",
- "Kept under {mb} MB: the faintest changes were left out": "{mb} MB 未満に収めるため、ごくわずかな変化は省きました"
+ "Kept under {mb} MB: the faintest changes were left out": "{mb} MB 未満に収めるため、ごくわずかな変化は省きました",
+ "Price · {market} · {timeframe}": "価格 · {market} · {timeframe}",
+ "Reading price history…": "価格履歴を読み込み中…",
+ "Price history could not be loaded; trying again in a minute.": "価格履歴を読み込めませんでした。1分後に再試行します。",
+ "Price history is stale; trying again in a minute.": "価格履歴が古くなっています。1分後に再試行します。",
+ "No price history for this time.": "この期間の価格履歴はありません。"
 }

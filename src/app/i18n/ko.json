@@ -1350,5 +1350,10 @@
  "GIF saved": "GIF를 저장했습니다",
  "This browser cannot copy a GIF, so it was saved as a file": "이 브라우저는 GIF를 복사할 수 없어 파일로 저장했습니다",
  "GIF copied to the clipboard": "GIF를 클립보드에 복사했습니다",
- "Kept under {mb} MB: the faintest changes were left out": "{mb}MB 미만으로 맞추려고 아주 작은 변화는 뺐습니다"
+ "Kept under {mb} MB: the faintest changes were left out": "{mb}MB 미만으로 맞추려고 아주 작은 변화는 뺐습니다",
+ "Price · {market} · {timeframe}": "가격 · {market} · {timeframe}",
+ "Reading price history…": "가격 기록을 읽는 중…",
+ "Price history could not be loaded; trying again in a minute.": "가격 기록을 불러오지 못했습니다. 1분 후 다시 시도합니다.",
+ "Price history is stale; trying again in a minute.": "가격 기록이 오래되었습니다. 1분 후 다시 시도합니다.",
+ "No price history for this time.": "이 기간의 가격 기록이 없습니다."
 }

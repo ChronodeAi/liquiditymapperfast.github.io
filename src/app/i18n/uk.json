@@ -1423,5 +1423,10 @@
  "GIF saved": "GIF збережено",
  "This browser cannot copy a GIF, so it was saved as a file": "Цей браузер не вміє копіювати GIF, тому його збережено як файл",
  "GIF copied to the clipboard": "GIF скопійовано в буфер обміну",
- "Kept under {mb} MB: the faintest changes were left out": "Щоб вкластися в {mb} МБ, найслабші зміни пропущено"
+ "Kept under {mb} MB: the faintest changes were left out": "Щоб вкластися в {mb} МБ, найслабші зміни пропущено",
+ "Price · {market} · {timeframe}": "Ціна · {market} · {timeframe}",
+ "Reading price history…": "Завантаження історії цін…",
+ "Price history could not be loaded; trying again in a minute.": "Не вдалося завантажити історію цін; повторна спроба за хвилину.",
+ "Price history is stale; trying again in a minute.": "Історія цін застаріла; повторна спроба за хвилину.",
+ "No price history for this time.": "За цей період немає історії цін."
 }

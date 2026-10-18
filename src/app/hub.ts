@@ -23,6 +23,7 @@ import { KeyLevelHistory } from './keylevels/history.ts';
 import { TapeRing, tapeCapacity } from './tape/ring.ts';
 import { isPhone } from './device.ts';
 import type { SumRow } from '../shared/print-sums.ts';
+import { ChartPriceHistory } from './price-history.ts';
 
 export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
 const MINUTE = 60_000;
@@ -58,6 +59,7 @@ export function defaultMarket(markets: readonly { instrumentId?: string; venue?:
 }
 
 export class Hub {
+  readonly priceHistory: ChartPriceHistory;
   readonly worker: Worker;
   #ready: Promise<void>;
   #rasterId = 0;
@@ -236,6 +238,10 @@ export class Hub {
   #oiReferences: string[] = [];
 
   constructor(readonly store: Store, readonly source: DataSource) {
+    this.priceHistory = new ChartPriceHistory((id, tf, from, to, signal) => {
+      if (!source.priceHistory) return Promise.reject(new Error('Price history is unavailable'));
+      return source.priceHistory(id, tf, from, to, signal);
+    });
     this.worker = new Worker(new URL('./worker/raster.worker.ts', import.meta.url), { type: 'module' });
     this.#ready = new Promise(resolve => {
       this.worker.onmessage = (event: MessageEvent<WorkerOut>) => {

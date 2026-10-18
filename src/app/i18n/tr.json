@@ -1390,5 +1390,10 @@
  "GIF saved": "GIF kaydedildi",
  "This browser cannot copy a GIF, so it was saved as a file": "Bu tarayıcı GIF kopyalayamıyor, bu yüzden dosya olarak kaydedildi",
  "GIF copied to the clipboard": "GIF panoya kopyalandı",
- "Kept under {mb} MB: the faintest changes were left out": "{mb} MB'ın altında tutuldu: en zayıf değişiklikler atlandı"
+ "Kept under {mb} MB: the faintest changes were left out": "{mb} MB'ın altında tutuldu: en zayıf değişiklikler atlandı",
+ "Price · {market} · {timeframe}": "Fiyat · {market} · {timeframe}",
+ "Reading price history…": "Fiyat geçmişi okunuyor…",
+ "Price history could not be loaded; trying again in a minute.": "Fiyat geçmişi yüklenemedi; bir dakika sonra yeniden denenecek.",
+ "Price history is stale; trying again in a minute.": "Fiyat geçmişi güncel değil; bir dakika sonra yeniden denenecek.",
+ "No price history for this time.": "Bu dönem için fiyat geçmişi yok."
 }

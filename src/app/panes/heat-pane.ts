@@ -56,6 +56,8 @@ import { candlesAt, formingCandle, pageNow, replaying, replayView } from '../rep
 import { TapeGL, type DustStyle } from '../tape/gl.ts';
 import { TraceIndex, secondsPath } from '../tape/trace.ts';
 import { curveColors } from './ladder-curves.ts';
+import { priceInstrument, priceTarget, type PriceHistoryAnswer, type PriceTarget } from '../../shared/price-history.ts';
+import { priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, type PricePoint, type PriceWindow } from '../price-history.ts';
 
 /** The colour of a flag on a candle's wick: amber reads on every theme and is neither side's colour. */
 const TRAP_COLOR = '#f5a524';
@@ -154,6 +156,12 @@ export class HeatPane {
   #dirty = true; #frame = 0;
   /** When the map was last drawn: the countdown redraws it once a second only when nothing else has (a quiet market). */
   #lastRender = 0;
+  #overview = false;
+  #overviewTarget: PriceTarget | null = null;
+  #overviewContext: { key: string; candles: readonly CandleRow[]; window: PriceWindow | null } | null = null;
+  #overviewPoints: { answer: PriceHistoryAnswer; cut: number; runs: PricePoint[][] } | null = null;
+  /** A Go to needing price history may fit it on arrival, only while time and price stay where that action put them. */
+  #priceFit: Bounds | null = null;
   #dataVersion = 0; #rasteredVersion = -1; #rasteredKey = ''; #lastRasterAt = 0;
   #liveMargin = 0;
   #palette = PALETTES.light!;
@@ -252,6 +260,7 @@ export class HeatPane {
     this.hub.onColumns = () => { this.#dataVersion++; this.invalidate(); };
     this.#bindInput();
     window.setInterval(() => { this.hub.invalidateColumns(); this.invalidate(); }, 30_000);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.hub.priceHistory.stop(); else this.invalidate(); });
   }
 
   get plotW(): number { return Math.max(1, this.#w - gutter(this.store.state)); }
@@ -282,6 +291,7 @@ export class HeatPane {
   setSuspended(on: boolean): void {
     if (on === this.#suspended) return;
     this.#suspended = on;
+    if (on) this.hub.priceHistory.stop();
     if (on && this.#pulseFrame) { cancelAnimationFrame(this.#pulseFrame); this.#pulseFrame = 0; }
     if (!on) this.invalidate();
   }
@@ -457,10 +467,12 @@ export class HeatPane {
   goTo(t: number): void {
     const v = this.view, span = v.t1 - v.t0, t0 = t - span / 2, t1 = t + span / 2;
     let lo = Infinity, hi = -Infinity;
-    const tf = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
-    for (const c of this.store.state.candles) if (c[0] + tf > t0 && c[0] < t1) { lo = Math.min(lo, c[3]); hi = Math.max(hi, c[2]); }
+    const state = this.store.state, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    const own = state.seriesInstrument === state.marketId ? state.candles : [];
+    for (const c of own) if (c[0] + tf > t0 && c[0] < t1) { lo = Math.min(lo, c[3]); hi = Math.max(hi, c[2]); }
     const pad = (hi - lo) * 0.18;
     v.set({ t0, t1, p0: hi > lo ? lo - pad : v.p0, p1: hi > lo ? hi + pad : v.p1 });
+    this.#priceFit = priceOverviewNeeded(own, tf, v, this.plotW, Date.now()) ? v.clone() : null;
     this.store.set({ followLive: false }); this.#liveMargin = v.t1 - pageNow(); this.#rasteredKey = ''; this.onView(); this.invalidate();
   }
 
@@ -500,6 +512,7 @@ export class HeatPane {
       if (mark && (mark < p0 + span * 0.1 || mark > p1 - span * 0.1)) { const mid = mark - span / 2; this.view.p0 = mid; this.view.p1 = mid + span; this.#rasteredKey = ''; }
     }
     this.#positionGl();
+    this.#ensureOverview(state);
     const gutterCss = `${gutter(state)}px`;
     if (this.#gutterCss !== gutterCss) { this.#gutterCss = gutterCss; this.root.style.setProperty('--gutter', gutterCss); }
     this.#manageRaster();
@@ -603,6 +616,7 @@ export class HeatPane {
       paintFootprint(ctx, this.#footprint, this.#lodFrame, state.timeframe, v, pw, ph, p, this.#trapMarks(), { marks, settings: fp, ...(replaying() ? { until: pageNow() } : {}) });
     }
     this.#startPulse();
+    if (state.show.candles) this.#paintOverview(ctx, state, pw, ph);
     if (state.show.candles) this.#paintCandles(ctx, state, pw, ph, this.#lodFrame.narrowing);
     if (state.show.candles) this.#paintDivergences(ctx, state, pw, ph); // joined swings need the candles they join
     this.#paintTrace(ctx, state, pw, ph); // over the candles (hollow while the dust shows), under the bubbles
@@ -739,7 +753,8 @@ export class HeatPane {
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
     const wide = (text: string): number => ctx.measureText(text).width, tailW = tail ? wide(tail) + 10 : 0;
     detail = fitText(wide, detail, room);
-    const note = fitText(wide, phone && borrowed ? borrowed.replace(/^\s*·\s*/, '') : '', room), noteW = note ? wide(note) : 0, detailW = detail ? wide(detail) : 0;
+    const extra = [phone && borrowed ? borrowed.replace(/^\s*·\s*/, '') : '', this.#overviewLegend(state)].filter(Boolean).join('  ·  ');
+    const note = fitText(wide, extra, room), noteW = note ? wide(note) : 0, detailW = detail ? wide(detail) : 0;
     ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
     const shownTitle = fitText(wide, phone ? `${name}  ${state.timeframe}` : title, room - tailW), titleW = wide(shownTitle);
     const plateW = Math.max(titleW + tailW, detailW, noteW) + 14, plateH = (detail ? 36 : 22) + (note ? 14 : 0);
@@ -751,6 +766,77 @@ export class HeatPane {
     if (tail) { ctx.fillStyle = p.muted; ctx.fillText(tail, 12 + titleW + 10, 16); }
     if (detail) { ctx.fillStyle = up ? p.candleUp : p.candleDown; ctx.fillText(detail, 12, 32); }
     if (note) { ctx.fillStyle = p.muted; ctx.fillText(note, 12, 46); }
+  }
+
+  /** Plan only when the data or a whole minute of the view changes; pointer redraws never scan coverage or start a read. */
+  #ensureOverview(state: AppState): void {
+    if (!state.show.candles || this.#suspended || this.root.hidden || document.hidden) { this.#overview = false; this.hub.priceHistory.stop(); return; }
+    const v = this.view, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, now = Date.now(), history = this.hub.priceHistory;
+    const key = `${state.marketId}|${state.seriesInstrument}|${tf}|${Math.floor(v.t0 / 60_000)}|${Math.ceil(v.t1 / 60_000)}|${Math.floor(now / 60_000)}|${this.plotW}|${history.answer?.tfMs ?? 0}`;
+    let context = this.#overviewContext;
+    if (!context || context.key !== key || context.candles !== state.candles) {
+      const own = state.seriesInstrument === state.marketId ? state.candles : [];
+      const wanted = priceOverviewNeeded(own, tf, v, this.plotW, now);
+      this.#overviewTarget = wanted ? priceTarget(currentCoin(), state.marketId, kindOf(state.markets, state.marketId) ?? 'perp') : null;
+      const window = wanted && this.#overviewTarget ? priceWindow(v, this.plotW, now, history.answer?.tfMs) : null;
+      context = this.#overviewContext = { key, candles: state.candles, window };
+    }
+    this.#overview = context.window !== null && this.#overviewTarget !== null;
+    if (this.#overview && context.window && this.#overviewTarget) history.ensure(this.#overviewTarget, context.window, () => { this.#fitOverview(); this.invalidate(); });
+    else history.stop();
+    if (this.#overview) this.#fitOverview();
+  }
+
+  #overviewRuns(): PricePoint[][] {
+    const answer = this.hub.priceHistory.answer; if (!this.#overview || !answer) return [];
+    const at = pageNow(), cut = replaying() || answer.asOf > at ? Math.floor(at / 1000) : 0;
+    if (!this.#overviewPoints || this.#overviewPoints.answer !== answer || this.#overviewPoints.cut !== cut) this.#overviewPoints = { answer, cut, runs: pricePoints(answer, at, replaying()) };
+    return this.#overviewPoints.runs;
+  }
+
+  #fitOverview(): void {
+    const pending = this.#priceFit, v = this.view, answer = this.hub.priceHistory.answer;
+    if (!pending || !answer || !this.#overviewTarget) return;
+    if (v.t0 !== pending.t0 || v.t1 !== pending.t1 || v.p0 !== pending.p0 || v.p1 !== pending.p1) { this.#priceFit = null; return; }
+    const bounds = priceBounds(answer, this.#overviewTarget.id, v, pageNow(), replaying());
+    if (!bounds) return;
+    const { lo, hi } = bounds;
+    const pad = (hi - lo) * 0.18; v.p0 = lo - pad; v.p1 = hi + pad; this.#priceFit = null; this.#rasteredKey = '';
+  }
+
+  #overviewLegend(state: AppState): string {
+    if (!this.#overview) return '';
+    const h = this.hub.priceHistory, a = h.answer, target = this.#overviewTarget;
+    let text = '';
+    if (a?.candles.length && target) {
+      const tf = Object.entries(TIMEFRAMES).find(([, ms]) => ms === a.tfMs)?.[0] ?? '';
+      const market = `${venueLabel(a.instrumentId)} ${target.listing.symbol} ${target.kind === 'spot' ? t('Spot') : t('Perp')}`;
+      text = t('Price · {market} · {timeframe}', { market, timeframe: tf });
+      const point = pricePointAt(this.#overviewRuns(), state.hover?.t ?? Math.min(pageNow(), this.view.t1), a.tfMs);
+      if (point) text += `  ${fmtPrice(point.price)}`;
+    }
+    const status = h.status === 'stale' ? t('Price history is stale; trying again in a minute.') : h.status === 'failed' ? t('Price history could not be loaded; trying again in a minute.') : h.status === 'empty' ? t('No price history for this time.') : !a?.candles.length ? t('Reading price history…') : '';
+    return [text, status].filter(Boolean).join('  ·  ');
+  }
+
+  /** A true price series; separate paths preserve exchange gaps and never splice a reference market into the selected market's live trades. */
+  #paintOverview(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
+    const answer = this.hub.priceHistory.answer; if (!this.#overview || !answer) return;
+    const runs = this.#overviewRuns(), v = this.view, p = this.#palette;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineJoin = 'round';
+    ctx.globalAlpha = 0.9 * (1 - 0.85 * this.#lodFrame.barAlpha);
+    if (priceInstrument(state.marketId) !== answer.instrumentId) ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    for (const run of runs) {
+      let started = false;
+      for (const point of run) {
+        if (point.t < v.t0 - answer.tfMs || point.t > v.t1 + answer.tfMs) continue;
+        const x = v.xOf(point.t, pw), y = v.yOf(point.price, ph);
+        if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
+      }
+    }
+    ctx.lineWidth = 3.5; ctx.strokeStyle = p.dark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.85)'; ctx.stroke();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = p.dark ? '#ffffff' : '#111318'; ctx.stroke(); ctx.restore();
   }
 
   /**
