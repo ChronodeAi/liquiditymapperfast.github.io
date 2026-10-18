@@ -502,7 +502,10 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (span.to - span.from > MAX_COLUMN_SPAN_MS) return sendJson(res, { error: 'the window may be at most eight days' }, 400);
     const step = Number(url.searchParams.get('step'));
     if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
-    sendJson(res, footprint.profile(ids, span.from, span.to, step));
+    // Read a few hours of a market at a time with the event loop let go between: a week of every market held the thread for seconds.
+    footprint.profileYielding(ids, span.from, span.to, step).then(
+      answer => sendJson(res, answer),
+      error => { console.error('v2 /api/v2/profile failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); else res.end(); });
   };
   /** When instruments were recorded, per minute (shared/coverage.ts): `metric` trades (the coverage record and the footprint's minutes) or depth (the columns' samples). */
   const coverageRoute = (url: URL, res: ServerResponse) => {
@@ -541,7 +544,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const step = Number(url.searchParams.get('step')), share = Number(url.searchParams.get('share'));
     if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
     if (!(share > 0 && share <= 1)) return sendJson(res, { error: 'share must be above 0 and at most 1' }, 400);
-    sendJson(res, footprint.valueAreas(ids, windows, step, share));
+    footprint.valueAreasYielding(ids, windows, step, share).then(
+      answer => sendJson(res, answer),
+      error => { console.error('v2 /api/v2/value-areas failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); else res.end(); });
   };
   const flowRoute = (url: URL, res: ServerResponse) => {
     const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean).slice(0, MAX_FLOW_INSTRUMENTS);

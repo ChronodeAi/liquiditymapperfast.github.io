@@ -394,7 +394,7 @@ export class FootprintRecorder {
   #rowsIn(id: string, from: number, to: number): Map<number, Bins> {
     const out = new Map<number, Bins>(), minutes = this.#minutes.get(id);
     if (this.#cold) this.#readBack(id, Math.max(from, this.#cutoff), Math.min(to, this.#hotFrom), out);
-    if (minutes) for (const [t, bins] of [...minutes].sort((a, b) => a[0] - b[0])) if (t >= from && t < to) out.set(t, bins);
+    if (minutes) { const inside: [number, Bins][] = []; for (const [t, bins] of minutes) if (t >= from && t < to) inside.push([t, bins]); for (const [t, bins] of inside.sort((a, b) => a[0] - b[0])) out.set(t, bins); }
     return out;
   }
 
@@ -459,6 +459,12 @@ export class FootprintRecorder {
   get instruments(): string[] { return [...this.#sums.keys()]; }
   /** Whether the minute starting at `t` has rows for `id` (in memory or in the store). */
   holds(id: string, t: number): boolean { return this.#sums.get(id)?.has(t) === true; }
+  /** The first and the last minute recorded for `id` (Infinity and -Infinity when none is). */
+  #recordedSpan(id: string): { first: number; last: number } {
+    let first = Infinity, last = -Infinity;
+    for (const t of this.#sums.get(id)?.keys() ?? []) { if (t < first) first = t; if (t > last) last = t; }
+    return { first, last };
+  }
   /** The start (ms) of the newest minute recorded for `id`, or 0. */
   lastMinute(id: string): number { let newest = 0; for (const t of this.#sums.get(id)?.keys() ?? []) if (t > newest) newest = t; return newest; }
 
@@ -663,22 +669,38 @@ export class FootprintRecorder {
   }
 
   /** Traded volume by price for each of `ids` over the minutes that start in [from, to), rows merged to `rowStep` (see `ProfileAnswer`). */
-  profile(ids: readonly string[], from: number, to: number, rowStep: number): ProfileAnswer {
+  profile(ids: readonly string[], from: number, to: number, rowStep: number): ProfileAnswer { return drain(this.#profileRun(ids, from, to, rowStep)); }
+
+  /**
+   * The same answer, read a few hours of a market at a time with the event loop let go between (as `prepare`): a week of twenty-seven markets
+   * read in one go held a server's only thread for 7 to 9 seconds (measured 2026-10-18), and nothing else it does, the feeds included, ran meanwhile.
+   */
+  profileYielding(ids: readonly string[], from: number, to: number, rowStep: number): Promise<ProfileAnswer> { return spread(this.#profileRun(ids, from, to, rowStep)); }
+
+  /** The answer of `profile`, paused (yielded) after every slice of rows read: each minute is read once, from wherever it is held at that moment. */
+  *#profileRun(ids: readonly string[], from: number, to: number, rowStep: number): Generator<void, ProfileAnswer> {
     const instruments: ProfileInstrument[] = [];
     for (const id of ids) {
       const fine = this.#steps.get(id), sums = this.#sums.get(id);
       if (!fine || !sums || !sums.size) { instruments.push({ id, step: 0, rows: [], minutes: 0, first: null, earliest: null }); continue; }
       const factor = Math.max(1, Math.round(rowStep / fine)), step = fine * factor, rows = new Map<number, [number, number, number, number]>();
-      let count = 0, counted = 0, first: number | null = null, earliest: number | null = null;
+      let count = 0, counted = 0, first: number | null = null, earliest: number | null = null, newest = -Infinity;
       // Every recorded minute has its sums held; the rows of those in the window are read where they are held.
       for (const [t, sum] of sums) {
         if (earliest === null || t < earliest) earliest = t;
+        if (t > newest) newest = t;
         if (t < from || t >= to) continue;
         count++; if (first === null || t < first) first = t;
         if (sum.counted) counted++;
       }
-      if (count) for (const bins of this.#rowsIn(id, from, to).values()) {
-        for (const [bin, [buy, sell, buyN, sellN]] of bins) { const row = Math.floor(bin / factor), cell = rows.get(row) ?? [0, 0, 0, 0]; cell[0] += buy; cell[1] += sell; cell[2] += buyN; cell[3] += sellN; rows.set(row, cell); }
+      // No minute outside the recorded stretch has rows, so a window reaching before it or ahead of it (a week not over yet) reads only inside it.
+      const end = Math.min(to, newest + MINUTE);
+      if (count) for (let a = Math.max(from, earliest!); a < end;) {
+        const b = Math.min(end, (Math.floor(a / READ_SLICE_MS) + 1) * READ_SLICE_MS);
+        for (const bins of this.#rowsIn(id, a, b).values()) {
+          for (const [bin, [buy, sell, buyN, sellN]] of bins) { const row = Math.floor(bin / factor), cell = rows.get(row) ?? [0, 0, 0, 0]; cell[0] += buy; cell[1] += sell; cell[2] += buyN; cell[3] += sellN; rows.set(row, cell); }
+        }
+        a = b; yield;
       }
       const sorted = [...rows].sort((a, b) => a[0] - b[0]);
       instruments.push({ id, step, rows: sorted.map(([row, [buy, sell]]): FootprintRow => [row * step, buy, sell]), minutes: count, first, earliest, counts: sorted.map(([, c]): [number, number] => [c[2], c[3]]), counted });
@@ -741,7 +763,12 @@ export class FootprintRecorder {
    * The point of control and the value area of each window (see `ValueAreaAnswer`), holding `share` (0..1) of the volume, on rows of
    * `rowStep`. Each window's minutes are looked up by their keys.
    */
-  valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): ValueAreaAnswer {
+  valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): ValueAreaAnswer { return drain(this.#valueAreasRun(ids, windows, rowStep, share)); }
+
+  /** `valueAreas` read a few hours of a market at a time with the event loop let go between, as `profileYielding`. */
+  valueAreasYielding(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): Promise<ValueAreaAnswer> { return spread(this.#valueAreasRun(ids, windows, rowStep, share)); }
+
+  *#valueAreasRun(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): Generator<void, ValueAreaAnswer> {
     const out: ValueAreaWindow[] = [];
     for (const w of windows) {
       const rows = new Map<number, number>(), first = Math.ceil(w.from / MINUTE) * MINUTE;
@@ -749,12 +776,17 @@ export class FootprintRecorder {
       for (const id of ids) {
         const fine = this.#steps.get(id);
         if (!fine) continue;
-        const held = this.#rowsIn(id, first, w.to);
+        // No minute outside the recorded stretch has rows, so a window reaching before it or ahead of it (a week not over yet) reads only inside it.
+        const { first: recorded, last } = this.#recordedSpan(id), end = Math.min(w.to, last + MINUTE);
         let seen = 0;
-        for (let t = first; t < w.to; t += MINUTE) {
-          const bins = held.get(t); if (!bins) continue;
-          seen++;
-          for (const [bin, cell] of bins) { const v = cell[0] + cell[1], key = Math.floor(bin * fine / rowStep * (1 + 1e-12)); rows.set(key, (rows.get(key) ?? 0) + v); total += v; }
+        for (let a = Math.max(first, recorded); a < end;) {
+          const b = Math.min(end, (Math.floor(a / READ_SLICE_MS) + 1) * READ_SLICE_MS), held = this.#rowsIn(id, a, b);
+          for (let t = a; t < b; t += MINUTE) {
+            const bins = held.get(t); if (!bins) continue;
+            seen++;
+            for (const [bin, cell] of bins) { const v = cell[0] + cell[1], key = Math.floor(bin * fine / rowStep * (1 + 1e-12)); rows.set(key, (rows.get(key) ?? 0) + v); total += v; }
+          }
+          a = b; yield;
         }
         minutes = Math.max(minutes, seen);
       }
@@ -911,6 +943,23 @@ interface HourRows { step: number; cells: Float64Array }
 const HELD_HOUR_COST = 2;
 /** A preparation lets go of the event loop after this long (ms). */
 const PREPARE_TURN_MS = 8;
+/** The stretch of a market's minutes the profile and value-area questions read between two pauses (whole hours, so a stored hour is read once). */
+const READ_SLICE_MS = 6 * HOUR;
+
+/** Run a generator written to be paused (it yields where it may be) to its end without pausing. */
+function drain<T>(run: Generator<void, T>): T {
+  for (;;) { const step = run.next(); if (step.done) return step.value; }
+}
+
+/** Run such a generator to its end, letting the event loop go whenever a turn has lasted PREPARE_TURN_MS, so other work runs between the slices. */
+async function spread<T>(run: Generator<void, T>): Promise<T> {
+  let turn = performance.now();
+  for (;;) {
+    const step = run.next();
+    if (step.done) return step.value;
+    if (performance.now() - turn > PREPARE_TURN_MS) { await new Promise<void>(resolve => setTimeout(resolve, 0)); turn = performance.now(); }
+  }
+}
 
 /**
  * The recorder's answer to a sizes question (see `SizesAnswer`): each window is the last N whole minutes up to and including the open one,
