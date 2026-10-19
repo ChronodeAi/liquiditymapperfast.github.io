@@ -43,7 +43,8 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     ...(s.metric !== 'volume' ? [note(t('The point of control and the value area are this measure\'s, over what is on the chart: days, weeks and sessions are worked out from traded volume.'))] : []),
     selectRow(t('Bars'), t('Buys and sells side by side, or only their difference: which side was the bigger at each price, and by how much.'), [['split', t('Buys and sells')], ['delta', t('Delta')]], s.bars, v => set({ bars: v === 'delta' ? 'delta' : 'split' })),
     switchRow(t('Mark the value area'), t('Shade the value area on the column and draw its point of control across it.'), s.valueArea, valueArea => set({ valueArea })),
-    note(t('Drag on the column (or click a row) to add up those prices in the Range panel.')),
+    // A drag adds up traded volume at those prices, whatever the column shows: said only where the two are the same.
+    ...(s.metric === 'volume' ? [note(t('Drag on the column (or click a row) to add up those prices in the Range panel.'))] : []),
     heading(t('Point of control and value area')),
     selectRow(t('Value area'), t('The share of the volume the value area holds around the point of control. 70% is the usual one.'), SHARES.map(v => [String(v), `${v}%`] as [string, string]), String(s.share), v => set({ share: Number(v) })),
     selectRow(t('Row size'), t('The price rows the point of control is read from, at every price that traded: larger rows give a steadier level. Auto is the map\'s grid step.'),
