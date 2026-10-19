@@ -694,6 +694,33 @@ export class FootprintRecorder {
   }
 
   /**
+   * Amounts spread over the prices that traded while they came about (the open-interest change by price, shared/oi-profile.ts): each
+   * interval's signed `amount` over the rows of `id`'s minutes that start in [from, to), by each row's share of their USD. In coins
+   * (`coins`) a row's part is valued at its own price, else it is taken as USD. Positive parts add up in a row's first side, negative ones
+   * (as magnitudes) in its second, on rows merged to `rowStep`. An interval whose minutes traded nothing here is not placed: its amount, in
+   * USD (coins at `price`), is `unplaced`, signed. The parts of an interval add up to its amount: nothing is made or lost by the spreading.
+   */
+  spread(id: string, rowStep: number, intervals: readonly { from: number; to: number; amount: number }[], coins: boolean, price: number): { step: number; rows: FootprintRow[]; unplaced: number } {
+    const fine = this.#steps.get(id), usdOf = (amount: number): number => amount * (coins ? price : 1);
+    let unplaced = 0, lo = Infinity, hi = -Infinity;
+    for (const i of intervals) { if (i.from < lo) lo = i.from; if (i.to > hi) hi = i.to; }
+    if (!fine || !(hi > lo)) { for (const i of intervals) unplaced += usdOf(i.amount); return { step: 0, rows: [], unplaced }; }
+    const factor = Math.max(1, Math.round(rowStep / fine)), step = fine * factor, out = new Map<number, [number, number]>(), minutes = this.#rowsIn(id, lo, hi);
+    for (const { from, to, amount } of intervals) {
+      if (!amount) continue;
+      const held: Bins[] = []; let total = 0;
+      for (let t = Math.ceil(from / MINUTE) * MINUTE; t < to; t += MINUTE) { const bins = minutes.get(t); if (!bins) continue; held.push(bins); for (const cell of bins.values()) total += cell[0] + cell[1]; }
+      if (!(total > 0)) { unplaced += usdOf(amount); continue; }
+      for (const bins of held) for (const [bin, cell] of bins) {
+        const part = amount * (cell[0] + cell[1]) / total * (coins ? (bin + 0.5) * fine : 1), row = Math.floor(bin / factor), sides = out.get(row) ?? [0, 0];
+        if (part > 0) sides[0] += part; else sides[1] -= part;
+        out.set(row, sides);
+      }
+    }
+    return { step, rows: [...out].sort((a, b) => a[0] - b[0]).map(([row, [up, down]]): FootprintRow => [row * step, up, down]), unplaced };
+  }
+
+  /**
    * What happened in a selection (see `RangeAnswer`): one pass over its minutes, each looked up by its key. A minute's sums answer the
    * questions about every price, and a box skips the rows of a minute that traded wholly outside its band.
    */

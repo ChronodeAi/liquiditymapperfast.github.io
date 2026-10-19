@@ -3,6 +3,7 @@ import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-shor
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
 import { decodeFlowFrame, decodeFlowMinutes, type FlowFrame, type FlowMinutesFrame, type FlowUpdate } from '../shared/flow.ts';
 import { parseProfile, parseRange, parseSizes, parseValueAreas, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from '../shared/footprint.ts';
+import { parseOiProfile, type OiProfileAnswer } from '../shared/oi-profile.ts';
 import { parseAbsorptionAnswer, parseAbsorptionLive, type AbsorptionAnswer } from '../shared/absorption.ts';
 import { parseCoverage, type CoverageAnswer, type CoverageMetric } from '../shared/coverage.ts';
 import { fromWire, type Print } from './prints.ts';
@@ -100,6 +101,14 @@ export async function getProfile(ids: string[], from: number, to: number, rowSte
   if (!response.ok) throw new Error(`profile failed: ${response.status}`);
   const answer = parseProfile(await response.json().catch(() => null), ids);
   if (!answer) throw new Error('profile answered with something else');
+  return answer;
+}
+/** The change in open interest by price (shared/oi-profile.ts). Rejects on a server that does not know the question (an older one). */
+export async function getOiProfile(ids: string[], from: number, to: number, rowStep: number): Promise<OiProfileAnswer> {
+  const response = await fetch(`/api/v2/oi-profile?inst=${ids.map(encodeURIComponent).join(',')}&from=${Math.floor(from)}&to=${Math.ceil(to)}&step=${rowStep}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`oi profile failed: ${response.status}`);
+  const answer = parseOiProfile(await response.json().catch(() => null), ids);
+  if (!answer) throw new Error('oi profile answered with something else');
   return answer;
 }
 /** What happened in a selection of the map or of a pane (see `RangeAnswer`). Rejects on a server that does not know the question (an older one). */

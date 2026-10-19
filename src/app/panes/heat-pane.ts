@@ -1405,12 +1405,13 @@ export class HeatPane {
     ctx.globalAlpha = 0.9; ctx.fillStyle = p.panel; ctx.fillRect(x0 + 1, 0, W - 1, 28); ctx.globalAlpha = 1;
     ctx.fillStyle = p.muted; ctx.font = `${pw < NARROW_PLOT ? 9.5 : 10}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     const metric = s.metric, held = this.hub.metricProfile, flags = held?.metric === metric ? held.flags : { cut: false, incomplete: false };
+    const measured = metric === 'volume' ? null : metricHeader(metric, rows, flags);
     const [head, sub] = metric === 'volume'
       ? (this.hub.tradedState === 'unavailable' && !rows ? [t('TRADED'), t('not on this server')] : tradedHeader(rows))
-      : this.hub.metricState === 'unavailable' && !rows ? [metricHeader(metric, null, flags)[0], t('not on this server')]
-      : metricHeader(metric, rows, flags);
+      : this.hub.metricState === 'unavailable' && !rows ? [measured!.head, t('not on this server')]
+      : [measured!.head, measured!.sub];
     // A window that reaches back before the recording, or a measure whose record is cut, says so in the dot rows' amber.
-    const warn = metric === 'volume' ? rows?.partial === true : flags.cut || flags.incomplete;
+    const warn = metric === 'volume' ? rows?.partial === true : measured!.warn;
     ctx.fillText(head, x0 + 4, 4); if (sub) { if (warn) ctx.fillStyle = '#e6a700'; ctx.fillText(sub, x0 + 4, 16); }
     ctx.restore(); ctx.textBaseline = 'middle';
     ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(x0 + 0.5, 0); ctx.lineTo(x0 + 0.5, ph); ctx.stroke();

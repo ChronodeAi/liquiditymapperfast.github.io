@@ -16,6 +16,7 @@ import { encodeColumns, encodeLevels, encodeTape } from './wire.mts';
 import { TAPE_BATCH_MAX, packTape } from '../../shared/tape.ts';
 import type { MarketOrder } from '../../shared/orders.ts';
 import { FootprintRecorder } from './footprint.mts';
+import { inverseOiId, oiInstrument, oiProfileOf, type OiSeries } from '../../shared/oi-profile.ts';
 import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
 import { RecordedBefore } from '../../shared/restart.ts';
 import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageMetric } from './coverage.mts';
@@ -382,14 +383,34 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const id = url.searchParams.get('inst') ?? ''; const tf = url.searchParams.get('tf') ?? '1h'; const tfMs = timeframeMs(tf);
     if (!id || !tfMs) return sendJson(res, { error: BAD_SERIES }, 400);
     const span = windowOf(url, Date.now() + tfMs, 400 * tfMs); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
-    const { from, to } = span;
     // `usd=1`: an inverse market's own USD (the readings that kept one) in place of its coins.
     const usd = url.searchParams.get('usd') === '1';
+    sendJson(res, { instrumentId: id, tf, ...(usd ? { usd } : {}), bars: oiBarsOf(id, tfMs, span.from, span.to, usd) });
+  };
+  /** One market's open interest in bars of `tfMs` over [from, to): the stored history and the live samples (`usd`: an inverse market's own USD). */
+  const oiBarsOf = (id: string, tfMs: number, from: number, to: number, usd: boolean) => {
     const stored = app.history.listOi(id, { from, to, limit: 300_000 }) as OiRow[];
     // The live samples are held to the same window as the stored bars: one past `to` would put a bar outside what was asked for.
     const at = (s: { observationTimestamp?: unknown; sourceTimestamp?: unknown; receivedAt?: unknown }): number => Number(s.observationTimestamp ?? s.sourceTimestamp ?? s.receivedAt);
     const live = (app.state.oi ?? []).filter(s => s.instrumentId === id && at(s) >= from && at(s) < to) as OiRow[];
-    sendJson(res, { instrumentId: id, tf, ...(usd ? { usd } : {}), bars: aggregateOi(usd ? withLiveOi(quoteRows(stored), quoteRows(live)) : withLiveOi(stored, live), tfMs) });
+    return aggregateOi(usd ? withLiveOi(quoteRows(stored), quoteRows(live)) : withLiveOi(stored, live), tfMs);
+  };
+  /**
+   * The change in open interest by price (shared/oi-profile.ts) of the perpetuals among `inst` over [from, to), at most eight days, on rows
+   * of `step`: each market's one-minute bars from two minutes before, so the change into the first minute is known.
+   */
+  const oiProfileRoute = (url: URL, res: ServerResponse) => {
+    const asked = [...new Set((url.searchParams.get('inst') ?? '').split(',').filter(Boolean))];
+    if (!asked.length || asked.length > MAX_PROFILE_INSTRUMENTS) return sendJson(res, { error: `inst must name 1 to ${MAX_PROFILE_INSTRUMENTS} instruments` }, 400);
+    const span = windowOf(url, Date.now() + 60_000, 3_600_000); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
+    if (span.to - span.from > MAX_COLUMN_SPAN_MS) return sendJson(res, { error: 'the window may be at most eight days' }, 400);
+    const step = Number(url.searchParams.get('step'));
+    if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
+    const series = asked.filter(oiInstrument).map((id): OiSeries => {
+      const coins = !inverseOiId(id);
+      return { id, coins, price: lastPrice.get(id)?.price ?? 0, bars: oiBarsOf(id, 60_000, span.from - 120_000, span.to, !coins) };
+    });
+    sendJson(res, oiProfileOf(footprint, series, span.from, span.to, step));
   };
   // Long/short ratios as the venues publish them, read when asked for and kept in memory only (shared/long-short.ts): nothing of the
   // history store's budget, and nothing new asked while no page shows the pane (a read already under way finishes).
@@ -613,6 +634,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/flow-minutes': flowMinutesRoute(url, res); return true;
           case '/api/v2/sizes': sizesRoute(url, res); return true;
           case '/api/v2/profile': profileRoute(url, res); return true;
+          case '/api/v2/oi-profile': oiProfileRoute(url, res); return true;
           case '/api/v2/range': rangeRoute(url, res); return true;
           case '/api/v2/value-areas': valueAreasRoute(url, res); return true;
           case '/api/v2/absorption': absorptionRoute(url, res); return true;

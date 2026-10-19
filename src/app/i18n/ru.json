@@ -1445,9 +1445,20 @@
  "the largest only": "только крупнейшие",
  "some minutes in part": "некоторые минуты частично",
  "Measure": "Показатель",
- "What the column adds up at each price over what is on the chart: traded volume, absorption, or reported liquidations.": "Что колонка складывает на каждой цене по тому, что на графике: объём сделок, поглощение или сообщённые ликвидации.",
  "Traded volume": "Объём сделок",
  "The absorption marks at the threshold the Absorption settings judge them at, each counted once: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). Where a minute kept only its largest groups, the header says so.": "Отметки поглощения по порогу, по которому их оценивают настройки «Поглощение», каждая учтена один раз: рыночные продажи, поглощённые ожидающими покупателями (цвет бидов), и рыночные покупки, поглощённые ожидающими продавцами (цвет асков). Если за минуту сохранены только самые крупные группы, об этом сказано в заголовке.",
  "Liquidations as the venues report them: shorts liquidated, forced buys (bid colour), and longs liquidated, forced sells (ask colour). Only Binance, Bybit, OKX and Deribit report them, Binance at most one a market a second, so this is what was reported, not all there was.": "Ликвидации так, как их сообщают биржи: ликвидированные шорты — принудительные покупки (цвет бидов), и ликвидированные лонги — принудительные продажи (цвет асков). Их сообщают только Binance, Bybit, OKX и Deribit, причём Binance — не более одной на рынок в секунду, поэтому это то, что сообщено, а не всё, что было.",
- "The point of control and the value area are this measure's, over what is on the chart: days, weeks and sessions are worked out from traded volume.": "Точка контроля и зона стоимости — этого показателя, по тому, что на графике: дни, недели и сессии считаются по объёму сделок."
+ "The point of control and the value area are this measure's, over what is on the chart: days, weeks and sessions are worked out from traded volume.": "Точка контроля и зона стоимости — этого показателя, по тому, что на графике: дни, недели и сессии считаются по объёму сделок.",
+ "Open interest added": "Добавлено открытого интереса",
+ "Open interest removed": "Снято открытого интереса",
+ "Net change": "Изменение нетто",
+ "Share of the change": "Доля изменения",
+ "No change in open interest placed at these prices.": "На эти цены не распределено изменение открытого интереса.",
+ "OI CHANGE": "ИЗМЕНЕНИЕ OI",
+ "OI +{up} −{down}": "OI +{up} −{down}",
+ "{value} not placed": "{value} не распределено",
+ "What the column adds up at each price over what is on the chart: traded volume, the change in open interest, absorption, or reported liquidations.": "Что колонка складывает на каждой цене по тому, что на графике: объём сделок, изменение открытого интереса, поглощение или сообщённые ликвидации.",
+ "Open interest change": "Изменение открытого интереса",
+ "Each perpetual's change in open interest between its readings (about one a minute) spread over the prices that traded on it in between, by their share of the volume: where exposure grew (bid colour) and where it shrank (ask colour). An estimate of where, never of who: a change does not say which side opened or closed. Each venue counts on its own, and a change with no trades recorded under it, or between readings an hour apart, is not placed: the header says how much.": "Изменение открытого интереса каждого бессрочного контракта между его чтениями (примерно раз в минуту), распределённое по ценам, по которым на нём торговали в промежутке, пропорционально их доле объёма: где экспозиция выросла (цвет бидов) и где сократилась (цвет асков). Оценка того, где, но не кто: изменение не говорит, какая сторона открывала или закрывала. Каждая биржа считается отдельно, а изменение без записанных под ним сделок или между чтениями с разрывом в час не распределяется: заголовок говорит, сколько.",
+ "This page reads open interest only while it is open: Binance, Bybit and OKX also read back their five-minute history, Hyperliquid, Bitget and Deribit start when the page does.": "Эта страница читает открытый интерес, только пока она открыта: Binance, Bybit и OKX дополнительно подгружают свою пятиминутную историю, а Hyperliquid, Bitget и Deribit начинают, когда начинает страница."
 }

@@ -8,6 +8,7 @@ import { toWire } from '../shared/prints.ts';
 import { toWire as liquidationWire, type Liquidation } from '../shared/liquidations.ts';
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
 import { parseProfile, parseRange, parseSizes, parseValueAreas, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from '../shared/footprint.ts';
+import { parseOiProfile, type OiProfileAnswer } from '../shared/oi-profile.ts';
 import { parseAbsorptionAnswer, parseAbsorptionLive, type AbsorptionAnswer } from '../shared/absorption.ts';
 import { parseCoverage, type CoverageAnswer, type CoverageMetric } from '../shared/coverage.ts';
 import type { RecoveryReport, RecoveryRequest } from '../shared/engine.ts';
@@ -228,6 +229,11 @@ export class BrowserSource implements DataSource, VenueControl {
   async profile(ids: string[], from: number, to: number, rowStep: number): Promise<ProfileAnswer> {
     const answer = parseProfile(await this.#call({ method: 'profile', ids, from, to, rowStep }), ids);
     if (!answer) throw new Error('the browser engine answered the profile question with something else');
+    return answer;
+  }
+  async oiProfile(ids: string[], from: number, to: number, rowStep: number): Promise<OiProfileAnswer> {
+    const answer = parseOiProfile(await this.#call({ method: 'oiProfile', ids, from, to, rowStep }), ids);
+    if (!answer) throw new Error('the browser engine answered the open-interest question with something else');
     return answer;
   }
   async range(ids: string[], from: number, to: number, band: { p0: number; p1: number } | null, rowStep: number): Promise<RangeAnswer> {

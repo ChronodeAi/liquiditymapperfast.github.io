@@ -13,31 +13,49 @@ import { VOLUME_WORDS, type ColumnWords, type TradedRows } from '../traded.ts';
  *   Absorption settings judge it at: market sells that met resting buyers, then market buys that met resting sellers;
  * - liquidations: reported liquidations at the price the market was at (shared/liquidations.ts): shorts liquidated (forced buys), then longs
  *   liquidated (forced sells). Only the venues that publish them count, Binance at most one a market a second.
+ * - open interest: each perpetual's change between its readings spread over the prices that traded on it in between (shared/oi-profile.ts):
+ *   where exposure grew, then where it shrank. An estimate of where, never of who.
  * Each is what was recorded, not all there was: the column's header says where a record is cut.
  */
-export type ProfileMetric = 'volume' | 'absorption' | 'liquidations';
-export const PROFILE_METRICS: readonly ProfileMetric[] = ['volume', 'absorption', 'liquidations'];
+export type ProfileMetric = 'volume' | 'oi' | 'absorption' | 'liquidations';
+export const PROFILE_METRICS: readonly ProfileMetric[] = ['volume', 'oi', 'absorption', 'liquidations'];
 
 /** The words of each measure: what its rows' two sides are called, and its header. */
 export function metricWords(metric: ProfileMetric): ColumnWords {
   switch (metric) {
     case 'absorption': return { buy: t('Resting buyers took'), sell: t('Resting sellers took'), net: t('Difference'), share: t('Share of the absorbed'), none: t('Nothing absorbed at these prices in this window.') };
     case 'liquidations': return { buy: t('Shorts liquidated'), sell: t('Longs liquidated'), net: t('Difference'), share: t('Share of the liquidations'), none: t('No liquidation reported at these prices in this window.') };
+    case 'oi': return { buy: t('Open interest added'), sell: t('Open interest removed'), net: t('Net change'), share: t('Share of the change'), none: t('No change in open interest placed at these prices.') };
     default: return VOLUME_WORDS;
   }
 }
 
-/** What a measure's answer leaves out: `cut`, its record was cut at a limit (the smallest left out); `incomplete`, some minutes keep only their largest groups. */
-export interface MetricFlags { cut: boolean; incomplete: boolean }
+/**
+ * What a measure's answer leaves out: `cut`, its record was cut at a limit (the smallest left out); `incomplete`, some minutes keep only
+ * their largest groups; `unplaced`, the change in open interest that could not be put at a price (USD, signed).
+ */
+export interface MetricFlags { cut: boolean; incomplete: boolean; unplaced?: number }
 
-/** The two header lines of a measure other than traded volume: its total, then where its record is cut, or the largest row. */
-export function metricHeader(metric: ProfileMetric, rows: TradedRows | null, flags: MetricFlags): [string, string] {
-  const head = metric === 'absorption' ? t('ABSORBED') : t('LIQUIDATED');
-  if (!rows) return [head, ''];
+/** A signed USD amount: +$1.2M, −$300K. */
+const signed = (v: number): string => `${v > 0 ? '+' : v < 0 ? '−' : ''}$${usd(Math.abs(v))}`;
+
+/**
+ * The two header lines of a measure other than traded volume: its total, then where its record is cut (`warn`: said in amber), or the
+ * largest row. Open interest gives what was added and what was removed, and the change it could not place when that is more than a
+ * hundredth of what it placed.
+ */
+export function metricHeader(metric: ProfileMetric, rows: TradedRows | null, flags: MetricFlags): { head: string; sub: string; warn: boolean } {
+  const head = metric === 'oi' ? t('OI CHANGE') : metric === 'absorption' ? t('ABSORBED') : t('LIQUIDATED');
+  if (!rows) return { head, sub: '', warn: false };
+  if (metric === 'oi') {
+    let up = 0, down = 0; for (let i = 0; i < rows.buy.length; i++) { up += rows.buy[i]!; down += rows.sell[i]!; }
+    const unplaced = flags.unplaced ?? 0, total = t('OI +{up} −{down}', { up: usd(up), down: usd(down) });
+    return Math.abs(unplaced) > (up + down) / 100 ? { head: total, sub: t('{value} not placed', { value: signed(unplaced) }), warn: true } : { head: total, sub: t('ROW MAX {value}', { value: usd(rows.max) }), warn: false };
+  }
   const total = metric === 'absorption' ? t('ABSORBED {value}', { value: usd(rows.total) }) : t('LIQUIDATED {value}', { value: usd(rows.total) });
-  if (flags.cut) return [total, metric === 'liquidations' ? t('the largest 5,000') : t('the largest only')];
-  if (flags.incomplete) return [total, t('some minutes in part')];
-  return [total, t('ROW MAX {value}', { value: usd(rows.max) })];
+  if (flags.cut) return { head: total, sub: metric === 'liquidations' ? t('the largest 5,000') : t('the largest only'), warn: true };
+  if (flags.incomplete) return { head: total, sub: t('some minutes in part'), warn: true };
+  return { head: total, sub: t('ROW MAX {value}', { value: usd(rows.max) }), warn: false };
 }
 
 /** Rows of `step` from amounts at prices, by instrument: [side a, side b] at each row, as a profile answer. */

@@ -11,6 +11,7 @@ import { AbsorptionRecorder, GROUP_FLOOR_USD, type AbsorptionAnswer, type Absorp
 import { FLOW_MEMORY_MS, FLOW_SEC, FlowRecorder, type FlowFrame, type FlowStore, type FlowUpdate } from './flow.ts';
 import { TIMEFRAMES, quoteRows, type Candle, type OiBar, type OiRow } from './series.ts';
 import { OI_SAMPLE_VENUES, fetchCandles, fetchOiHistory, fetchOiReading, oiBars, venueOf, webGet, type Fetcher } from './history.ts';
+import { inverseOiId, oiInstrument, oiProfileOf, type OiProfileAnswer, type OiSeries } from './oi-profile.ts';
 import { browserVenues, type BrowserVenue } from './venues.ts';
 import { BTC, SCALES, type Coin, type MarketVenue } from './coins.ts';
 import type { BookConnector, TradeEvent } from './connector.ts';
@@ -370,6 +371,19 @@ export class Engine {
 
   /** Traded volume by price for these instruments over [from, to) (the traded-volume column). */
   profile(ids: readonly string[], from: number, to: number, rowStep: number): ProfileAnswer { return this.footprints.profile(ids, from, to, rowStep); }
+  /**
+   * The change in open interest of the perpetuals among `ids` over [from, to), by the prices that traded while it came about
+   * (shared/oi-profile.ts): from the readings taken while the page was open, and the five-minute history of the venues that keep one.
+   */
+  async oiProfile(ids: readonly string[], from: number, to: number, rowStep: number): Promise<OiProfileAnswer> {
+    const perps = ids.filter(oiInstrument).slice(0, MAX_PROFILE_INSTRUMENTS);
+    // From two minutes before: the change into the window's first minute needs the reading before it.
+    const series = await Promise.all(perps.map(async (id): Promise<OiSeries> => {
+      const coins = !inverseOiId(id);
+      return { id, coins, price: this.#last.get(id)?.price ?? 0, bars: await this.oi(id, 60_000, from - 2 * 60_000, to, !coins).catch(() => []) };
+    }));
+    return oiProfileOf(this.footprints, series, from, to, rowStep);
+  }
   range(ids: readonly string[], from: number, to: number, band: { p0: number; p1: number } | null, rowStep: number): RangeAnswer { return this.footprints.range(ids, from, to, band, rowStep); }
   /** The value area of each window, each instrument's share of it judged by the coverage record (the page is not always open). */
   valueAreas(ids: readonly string[], windows: readonly { from: number; to: number }[], rowStep: number, share: number): ValueAreaAnswer {

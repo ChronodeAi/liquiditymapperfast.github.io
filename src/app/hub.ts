@@ -14,7 +14,8 @@ import { atOnePrice, inverseOi, oiSumOf, type OiPart } from './oi-change.ts';
 import { oiMarketIds } from './market-choice.ts';
 import { nextBookGone } from './cvd/ids.ts';
 import { t } from './i18n.ts';
-import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
+import { MAX_PROFILE_INSTRUMENTS, MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
+import { oiInstrument } from '../shared/oi-profile.ts';
 import { AbsorptionBook } from './absorption.ts';
 import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
 import { absorptionAnswer, liquidationAnswer, type MetricFlags, type ProfileMetric } from './traded/metrics.ts';
@@ -611,7 +612,8 @@ export class Hub {
 
   /**
    * Make sure the column has an answer for a measure other than traded volume (traded/metrics.ts) over this window, as `ensureTraded` does
-   * for volume: liquidations from the source's record (its largest 5,000 when more match), absorption groups at each instrument's threshold
+   * for volume: the change in open interest of the perpetuals among `ids` (shared/oi-profile.ts), liquidations from the source's record
+   * (its largest 5,000 when more match), absorption groups at each instrument's threshold
    * (`thresholds`; one with none yet has nothing marked). Asked again every five seconds while the map follows the live edge, no oftener
    * than ten times the last answer took (an absorption question reads a server's store).
    */
@@ -619,12 +621,17 @@ export class Hub {
     if (this.#metricLoading || !(to > from) || !(step > 0)) return;
     const now = Date.now();
     if (this.metricState === 'unavailable' && now < this.#metricRetryAt) return;
-    const judged = metric === 'absorption' ? ids.filter(id => typeof thresholds.get(id) === 'number').slice(0, MAX_ABSORPTION_INSTRUMENTS) : [...ids];
+    const judged = metric === 'absorption' ? ids.filter(id => typeof thresholds.get(id) === 'number').slice(0, MAX_ABSORPTION_INSTRUMENTS)
+      : metric === 'oi' ? ids.filter(oiInstrument).slice(0, MAX_PROFILE_INSTRUMENTS) : [...ids];
     const key = `${metric}|${judged.map(id => metric === 'absorption' ? `${id}:${thresholds.get(id)}` : id).join(',')}|${step}|${from}|${to}`;
     if (key === this.#metricAsked && !(live && now - this.#metricAt >= Math.max(5_000, 10 * this.#metricMs))) return;
     this.#metricLoading = true; this.#metricAsked = key; this.#metricAt = now;
     const generation = ++this.#metricGen, started = performance.now(), source = this.source, none = { cut: false, incomplete: false };
-    const work: Promise<{ answer: ProfileAnswer; flags: MetricFlags }> = metric === 'liquidations'
+    const work: Promise<{ answer: ProfileAnswer; flags: MetricFlags }> = metric === 'oi'
+      ? (!judged.length ? Promise.resolve({ answer: { from, to, instruments: [] }, flags: none })
+        : (source.oiProfile ? source.oiProfile(judged, from, to, step) : Promise.reject(new Error('no open-interest profile from this source')))
+          .then(answer => ({ answer, flags: { ...none, unplaced: answer.unplaced } })))
+      : metric === 'liquidations'
       ? (source.liquidations ? source.liquidations(from, to) : Promise.reject(new Error('no liquidations from this source')))
         .then(rows => ({ answer: liquidationAnswer(rows, judged, from, to, step), flags: { cut: rows.length >= LIQUIDATIONS_PER_ANSWER, incomplete: false } }))
       : !judged.length ? Promise.resolve({ answer: { from, to, instruments: [] }, flags: none })

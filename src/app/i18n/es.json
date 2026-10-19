@@ -1431,9 +1431,20 @@
  "the largest only": "solo las mayores",
  "some minutes in part": "algunos minutos en parte",
  "Measure": "Medida",
- "What the column adds up at each price over what is on the chart: traded volume, absorption, or reported liquidations.": "Lo que la columna suma en cada precio sobre lo que está en el gráfico: volumen negociado, absorción o liquidaciones informadas.",
  "Traded volume": "Volumen negociado",
  "The absorption marks at the threshold the Absorption settings judge them at, each counted once: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). Where a minute kept only its largest groups, the header says so.": "Las marcas de absorción en el umbral con que las juzgan los ajustes de Absorción, cada una contada una vez: ventas a mercado que absorbieron compradores en reposo (color bid) y compras a mercado que absorbieron vendedores en reposo (color ask). Donde un minuto conservó solo sus grupos más grandes, la cabecera lo indica.",
  "Liquidations as the venues report them: shorts liquidated, forced buys (bid colour), and longs liquidated, forced sells (ask colour). Only Binance, Bybit, OKX and Deribit report them, Binance at most one a market a second, so this is what was reported, not all there was.": "Liquidaciones tal como las informan los exchanges: cortos liquidados, compras forzadas (color bid), y largos liquidados, ventas forzadas (color ask). Solo Binance, Bybit, OKX y Deribit las informan, Binance como máximo una por mercado y segundo, así que esto es lo que se informó, no todo lo que hubo.",
- "The point of control and the value area are this measure's, over what is on the chart: days, weeks and sessions are worked out from traded volume.": "El punto de control y el área de valor son los de esta medida, sobre lo que está en el gráfico: los días, semanas y sesiones se calculan a partir del volumen negociado."
+ "The point of control and the value area are this measure's, over what is on the chart: days, weeks and sessions are worked out from traded volume.": "El punto de control y el área de valor son los de esta medida, sobre lo que está en el gráfico: los días, semanas y sesiones se calculan a partir del volumen negociado.",
+ "Open interest added": "Interés abierto añadido",
+ "Open interest removed": "Interés abierto eliminado",
+ "Net change": "Cambio neto",
+ "Share of the change": "Cuota del cambio",
+ "No change in open interest placed at these prices.": "No se repartió ningún cambio de interés abierto a estos precios.",
+ "OI CHANGE": "CAMBIO DE OI",
+ "OI +{up} −{down}": "OI +{up} −{down}",
+ "{value} not placed": "{value} sin repartir",
+ "What the column adds up at each price over what is on the chart: traded volume, the change in open interest, absorption, or reported liquidations.": "Lo que la columna suma en cada precio sobre lo que está en el gráfico: volumen negociado, el cambio del interés abierto, absorción o liquidaciones informadas.",
+ "Open interest change": "Cambio del interés abierto",
+ "Each perpetual's change in open interest between its readings (about one a minute) spread over the prices that traded on it in between, by their share of the volume: where exposure grew (bid colour) and where it shrank (ask colour). An estimate of where, never of who: a change does not say which side opened or closed. Each venue counts on its own, and a change with no trades recorded under it, or between readings an hour apart, is not placed: the header says how much.": "El cambio de interés abierto de cada perpetuo entre sus lecturas (aproximadamente una por minuto), repartido entre los precios a los que se operó en él entre medias, según su cuota del volumen: dónde creció la exposición (color bid) y dónde se redujo (color ask). Una estimación de dónde, nunca de quién: un cambio no dice qué lado abrió o cerró. Cada exchange cuenta por separado, y un cambio sin operaciones registradas debajo, o entre lecturas separadas por una hora, no se reparte: la cabecera dice cuánto.",
+ "This page reads open interest only while it is open: Binance, Bybit and OKX also read back their five-minute history, Hyperliquid, Bitget and Deribit start when the page does.": "Esta página lee el interés abierto solo mientras está abierta: Binance, Bybit y OKX también leen hacia atrás su historial de cinco minutos; Hyperliquid, Bitget y Deribit empiezan cuando empieza la página."
 }
