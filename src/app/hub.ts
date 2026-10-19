@@ -31,6 +31,16 @@ export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m'
 const MINUTE = 60_000;
 /** The most absorption groups one question asks of each instrument (the largest). */
 const ABSORPTION_PER_INSTRUMENT = 4_000;
+
+/**
+ * One measure's column (`Hub.ensureMetricProfile`): its last answer (`held`: rows, what the record leaves out, the window's tag), whether the
+ * source can answer, and the question in flight or last asked, kept per measure so several columns are asked side by side.
+ */
+interface MetricColumn {
+  held: { step: number; answer: ProfileAnswer; flags: MetricFlags; tag: string } | null;
+  state: 'ready' | 'unavailable';
+  loading: boolean; asked: string; at: number; retryAt: number; ms: number; gen: number; settled: boolean;
+}
 /**
  * A window of recorded columns is complete once its last minute has ended and the recorder has taken that minute's last sample (seconds
  * later); this much room also covers a source whose clock is a little off.
@@ -261,10 +271,17 @@ export class Hub {
   #tradedSettled = false;
   /** Counts the traded-volume questions, so an answer can tell whether it is still the one wanted. */
   #tradedGen = 0;
-  /** The column's last answer for a measure other than traded volume (`ensureMetricProfile`), what it leaves out, and whether the source can answer. */
-  metricProfile: { metric: ProfileMetric; step: number; answer: ProfileAnswer; flags: MetricFlags } | null = null;
-  metricState: 'ready' | 'unavailable' = 'ready';
-  #metricLoading = false; #metricAsked = ''; #metricAt = 0; #metricRetryAt = 0; #metricMs = 0; #metricGen = 0;
+  /** Each measure's column other than traded volume (`ensureMetricProfile`): its last answer and how it is being asked, apart from the others. */
+  readonly #metricColumns = new Map<ProfileMetric, MetricColumn>();
+  #metricColumn(metric: ProfileMetric): MetricColumn {
+    let c = this.#metricColumns.get(metric);
+    if (!c) { c = { held: null, state: 'ready', loading: false, asked: '', at: 0, retryAt: 0, ms: 0, gen: 0, settled: false }; this.#metricColumns.set(metric, c); }
+    return c;
+  }
+  /** A measure's last answer (traded/metrics.ts), what it leaves out and the window it was asked for; null until one came. */
+  metricProfile(metric: ProfileMetric): MetricColumn['held'] { return this.#metricColumns.get(metric)?.held ?? null; }
+  /** Whether the source can answer for this measure ('unavailable': an older server; asked again a minute later). */
+  metricState(metric: ProfileMetric): 'ready' | 'unavailable' { return this.#metricColumns.get(metric)?.state ?? 'ready'; }
   /** Oldest recorded depth minute across instruments (ms), or 0 when nothing is recorded. */
   recordedSince = 0;
   /** Instrument with candle history to fall back to when the selected market has none. */
@@ -634,19 +651,20 @@ export class Hub {
    * Make sure the column has an answer for a measure other than traded volume (traded/metrics.ts) over this window, as `ensureTraded` does
    * for volume: the change in open interest of the perpetuals among `ids` (shared/oi-profile.ts), liquidations from the source's record
    * (its largest 5,000 when more match), absorption groups at each instrument's threshold
-   * (`thresholds`; one with none yet has nothing marked). Asked again every five seconds while the map follows the live edge, no oftener
-   * than ten times the last answer took (an absorption question reads a server's store).
+   * (`thresholds`; one with none yet has nothing marked). Asked again as `ensureTraded` asks (`live`, `settled`, the same spacing), and `tag`
+   * names the window for the answer held.
    */
-  ensureMetricProfile(metric: Exclude<ProfileMetric, 'volume'>, ids: readonly string[], from: number, to: number, step: number, live: boolean, thresholds: ReadonlyMap<string, number | null> = new Map()): void {
-    if (this.#metricLoading || !(to > from) || !(step > 0)) return;
+  ensureMetricProfile(metric: Exclude<ProfileMetric, 'volume'>, ids: readonly string[], from: number, to: number, step: number, live: boolean, period: { tag: string; settled: boolean } = { tag: '', settled: false }, thresholds: ReadonlyMap<string, number | null> = new Map()): void {
+    const c = this.#metricColumn(metric);
+    if (c.loading || !(to > from) || !(step > 0)) return;
     const now = Date.now();
-    if (this.metricState === 'unavailable' && now < this.#metricRetryAt) return;
+    if (c.state === 'unavailable' && now < c.retryAt) return;
     const judged = metric === 'absorption' ? ids.filter(id => typeof thresholds.get(id) === 'number').slice(0, MAX_ABSORPTION_INSTRUMENTS)
       : metric === 'oi' ? ids.filter(oiInstrument).slice(0, MAX_PROFILE_INSTRUMENTS) : [...ids];
-    const key = `${metric}|${judged.map(id => metric === 'absorption' ? `${id}:${thresholds.get(id)}` : id).join(',')}|${step}|${from}|${to}`;
-    if (key === this.#metricAsked && !(live && now - this.#metricAt >= Math.max(5_000, 10 * this.#metricMs))) return;
-    this.#metricLoading = true; this.#metricAsked = key; this.#metricAt = now;
-    const generation = ++this.#metricGen, started = performance.now(), source = this.source, none = { cut: false, incomplete: false };
+    const key = `${judged.map(id => metric === 'absorption' ? `${id}:${thresholds.get(id)}` : id).join(',')}|${step}|${from}|${to}|${period.tag}`;
+    if (key === c.asked && !(live && now - c.at >= Math.min(300_000, Math.max(5_000, 20 * c.ms))) && !(period.settled && !c.settled)) return;
+    c.loading = true; c.asked = key; c.at = now; c.settled = period.settled;
+    const generation = ++c.gen, started = performance.now(), source = this.source, none = { cut: false, incomplete: false };
     const work: Promise<{ answer: ProfileAnswer; flags: MetricFlags }> = metric === 'oi'
       ? (!judged.length ? Promise.resolve({ answer: { from, to, instruments: [] }, flags: none })
         : (source.oiProfile ? source.oiProfile(judged, from, to, step) : Promise.reject(new Error('no open-interest profile from this source')))
@@ -661,9 +679,9 @@ export class Hub {
         flags: { cut: a.capped.length > 0, incomplete: judged.some(id => (a.floors[id] ?? 0) > thresholds.get(id)!) },
       }));
     work.then(
-      ({ answer, flags }) => { if (generation !== this.#metricGen) return; this.#metricMs = performance.now() - started; this.metricProfile = { metric, step, answer, flags }; this.metricState = 'ready'; this.onTraded(); },
-      () => { if (generation !== this.#metricGen) return; this.metricState = 'unavailable'; this.#metricRetryAt = Date.now() + 60_000; this.#metricAsked = ''; this.onTraded(); },
-    ).finally(() => { this.#metricLoading = false; });
+      ({ answer, flags }) => { if (generation !== c.gen) return; c.ms = performance.now() - started; c.held = { step, answer, flags, tag: period.tag }; c.state = 'ready'; this.onTraded(); },
+      () => { if (generation !== c.gen) return; c.state = 'unavailable'; c.retryAt = Date.now() + 60_000; c.asked = ''; this.onTraded(); },
+    ).finally(() => { c.loading = false; });
   }
 
   /**

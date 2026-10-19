@@ -14,8 +14,12 @@ import { venueLabel } from '../venues.ts';
 import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { PROFILE_METRICS, type ProfileMetric } from './metrics.ts';
 
-/** A measure picked in the list (anything else is traded volume). */
-const oneMetric = (value: string): ProfileMetric => (PROFILE_METRICS as readonly string[]).includes(value) ? value as ProfileMetric : 'volume';
+/** Each measure's switch: its name, and what its column shows in a few words (the long notes follow the switches for those on). */
+const METRIC_NAMES: Readonly<Record<ProfileMetric, string>> = { volume: t('Traded volume'), oi: t('Open interest change'), absorption: t('Absorption'), liquidations: t('Liquidations') };
+const METRIC_TIPS: Readonly<Record<ProfileMetric, string>> = {
+  volume: t('What was bought and sold at market at each price.'), oi: t('Where open interest grew or shrank, an estimate.'),
+  absorption: t('Market orders that resting orders took, at each price.'), liquidations: t('Reported liquidations at each price.'),
+};
 
 /** What the panel says about where days, weeks and sessions come from: whether the page reads the exchanges itself, and the candles. */
 export interface TradedSources { browser: boolean; candles: ((barMs: number) => KeyLevelHistory) | null }
@@ -28,6 +32,11 @@ export interface TradedSources { browser: boolean; candles: ((barMs: number) => 
 export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLElement, rebuild: () => void, gridStep: () => number, sources: TradedSources = { browser: false, candles: null }): void {
   const s = store.state.traded;
   const set = (change: Partial<TradedSettings>, again = false): void => { store.set({ traded: { ...store.state.traded, ...change } }); if (again) rebuild(); };
+  // A measure's column on or off, the columns kept in their order; the last one cannot go (the switch above turns the columns off).
+  const toggle = (metric: ProfileMetric, on: boolean): void => {
+    const now = store.state.traded.metrics, next = PROFILE_METRICS.filter(m => m === metric ? on : now.includes(m));
+    if (next.length) set({ metrics: next }, true); else rebuild();
+  };
   tools.append(helpButton('traded'));
   const grid = gridStep(), money = (v: number): string => `$${v >= 1 ? usd(v) : v.toPrecision(2)}`;
   body.append(
@@ -38,23 +47,23 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
       [['view', t('What is on the chart')], ['day', t('Each day')], ['week', t('Each week')], ['sessions', t('Sessions')]], s.period, v => set({ period: v as TradedSettings['period'] }, true)),
     ...(s.period === 'day' || s.period === 'week'
       ? [selectRow(s.period === 'day' ? t('Days start in') : t('Weeks start in'), t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone }))] : []),
-    heading(t('Column')),
-    selectRow(t('Measure'), t('What the column adds up at each price over what is on the chart: traded volume, the change in open interest, absorption, or reported liquidations.'),
-      [['volume', t('Traded volume')], ['oi', t('Open interest change')], ['absorption', t('Absorption')], ['liquidations', t('Liquidations')]], s.metric, v => set({ metric: oneMetric(v) }, true)),
-    ...(s.metric === 'oi' ? [note(t('Each perpetual\'s change in open interest between its readings (about one a minute) spread over the prices that traded on it in between, by their share of the volume: where exposure grew (bid colour) and where it shrank (ask colour). An estimate of where, never of who: a change does not say which side opened or closed. Each venue counts on its own, and a change with no trades recorded under it, or between readings an hour apart, is not placed: the header says how much.')),
-      ...(sources.browser ? [note(t('This page reads open interest only while it is open: Binance, Bybit and OKX also read back their five-minute history, Hyperliquid, Bitget and Deribit start when the page does.'))] : [])]
-      : s.metric === 'absorption' ? [note(t('The absorption marks at the threshold the Absorption settings judge them at, each counted once: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). Where a minute kept only its largest groups, the header says so.'))]
-      : s.metric === 'liquidations' ? [note(t('Liquidations as the venues report them: shorts liquidated, forced buys (bid colour), and longs liquidated, forced sells (ask colour). Only Binance, Bybit, OKX and Deribit report them, Binance at most one a market a second, so this is what was reported, not all there was.'))] : []),
-    ...(s.metric !== 'volume' ? [note(t('The point of control and the value area are this measure\'s, over what is on the chart: days, weeks and sessions are worked out from traded volume.'))] : []),
+    heading(t('Columns')),
+    note(t('One column for each measure switched on, side by side on the same price rows, over the window chosen above. The map keeps at least half the width: a narrow one draws only the first columns that fit.')),
+    ...PROFILE_METRICS.map(m => switchRow(METRIC_NAMES[m], METRIC_TIPS[m], s.metrics.includes(m), on => toggle(m, on))),
+    ...(s.metrics.includes('oi') ? [note(t('Each perpetual\'s change in open interest between its readings (about one a minute) spread over the prices that traded on it in between, by their share of the volume: where exposure grew (bid colour) and where it shrank (ask colour). An estimate of where, never of who: a change does not say which side opened or closed. Each venue counts on its own, and a change with no trades recorded under it, or between readings an hour apart, is not placed: the header says how much.')),
+      ...(sources.browser ? [note(t('This page reads open interest only while it is open: Binance, Bybit and OKX also read back their five-minute history, Hyperliquid, Bitget and Deribit start when the page does.'))] : [])] : []),
+    ...(s.metrics.includes('absorption') ? [note(t('The absorption marks at the threshold the Absorption settings judge them at, each counted once: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). Where a minute kept only its largest groups, the header says so.'))] : []),
+    ...(s.metrics.includes('liquidations') ? [note(t('Liquidations as the venues report them: shorts liquidated, forced buys (bid colour), and longs liquidated, forced sells (ask colour). Only Binance, Bybit, OKX and Deribit report them, Binance at most one a market a second, so this is what was reported, not all there was.'))] : []),
     selectRow(t('Bars'), t('Buys and sells side by side, or only their difference: which side was the bigger at each price, and by how much.'), [['split', t('Buys and sells')], ['delta', t('Delta')]], s.bars, v => set({ bars: v === 'delta' ? 'delta' : 'split' })),
     switchRow(t('Mark the value area'), t('Shade the value area on the column and draw its point of control across it.'), s.valueArea, valueArea => set({ valueArea })),
-    // A drag adds up traded volume at those prices, whatever the column shows: said only where the two are the same.
-    ...(s.metric === 'volume' ? [note(t('Drag on the column (or click a row) to add up those prices in the Range panel.'))] : []),
+    // A drag adds up traded volume at those prices, whatever the column shows: said only where traded volume has a column of its own.
+    ...(s.metrics.includes('volume') ? [note(t('Drag on the column (or click a row) to add up those prices in the Range panel.'))] : []),
     heading(t('Point of control and value area')),
     selectRow(t('Value area'), t('The share of the volume the value area holds around the point of control. 70% is the usual one.'), SHARES.map(v => [String(v), `${v}%`] as [string, string]), String(s.share), v => set({ share: Number(v) })),
     selectRow(t('Row size'), t('The price rows the point of control is read from, at every price that traded: larger rows give a steadier level. Auto is the map\'s grid step.'),
       ROW_MULTIPLES.map(m => [String(m), m === 1 ? t('Auto ({value})', { value: money(grid) }) : money(grid * m)] as [string, string]), String(s.rows), v => set({ rows: Number(v) })),
     heading(t('Lines on the chart')),
+    ...(!s.metrics.includes('volume') ? [note(t('With no traded volume column, the lines are the first column\'s, over the window chosen above; past days, weeks and sessions are worked out from traded volume only.'))] : []),
     switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
     switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
     switchRow(t('Labels'), t('Name each line at its right end, the point of control with its price.'), s.labels, labels => set({ labels })),
