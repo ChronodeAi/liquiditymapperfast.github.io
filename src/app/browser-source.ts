@@ -4,6 +4,7 @@ import { checkTape } from '../shared/tape.ts';
 import { TIMEFRAMES } from '../shared/series.ts';
 import { LongShortCache, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { webGet } from '../shared/history.ts';
+import { PriceHistoryCache, priceListing, type PriceHistoryAnswer } from '../shared/price-history.ts';
 import { toWire } from '../shared/prints.ts';
 import { toWire as liquidationWire, type Liquidation } from '../shared/liquidations.ts';
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
@@ -98,6 +99,7 @@ export class BrowserSource implements DataSource, VenueControl {
   #readyAt = 0;
 
   constructor(worker: Worker, { persist = true, coin = BTC, tier = 0 }: { persist?: boolean; coin?: Coin; tier?: number } = {}) {
+    this.#coin = coin;
     this.#worker = worker;
     let ready!: () => void, known!: () => void, failReady!: (error: Error) => void, failKnown!: (error: Error) => void;
     this.#ready = new Promise<void>((resolve, reject) => { ready = resolve; failReady = reject; });
@@ -205,6 +207,13 @@ export class BrowserSource implements DataSource, VenueControl {
   }
 
   async candles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> { return this.#call({ method: 'candles', inst, tfMs: TIMEFRAMES[tf] ?? 3_600_000, from, to }); }
+  readonly #coin: Coin;
+  readonly #priceHistory = new PriceHistoryCache(webGet);
+  priceHistory(inst: string, tf: string, from: number, to: number): Promise<PriceHistoryAnswer> {
+    const target = priceListing(this.#coin, inst);
+    if (!target || !Object.hasOwn(TIMEFRAMES, tf)) return Promise.reject(new Error('Unsupported price history'));
+    return this.#priceHistory.series(target, TIMEFRAMES[tf]!, from, to);
+  }
   /**
    * Read from the venues by the page itself (each answers with CORS headers but OKX, which a page cannot read), kept in memory. A cancelled
    * question is not cancelled here: the request is the series', shared with every question for it, and the cache bounds its wait.

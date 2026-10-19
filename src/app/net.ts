@@ -10,6 +10,8 @@ import { fromWire, type Print } from './prints.ts';
 import { fromWire as liquidationFromWire, type Liquidation } from '../shared/liquidations.ts';
 import { decodeColumns, decodeLevels, decodeTape, frameType, type ColumnsFrame } from './wire.ts';
 import type { CandleRow, OiBar } from './store.ts';
+import { parsePriceHistory, type PriceHistoryAnswer } from '../shared/price-history.ts';
+import { TIMEFRAMES } from '../shared/series.ts';
 import type { BootstrapState, FootprintResponse, LayersMessage, LiquidationsMessage, LiveHandlers, PrintsMessage, TickMessage } from './source.ts';
 import { t } from './i18n.ts';
 
@@ -29,6 +31,10 @@ export const getBootstrap = async (): Promise<BootstrapState> => (await request(
 export async function getCandles(inst: string, tf: string, from: number, to: number): Promise<CandleRow[]> {
   const body = await (await request(`/api/v2/candles?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${from}&to=${to}`)).json() as { candles: CandleRow[] };
   return body.candles;
+}
+export async function getPriceHistory(inst: string, tf: string, from: number, to: number, signal?: AbortSignal): Promise<PriceHistoryAnswer> {
+  const response = await request(`/api/v2/price-history?inst=${encodeURIComponent(inst)}&tf=${tf}&from=${from}&to=${to}`, signal);
+  return parsePriceHistory(await response.json(), inst, TIMEFRAMES[tf] ?? 0);
 }
 /** Whale VWAP sums (a server from before them answers 404, which is an error here); rows that are not five finite numbers are dropped. */
 export async function getPrintSums(ids: string[], from: number, to: number, minUsd: number, stepMs: number): Promise<PrintSumsAnswer> {

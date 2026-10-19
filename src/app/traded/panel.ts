@@ -33,6 +33,11 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
   body.append(
     switchRow(t('Show the volume profile'), t('The column of traded volume beside the book profile, and the point-of-control lines on the chart.'), store.state.show.traded, on => { store.set({ show: { ...store.state.show, traded: on } }); rebuild(); }),
     ...(compactBar() ? [note(t('A phone has no room for the column: the lines on the chart still show.'))] : []),
+    // What the column and the lines add up is the first thing to choose: it is above both of their sections.
+    selectRow(t('Worked out over'), t('What the column and the lines add up: what is on the chart (they move with it), each day, each week, or the sessions below.'),
+      [['view', t('What is on the chart')], ['day', t('Each day')], ['week', t('Each week')], ['sessions', t('Sessions')]], s.period, v => set({ period: v as TradedSettings['period'] }, true)),
+    ...(s.period === 'day' || s.period === 'week'
+      ? [selectRow(s.period === 'day' ? t('Days start in') : t('Weeks start in'), t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone }))] : []),
     heading(t('Column')),
     selectRow(t('Measure'), t('What the column adds up at each price over what is on the chart: traded volume, the change in open interest, absorption, or reported liquidations.'),
       [['volume', t('Traded volume')], ['oi', t('Open interest change')], ['absorption', t('Absorption')], ['liquidations', t('Liquidations')]], s.metric, v => set({ metric: oneMetric(v) }, true)),
@@ -53,12 +58,7 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
     switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
     switchRow(t('Labels'), t('Name each line at its right end, the point of control with its price.'), s.labels, labels => set({ labels })),
-    selectRow(t('Worked out over'), t('What is on the chart (the lines move with it), each day, each week, or the sessions below.'),
-      [['view', t('What is on the chart')], ['day', t('Each day')], ['week', t('Each week')], ['sessions', t('Sessions')]], s.period, v => set({ period: v as TradedSettings['period'] }, true)),
   );
-  if (s.period === 'day' || s.period === 'week') {
-    body.append(selectRow(s.period === 'day' ? t('Days start in') : t('Weeks start in'), t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone })));
-  }
   if (s.period !== 'view') {
     const target = profileTarget(currentCoin()), market = target ? `${venueLabel(target.id)} ${target.listing.symbol}` : '';
     body.append(selectRow(t('Worked out from'), t('The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market\'s, reaching back months, an estimate.'),

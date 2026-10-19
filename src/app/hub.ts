@@ -25,6 +25,7 @@ import { KeyLevelHistory } from './keylevels/history.ts';
 import { TapeRing, tapeCapacity } from './tape/ring.ts';
 import { isPhone } from './device.ts';
 import type { SumRow } from '../shared/print-sums.ts';
+import { ChartPriceHistory } from './price-history.ts';
 
 export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
 const MINUTE = 60_000;
@@ -69,6 +70,7 @@ export function defaultMarket(markets: readonly { instrumentId?: string; venue?:
 }
 
 export class Hub {
+  readonly priceHistory: ChartPriceHistory;
   readonly worker: Worker;
   #ready: Promise<void>;
   #rasterId = 0;
@@ -234,8 +236,11 @@ export class Hub {
    * `cover`, which a full book narrows when it lets claimed groups the view no longer needs go.
    */
   #absorptionCover: { key: string; minutesFrom: number } | null = null;
-  /** The traded-volume column's last answer, the row step it was asked on, and whether the source can answer at all. */
-  traded: { step: number; answer: ProfileAnswer } | null = null;
+  /**
+   * The traded-volume column's last answer, the row step it was asked on and the `tag` of the window it was asked for (the day, week or session
+   * it adds up; empty for what is on the chart), so the column can tell it from another window's that began at the same time.
+   */
+  traded: { step: number; answer: ProfileAnswer; tag: string } | null = null;
   /**
    * Value areas of days, weeks and sessions by window (`valueAreaKey`), with when each was answered (`at`), the source's clock then (`asOf`:
    * what it reaches), and whether it can no longer change (`final`: answered a while after it ended), so it is not asked again (`ensureValueAreas`).
@@ -247,6 +252,13 @@ export class Hub {
   /** Called when the traded-volume column has a new answer (or the source said it has none). */
   onTraded: () => void = () => {};
   #tradedLoading = false; #tradedAsked = ''; #tradedAt = 0; #tradedRetryAt = 0;
+  /**
+   * How long the last traded-volume answer took (ms). A server answers on its only thread: a week of rows took 7 to 9 s on a live recording of
+   * 27 markets (2026-10-18), during which it answered nothing else, so a slow answer is asked for again that much less often.
+   */
+  #tradedMs = 0;
+  /** Whether the last question was asked for a window already over (see `ensureTraded`'s `settled`). */
+  #tradedSettled = false;
   /** Counts the traded-volume questions, so an answer can tell whether it is still the one wanted. */
   #tradedGen = 0;
   /** The column's last answer for a measure other than traded volume (`ensureMetricProfile`), what it leaves out, and whether the source can answer. */
@@ -261,6 +273,10 @@ export class Hub {
   #oiReferences: string[] = [];
 
   constructor(readonly store: Store, readonly source: DataSource) {
+    this.priceHistory = new ChartPriceHistory((id, tf, from, to, signal) => {
+      if (!source.priceHistory) return Promise.reject(new Error('Price history is unavailable'));
+      return source.priceHistory(id, tf, from, to, signal);
+    });
     this.worker = new Worker(new URL('./worker/raster.worker.ts', import.meta.url), { type: 'module' });
     this.#ready = new Promise(resolve => {
       this.worker.onmessage = (event: MessageEvent<WorkerOut>) => {
@@ -591,21 +607,25 @@ export class Hub {
 
   /**
    * Make sure the traded-volume column has an answer for these instruments, this window (whole minutes) and this row step. Safe to call
-   * every frame: one request at a time, a new one when the question changes, and every five seconds while the map follows the live edge (the
-   * open minute keeps trading). A source that cannot answer (an older server) is asked again a minute later.
+   * every frame: one request at a time, a new one when the question changes, and every five seconds while the window is open (`live`: the
+   * map follows the live edge, or the day, week or session it adds up is under way; the open minute keeps trading), no oftener than twenty
+   * times the last answer took and at most five minutes apart. A window that was open when it was last asked and is over now (`settled`: a
+   * session that has ended) is asked once more, so the answer that stays holds all of it. A source that cannot answer (an older server) is
+   * asked again a minute later. `tag` names the window for the answer held (`traded`).
    */
-  ensureTraded(ids: readonly string[], from: number, to: number, step: number, live: boolean): void {
+  ensureTraded(ids: readonly string[], from: number, to: number, step: number, live: boolean, period: { tag: string; settled: boolean } = { tag: '', settled: false }): void {
     // No instruments left: nothing has traded on the map, and an answer still on its way for the last ones must not draw them back.
     if (!ids.length) { if (this.traded || this.#tradedAsked) { this.traded = null; this.#tradedAsked = ''; this.#tradedGen++; this.onTraded(); } return; }
     if (this.#tradedLoading || !(to > from) || !(step > 0)) return;
     const now = Date.now();
     if (this.tradedState === 'unavailable' && now < this.#tradedRetryAt) return;
-    const key = `${ids.join(',')}|${step}|${from}|${to}`;
-    if (key === this.#tradedAsked && !(live && now - this.#tradedAt >= 5_000)) return;
-    this.#tradedLoading = true; this.#tradedAsked = key; this.#tradedAt = now;
-    const generation = ++this.#tradedGen;
+    // The window's tag is part of the question: a day and the session that covers the same hours have the same bounds and another answer's name.
+    const key = `${ids.join(',')}|${step}|${from}|${to}|${period.tag}`;
+    if (key === this.#tradedAsked && !(live && now - this.#tradedAt >= Math.min(300_000, Math.max(5_000, 20 * this.#tradedMs))) && !(period.settled && !this.#tradedSettled)) return;
+    this.#tradedLoading = true; this.#tradedAsked = key; this.#tradedAt = now; this.#tradedSettled = period.settled;
+    const generation = ++this.#tradedGen, started = performance.now();
     this.source.profile([...ids], from, to, step).then(
-      answer => { if (generation !== this.#tradedGen) return; this.traded = { step, answer }; this.tradedState = 'ready'; this.onTraded(); },
+      answer => { if (generation !== this.#tradedGen) return; this.#tradedMs = performance.now() - started; this.traded = { step, answer, tag: period.tag }; this.tradedState = 'ready'; this.onTraded(); },
       () => { if (generation !== this.#tradedGen) return; this.tradedState = 'unavailable'; this.#tradedRetryAt = Date.now() + 60_000; this.#tradedAsked = ''; this.onTraded(); },
     ).finally(() => { this.#tradedLoading = false; });
   }
