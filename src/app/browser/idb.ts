@@ -54,9 +54,9 @@ function openDatabase(name: string): Promise<IDBDatabase> {
   });
 }
 
-/** `work`, or a failure once it has taken `ms`. */
-const withTimeout = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
-  Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms))]);
+/** `work`, or `late` once it has taken `ms`. */
+const withTimeout = <T>(work: Promise<T>, ms: number, late: Error): Promise<T> =>
+  Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(late), ms))]);
 /** How long the database may take to open: a tab that never lets go of it would otherwise keep this page without recordings and without a word. */
 const OPEN_TIMEOUT_MS = 10_000;
 /** After a failed write the next waits twice as long each time, up to this. */
@@ -98,7 +98,7 @@ export interface Recordings {
 export async function openRecordings(name: string, since: number, canWrite: () => boolean, events: RecordingEvents = {}): Promise<Recordings> {
   // Only the opening is timed: reading a day back takes as long as it takes (it is what the page is for), and a page that gave up on it
   // started with nothing and saved nothing.
-  let db = await withTimeout(openDatabase(name), OPEN_TIMEOUT_MS, 'opening the recordings');
+  let db = await withTimeout(openDatabase(name), OPEN_TIMEOUT_MS, new Error(`opening the recordings took longer than ${OPEN_TIMEOUT_MS} ms`));
   /** The connection was closed under this page (by the browser, or for a newer page): it is opened again before the next write. */
   let lost = false;
   const watch = (connection: IDBDatabase): void => { connection.onclose = () => { lost = true; }; };
@@ -120,7 +120,7 @@ export async function openRecordings(name: string, since: number, canWrite: () =
     if (!ops.length || failed || closed) return;
     try {
       if (lost) {
-        try { db = await withTimeout(openDatabase(name), OPEN_TIMEOUT_MS, 'opening the recordings again'); }
+        try { db = await withTimeout(openDatabase(name), OPEN_TIMEOUT_MS, new Error(`opening the recordings again took longer than ${OPEN_TIMEOUT_MS} ms`)); }
         catch (error) {
           // A newer page has moved the database to its version: that page records now, and this one lets go for good.
           if (error instanceof DOMException && error.name === 'VersionError') { failed = true; events.failed?.(error, true); return; }
