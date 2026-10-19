@@ -1453,5 +1453,7 @@
  "Median price": "Medyan fiyat",
  "Above the point of control": "Kontrol noktasının üstünde",
  "Below the point of control": "Kontrol noktasının altında",
- "Price now": "Şu anki fiyat"
+ "Price now": "Şu anki fiyat",
+ "Also draw the lines of": "Şunların çizgilerini de çiz",
+ "Its point of control and value area lines too, with its past ones, beside those of the window the columns add up.": "Sütunların topladığı dönemin çizgilerinin yanında, bunun kontrol noktası ve değer alanı çizgilerini de geçmiştekilerle birlikte çizer."
 }

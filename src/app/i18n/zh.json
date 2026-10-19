@@ -1413,5 +1413,7 @@
  "Median price": "中位价格",
  "Above the point of control": "高于控制点",
  "Below the point of control": "低于控制点",
- "Price now": "当前价格"
+ "Price now": "当前价格",
+ "Also draw the lines of": "同时绘制以下线条",
+ "Its point of control and value area lines too, with its past ones, beside those of the window the columns add up.": "在各列汇总的时段线条之外，也绘制它的控制点和价值区域线条，连同过去的。"
 }

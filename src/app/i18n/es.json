@@ -1467,5 +1467,7 @@
  "Median price": "Precio mediano",
  "Above the point of control": "Por encima del punto de control",
  "Below the point of control": "Por debajo del punto de control",
- "Price now": "Precio ahora"
+ "Price now": "Precio ahora",
+ "Also draw the lines of": "Dibujar también las líneas de",
+ "Its point of control and value area lines too, with its past ones, beside those of the window the columns add up.": "También sus líneas de punto de control y área de valor, con las pasadas, junto a las del periodo que suman las columnas."
 }

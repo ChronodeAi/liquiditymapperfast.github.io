@@ -12,6 +12,10 @@ import { PROFILE_METRICS, type ProfileMetric } from './metrics.ts';
  *   keeps trades, or the most traded venue's candles, an estimate that reaches back further); how many past ones are drawn, and whether a
  *   point of control nobody has traded through since (a naked one) runs on to the right.
  */
+/** A kind of window the lines can be drawn for. */
+export type LineKind = 'day' | 'week' | 'month' | 'sessions';
+export const LINE_KINDS: readonly LineKind[] = ['day', 'week', 'month', 'sessions'];
+
 export interface TradedSettings {
   /**
    * What the columns add up by price, one column each, side by side in this order (traded/metrics.ts): traded volume, the change in open
@@ -25,7 +29,12 @@ export interface TradedSettings {
   /** Row size for the point of control and the value area, as a multiple of the map's grid step. */
   rows: number;
   poc: boolean; va: boolean; labels: boolean;
-  period: 'view' | 'day' | 'week' | 'month' | 'sessions';
+  period: 'view' | LineKind;
+  /**
+   * The periods whose lines are drawn as well as the window the columns add up (`period`): days and weeks, say, beside the month, each
+   * with its own past ones and names. Empty: the lines are the columns' window's alone, as before there was a choice.
+   */
+  lines: LineKind[];
   /**
    * What days, weeks and sessions are worked out from: `recorded`, the recording's trades on the flow column's venues (only as far back as
    * the recording keeps them: `recordedCount`), or `candles`, one venue's candles with each one's volume spread over its range (`candleLevels`).
@@ -66,6 +75,13 @@ export function linesCount(s: TradedSettings, retentionMs: number): number {
  * What the lines of past days, weeks, months or sessions are worked out from: the setting, but a month always from candles (it is longer
  * than the recording keeps, so no month can be worked out from it; the panel says so rather than offer the choice).
  */
+/**
+ * The kinds of window the lines are drawn for: the columns' window's first (when it is a period and the lines are traded volume's: another
+ * measure draws its own levels over it), then the others switched on, each once.
+ */
+export function lineKinds(s: Pick<TradedSettings, 'period' | 'lines'>, volumeLines = true): LineKind[] {
+  return [...(s.period !== 'view' && volumeLines ? [s.period] : []), ...s.lines.filter(k => k !== s.period)];
+}
 export const linesSource = (s: Pick<TradedSettings, 'period' | 'source'>): TradedSettings['source'] => s.period === 'month' ? 'candles' : s.source;
 /** How many past ones candles can draw: twenty weeks of them hold four whole months. */
 export const mostCount = (s: Pick<TradedSettings, 'period'>): number => s.period === 'month' ? MAX_MONTHS : MAX_COUNT;
@@ -91,7 +107,7 @@ const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!,
 
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
   metrics: ['volume'], bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true, tags: true,
-  period: 'view', source: 'recorded', zone: 'page', count: 5, naked: true, pastProfiles: false,
+  period: 'view', lines: [], source: 'recorded', zone: 'page', count: 5, naked: true, pastProfiles: false,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
 
@@ -136,6 +152,7 @@ export function readTraded(saved: unknown): TradedSettings {
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels), tags: flag(s.tags, d.tags),
     period: oneOf(['view', 'day', 'week', 'month', 'sessions'] as const, s.period, d.period),
+    lines: Array.isArray(s.lines) ? LINE_KINDS.filter(k => (s.lines as unknown[]).includes(k)) : [],
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
     zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), pastProfiles: flag(s.pastProfiles, d.pastProfiles), sessions,
   };

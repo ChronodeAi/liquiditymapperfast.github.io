@@ -1413,5 +1413,7 @@
  "Median price": "中央値の価格",
  "Above the point of control": "ポイント・オブ・コントロールより上",
  "Below the point of control": "ポイント・オブ・コントロールより下",
- "Price now": "現在の価格"
+ "Price now": "現在の価格",
+ "Also draw the lines of": "次のラインも描く",
+ "Its point of control and value area lines too, with its past ones, beside those of the window the columns add up.": "列が集計する期間のラインに加えて、このポイント・オブ・コントロールとバリューエリアのラインも過去の分とともに描きます。"
 }

@@ -1486,5 +1486,7 @@
  "Median price": "Медіанна ціна",
  "Above the point of control": "Вище точки контролю",
  "Below the point of control": "Нижче точки контролю",
- "Price now": "Ціна зараз"
+ "Price now": "Ціна зараз",
+ "Also draw the lines of": "Малювати також лінії",
+ "Its point of control and value area lines too, with its past ones, beside those of the window the columns add up.": "Його лінії точки контролю та зони вартості теж, разом із минулими, поруч із лініями періоду, який підсумовують стовпці."
 }

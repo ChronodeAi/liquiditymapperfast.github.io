@@ -8,8 +8,8 @@ import { QuotaLedger } from '../src/core/quota.mts';
 import { levelsOf, pointOfControl, valueArea } from '../src/shared/profile.ts';
 import { FootprintRecorder, parseProfile, parseValueAreas } from '../src/shared/footprint.ts';
 import { dayWindows, fromWall, lastWindows, offsetMs, sessionWindows, weekWindows, type SessionDef } from '../src/app/traded/sessions.ts';
-import { TRADED_DEFAULTS, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
-import { answerLevels, candleBarMs, candleLevels, columnWindow, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt, windowLabel, windowZone } from '../src/app/traded/levels.ts';
+import { TRADED_DEFAULTS, lineKinds, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
+import { answerLevels, candleBarMs, candleLevels, columnWindow, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
 import { TradeCoverage, recordedMinutes } from '../src/shared/coverage.ts';
 import { tradedRows } from '../src/app/traded.ts';
 import { initialState } from '../src/app/store.ts';
@@ -273,6 +273,14 @@ test('from the recording only what it still holds is offered: as many days or se
   assert.equal(readTraded({}).pastProfiles, false, 'past profiles on the chart are off until switched on');
   assert.equal(readTraded({ pastProfiles: true }).pastProfiles, true); assert.equal(readTraded({ pastProfiles: 'yes' }).pastProfiles, false);
   assert.equal(readTraded({}).tags, true, 'a save from before the tags names its lines on the axis'); assert.equal(readTraded({ tags: false }).tags, false);
+  // Other periods' lines beside the columns' own: kept in their order, each once, nothing unknown; a save from before draws the columns' alone.
+  assert.deepEqual(readTraded({}).lines, []);
+  assert.deepEqual(readTraded({ lines: ['month', 'day', 'month', 'year'] }).lines, ['day', 'month']);
+  assert.deepEqual(readTraded({ lines: 'day' }).lines, []);
+  assert.deepEqual(lineKinds({ period: 'month', lines: ['day', 'month', 'week'] }), ['month', 'day', 'week'], 'the columns\' kind first, each once');
+  assert.deepEqual(lineKinds({ period: 'view', lines: ['week'] }), ['week']);
+  assert.deepEqual(lineKinds({ period: 'day', lines: ['week'] }, false), ['week'], 'another measure draws its own levels over the columns\' window');
+  assert.deepEqual(['day|UTC|1', 'week|UTC|1', 'month|UTC|1', 'session|s1|1'].map(key => windowKind({ key })), ['day', 'week', 'month', 'sessions']);
   // Weeks in UTC on Sunday 2026-10-18: this week began on the 12th, inside the seven days; the week of the 5th did not.
   const now = Date.UTC(2026, 9, 18, 15), weeks = linesWindows({ ...TRADED_DEFAULTS, period: 'week', zone: 'UTC', count: 5, source: 'candles' }, 'utc', now - 30 * DAY, now, now);
   assert.equal(weeks.length, 5);

@@ -1413,5 +1413,7 @@
  "Median price": "중앙값 가격",
  "Above the point of control": "포인트 오브 컨트롤 위",
  "Below the point of control": "포인트 오브 컨트롤 아래",
- "Price now": "현재 가격"
+ "Price now": "현재 가격",
+ "Also draw the lines of": "다음의 선도 그리기",
+ "Its point of control and value area lines too, with its past ones, beside those of the window the columns add up.": "열이 합산하는 기간의 선과 함께, 이것의 포인트 오브 컨트롤과 밸류 에어리어 선도 지난 것까지 그립니다."
 }

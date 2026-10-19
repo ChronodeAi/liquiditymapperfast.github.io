@@ -2,7 +2,7 @@ import type { ProfileAnswer } from '../../shared/footprint.ts';
 import { levelsOf, rowOf, type ValueLevels } from '../../shared/profile.ts';
 import type { CandleRow } from '../store.ts';
 import { dayWindows, lastWindows, minutesOf, monthWindows, sessionWindows, weekWindows, type ProfileWindow } from './sessions.ts';
-import { resolveZone, type TradedSettings } from './settings.ts';
+import { resolveZone, type LineKind, type TradedSettings } from './settings.ts';
 
 /**
  * The step the traded column asks its rows on: one that both its display rows and the point of control's rows are whole multiples of (and
@@ -48,6 +48,12 @@ export function linesWindows(s: TradedSettings, pageZone: 'local' | 'utc', t0: n
   const all = s.period === 'day' ? dayWindows(zone, t0, end) : s.period === 'week' ? weekWindows(zone, t0, end) : s.period === 'month' ? monthWindows(zone, t0, end)
     : sessionWindows(s.sessions, t0, end, z => resolveZone(z, pageZone));
   return lastWindows(all, count, now);
+}
+
+/** A window's kind, from its key (`day|…`, `week|…`, `month|…`, `session|…`). */
+export function windowKind(w: Pick<ProfileWindow, 'key'>): LineKind {
+  const kind = w.key.slice(0, w.key.indexOf('|'));
+  return kind === 'session' ? 'sessions' : kind === 'week' || kind === 'month' ? kind : 'day';
 }
 
 /** The windows the recording can still work out: those that began inside what it keeps (`retentionMs` back from the real clock `now`). */
