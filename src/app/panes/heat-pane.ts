@@ -40,7 +40,7 @@ import { PRICE_SPAN_SHARE, TIME_SPAN_MS, holdPixel, limitFactor, regionAt, wheel
 import { t } from '../i18n.ts';
 import { currentCoin, scaledUsd } from '../coin.ts';
 import { linesToAsk } from '../sizes.ts';
-import { linesCount, resolveZone } from '../traded/settings.ts';
+import { linesCount, linesSource, resolveZone } from '../traded/settings.ts';
 import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { MAX_BACK_MS, barMsFor, keyLines, neededFrom, type KeyLine } from '../keylevels/levels.ts';
 import { anyLine } from '../keylevels/settings.ts';
@@ -1189,7 +1189,7 @@ export class HeatPane {
     const w = this.#tradedPeriod(), state = this.store.state;
     if (!w) return '';
     const zone = windowZone(w, state.traded, state.timeZone);
-    return windowLabel(w, at => periodDate(at, 'day', zone), t('Week'));
+    return windowLabel(w, at => periodDate(at, 'day', zone), t('Week'), at => periodDate(at, 'month', zone));
   }
   /**
    * The window the traded column adds up: the day, week or session the settings pick, else the whole minutes on the map, up to the one that
@@ -1393,10 +1393,10 @@ export class HeatPane {
    */
   #linesWindows(state: AppState): ProfileWindow[] {
     const v = this.view, MIN = 60_000, s = state.traded, now = pageNow(), real = Date.now(), keeps = this.#recordingKeeps();
-    const key = `${s.period}|${s.source}|${keeps}|${s.zone}|${s.count}|${JSON.stringify(s.sessions)}|${state.timeZone}|${Math.floor(v.t0 / MIN)}|${Math.ceil(v.t1 / MIN)}|${Math.floor(now / MIN)}|${Math.floor(real / MIN)}`;
+    const key = `${s.period}|${linesSource(s)}|${keeps}|${s.zone}|${s.count}|${JSON.stringify(s.sessions)}|${state.timeZone}|${Math.floor(v.t0 / MIN)}|${Math.ceil(v.t1 / MIN)}|${Math.floor(now / MIN)}|${Math.floor(real / MIN)}`;
     if (this.#vaWindows?.key !== key) {
       const windows = linesWindows(s, state.timeZone, v.t0, v.t1, now, linesCount(s, keeps));
-      this.#vaWindows = { key, windows: s.source === 'recorded' ? recordedWindows(windows, real, keeps) : windows };
+      this.#vaWindows = { key, windows: linesSource(s) === 'recorded' ? recordedWindows(windows, real, keeps) : windows };
     }
     return this.#vaWindows.windows;
   }
@@ -1410,7 +1410,7 @@ export class HeatPane {
     if (s.period === 'view' || lineMetric(state) !== 'volume' || (!s.poc && !s.va)) return;
     const windows = this.#linesWindows(state);
     if (!windows.length) return;
-    if (s.source === 'recorded') { this.hub.ensureValueAreas(flowIds(state, this.hub.flow.ids), windows, this.#levelStep(), s.share / 100); return; }
+    if (linesSource(s) === 'recorded') { this.hub.ensureValueAreas(flowIds(state, this.hub.flow.ids), windows, this.#levelStep(), s.share / 100); return; }
     const { target, barMs } = this.#profileCandles(state), from = Math.min(...windows.map(w => w.from));
     this.hub.profileHistory(barMs).ensure(target, Math.floor(from / barMs) * barMs, barMs, () => this.invalidate());
   }
@@ -1463,7 +1463,7 @@ export class HeatPane {
       for (const w of windows) {
         // The levels and how far what they were worked out from reaches: a line is drawn no further than that.
         let levels: ValueLevels | null = null, upTo = now;
-        if (s.source === 'candles') { const r = this.#windowFromCandles(state, w, step, share, now); if (r) { levels = r.levels; upTo = r.upTo; } }
+        if (linesSource(s) === 'candles') { const r = this.#windowFromCandles(state, w, step, share, now); if (r) { levels = r.levels; upTo = r.upTo; } }
         else {
           const held = this.hub.valueAreas.get(valueAreaKey(ids, step, share, w));
           if (replaying() && w.to > now) continue;
@@ -1477,7 +1477,7 @@ export class HeatPane {
         let naked: number | null = null;
         if (s.naked && w.to <= now) { const touched = touchedAt(levels.poc, w.to, state.candles, step / 2); naked = touched === null ? pw : v.xOf(touched, pw); }
         if (Math.max(x1, naked ?? x1) < 0 || x0 > pw) continue;
-        segments.push({ x0, x1, levels, name: s.source === 'candles' ? `≈ ${w.name}`.trim() : w.name, naked });
+        segments.push({ x0, x1, levels, name: linesSource(s) === 'candles' ? `≈ ${w.name}`.trim() : w.name, naked });
       }
     }
     if (!segments.length) return;

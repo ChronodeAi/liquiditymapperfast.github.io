@@ -25,7 +25,7 @@ export interface TradedSettings {
   /** Row size for the point of control and the value area, as a multiple of the map's grid step. */
   rows: number;
   poc: boolean; va: boolean; labels: boolean;
-  period: 'view' | 'day' | 'week' | 'sessions';
+  period: 'view' | 'day' | 'week' | 'month' | 'sessions';
   /**
    * What days, weeks and sessions are worked out from: `recorded`, the recording's trades on the flow column's venues (only as far back as
    * the recording keeps them: `recordedCount`), or `candles`, one venue's candles with each one's volume spread over its range (`candleLevels`).
@@ -41,7 +41,7 @@ export interface TradedSettings {
 
 export const ROW_MULTIPLES = [0.25, 0.5, 1, 2, 5, 10] as const;
 export const SHARES = [50, 60, 68, 70, 75, 80, 85, 90, 95] as const;
-export const MAX_SESSIONS = 8, MAX_COUNT = 20;
+export const MAX_SESSIONS = 8, MAX_COUNT = 20, MAX_MONTHS = 4;
 
 const DAY = 86_400_000;
 /**
@@ -50,13 +50,21 @@ const DAY = 86_400_000;
  * seven days ago, and none when less than a week is kept (a page reading the exchanges itself keeps a day). Older ones are no longer there.
  */
 export function recordedCount(period: TradedSettings['period'], retentionMs: number): number {
+  if (period === 'month') return 0;
   if (period === 'week') return retentionMs >= 7 * DAY ? 1 : 0;
   return Math.max(0, Math.floor(retentionMs / DAY));
 }
 /** How many past ones are drawn: the setting, and from the recording no more than it can still work out. */
 export function linesCount(s: TradedSettings, retentionMs: number): number {
-  return s.source === 'candles' ? s.count : Math.min(s.count, recordedCount(s.period, retentionMs));
+  return linesSource(s) === 'candles' ? Math.min(s.count, mostCount(s)) : Math.min(s.count, recordedCount(s.period, retentionMs));
 }
+/**
+ * What the lines of past days, weeks, months or sessions are worked out from: the setting, but a month always from candles (it is longer
+ * than the recording keeps, so no month can be worked out from it; the panel says so rather than offer the choice).
+ */
+export const linesSource = (s: Pick<TradedSettings, 'period' | 'source'>): TradedSettings['source'] => s.period === 'month' ? 'candles' : s.source;
+/** How many past ones candles can draw: twenty weeks of them hold four whole months. */
+export const mostCount = (s: Pick<TradedSettings, 'period'>): number => s.period === 'month' ? MAX_MONTHS : MAX_COUNT;
 
 /** The zones offered by name: the page's clock, UTC, this computer, and the cities whose markets set the usual sessions. */
 export const ZONES: readonly { zone: string; label: string }[] = [
@@ -123,7 +131,7 @@ export function readTraded(saved: unknown): TradedSettings {
     bars: oneOf(['split', 'delta'] as const, s.bars, d.bars),
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels),
-    period: oneOf(['view', 'day', 'week', 'sessions'] as const, s.period, d.period),
+    period: oneOf(['view', 'day', 'week', 'month', 'sessions'] as const, s.period, d.period),
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
     zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), sessions,
   };

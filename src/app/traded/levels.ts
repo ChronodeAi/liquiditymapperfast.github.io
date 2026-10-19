@@ -1,7 +1,7 @@
 import type { ProfileAnswer } from '../../shared/footprint.ts';
 import { levelsOf, rowOf, type ValueLevels } from '../../shared/profile.ts';
 import type { CandleRow } from '../store.ts';
-import { dayWindows, lastWindows, minutesOf, sessionWindows, weekWindows, type ProfileWindow } from './sessions.ts';
+import { dayWindows, lastWindows, minutesOf, monthWindows, sessionWindows, weekWindows, type ProfileWindow } from './sessions.ts';
 import { resolveZone, type TradedSettings } from './settings.ts';
 
 /**
@@ -45,7 +45,7 @@ export function touchedAt(price: number, after: number, candles: readonly Candle
 export function linesWindows(s: TradedSettings, pageZone: 'local' | 'utc', t0: number, t1: number, now: number, count = s.count): ProfileWindow[] {
   if (s.period === 'view' || count < 1) return [];
   const zone = resolveZone(s.zone, pageZone), end = Math.min(t1, now);
-  const all = s.period === 'day' ? dayWindows(zone, t0, end) : s.period === 'week' ? weekWindows(zone, t0, end)
+  const all = s.period === 'day' ? dayWindows(zone, t0, end) : s.period === 'week' ? weekWindows(zone, t0, end) : s.period === 'month' ? monthWindows(zone, t0, end)
     : sessionWindows(s.sessions, t0, end, z => resolveZone(z, pageZone));
   return lastWindows(all, count, now);
 }
@@ -130,11 +130,13 @@ export function windowZone(w: ProfileWindow, s: TradedSettings, pageZone: 'local
 }
 
 /**
- * What the column's header calls its window: a session by its name and date, a week by "Week" and the date of its first day, a day by its date.
- * `date` writes a time as a date in the window's zone; `week` is the word for a week.
+ * What the column's header calls its window: a session by its name and date, a week by "Week" and the date of its first day, a month by its
+ * month and year, a day by its date. `date` writes a time as a date in the window's zone, `month` as a month and year (absent: `date`);
+ * `week` is the word for a week.
  */
-export function windowLabel(w: ProfileWindow, date: (t: number) => string, week: string): string {
+export function windowLabel(w: ProfileWindow, date: (t: number) => string, week: string, month: (t: number) => string = date): string {
   const kind = w.key.slice(0, w.key.indexOf('|'));
   if (kind === 'session') return w.name ? `${w.name} ${date(w.from)}` : date(w.from);
+  if (kind === 'month') return month(w.from);
   return kind === 'week' ? `${week} ${date(w.from)}` : date(w.from);
 }

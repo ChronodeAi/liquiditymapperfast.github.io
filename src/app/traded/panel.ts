@@ -5,7 +5,7 @@ import { helpButton } from '../help.ts';
 import { compactBar } from '../device.ts';
 import { usd } from '../format.ts';
 import { t } from '../i18n.ts';
-import { MAX_COUNT, MAX_SESSIONS, ROW_MULTIPLES, SESSION_PRESETS, SHARES, ZONES, newSessionId, recordedCount, type TradedSettings } from './settings.ts';
+import { MAX_SESSIONS, ROW_MULTIPLES, SESSION_PRESETS, SHARES, ZONES, linesSource, mostCount, newSessionId, recordedCount, type TradedSettings } from './settings.ts';
 import type { SessionDef } from './sessions.ts';
 import { candleBarMs } from './levels.ts';
 import { profileTarget, type KeyLevelHistory } from '../keylevels/history.ts';
@@ -43,10 +43,10 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     switchRow(t('Show the volume profile'), t('The column of traded volume beside the book profile, and the point-of-control lines on the chart.'), store.state.show.traded, on => { store.set({ show: { ...store.state.show, traded: on } }); rebuild(); }),
     ...(compactBar() ? [note(t('A phone has no room for the column: the lines on the chart still show.'))] : []),
     // What the column and the lines add up is the first thing to choose: it is above both of their sections.
-    selectRow(t('Worked out over'), t('What the column and the lines add up: what is on the chart (they move with it), each day, each week, or the sessions below.'),
-      [['view', t('What is on the chart')], ['day', t('Each day')], ['week', t('Each week')], ['sessions', t('Sessions')]], s.period, v => set({ period: v as TradedSettings['period'] }, true)),
-    ...(s.period === 'day' || s.period === 'week'
-      ? [selectRow(s.period === 'day' ? t('Days start in') : t('Weeks start in'), t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone }))] : []),
+    selectRow(t('Worked out over'), t('What the columns and the lines add up: what is on the chart (they move with it), each day, week or month, or the sessions below.'),
+      [['view', t('What is on the chart')], ['day', t('Each day')], ['week', t('Each week')], ['month', t('Each month')], ['sessions', t('Sessions')]], s.period, v => set({ period: v as TradedSettings['period'] }, true)),
+    ...(s.period === 'day' || s.period === 'week' || s.period === 'month'
+      ? [selectRow(s.period === 'day' ? t('Days start in') : s.period === 'week' ? t('Weeks start in') : t('Months start in'), s.period === 'month' ? t('The time zone whose midnight on the 1st starts a month.') : t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone }))] : []),
     heading(t('Columns')),
     note(t('One column for each measure switched on, side by side on the same price rows, over the window chosen above. The map keeps at least half the width: a narrow one draws only the first columns that fit.')),
     ...PROFILE_METRICS.map(m => switchRow(METRIC_NAMES[m], METRIC_TIPS[m], s.metrics.includes(m), on => toggle(m, on))),
@@ -69,14 +69,16 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     switchRow(t('Labels'), t('Name each line at its right end, the point of control with its price.'), s.labels, labels => set({ labels })),
   );
   if (s.period !== 'view') {
-    const target = profileTarget(currentCoin()), market = target ? `${venueLabel(target.id)} ${target.listing.symbol}` : '';
-    body.append(selectRow(t('Worked out from'), t('The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market\'s, reaching back months, an estimate.'),
+    const target = profileTarget(currentCoin()), market = target ? `${venueLabel(target.id)} ${target.listing.symbol}` : '', source = linesSource(s);
+    // A month is longer than the recording keeps: it is worked out from candles only, and the panel says so rather than offer the choice.
+    if (s.period === 'month') body.append(note(t('A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.')));
+    else body.append(selectRow(t('Worked out from'), t('The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market\'s, reaching back months, an estimate.'),
       [['recorded', t('The recording')], ['candles', target ? t('{market} candles', { market }) : t('Candles')]], s.source, v => set({ source: v === 'candles' ? 'candles' : 'recorded' }, true)));
     // From the recording, only as many as it still holds: a count it cannot work out is not offered.
-    const most = s.source === 'candles' ? MAX_COUNT : recordedCount(s.period, sources.browser ? BROWSER_RETENTION_MS : RETENTION_MS);
+    const most = source === 'candles' ? mostCount(s) : recordedCount(s.period, sources.browser ? BROWSER_RETENTION_MS : RETENTION_MS);
     if (most >= 1) body.append(numberRow(t('How many'), t('How many past ones are drawn, the one under way among them (of each session).'), { min: 1, max: most, step: 1, value: Math.min(s.count, most) }, count => set({ count: Math.max(1, Math.min(most, Math.round(count))) })));
     body.append(switchRow(t('Extend untouched points of control'), t('A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.'), s.naked, naked => set({ naked })));
-    if (s.source === 'recorded') {
+    if (source === 'recorded') {
       body.append(note(sources.browser
         ? t('This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.')
         : t('The recording keeps a week of trades: it works out the last seven days or sessions at most and the week under way. For older ones, work them out from candles.')));

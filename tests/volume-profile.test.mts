@@ -8,7 +8,7 @@ import { QuotaLedger } from '../src/core/quota.mts';
 import { levelsOf, pointOfControl, valueArea } from '../src/shared/profile.ts';
 import { FootprintRecorder, parseProfile, parseValueAreas } from '../src/shared/footprint.ts';
 import { dayWindows, fromWall, lastWindows, offsetMs, sessionWindows, weekWindows, type SessionDef } from '../src/app/traded/sessions.ts';
-import { TRADED_DEFAULTS, linesCount, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
+import { TRADED_DEFAULTS, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
 import { answerLevels, candleBarMs, candleLevels, columnWindow, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt, windowLabel, windowZone } from '../src/app/traded/levels.ts';
 import { TradeCoverage, recordedMinutes } from '../src/shared/coverage.ts';
 import { tradedRows } from '../src/app/traded.ts';
@@ -216,6 +216,21 @@ test('a profile read in slices with the event loop let go between is the answer 
   const areas = recorder.valueAreas(ids, windows, 20, 0.7);
   assert.deepEqual(areas, before);
   windows.forEach((w, i) => assert.ok(Math.abs(areas.windows[i]!.total - inside(w.from, w.to)) < 1e-6, `window ${i}: ${areas.windows[i]!.total} against ${inside(w.from, w.to)}`));
+});
+
+test('each month: calendar months of the zone, named by month, worked out from candles only, as many as the candles reach', () => {
+  const base = { ...TRADED_DEFAULTS, period: 'month' as const, zone: 'UTC', count: 9 };
+  const oct20 = Date.UTC(2026, 9, 20, 12), months = linesWindows(base, 'utc', Date.UTC(2026, 6, 15), oct20, oct20);
+  assert.deepEqual(months.map(w => new Date(w.from).toISOString().slice(0, 10)), ['2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01'], 'every month that touches the chart, the open one last');
+  assert.equal(new Date(months[1]!.to).toISOString().slice(0, 10), '2026-09-01', 'August runs to the 1st of September');
+  const col = columnWindow(base, 'utc', oct20, oct20)!;
+  assert.equal(new Date(col.from).toISOString().slice(0, 10), '2026-10-01', 'the column adds up the month under way, though it began more than eight days back');
+  assert.equal(windowLabel(col, () => 'Oct 1', 'Week', () => 'Oct 2026'), 'Oct 2026');
+  assert.equal(linesSource({ period: 'month', source: 'recorded' }), 'candles', 'no month fits the recording');
+  assert.equal(linesSource({ period: 'week', source: 'recorded' }), 'recorded');
+  assert.equal(recordedCount('month', 7 * DAY), 0);
+  assert.equal(linesCount(base, 7 * DAY), 4, 'twenty weeks of candles hold four whole months');
+  assert.equal(readTraded({ period: 'month' }).period, 'month');
 });
 
 test('a profile over whole hours, read from the hours added together, is the same as its half hours read minute by minute, order counts too', () => {

@@ -523,8 +523,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (span.to - span.from > MAX_COLUMN_SPAN_MS) return sendJson(res, { error: 'the window may be at most eight days' }, 400);
     const step = Number(url.searchParams.get('step'));
     if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
-    // Read a few hours of a market at a time with the event loop let go between: a week of every market held the thread for seconds.
-    footprint.profileYielding(ids, span.from, span.to, step).then(
+    // The ended hours are built first, a few at a time with the event loop let go between (`prepare`, as for the value areas), then read
+    // added together a few hours of a market at a time: a week of every market read minute by minute held the thread for 15 s.
+    footprint.prepare(ids, span.from, span.to, 3_600_000).then(() => footprint.profileYielding(ids, span.from, span.to, step)).then(
       answer => sendJson(res, answer),
       error => { console.error('v2 /api/v2/profile failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); else res.end(); });
   };

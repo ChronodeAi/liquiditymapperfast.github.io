@@ -48,6 +48,16 @@ interface MetricColumn {
 interface AskedWindow { base: string; from: number; to: number }
 
 /**
+ * The part of a column's window a source can be asked about: all of it up to `MAX_PROFILE_SPAN_MS`, else its newest part, up to now for one
+ * still under way (a month under way asked whole ends next month, and its newest eight days would lie in the future).
+ */
+function askedSpan(from: number, to: number): { from: number; to: number } {
+  if (!(to - from > MAX_PROFILE_SPAN_MS)) return { from, to };
+  const end = Math.min(to, (Math.floor(Date.now() / MINUTE) + 1) * MINUTE);
+  return { from: Math.max(from, end - MAX_PROFILE_SPAN_MS), to: end };
+}
+
+/**
  * Whether a column's question differs from the last one only by its window sliding forward with the live edge, both ends by no more than
  * `spacing`: such a question waits for the refresh spacing rather than going at once. Following the live edge the window moves every
  * minute, and a week of 27 markets asked again each time held the server for seconds every minute (measured 2026-10-19).
@@ -649,7 +659,7 @@ export class Hub {
   ensureTraded(ids: readonly string[], from: number, to: number, step: number, live: boolean, period: { tag: string; settled: boolean } = { tag: '', settled: false }): void {
     // A window longer than a source may be asked about (a chart zoomed out past eight days, a month) is asked for its newest part: refused
     // whole, it left the column on its last answer, asked again a minute later and refused again. The header says from when it holds.
-    from = Math.max(from, to - MAX_PROFILE_SPAN_MS);
+    ({ from, to } = askedSpan(from, to));
     // No instruments left: nothing has traded on the map, and an answer still on its way for the last ones must not draw them back.
     if (!ids.length) { if (this.traded || this.#tradedAsked) { this.traded = null; this.#tradedAsked = ''; this.#tradedGen++; this.onTraded(); } return; }
     if (this.#tradedLoading || !(to > from) || !(step > 0)) return;
@@ -676,7 +686,7 @@ export class Hub {
    */
   ensureMetricProfile(metric: Exclude<ProfileMetric, 'volume'>, ids: readonly string[], from: number, to: number, step: number, live: boolean, period: { tag: string; settled: boolean } = { tag: '', settled: false }, thresholds: ReadonlyMap<string, number | null> = new Map()): void {
     const c = this.#metricColumn(metric);
-    from = Math.max(from, to - MAX_PROFILE_SPAN_MS);   // as `ensureTraded`
+    ({ from, to } = askedSpan(from, to));   // as `ensureTraded`
     if (c.loading || !(to > from) || !(step > 0)) return;
     const now = Date.now();
     if (c.state === 'unavailable' && now < c.retryAt) return;
