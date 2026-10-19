@@ -647,6 +647,7 @@ export class HeatPane {
     // The Volume profile's, the key levels' and the VWAP's names at the lines' right ends share one board, so none is printed over another.
     this.#labels.clear();
     this.#paintValueLines(ctx, state, pw, ph);
+    this.#paintColumnWindow(ctx, state, pw, ph);
     this.#keyTags = state.keyLevels.on ? paintKeyLevels(ctx, this.#keyLevelLines(state), v, pw, ph, p, state.keyLevels, pageNow(), this.#keyLevelContext(state).zone, this.#labels) : [];
     this.#vwapTags = state.vwap.on ? paintVwap(ctx, this.#vwapLines(state), v, pw, ph, p, state.vwap, this.#labels) : [];
     // Replay: nothing after its moment is shown (the heatmap under this canvas included), and a line marks it.
@@ -1154,6 +1155,34 @@ export class HeatPane {
     const key = `${s.period}|${s.zone}|${JSON.stringify(s.sessions)}|${state.timeZone}|${Math.min(Math.ceil(v.t1 / MIN), Math.floor(now / MIN))}|${Math.floor(now / MIN)}`;
     if (this.#columnPeriod?.key !== key) this.#columnPeriod = { key, window: columnWindow(s, state.timeZone, v.t1, now) };
     return this.#columnPeriod.window;
+  }
+  /**
+   * Where the columns' day, week or session begins on the chart (and ends, for one that is over), as a dashed line in the profile colour
+   * named like the columns' header ("Week Oct 19 →"): with a period picked the columns add up only that window, and the marks and candles
+   * left of the line are not in them (a week begun this morning holds none of the week before, whatever the chart shows). Nothing for what
+   * is on the chart, or with no column drawn.
+   */
+  #paintColumnWindow(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
+    if (!tradedColumns(state).length) return;
+    const w = this.#tradedPeriod(); if (!w) return;
+    const v = this.view, p = this.#palette, now = pageNow(), x0 = v.xOf(w.from, pw), x1 = w.to <= now ? v.xOf(w.to, pw) : Infinity;
+    const line = (x: number): void => {
+      if (!(x > 0 && x < pw)) return;
+      ctx.strokeStyle = p.poc; ctx.globalAlpha = 0.75; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, ph); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    };
+    line(x0); line(x1);
+    // The name goes just right of where the window begins (at the left edge when that is off the chart), or left of the line when the
+    // chart has no room for it on the right; low on the chart, under the candles' usual range.
+    const name = `${this.#tradedLabel()} →`;
+    ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const width = ctx.measureText(name).width + 8, y = ph - 34, right = Math.min(x1, pw) - 4;
+    const x = x0 + 4 + width <= right ? Math.max(4, x0 + 4) : x0 - 4 - width;
+    if (!(x >= 0 && x + width <= pw)) return;
+    ctx.globalAlpha = 0.85; ctx.fillStyle = p.panel; ctx.fillRect(x, y - 7, width, 14);
+    ctx.globalAlpha = 1; ctx.fillStyle = p.poc; ctx.fillText(name, x + 4, y);
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
   }
   /** What the column's header calls its day, week or session; empty for what is on the chart. */
   #tradedLabel(): string {
