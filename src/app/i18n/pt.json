@@ -1460,5 +1460,7 @@
  "The time zone whose midnight on the 1st starts a month.": "O fuso horário cuja meia-noite do dia 1 começa um mês.",
  "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Um mês é mais longo do que a gravação guarda: as suas linhas vêm de velas, uma estimativa marcada com ≈, e as suas colunas somam no máximo os últimos oito dias.",
  "Draw past ones on the chart": "Desenhar os passados no gráfico",
- "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Cada dia, semana, mês ou sessão com linhas desenhadas desenha também o seu perfil de volume negociado no gráfico, ao longo do seu próprio intervalo: barras tênues desde o início, numa só cor onde é calculado a partir de velas."
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Cada dia, semana, mês ou sessão com linhas desenhadas desenha também o seu perfil de volume negociado no gráfico, ao longo do seu próprio intervalo: barras tênues desde o início, numa só cor onde é calculado a partir de velas.",
+ "Session starts at": "A sessão começa às",
+ "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "A hora do dia em que começa a média do dia, no fuso que o perfil de volume e os níveis-chave usam. A meia-noite mantém o dia do calendário."
 }
