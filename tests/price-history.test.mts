@@ -150,3 +150,13 @@ test('wire validation refuses another market, out-of-window rows, invalid OHLC, 
   assert.equal(parsePriceHistory(answer, target.id, HOUR).candles.length, 1);
   for (const bad of [{ ...answer, instrumentId: 'binancespot:BTCUSDT' }, { ...answer, tfMs: 1 }, { ...answer, from: T0 + HOUR }, { ...answer, status: 'empty' }, { ...answer, candles: [[T0, 100, 99, 101, 101, 5, 1]] }, { ...answer, candles: Array.from({ length: PRICE_QUERY_BARS + 3 }, () => answer.candles[0]) }]) assert.throws(() => parsePriceHistory(bad, target.id, HOUR));
 });
+
+test('a year of daily context needs one small request and switching resolutions keeps its exchange cache', async () => {
+  const calls: URL[] = [], day = 24 * HOUR, cache = new PriceHistoryCache(exchange(calls), () => T0 + 500 * day);
+  const first = await cache.series(target, day, T0, T0 + 365 * day);
+  assert.equal(first.status, 'ok'); assert.equal(first.candles.length, 365); assert.equal(calls.length, 1);
+  assert.ok(Number(calls[0]!.searchParams.get('limit')) <= 367);
+  await cache.series(target, HOUR, T0 + 300 * day, T0 + 301 * day);
+  await cache.series(target, day, T0, T0 + 365 * day);
+  assert.equal(calls.length, 2, 'returning to the daily view does not fetch it again');
+});

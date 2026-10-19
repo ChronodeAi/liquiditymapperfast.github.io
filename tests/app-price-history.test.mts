@@ -18,9 +18,9 @@ function reader(): { asks: Ask[]; read: PriceReader } {
   return { asks, read: (id, tf, from, to, signal) => new Promise((resolve, reject) => { asks.push({ id, w: { tf, tfMs: tf === '4h' ? 4 * HOUR : HOUR, from, to }, signal, resolve, reject }); }) };
 }
 
-test('a multi-month view chooses four hours; a year chooses daily bars, with padded bounded dates', () => {
+test('month-scale views choose daily bars, with padded bounded dates', () => {
   const months = priceWindow({ t0: NOW - 74 * DAY, t1: NOW + DAY }, 1_900, NOW)!;
-  assert.equal(months.tf, '4h'); assert.ok(months.from < NOW - 74 * DAY); assert.ok(months.to <= NOW + months.tfMs);
+  assert.equal(months.tf, '1d'); assert.ok(months.from < NOW - 74 * DAY); assert.ok(months.to <= NOW + months.tfMs);
   assert.equal(months.from % months.tfMs, 0); assert.equal(months.to % months.tfMs, 0);
   assert.ok((months.to - months.from) / months.tfMs < 2_000);
   assert.equal(priceWindow({ t0: NOW - 365 * DAY, t1: NOW }, 1_900, NOW)!.tf, '1d');
@@ -29,10 +29,10 @@ test('a multi-month view chooses four hours; a year chooses daily bars, with pad
 });
 
 test('a small zoom around a resolution boundary retains its interval', () => {
-  const view = { t0: NOW - 800 * HOUR, t1: NOW };
+  const view = { t0: NOW - 420 * HOUR, t1: NOW };
   assert.equal(priceWindow(view, 1_500, NOW)!.tf, '4h');
   assert.equal(priceWindow(view, 1_500, NOW, HOUR)!.tf, '1h');
-  assert.equal(priceWindow({ t0: NOW - 1_000 * HOUR, t1: NOW }, 1_500, NOW, HOUR)!.tf, '4h');
+  assert.equal(priceWindow({ t0: NOW - 500 * HOUR, t1: NOW }, 1_500, NOW, HOUR)!.tf, '4h');
 });
 
 test('a readable complete candle series takes precedence; missing dates, interior gaps and compressed candles need an overview', () => {
@@ -151,4 +151,45 @@ test('a formerly forming bar is fetched again immediately after it closes, even 
   now = T0 + 101 * HOUR + 1;
   h.ensure(target, w, () => {}); await pause(); assert.equal(asks.length, 2);
   asks[1]!.resolve({ ...answer(w), asOf: now, candles: [candle(100)] }); await pause(); h.stop();
+});
+
+test('a one-hour chart never asks for finer overview candles, and daily context ignores an old hourly preference', () => {
+  const short = priceWindow({ t0: NOW - 4 * DAY, t1: NOW }, 1_900, NOW, 0, HOUR)!;
+  assert.equal(short.tf, '1h');
+  assert.ok((short.to - short.from) / short.tfMs < 120);
+  const long = priceWindow({ t0: NOW - 74 * DAY, t1: NOW }, 1_900, NOW, HOUR, HOUR)!;
+  assert.equal(long.tf, '1d');
+  assert.ok((long.to - long.from) / long.tfMs < 90, 'daily context fits one small exchange page');
+});
+
+test('returning from a coarse overview reuses the cached hourly window without another request', async () => {
+  const { read, asks } = reader(), h = new ChartPriceHistory(read, () => NOW, 0), fine = window(0, 10);
+  const coarse: PriceWindow = { tf: '4h', tfMs: 4 * HOUR, from: T0, to: T0 + 40 * HOUR };
+  h.ensure(target, fine, () => {}); await pause(); asks[0]!.resolve(answer(fine)); await pause();
+  const held = h.answer;
+  h.ensure(target, coarse, () => {}); await pause(); asks[1]!.resolve(answer(coarse)); await pause();
+  assert.equal(h.answer!.tfMs, 4 * HOUR);
+  h.ensure(target, fine, () => {}); await pause();
+  assert.equal(asks.length, 2); assert.equal(h.answer, held); assert.equal(h.status, 'ok');
+  h.stop();
+});
+
+test('the recent-window cache is bounded across instruments and never reuses a candle that closed while away', async () => {
+  let reads = 0;
+  const h = new ChartPriceHistory(async (id, _tf, from, to) => { reads++; return { ...answer({ tf: '1h', tfMs: HOUR, from, to }, id) }; }, () => NOW, 0);
+  for (let i = 0; i < 9; i++) { h.ensure({ ...target, id: `binance:COIN${i}` }, window(0, 10), () => {}); await pause(); }
+  assert.equal(reads, 9);
+  h.ensure({ ...target, id: 'binance:COIN7' }, window(0, 10), () => {}); await pause(); assert.equal(reads, 9, 'recent instrument is held');
+  h.ensure({ ...target, id: 'binance:COIN0' }, window(0, 10), () => {}); await pause(); assert.equal(reads, 10, 'the ninth instrument evicts the oldest');
+  h.stop();
+
+  let now = T0 + 100.5 * HOUR;
+  const { read, asks } = reader(), live = new ChartPriceHistory(read, () => now, 0), w = window(90, 101);
+  live.ensure(target, w, () => {}); await pause(); asks[0]!.resolve({ ...answer(w), asOf: now, candles: [candle(100)] }); await pause();
+  const coarse: PriceWindow = { tf: '4h', tfMs: 4 * HOUR, from: T0, to: T0 + 80 * HOUR };
+  live.ensure(target, coarse, () => {}); await pause(); asks[1]!.resolve(answer(coarse)); await pause();
+  now = T0 + 101 * HOUR + 1;
+  live.ensure(target, w, () => {}); await pause();
+  assert.equal(asks.length, 3, 'a cached partial hour is fetched again after it closes');
+  asks[2]!.resolve({ ...answer(w), asOf: now, candles: [candle(100)] }); await pause(); live.stop();
 });

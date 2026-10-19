@@ -13,7 +13,9 @@ import type { ProfileWindow } from '../traded/sessions.ts';
 import type { Kernels } from '../kernels.ts';
 import { PALETTES, rgb, textOn, type Palette } from '../theme.ts';
 import { View, niceStep, type Bounds } from '../view.ts';
-import { clock, dayOfMonth, price as fmtPrice, tickLabel, usd, zoneName, zoneOffsetMs } from '../format.ts';
+import { clock, price as fmtPrice, usd, zoneName } from '../format.ts';
+import { timeAxis } from '../time-axis.ts';
+export { timeTicks } from '../time-axis.ts';
 import type { Store, AppState, CandleRow } from '../store.ts';
 import { cumulative, groupLevels, type Grouped } from './levels-data.ts';
 import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.ts';
@@ -116,16 +118,6 @@ const NARROW_PLOT = 420;
 /** A map pane narrower than this gets the narrow price axis and profile column. */
 const COMPACT_PANE = 520;
 
-const TIME_STEPS = [60e3, 300e3, 900e3, 1800e3, 3600e3, 7200e3, 14400e3, 43200e3, 86400e3, 172800e3, 604800e3];
-
-export function timeTicks(t0: number, t1: number, widthPx: number, minPx = 96): number[] {
-  const want = (t1 - t0) * minPx / Math.max(1, widthPx);
-  const step = TIME_STEPS.find(s => s >= want) ?? TIME_STEPS[TIME_STEPS.length - 1]!;
-  const offset = -zoneOffsetMs(t0);
-  const out: number[] = [];
-  for (let t = Math.ceil((t0 - offset) / step) * step + offset; t <= t1; t += step) out.push(t);
-  return out;
-}
 export function gutter(state: AppState): number { return AXIS_W + (state.show.profile ? PROFILE_W : 0) + (tradedShown(state) ? TRADED_W : 0); }
 
 /** Rolling volume baseline for a candle array, keyed by the sensitivity it was computed with. */
@@ -605,7 +597,7 @@ export class HeatPane {
     const pStep = niceStep(v.p1 - v.p0, ph / 46);
     ctx.globalAlpha = 0.6; ctx.beginPath();
     for (let q = Math.ceil(v.p0 / pStep) * pStep; q <= v.p1; q += pStep) { const y = Math.round(v.yOf(q, ph)) + 0.5; ctx.moveTo(0, y); ctx.lineTo(pw, y); }
-    const ticks = timeTicks(v.t0, v.t1, pw);
+    const { ticks, labels: timeLabels } = timeAxis(v.t0, v.t1, pw, text => ctx.measureText(text).width);
     for (const t of ticks) { const x = Math.round(v.xOf(t, pw)) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, ph); }
     ctx.stroke(); ctx.globalAlpha = 1;
     const market = state.markets.find(m => (m.instrumentId ?? m.id) === state.marketId);
@@ -680,14 +672,8 @@ export class HeatPane {
     }
     // time axis
     ctx.fillStyle = p.panel; ctx.fillRect(0, ph, w, TIME_H);
-    ctx.fillStyle = p.muted; ctx.textAlign = 'center';
-    let lastDay = -1;
-    for (const t of ticks) {
-      const x = v.xOf(t, pw); if (x < 24 || x > pw - 24) continue;
-      const day = dayOfMonth(t);
-      ctx.fillText(tickLabel(t, day !== lastDay && (ticks.length < 3 || lastDay === -1)), x, ph + TIME_H / 2);
-      lastDay = day;
-    }
+    ctx.fillStyle = p.muted; ctx.textAlign = 'center'; ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    for (const label of timeLabels) ctx.fillText(label.text, label.x, ph + TIME_H / 2);
     // Which clock the labels are on, under the price axis where no tick label goes (a screenshot says it too).
     ctx.textAlign = 'right'; ctx.fillText(zoneName(), w - 6, ph + TIME_H / 2); ctx.textAlign = 'center';
     this.#paintLegend(ctx, state);
@@ -790,7 +776,7 @@ export class HeatPane {
       const own = state.seriesInstrument === state.marketId ? state.candles : [];
       const wanted = priceOverviewNeeded(own, tf, v, this.plotW, now);
       this.#overviewTarget = wanted ? priceTarget(currentCoin(), state.marketId, kindOf(state.markets, state.marketId) ?? 'perp') : null;
-      const window = wanted && this.#overviewTarget ? priceWindow(v, this.plotW, now, history.answer?.tfMs) : null;
+      const window = wanted && this.#overviewTarget ? priceWindow(v, this.plotW, now, history.answer?.tfMs, tf) : null;
       context = this.#overviewContext = { key, candles: state.candles, window };
     }
     this.#overview = context.window !== null && this.#overviewTarget !== null;

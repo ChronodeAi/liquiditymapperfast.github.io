@@ -5,7 +5,8 @@ import type { CandleRow } from './store.ts';
 export interface PriceWindow { tf: string; tfMs: number; from: number; to: number }
 type Window = { t0: number; t1: number };
 export type PriceReader = (id: string, tf: string, from: number, to: number, signal: AbortSignal) => Promise<PriceHistoryAnswer>;
-const MINUTE = 60_000;
+const MINUTE = 60_000, DAY = 86_400_000;
+const priceKey = (target: PriceTarget, tfMs: number): string => `${target.id}|${target.listing.symbol}|${target.listing.unit}|${tfMs}`;
 
 /** The overview is useful for compressed candles or any missing part of the visible price history. */
 export function priceOverviewNeeded(candles: readonly CandleRow[], tfMs: number, view: Window, width: number, now: number): boolean {
@@ -22,13 +23,14 @@ export function priceOverviewNeeded(candles: readonly CandleRow[], tfMs: number,
   return true;
 }
 
-/** Several hundred to 1,000 native bars, independent of the indicator timeframe; retain a resolution near its changeover. */
-export function priceWindow(view: Window, width: number, now: number, previousMs = 0): PriceWindow | null {
+/** At most a few hundred native bars: daily for month-scale context, never finer than the selected candles; retain a resolution near its changeover. */
+export function priceWindow(view: Window, width: number, now: number, previousMs = 0, chartMs = 0): PriceWindow | null {
   const span = view.t1 - view.t0;
   if (!(span > 0 && width > 0 && Number.isFinite(span) && view.t0 < now)) return null;
-  const budget = Math.max(250, Math.min(1_000, Math.floor(width / 2)));
-  const intervals = Object.entries(TIMEFRAMES), previous = intervals.find(([, ms]) => ms === previousMs);
-  let choice = intervals.find(([, ms]) => span / ms <= budget) ?? intervals[intervals.length - 1]!;
+  const budget = Math.max(100, Math.min(400, Math.floor(width / 4)));
+  const minimum = Math.max(chartMs, span >= 30 * DAY ? DAY : 0);
+  const intervals = Object.entries(TIMEFRAMES), previous = intervals.find(([, ms]) => ms === previousMs && ms >= minimum);
+  let choice = intervals.find(([, ms]) => ms >= minimum && span / ms <= budget) ?? intervals[intervals.length - 1]!;
   if (previous && span / previousMs >= budget / 5 && span / previousMs <= budget * 1.15) choice = previous;
   const [tf, tfMs] = choice;
   // At the largest interval bound the request structurally too; the map's permitted span is normally shorter than this.
@@ -45,6 +47,7 @@ export class ChartPriceHistory {
   answer: PriceHistoryAnswer | null = null;
   status: 'idle' | 'loading' | PriceHistoryAnswer['status'] = 'idle';
   version = 0;
+  readonly #cached = new Map<string, { answer: PriceHistoryAnswer; landedAt: number }>();
   #id = ''; #generation = 0; #pending = false; #retryAt = 0; #landedAt = 0;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #controller: AbortController | null = null;
@@ -52,11 +55,17 @@ export class ChartPriceHistory {
   constructor(private read: PriceReader, private now: () => number = Date.now, private delayMs = 120) {}
 
   ensure(target: PriceTarget, window: PriceWindow, changed: () => void): void {
-    if (target.id !== this.#id) {
+    if (priceKey(target, 0) !== this.#id) {
       this.stop(); this.#controller?.abort(); this.#controller = null; this.#generation++;
-      this.#pending = false; this.#id = target.id; this.answer = null; this.status = 'idle'; this.#retryAt = 0; this.version++;
+      this.#pending = false; this.#id = priceKey(target, 0); this.answer = null; this.status = 'idle'; this.#retryAt = 0; this.version++;
     }
     this.#wanted = { target, window, changed };
+    // Eight recent instrument/resolution windows survive zooms and coin switches. Recheck live tails before reusing them.
+    const key = priceKey(target, window.tfMs), cached = this.#cached.get(key);
+    if (!this.#pending && !this.#covers(window) && cached && this.#covers(window, cached.answer, cached.landedAt)) {
+      this.answer = cached.answer; this.status = cached.answer.status; this.#landedAt = cached.landedAt; this.#retryAt = 0; this.version++;
+      this.#cached.delete(key); this.#cached.set(key, cached); changed();
+    }
     if (this.#pending || this.#timer !== null || this.now() < this.#retryAt || this.#covers(window)) return;
     this.#timer = setTimeout(() => { this.#timer = null; void this.#load(); }, this.delayMs);
   }
@@ -64,11 +73,10 @@ export class ChartPriceHistory {
   /** A hidden chart or a disabled candle layer starts no further reads; a bounded read already out may finish. */
   stop(): void { if (this.#timer !== null) clearTimeout(this.#timer); this.#timer = null; this.#wanted = null; }
 
-  #covers(w: PriceWindow): boolean {
-    const a = this.answer;
+  #covers(w: PriceWindow, a = this.answer, landedAt = this.#landedAt): boolean {
     if (!a || a.tfMs !== w.tfMs || a.from > w.from || a.to < w.to || a.status === 'stale' || a.status === 'failed') return false;
     const last = a.candles[a.candles.length - 1], partialClosed = last && last[0] + a.tfMs > a.asOf && last[0] + a.tfMs <= this.now();
-    return !partialClosed && (w.to <= this.now() || this.now() - this.#landedAt < MINUTE);
+    return !partialClosed && (w.to <= this.now() || this.now() - landedAt < MINUTE);
   }
 
   async #load(): Promise<void> {
@@ -87,6 +95,11 @@ export class ChartPriceHistory {
         this.status = 'stale'; this.#retryAt = this.now() + MINUTE;
       } else {
         this.answer = a; this.status = a.status; this.#landedAt = this.now();
+        if (a.status === 'ok' || a.status === 'empty') {
+          const key = priceKey(target, w.tfMs);
+          this.#cached.delete(key); this.#cached.set(key, { answer: a, landedAt: this.#landedAt });
+          while (this.#cached.size > 8) this.#cached.delete(this.#cached.keys().next().value!);
+        }
         this.#retryAt = a.status === 'failed' || a.status === 'stale' ? this.now() + MINUTE : 0;
       }
       this.version++;
