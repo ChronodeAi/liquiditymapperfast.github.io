@@ -57,7 +57,7 @@ import { paintDivergence, type Divergence } from '../delta/divergence.ts';
 import { countdown, lineSide } from '../price-line.ts';
 import { candlesAt, formingCandle, pageNow, replaying, replayView } from '../replay/clock.ts';
 import { TapeGL, type DustStyle } from '../tape/gl.ts';
-import { TraceIndex, secondsPath } from '../tape/trace.ts';
+import { TraceIndex, gapMarks, secondsPath, traceGapColumns } from '../tape/trace.ts';
 import { curveColors } from './ladder-curves.ts';
 import { priceInstrument, priceTarget, type PriceHistoryAnswer, type PriceTarget } from '../../shared/price-history.ts';
 import { priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, type PricePoint, type PriceWindow } from '../price-history.ts';
@@ -863,7 +863,7 @@ export class HeatPane {
   #paintTrace(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     const tape = this.hub.tape;
     if (!this.#dustOn(state) || !tape) return;
-    const v = this.view, p = this.#palette, ms = (v.t1 - v.t0) / pw, c0 = Math.floor(v.t0 / ms), c1 = Math.ceil(v.t1 / ms), gap = Math.max(3, Math.ceil(10_000 / ms));
+    const v = this.view, p = this.#palette, ms = (v.t1 - v.t0) / pw, c0 = Math.floor(v.t0 / ms), c1 = Math.ceil(v.t1 / ms), gap = traceGapColumns(ms);
     const fade = 1 - 0.85 * this.#lodFrame.barAlpha;
     if (fade <= 0.02) return;
     const stroke = (runs: number[][], color: string, width: number, alpha: number): void => {
@@ -893,12 +893,12 @@ export class HeatPane {
     ctx.restore();
   }
 
-  /** Where the live trades begin (the page opened, or the ring let the oldest go), and each gap after: a dotted line and a short note. */
+  /** Where the live trades begin (the page opened, or the ring let the oldest go), and each gap after the price line breaks at: a dotted line and a short note. */
   #paintTapeStart(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, p: Palette): void {
     const tape = this.hub.tape, v = this.view;
     if (!this.#dustOn(state) || !tape || !tape.segments.length) return;
     const from = Math.max(tape.segments[0]!.from, tape.heldFrom), marks = [{ t: from, label: t('live trades from {time}', { time: clock(from) }) }];
-    for (const s of tape.segments.slice(1)) if (s.from > from) marks.push({ t: s.from, label: t('gap in live trades') });
+    for (const at of gapMarks(tape.segments, from, (v.t1 - v.t0) / pw)) marks.push({ t: at, label: t('gap in live trades') });
     ctx.save(); ctx.font = '10px ui-sans-serif, system-ui, sans-serif'; ctx.textBaseline = 'bottom'; ctx.textAlign = 'left';
     for (const m of marks) {
       if (!(m.t > v.t0 && m.t < v.t1)) continue;
