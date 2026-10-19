@@ -14,7 +14,7 @@ import { atOnePrice, inverseOi, oiSumOf, type OiPart } from './oi-change.ts';
 import { oiMarketIds } from './market-choice.ts';
 import { nextBookGone } from './cvd/ids.ts';
 import { t } from './i18n.ts';
-import { MAX_PROFILE_INSTRUMENTS, MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
+import { MAX_PROFILE_INSTRUMENTS, MAX_PROFILE_SPAN_MS, MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
 import { oiInstrument } from '../shared/oi-profile.ts';
 import { AbsorptionBook } from './absorption.ts';
 import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
@@ -40,6 +40,20 @@ interface MetricColumn {
   held: { step: number; answer: ProfileAnswer; flags: MetricFlags; tag: string } | null;
   state: 'ready' | 'unavailable';
   loading: boolean; asked: string; at: number; retryAt: number; ms: number; gen: number; settled: boolean;
+  /** The question last asked, without its window (`base`), and its window. */
+  window: AskedWindow | null;
+}
+
+/** A column's question without its window (instruments, rows, period), and the window it was asked for. */
+interface AskedWindow { base: string; from: number; to: number }
+
+/**
+ * Whether a column's question differs from the last one only by its window sliding forward with the live edge, both ends by no more than
+ * `spacing`: such a question waits for the refresh spacing rather than going at once. Following the live edge the window moves every
+ * minute, and a week of 27 markets asked again each time held the server for seconds every minute (measured 2026-10-19).
+ */
+function slidOnly(last: AskedWindow | null, base: string, from: number, to: number, spacing: number): boolean {
+  return last !== null && last.base === base && from >= last.from && from - last.from <= spacing && to >= last.to && to - last.to <= spacing;
 }
 /**
  * A window of recorded columns is complete once its last minute has ended and the recorder has taken that minute's last sample (seconds
@@ -262,6 +276,8 @@ export class Hub {
   /** Called when the traded-volume column has a new answer (or the source said it has none). */
   onTraded: () => void = () => {};
   #tradedLoading = false; #tradedAsked = ''; #tradedAt = 0; #tradedRetryAt = 0;
+  /** The traded-volume question last asked, without its window, and its window (`slidOnly`). */
+  #tradedWindow: AskedWindow | null = null;
   /**
    * How long the last traded-volume answer took (ms). A server answers on its only thread: a week of rows took 7 to 9 s on a live recording of
    * 27 markets (2026-10-18), during which it answered nothing else, so a slow answer is asked for again that much less often.
@@ -275,7 +291,7 @@ export class Hub {
   readonly #metricColumns = new Map<ProfileMetric, MetricColumn>();
   #metricColumn(metric: ProfileMetric): MetricColumn {
     let c = this.#metricColumns.get(metric);
-    if (!c) { c = { held: null, state: 'ready', loading: false, asked: '', at: 0, retryAt: 0, ms: 0, gen: 0, settled: false }; this.#metricColumns.set(metric, c); }
+    if (!c) { c = { held: null, state: 'ready', loading: false, asked: '', at: 0, retryAt: 0, ms: 0, gen: 0, settled: false, window: null }; this.#metricColumns.set(metric, c); }
     return c;
   }
   /** A measure's last answer (traded/metrics.ts), what it leaves out and the window it was asked for; null until one came. */
@@ -631,15 +647,19 @@ export class Hub {
    * asked again a minute later. `tag` names the window for the answer held (`traded`).
    */
   ensureTraded(ids: readonly string[], from: number, to: number, step: number, live: boolean, period: { tag: string; settled: boolean } = { tag: '', settled: false }): void {
+    // A window longer than a source may be asked about (a chart zoomed out past eight days, a month) is asked for its newest part: refused
+    // whole, it left the column on its last answer, asked again a minute later and refused again. The header says from when it holds.
+    from = Math.max(from, to - MAX_PROFILE_SPAN_MS);
     // No instruments left: nothing has traded on the map, and an answer still on its way for the last ones must not draw them back.
     if (!ids.length) { if (this.traded || this.#tradedAsked) { this.traded = null; this.#tradedAsked = ''; this.#tradedGen++; this.onTraded(); } return; }
     if (this.#tradedLoading || !(to > from) || !(step > 0)) return;
     const now = Date.now();
     if (this.tradedState === 'unavailable' && now < this.#tradedRetryAt) return;
     // The window's tag is part of the question: a day and the session that covers the same hours have the same bounds and another answer's name.
-    const key = `${ids.join(',')}|${step}|${from}|${to}|${period.tag}`;
-    if (key === this.#tradedAsked && !(live && now - this.#tradedAt >= Math.min(300_000, Math.max(5_000, 20 * this.#tradedMs))) && !(period.settled && !this.#tradedSettled)) return;
-    this.#tradedLoading = true; this.#tradedAsked = key; this.#tradedAt = now; this.#tradedSettled = period.settled;
+    const base = `${ids.join(',')}|${step}|${period.tag}`, key = `${base}|${from}|${to}`, spacing = Math.min(300_000, Math.max(5_000, 20 * this.#tradedMs));
+    const slid = live && slidOnly(this.#tradedWindow, base, from, to, spacing);
+    if ((key === this.#tradedAsked || slid) && !(live && now - this.#tradedAt >= spacing) && !(period.settled && !this.#tradedSettled)) return;
+    this.#tradedLoading = true; this.#tradedAsked = key; this.#tradedAt = now; this.#tradedSettled = period.settled; this.#tradedWindow = { base, from, to };
     const generation = ++this.#tradedGen, started = performance.now();
     this.source.profile([...ids], from, to, step).then(
       answer => { if (generation !== this.#tradedGen) return; this.#tradedMs = performance.now() - started; this.traded = { step, answer, tag: period.tag }; this.tradedState = 'ready'; this.onTraded(); },
@@ -656,14 +676,16 @@ export class Hub {
    */
   ensureMetricProfile(metric: Exclude<ProfileMetric, 'volume'>, ids: readonly string[], from: number, to: number, step: number, live: boolean, period: { tag: string; settled: boolean } = { tag: '', settled: false }, thresholds: ReadonlyMap<string, number | null> = new Map()): void {
     const c = this.#metricColumn(metric);
+    from = Math.max(from, to - MAX_PROFILE_SPAN_MS);   // as `ensureTraded`
     if (c.loading || !(to > from) || !(step > 0)) return;
     const now = Date.now();
     if (c.state === 'unavailable' && now < c.retryAt) return;
     const judged = metric === 'absorption' ? ids.filter(id => typeof thresholds.get(id) === 'number').slice(0, MAX_ABSORPTION_INSTRUMENTS)
       : metric === 'oi' ? ids.filter(oiInstrument).slice(0, MAX_PROFILE_INSTRUMENTS) : [...ids];
-    const key = `${judged.map(id => metric === 'absorption' ? `${id}:${thresholds.get(id)}` : id).join(',')}|${step}|${from}|${to}|${period.tag}`;
-    if (key === c.asked && !(live && now - c.at >= Math.min(300_000, Math.max(5_000, 20 * c.ms))) && !(period.settled && !c.settled)) return;
-    c.loading = true; c.asked = key; c.at = now; c.settled = period.settled;
+    const base = `${judged.map(id => metric === 'absorption' ? `${id}:${thresholds.get(id)}` : id).join(',')}|${step}|${period.tag}`, key = `${base}|${from}|${to}`;
+    const spacing = Math.min(300_000, Math.max(5_000, 20 * c.ms)), slid = live && slidOnly(c.window, base, from, to, spacing);
+    if ((key === c.asked || slid) && !(live && now - c.at >= spacing) && !(period.settled && !c.settled)) return;
+    c.loading = true; c.asked = key; c.at = now; c.settled = period.settled; c.window = { base, from, to };
     const generation = ++c.gen, started = performance.now(), source = this.source, none = { cut: false, incomplete: false };
     const work: Promise<{ answer: ProfileAnswer; flags: MetricFlags }> = metric === 'oi'
       ? (!judged.length ? Promise.resolve({ answer: { from, to, instruments: [] }, flags: none })

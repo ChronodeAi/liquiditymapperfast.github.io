@@ -218,6 +218,25 @@ test('a profile read in slices with the event loop let go between is the answer 
   windows.forEach((w, i) => assert.ok(Math.abs(areas.windows[i]!.total - inside(w.from, w.to)) < 1e-6, `window ${i}: ${areas.windows[i]!.total} against ${inside(w.from, w.to)}`));
 });
 
+test('a profile over whole hours, read from the hours added together, is the same as its half hours read minute by minute, order counts too', () => {
+  const T0 = 1_800_000_000_000, recorder = new FootprintRecorder(null, () => T0 + 5 * HOUR), id = 'x:BTC';
+  // Orders are counted from the first minute on, so every minute counts them by price.
+  recorder.countOrders([{ instrumentId: id, side: 'buy', t: T0 + 500, usd: 1, lo: 85_000, hi: 85_000 }]);
+  const fills = Array.from({ length: 240 }, (_, i) => ({ instrumentId: id, tradeId: String(i), side: i % 3 ? 'sell' : 'buy', price: 85_000 + ((i * 53) % 300) + 0.5, notionalUsd: 1_000 + i * 7, sourceTimestamp: T0 + 1_000 + i * 45_000 }));
+  recorder.ingest(fills);
+  recorder.countOrders(fills.map(f => ({ instrumentId: id, side: f.side as 'buy' | 'sell', t: f.sourceTimestamp, usd: f.notionalUsd, lo: f.price, hi: f.price })));
+  const whole = recorder.profile([id], T0, T0 + 3 * HOUR, 20).instruments[0]!;
+  const sum = new Map<number, number[]>();
+  for (let a = T0; a < T0 + 3 * HOUR; a += 30 * MIN) {
+    const part = recorder.profile([id], a, a + 30 * MIN, 20).instruments[0]!;
+    part.rows.forEach(([price, buy, sell], r) => { const c = sum.get(price) ?? [0, 0, 0, 0]; c[0]! += buy; c[1]! += sell; c[2]! += part.counts![r]![0]; c[3]! += part.counts![r]![1]; sum.set(price, c); });
+  }
+  const halves = [...sum].sort((a, b) => a[0] - b[0]);
+  assert.deepEqual(whole.rows.map(r => r[0]), halves.map(h => h[0]));
+  whole.rows.forEach(([, buy, sell], r) => { const h = halves[r]![1]!; assert.ok(Math.abs(buy - h[0]!) < 1e-6 && Math.abs(sell - h[1]!) < 1e-6, `row ${r} USD`); assert.deepEqual(whole.counts![r], [h[2], h[3]], `row ${r} orders`); });
+  assert.ok(whole.counts!.some(c => c[0] + c[1] > 0), 'the orders were counted');
+});
+
 test('the volume profile is off unless chosen: a first visit and a save from before it had settings read as off, a later choice stays', () => {
   const g = globalThis as { window?: unknown }, had = g.window;
   const saved = (value: unknown): void => { g.window = { innerWidth: 1920, localStorage: { getItem: () => JSON.stringify(value) } }; };

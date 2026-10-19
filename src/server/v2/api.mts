@@ -19,7 +19,7 @@ import { TAPE_BATCH_MAX, packTape } from '../../shared/tape.ts';
 import type { MarketOrder } from '../../shared/orders.ts';
 import { FootprintRecorder } from './footprint.mts';
 import { inverseOiId, oiInstrument, oiProfileOf, type OiSeries } from '../../shared/oi-profile.ts';
-import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
+import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_PROFILE_SPAN_MS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
 import { RecordedBefore } from '../../shared/restart.ts';
 import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageMetric } from './coverage.mts';
 import { venueForFeedId } from '../../core/venue-status.mts';
@@ -44,7 +44,7 @@ export interface V2Handle {
   degradedVenues(): Map<string, string>;
 }
 
-const MAX_COLUMN_SPAN_MS = 8 * 24 * 3_600_000;
+const MAX_COLUMN_SPAN_MS = MAX_PROFILE_SPAN_MS;
 /** The stretch of prints one turn of the event loop fills the footprint's lists from (see `fillLists` below). */
 const FILL_STEP_MS = 10 * 60_000;
 /** The most flow history one request may ask for: what the recorder keeps in memory, and a few thousand seconds per instrument cost 8 bytes each. */
