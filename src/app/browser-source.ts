@@ -129,7 +129,8 @@ export class BrowserSource implements DataSource, VenueControl {
           this.#statuses = message.venues; known();
           for (const watcher of this.#watchers) watcher(message.venues.map(toEntry));
           break;
-        case 'recording': this.recording = message.recording; if (message.failed) this.storageFailed = true; break;
+        // A failed write is tried again: the next word from the worker says whether saving works now.
+        case 'recording': this.recording = message.recording; this.storageFailed = message.failed === true; break;
         case 'recovered': if (typeof message.id === 'string' && Number.isFinite(message.from) && Number.isFinite(message.to)) this.#handlers?.onRecovered?.(message.id, message.from, message.to); break;
         case 'rpc': {
           const call = this.#calls.get(message.id); this.#calls.delete(message.id);

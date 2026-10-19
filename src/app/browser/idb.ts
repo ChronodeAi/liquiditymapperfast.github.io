@@ -9,7 +9,8 @@ import type { CoverageRow, CoverageStore } from '../../shared/coverage.ts';
 /**
  * Recordings kept in this browser (IndexedDB): the same four stores the server keeps in SQLite. The recorders read everything they
  * need once at start (`load` is synchronous), so the database is read before the engine is built, and writes are queued and applied in
- * one transaction every half second or so. A write that fails turns writing off for the session rather than disturbing the live view.
+ * one transaction every half second or so. A write that fails is let go and writing is tried again after a growing pause (the connection
+ * opened again if the browser closed it), so a page open for days keeps saving; only a newer page taking the database over ends it.
  */
 
 const VERSION = 4, WRITE_DELAY_MS = 500;
@@ -47,15 +48,35 @@ function openDatabase(name: string): Promise<IDBDatabase> {
       resolve(db);
     };
     request.onerror = () => reject(request.error ?? new Error('IndexedDB could not be opened'));
-    request.onblocked = () => reject(new Error('IndexedDB is blocked by another tab'));
+    // An older page holds the database open at its version: the request waits, and succeeds once that page lets go (each page closes its
+    // connection when asked, `onversionchange` above). Giving up here kept the recordings from this page even when it let go a moment later.
+    request.onblocked = () => console.warn('the recordings wait for another tab of this page to let go of them');
   });
 }
 
-/** Every row of a store whose time is at or after `since`, oldest first. */
+/** `work`, or a failure once it has taken `ms`. */
+const withTimeout = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
+  Promise.race([work, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what} took longer than ${ms} ms`)), ms))]);
+/** How long the database may take to open: a tab that never lets go of it would otherwise keep this page without recordings and without a word. */
+const OPEN_TIMEOUT_MS = 10_000;
+/** After a failed write the next waits twice as long each time, up to this. */
+const RETRY_MAX_MS = 60_000;
+
+/**
+ * What becomes of the writing: `failed` after a write that did not go through (`fatal`: a newer page took the database over, and this one
+ * writes no more), `recovered` when a write goes through again after failures.
+ */
+export interface RecordingEvents { failed?: (error: unknown, fatal: boolean) => void; recovered?: () => void }
+
+/**
+ * Every row of a store whose time is at or after `since`, oldest first: one request for all of them. A cursor walked them one round trip a
+ * row, and a day of the default venues' minutes read that way outlasted the time the page gave the recordings to open, so the page started
+ * with none and saved none (2026-10-19).
+ */
 function readSince<T>(db: IDBDatabase, name: Name, since: number): Promise<T[]> {
   return new Promise((resolve, reject) => {
-    const out: T[] = [], request = db.transaction(name, 'readonly').objectStore(name).index('t').openCursor(IDBKeyRange.lowerBound(since));
-    request.onsuccess = () => { const cursor = request.result; if (cursor) { out.push(cursor.value as T); cursor.continue(); } else resolve(out); };
+    const request = db.transaction(name, 'readonly').objectStore(name).index('t').getAll(IDBKeyRange.lowerBound(since));
+    request.onsuccess = () => resolve(request.result as T[]);
     request.onerror = () => reject(request.error);
   });
 }
@@ -74,12 +95,20 @@ export interface Recordings {
  * Open the database, read what is still inside the retention window, and return stores for the recorders. `canWrite` says whether this
  * tab is the one allowed to write (only one tab records, so two open pages do not write the same minutes twice).
  */
-export async function openRecordings(name: string, since: number, canWrite: () => boolean, onError: (error: unknown) => void = () => {}): Promise<Recordings> {
-  const db = await openDatabase(name);
-  const absorptionSince = Math.max(since, Date.now() - ABSORPTION_MEMORY_MS);
+export async function openRecordings(name: string, since: number, canWrite: () => boolean, events: RecordingEvents = {}): Promise<Recordings> {
+  // Only the opening is timed: reading a day back takes as long as it takes (it is what the page is for), and a page that gave up on it
+  // started with nothing and saved nothing.
+  let db = await withTimeout(openDatabase(name), OPEN_TIMEOUT_MS, 'opening the recordings');
+  /** The connection was closed under this page (by the browser, or for a newer page): it is opened again before the next write. */
+  let lost = false;
+  const watch = (connection: IDBDatabase): void => { connection.onclose = () => { lost = true; }; };
+  watch(db);
+  const absorptionSince = Math.max(since, Date.now() - ABSORPTION_MEMORY_MS), started = performance.now();
   const [columnRows, footprintRows, printRows, flowRows, absorptionRows, absorptionMinuteRows, coverRows] = await Promise.all([readSince<ColumnRow>(db, 'columns', since), readSince<FootprintMinuteRow>(db, 'footprint', since), readSince<PrintRow>(db, 'prints', since), readSince<FlowMinuteRow>(db, 'flow', since),
     readSince<AbsorptionRow>(db, 'absorption', absorptionSince), readSince<AbsorptionMinuteRow>(db, 'absorptionMinutes', absorptionSince), readSince<CoverRow>(db, 'coverage', since)]);
-  let queue: ((tx: IDBTransaction) => void)[] = [], timer: ReturnType<typeof setTimeout> | null = null, failed = false, closed = false;
+  console.info(`recordings read back in ${Math.round(performance.now() - started)} ms: ${columnRows.length} map minutes, ${footprintRows.length} footprint minutes, ${printRows.length} trades`);
+  let queue: ((tx: IDBTransaction) => void)[] = [], timer: ReturnType<typeof setTimeout> | null = null, failed = false, closed = false, failures = 0;
+  const schedule = (): void => { if (!timer) timer = setTimeout(() => { void write(); }, failures ? Math.min(RETRY_MAX_MS, WRITE_DELAY_MS * 2 ** failures) : WRITE_DELAY_MS); };
 
   const prune = (tx: IDBTransaction, name: Name, before: number): void => {
     const store = tx.objectStore(name), request = store.index('t').openKeyCursor(IDBKeyRange.upperBound(before, true));
@@ -90,10 +119,27 @@ export async function openRecordings(name: string, since: number, canWrite: () =
     const ops = queue; queue = [];
     if (!ops.length || failed || closed) return;
     try {
+      if (lost) {
+        try { db = await withTimeout(openDatabase(name), OPEN_TIMEOUT_MS, 'opening the recordings again'); }
+        catch (error) {
+          // A newer page has moved the database to its version: that page records now, and this one lets go for good.
+          if (error instanceof DOMException && error.name === 'VersionError') { failed = true; events.failed?.(error, true); return; }
+          throw error;
+        }
+        lost = false; watch(db);
+      }
       const tx = db.transaction(STORES, 'readwrite');
       for (const op of ops) op(tx);
       await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
-    } catch (error) { failed = true; onError(error); }
+      if (failures) { failures = 0; events.recovered?.(); }
+    } catch (error) {
+      // The batch is let go (what it held stays on screen, and a minute that changes again is written again) and writing goes on after a
+      // pause that grows. One failed write used to end saving for the session, so a page left open for days could reload to nothing.
+      if (error instanceof DOMException && error.name === 'InvalidStateError') lost = true;
+      failures++;
+      events.failed?.(error, false);
+      if (queue.length) schedule();
+    }
   };
   /**
    * Store `row` under `key` unless the row already there is the fuller one. Another tab may have been writing the same minutes (this one
@@ -107,7 +153,7 @@ export async function openRecordings(name: string, since: number, canWrite: () =
   const enqueue = (op: (tx: IDBTransaction) => void): void => {
     if (failed || closed || !canWrite()) return;
     queue.push(op);
-    if (!timer) timer = setTimeout(() => { void write(); }, WRITE_DELAY_MS);
+    schedule();
   };
 
   const columns: ColumnStore = {
