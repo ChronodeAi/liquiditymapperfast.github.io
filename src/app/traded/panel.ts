@@ -78,6 +78,7 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     const most = source === 'candles' ? mostCount(s) : recordedCount(s.period, sources.browser ? BROWSER_RETENTION_MS : RETENTION_MS);
     if (most >= 1) body.append(numberRow(t('How many'), t('How many past ones are drawn, the one under way among them (of each session).'), { min: 1, max: most, step: 1, value: Math.min(s.count, most) }, count => set({ count: Math.max(1, Math.min(most, Math.round(count))) })));
     body.append(switchRow(t('Extend untouched points of control'), t('A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.'), s.naked, naked => set({ naked })));
+    body.append(switchRow(t('Draw past ones on the chart'), t('Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.'), s.pastProfiles, pastProfiles => set({ pastProfiles })));
     if (source === 'recorded') {
       body.append(note(sources.browser
         ? t('This page keeps a day of trades, and only while it is open: it works out today and the last session at most, and no week. For older ones, work them out from candles.')

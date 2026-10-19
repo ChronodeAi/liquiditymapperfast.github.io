@@ -1458,5 +1458,7 @@
  "Each month": "Cada mes",
  "Months start in": "Los meses empiezan en",
  "The time zone whose midnight on the 1st starts a month.": "La zona horaria cuya medianoche del día 1 empieza un mes.",
- "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Un mes es más largo de lo que guarda la grabación: sus líneas salen de velas, una estimación marcada con ≈, y sus columnas suman como mucho sus últimos ocho días."
+ "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Un mes es más largo de lo que guarda la grabación: sus líneas salen de velas, una estimación marcada con ≈, y sus columnas suman como mucho sus últimos ocho días.",
+ "Draw past ones on the chart": "Dibujar los pasados en el gráfico",
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Cada día, semana, mes o sesión con líneas dibujadas dibuja también su perfil de volumen negociado en el gráfico, a lo largo de su propio intervalo: barras tenues desde su inicio, en un solo color donde se calcula a partir de velas."
 }

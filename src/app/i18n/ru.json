@@ -1472,5 +1472,7 @@
  "Each month": "Каждый месяц",
  "Months start in": "Месяцы начинаются в",
  "The time zone whose midnight on the 1st starts a month.": "Часовой пояс, чья полночь 1-го числа начинает месяц.",
- "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Месяц длиннее, чем хранит запись: его линии берутся из свечей — это оценка, помеченная ≈, а его колонки суммируют не больше последних восьми дней."
+ "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Месяц длиннее, чем хранит запись: его линии берутся из свечей — это оценка, помеченная ≈, а его колонки суммируют не больше последних восьми дней.",
+ "Draw past ones on the chart": "Рисовать прошлые на графике",
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Для каждого дня, недели, месяца или сессии, по которым рисуются линии, на графике также рисуется их профиль объёма сделок на собственном промежутке времени: бледные полосы с начала, одним цветом там, где он считается из свечей."
 }

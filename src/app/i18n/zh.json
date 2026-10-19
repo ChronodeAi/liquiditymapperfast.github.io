@@ -1404,5 +1404,7 @@
  "Each month": "每月",
  "Months start in": "月起始时区",
  "The time zone whose midnight on the 1st starts a month.": "以其每月 1 日的午夜作为一个月开始的时区。",
- "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "一个月比录制数据保留的时间长：其线来自 K 线，是标记为 ≈ 的估算，其列最多汇总最近八天。"
+ "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "一个月比录制数据保留的时间长：其线来自 K 线，是标记为 ≈ 的估算，其列最多汇总最近八天。",
+ "Draw past ones on the chart": "在图表上绘制过去的",
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "每个绘制了线的日、周、月或时段，也会在图表上按各自的时间范围绘制其成交量分布：从起点开始的淡色柱条，由 K 线计算时为单一颜色。"
 }

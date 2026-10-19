@@ -270,6 +270,8 @@ test('from the recording only what it still holds is offered: as many days or se
   assert.equal(linesCount({ ...TRADED_DEFAULTS, period: 'week', count: 5, source: 'candles' }, 7 * DAY), 5, 'candles reach back');
   assert.equal(readTraded({}).source, 'recorded', 'a save from before the choice');
   assert.equal(readTraded({ source: 'candles' }).source, 'candles'); assert.equal(readTraded({ source: 'tea leaves' }).source, 'recorded');
+  assert.equal(readTraded({}).pastProfiles, false, 'past profiles on the chart are off until switched on');
+  assert.equal(readTraded({ pastProfiles: true }).pastProfiles, true); assert.equal(readTraded({ pastProfiles: 'yes' }).pastProfiles, false);
   // Weeks in UTC on Sunday 2026-10-18: this week began on the 12th, inside the seven days; the week of the 5th did not.
   const now = Date.UTC(2026, 9, 18, 15), weeks = linesWindows({ ...TRADED_DEFAULTS, period: 'week', zone: 'UTC', count: 5, source: 'candles' }, 'utc', now - 30 * DAY, now, now);
   assert.equal(weeks.length, 5);
@@ -289,6 +291,12 @@ test('candles give a value area with each bar\'s volume spread evenly over its r
   // 850,200 USD spread over 85,000-85,040 is two rows of 425,100 (with 85,100 and the low bar about 16 % of the volume): the 70 % is those two rows.
   assert.deepEqual([r.levels!.val, r.levels!.vah], [85_000, 85_040]);
   assert.ok(r.levels!.poc === 85_010 || r.levels!.poc === 85_030, `POC ${r.levels!.poc}`);
+  // The estimate a past window's profile on the chart draws: USD by row index on the step, the bar outside the window in none of them.
+  const usd = [...r.rows.values()].reduce((a, b) => a + b, 0);
+  assert.ok(Math.abs(usd - (10 * (85_040 + 85_000 + 85_020) / 3 + 85_100 + (85_000 + 84_900 + 84_950) / 3)) < 1e-6, `rows hold ${usd}`);
+  assert.ok(Math.abs(r.rows.get(85_000 / 20)! - 10 * 85_020 / 2) < 1e-6, 'the first bar\'s half on 85,000-85,020');
+  assert.equal(r.rows.get(85_100 / 20), 85_100, 'a bar with no range on its one row');
+  assert.ok(![...r.rows.keys()].some(k => k < 84_900 / 20 || k > 85_100 / 20), 'nothing from the bar before the window');
   // A bar missing; and the candles known only to inside the second bar: the window under way is worked out to there.
   assert.equal(candleLevels([bars[0]!, bars[2]!], T, T + 3 * B, B, 20, 0.7, T + 3 * B).covered, 2 / 3);
   assert.equal(candleLevels(bars, T, T + 3 * B, B, 20, 0.7, T + B + 30_000).covered, 1, 'one bar ended by then, and it is there');

@@ -1444,5 +1444,7 @@
  "Each month": "Jeder Monat",
  "Months start in": "Monate beginnen in",
  "The time zone whose midnight on the 1st starts a month.": "Die Zeitzone, deren Mitternacht am 1. einen Monat beginnt.",
- "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Ein Monat ist länger, als die Aufzeichnung aufbewahrt: Seine Linien kommen aus Kerzen, eine Schätzung, mit ≈ markiert, und seine Spalten summieren höchstens seine letzten acht Tage."
+ "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Ein Monat ist länger, als die Aufzeichnung aufbewahrt: Seine Linien kommen aus Kerzen, eine Schätzung, mit ≈ markiert, und seine Spalten summieren höchstens seine letzten acht Tage.",
+ "Draw past ones on the chart": "Vergangene auf dem Chart zeichnen",
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Für jeden Tag, jede Woche, jeden Monat oder jede Session, für die die Linien gezeichnet werden, wird auch das Profil des gehandelten Volumens auf dem Chart gezeichnet, über den eigenen Zeitraum: blasse Balken ab dem Beginn, in einer Farbe, wo es aus Kerzen berechnet wird."
 }

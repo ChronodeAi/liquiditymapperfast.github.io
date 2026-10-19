@@ -90,6 +90,8 @@ export const VALUE_AREA_SETTLE_MS = 60 * MINUTE;
 export const PROFILE_CANDLES_BACK_MS = 21 * 7 * 86_400_000;
 /** A value area's key: the instruments, the row step and share it was read with, and its window. */
 export const valueAreaKey = (ids: readonly string[], step: number, share: number, w: { from: number; to: number }): string => `${ids.join(',')}|${step}|${share}|${w.from}-${w.to}`;
+/** The key a past window's traded volume by price is held by (`Hub.windowProfiles`): the instruments first, as `valueAreaKey`'s. */
+export const windowProfileKey = (ids: readonly string[], step: number, w: { from: number; to: number }): string => `${ids.join(',')}|${step}|${w.from}-${w.to}`;
 
 /** The perpetuals whose open interest is added together with every venue on (market-choice.ts). */
 export { oiVenueIds } from './market-choice.ts';
@@ -280,6 +282,9 @@ export class Hub {
    * what it reaches), and whether it can no longer change (`final`: answered a while after it ended), so it is not asked again (`ensureValueAreas`).
    */
   readonly valueAreas = new Map<string, ValueAreaWindow & { at: number; asOf: number; final: boolean }>();
+  /** Traded volume by price of past days, weeks or sessions, by window (`windowProfileKey`), for their profiles on the chart (`ensureWindowProfiles`). */
+  readonly windowProfiles = new Map<string, { answer: ProfileAnswer; at: number; final: boolean }>();
+  #wpLoading = false; #wpRetryAt = 0;
   valueAreasState: 'ready' | 'unavailable' = 'ready';
   #vaLoading = false; #vaRetryAt = 0; #vaLastMs = 0;
   tradedState: 'ready' | 'unavailable' = 'ready';
@@ -646,6 +651,29 @@ export class Hub {
   /** Forget the value areas of windows of `id` that [from, to) reaches into: trades were filled in there after they were answered. */
   #dropValueAreas(id: string, from: number, to: number): void {
     for (const [key, w] of this.valueAreas) if (w.from < to && w.to > from && key.slice(0, key.indexOf('|')).split(',').includes(id)) this.valueAreas.delete(key);
+    for (const [key, w] of this.windowProfiles) if (w.answer.from < to && w.answer.to > from && key.slice(0, key.indexOf('|')).split(',').includes(id)) this.windowProfiles.delete(key);
+  }
+
+  /**
+   * Make sure the traded volume by price of these past days, weeks or sessions is held (`windowProfiles`), for their profiles on the chart:
+   * one window asked at a time, the newest first; one that ended an hour or more before its answer (`VALUE_AREA_SETTLE_MS`, as long as late
+   * trades are rechecked) is kept for good, any other asked again after a minute. Each is asked whole (they began inside what the recording
+   * keeps) on rows of `step`, the level rows, so zooming asks nothing again.
+   */
+  ensureWindowProfiles(ids: readonly string[], windows: readonly { from: number; to: number }[], step: number): void {
+    if (this.#wpLoading || !ids.length || !windows.length || !(step > 0)) return;
+    const now = Date.now();
+    if (now < this.#wpRetryAt) return;
+    const w = [...windows].sort((a, b) => b.to - a.to).find(x => { const held = this.windowProfiles.get(windowProfileKey(ids, step, x)); return !held || (!held.final && now - held.at >= 60_000); });
+    if (!w) return;
+    this.#wpLoading = true;
+    const { from, to } = askedSpan(w.from, w.to), key = windowProfileKey(ids, step, w);
+    this.source.profile([...ids], from, to, step).then(answer => {
+      this.windowProfiles.set(key, { answer, at: Date.now(), final: Date.now() >= w.to + VALUE_AREA_SETTLE_MS });
+      // A bound on what is held (20 windows of each session at most are drawn): the oldest answers go first.
+      if (this.windowProfiles.size > 200) for (const k of [...this.windowProfiles.keys()].slice(0, this.windowProfiles.size - 150)) this.windowProfiles.delete(k);
+      this.onTraded();
+    }, () => { this.#wpRetryAt = Date.now() + 60_000; }).finally(() => { this.#wpLoading = false; });
   }
 
   /**

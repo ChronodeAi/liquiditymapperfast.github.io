@@ -1404,5 +1404,7 @@
  "Each month": "月ごと",
  "Months start in": "月の始まり",
  "The time zone whose midnight on the 1st starts a month.": "月の始まりとなる 1 日の真夜中のタイムゾーンです。",
- "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "月は記録が保持する期間より長いため、その線はローソク足から計算し（≈ が付く推定値）、列が集計するのは直近 8 日までです。"
+ "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "月は記録が保持する期間より長いため、その線はローソク足から計算し（≈ が付く推定値）、列が集計するのは直近 8 日までです。",
+ "Draw past ones on the chart": "過去のものをチャートに描画",
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "線を描いている各日・週・月・セッションは、その約定出来高のプロファイルもチャート上に、それぞれの期間にわたって描きます：開始位置から薄いバーで、ローソク足から計算した場合は 1 色です。"
 }

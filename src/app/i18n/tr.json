@@ -1444,5 +1444,7 @@
  "Each month": "Her ay",
  "Months start in": "Ayların başladığı yer",
  "The time zone whose midnight on the 1st starts a month.": "Ayın 1'inde gece yarısı bir ayı başlatan saat dilimi.",
- "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Bir ay, kaydın sakladığından uzundur: çizgileri mumlardan gelir (≈ ile işaretlenen bir tahmin), sütunları ise en fazla son sekiz günü toplar."
+ "A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈, and its columns add up its last eight days at most.": "Bir ay, kaydın sakladığından uzundur: çizgileri mumlardan gelir (≈ ile işaretlenen bir tahmin), sütunları ise en fazla son sekiz günü toplar.",
+ "Draw past ones on the chart": "Geçmiş olanları grafikte çiz",
+ "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Çizgilerin çizildiği her gün, hafta, ay ya da seans için işlem hacmi profili de grafikte kendi süresi boyunca çizilir: başlangıcından itibaren soluk çubuklar; mumlardan hesaplandığı yerde tek renkte."
 }

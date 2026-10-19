@@ -36,6 +36,8 @@ export interface TradedSettings {
   /** How many past days, weeks or sessions (of each session) are drawn, the open one among them (from the recording, at most `recordedCount`). */
   count: number;
   naked: boolean;
+  /** Whether each past day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time. */
+  pastProfiles: boolean;
   sessions: SessionDef[];
 }
 
@@ -87,7 +89,7 @@ const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!,
 
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
   metrics: ['volume'], bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true,
-  period: 'view', source: 'recorded', zone: 'page', count: 5, naked: true,
+  period: 'view', source: 'recorded', zone: 'page', count: 5, naked: true, pastProfiles: false,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
 
@@ -133,7 +135,7 @@ export function readTraded(saved: unknown): TradedSettings {
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels),
     period: oneOf(['view', 'day', 'week', 'month', 'sessions'] as const, s.period, d.period),
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
-    zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), sessions,
+    zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), pastProfiles: flag(s.pastProfiles, d.pastProfiles), sessions,
   };
 }
 

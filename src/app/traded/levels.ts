@@ -82,9 +82,10 @@ export function candleBarMs(s: Pick<TradedSettings, 'period' | 'sessions'>): num
  * volume in USD (its coins at the bar's typical price) spread evenly over its low to high, on rows of `step`: an estimate, since a candle
  * does not say where inside its range it traded. Only bars that lie wholly inside the window count; `heldTo` is how far the candles are
  * known, so a window under way is worked out up to there. Null levels when nothing traded. `covered` is the share of the window's bars, up
- * to `heldTo`, that are there (a venue that sends no bar for a minute nobody traded has one missing).
+ * to `heldTo`, that are there (a venue that sends no bar for a minute nobody traded has one missing). `rows` is the estimate itself: USD by
+ * row (the row's index on `step`), what a past window's profile on the chart draws.
  */
-export function candleLevels(bars: readonly CandleRow[], from: number, to: number, barMs: number, step: number, share: number, heldTo: number): { levels: ValueLevels | null; covered: number } {
+export function candleLevels(bars: readonly CandleRow[], from: number, to: number, barMs: number, step: number, share: number, heldTo: number): { levels: ValueLevels | null; covered: number; rows: Map<number, number> } {
   const rows = new Map<number, number>(), end = Math.min(to, Math.floor(heldTo / barMs) * barMs);
   let n = 0;
   for (const b of bars) {
@@ -101,7 +102,7 @@ export function candleLevels(bars: readonly CandleRow[], from: number, to: numbe
     }
   }
   const expected = Math.max(0, Math.floor((end - from) / barMs));
-  return { levels: levelsOf(rows, step, share), covered: expected > 0 ? Math.min(1, n / expected) : 0 };
+  return { levels: levelsOf(rows, step, share), covered: expected > 0 ? Math.min(1, n / expected) : 0, rows };
 }
 
 /** How far before the chart's right edge the column looks for a window: a session on weekdays only is three days back over a weekend. */
