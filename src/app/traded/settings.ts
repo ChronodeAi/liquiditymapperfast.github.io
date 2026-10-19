@@ -36,6 +36,8 @@ export interface TradedSettings {
   /** How many past days, weeks or sessions (of each session) are drawn, the open one among them (from the recording, at most `recordedCount`). */
   count: number;
   naked: boolean;
+  /** Whether the lines that reach the right edge (the window under way, an untouched point of control running on) are named on the price axis. */
+  tags: boolean;
   /** Whether each past day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time. */
   pastProfiles: boolean;
   sessions: SessionDef[];
@@ -88,7 +90,7 @@ export const SESSION_PRESETS: readonly Omit<SessionDef, 'id' | 'on'>[] = [
 const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!, id, on: true });
 
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
-  metrics: ['volume'], bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true,
+  metrics: ['volume'], bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true, tags: true,
   period: 'view', source: 'recorded', zone: 'page', count: 5, naked: true, pastProfiles: false,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
@@ -132,7 +134,7 @@ export function readTraded(saved: unknown): TradedSettings {
     metrics: readMetrics(Array.isArray(s.metrics) ? s.metrics : [s.metric]) ?? [...d.metrics],
     bars: oneOf(['split', 'delta'] as const, s.bars, d.bars),
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
-    poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels),
+    poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels), tags: flag(s.tags, d.tags),
     period: oneOf(['view', 'day', 'week', 'month', 'sessions'] as const, s.period, d.period),
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
     zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), pastProfiles: flag(s.pastProfiles, d.pastProfiles), sessions,

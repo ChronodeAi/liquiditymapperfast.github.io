@@ -66,7 +66,8 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     ...(!s.metrics.includes('volume') ? [note(t('With no traded volume column, the lines are the first column\'s, over the window chosen above; past days, weeks and sessions are worked out from traded volume only.'))] : []),
     switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
     switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
-    switchRow(t('Labels'), t('Name each line at its right end, the point of control with its price.'), s.labels, labels => set({ labels })),
+    switchRow(t('Labels'), t('Each line\'s name and price at its right end, where there is room.'), s.labels, labels => set({ labels })),
+    switchRow(t('Tags on the price axis'), t('The name of each line that reaches the right edge, beside its price.'), s.tags, tags => set({ tags })),
   );
   if (s.period !== 'view') {
     const target = profileTarget(currentCoin()), market = target ? `${venueLabel(target.id)} ${target.listing.symbol}` : '', source = linesSource(s);

@@ -834,7 +834,6 @@
  "Value area high and low": "バリューエリア・ハイとロー",
  "The top and the bottom of the value area (VAH and VAL), as dashed lines.": "バリューエリアの上端と下端（VAHとVAL）を破線で表示します。",
  "Labels": "ラベル",
- "Name each line at its right end, the point of control with its price.": "各線の右端に名前を、ポイント・オブ・コントロールには価格も表示します。",
  "Worked out over": "計算の対象",
  "What is on the chart": "チャートに表示中の範囲",
  "Each day": "日ごと",

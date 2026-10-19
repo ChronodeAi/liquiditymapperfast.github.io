@@ -272,6 +272,7 @@ test('from the recording only what it still holds is offered: as many days or se
   assert.equal(readTraded({ source: 'candles' }).source, 'candles'); assert.equal(readTraded({ source: 'tea leaves' }).source, 'recorded');
   assert.equal(readTraded({}).pastProfiles, false, 'past profiles on the chart are off until switched on');
   assert.equal(readTraded({ pastProfiles: true }).pastProfiles, true); assert.equal(readTraded({ pastProfiles: 'yes' }).pastProfiles, false);
+  assert.equal(readTraded({}).tags, true, 'a save from before the tags names its lines on the axis'); assert.equal(readTraded({ tags: false }).tags, false);
   // Weeks in UTC on Sunday 2026-10-18: this week began on the 12th, inside the seven days; the week of the 5th did not.
   const now = Date.UTC(2026, 9, 18, 15), weeks = linesWindows({ ...TRADED_DEFAULTS, period: 'week', zone: 'UTC', count: 5, source: 'candles' }, 'utc', now - 30 * DAY, now, now);
   assert.equal(weeks.length, 5);
