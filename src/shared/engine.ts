@@ -58,6 +58,11 @@ export interface EngineTick {
 }
 export interface FootprintAnswer { step: number; fine: number; bars: ReturnType<FootprintRecorder['query']>['bars']; from: number; venues?: string[] }
 
+/** One open-interest reading as it is kept: the venue's perpetual, when it was read, its coins and (an inverse market) its own USD. */
+export interface OiReading { venue: string; t: number; base: number; quote?: number }
+/** Where open-interest readings outlive the page (the browser's recordings): `load` is synchronous, saving may be queued. */
+export interface OiStore { load(since: number): OiReading[]; save(rows: OiReading[], expireBefore: number): void; close(): void }
+
 export interface EngineOptions {
   /** The coin, and the tier its size floors are kept at (the coin's own unless the page fixed another for its recordings). */
   coin?: Coin; tier?: number;
@@ -68,7 +73,7 @@ export interface EngineOptions {
   get?: Fetcher;
   /** Whether a venue's reachability request was answered; the engine only uses it to explain a venue that never comes up. */
   ping?: (url: string, init?: { method: string; headers: Record<string, string>; body: string }) => Promise<boolean>;
-  columns?: ColumnStore | null; footprint?: FootprintStore | null; prints?: PrintStore | null; flow?: FlowStore | null; absorption?: AbsorptionStore | null; coverage?: CoverageStore | null; liquidations?: LiquidationStore | null;
+  columns?: ColumnStore | null; footprint?: FootprintStore | null; prints?: PrintStore | null; flow?: FlowStore | null; absorption?: AbsorptionStore | null; coverage?: CoverageStore | null; liquidations?: LiquidationStore | null; oi?: OiStore | null;
   retentionMs?: number;
   /** How a recovery reads a venue's trade history (shared/recovery.ts), and its budget; a test gives its own. */
   historyFetch?: HistoryFetch; recoveryBudget?: RecoveryBudget;
@@ -164,13 +169,24 @@ export class Engine {
   readonly #last = new Map<string, { price: number; at: number; t: number }>();
   readonly #candles = new Map<string, LiveCandle>();
   readonly #oiLive = new Map<string, OiRow[]>();
+  /** Where the open-interest readings outlive the page (the browser's recordings), and how long they are kept there. */
+  readonly #oiStore: OiStore | null;
+  readonly #retentionMs: number;
   readonly #oiAsked = new Map<string, number>();
   readonly #oiCache = new Map<string, { at: number; rows: Promise<OiRow[]> }>();
   #lastSample = 0; #lastFlush = 0; #lastPrune = 0; #lastFlowPush = 0;
   #lastTick = ''; #lastStatus = '';
   #timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, coverage = null, liquidations = null, retentionMs = BROWSER_RETENTION_MS, historyFetch = webHistoryFetch, recoveryBudget = RECOVERY_BUDGET }: EngineOptions = {}) {
+  constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, coverage = null, liquidations = null, oi = null, retentionMs = BROWSER_RETENTION_MS, historyFetch = webHistoryFetch, recoveryBudget = RECOVERY_BUDGET }: EngineOptions = {}) {
+    this.#oiStore = oi; this.#retentionMs = retentionMs;
+    if (oi) {
+      for (const r of oi.load(now() - retentionMs)) {
+        let list = this.#oiLive.get(r.venue); if (!list) { list = []; this.#oiLive.set(r.venue, list); }
+        list.push({ observationTimestamp: r.t, base: r.base, ...(r.quote !== undefined ? { quote: r.quote } : {}) });
+      }
+      for (const list of this.#oiLive.values()) list.sort((a, b) => Number(a.observationTimestamp) - Number(b.observationTimestamp));
+    }
     this.#coin = coin; this.#venues = venues; this.#now = now; this.#get = get; this.#ping = ping; this.#historyFetch = historyFetch; this.#recoveryBudget = recoveryBudget;
     // A coin that trades less than BTC keeps smaller trades, groups and map cells (shared/coins.ts SCALES); BTC's are 1.
     const scale = SCALES[tier] ?? 1;
@@ -511,9 +527,11 @@ export class Engine {
       const listing = this.#coin.markets[venue as MarketVenue]; if (!listing) continue;
       void fetchOiReading(venue, this.#get, listing).then(reading => {
         if (reading === null) return;
-        const list = this.#oiLive.get(venue) ?? []; this.#oiLive.set(venue, list);
-        list.push({ observationTimestamp: this.#now(), base: reading.base, ...(reading.quote !== undefined ? { quote: reading.quote } : {}) });
+        const list = this.#oiLive.get(venue) ?? [], t = this.#now(); this.#oiLive.set(venue, list);
+        list.push({ observationTimestamp: t, base: reading.base, ...(reading.quote !== undefined ? { quote: reading.quote } : {}) });
         while (list.length && Number(list[0]!.observationTimestamp) < this.#now() - OI_KEEP_MS) list.shift();
+        // Kept with the recordings, so a reload has the venues that keep no history of their own (Hyperliquid, Bitget, Deribit) too.
+        this.#oiStore?.save([{ venue, t, base: reading.base, ...(reading.quote !== undefined ? { quote: reading.quote } : {}) }], t - this.#retentionMs);
       }, () => { /* the next minute asks again */ });
     }
   }
