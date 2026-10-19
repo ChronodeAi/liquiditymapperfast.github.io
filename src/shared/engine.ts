@@ -3,7 +3,7 @@ import { BROWSER_RETENTION_MS, COLUMN_MS, DepthRecorder, MIN_BIN_USD, SAMPLE_MS,
 import { FootprintRecorder, MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, type FootprintStore, type ProfileAnswer, type RangeAnswer, type SizesAnswer, type ValueAreaAnswer } from './footprint.ts';
 import { PRINT_FLOOR_USD, PRINTS_PER_ANSWER, PrintStream, type Print, type PrintStore } from './prints.ts';
 import type { PrintSumsAnswer } from './print-sums.ts';
-import { LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER, LiquidationStream, type Liquidation, type LiquidationEvent } from './liquidations.ts';
+import { LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER, LiquidationStream, type Liquidation, type LiquidationEvent, type LiquidationStore } from './liquidations.ts';
 import { OrderBuilder, orderRow } from './orders.ts';
 import { packTape, type TapeBatch } from './tape.ts';
 import { RecordedBefore } from './restart.ts';
@@ -67,7 +67,7 @@ export interface EngineOptions {
   get?: Fetcher;
   /** Whether a venue's reachability request was answered; the engine only uses it to explain a venue that never comes up. */
   ping?: (url: string, init?: { method: string; headers: Record<string, string>; body: string }) => Promise<boolean>;
-  columns?: ColumnStore | null; footprint?: FootprintStore | null; prints?: PrintStore | null; flow?: FlowStore | null; absorption?: AbsorptionStore | null; coverage?: CoverageStore | null;
+  columns?: ColumnStore | null; footprint?: FootprintStore | null; prints?: PrintStore | null; flow?: FlowStore | null; absorption?: AbsorptionStore | null; coverage?: CoverageStore | null; liquidations?: LiquidationStore | null;
   retentionMs?: number;
   /** How a recovery reads a venue's trade history (shared/recovery.ts), and its budget; a test gives its own. */
   historyFetch?: HistoryFetch; recoveryBudget?: RecoveryBudget;
@@ -133,7 +133,7 @@ export class Engine {
   onPrints: (fresh: Print[]) => void = () => {};
   /** Liquidations that are new. */
   onLiquidations: (fresh: Liquidation[]) => void = () => {};
-  /** Liquidations reported by the venues that publish them: kept in memory only (nothing of them is written to the browser's storage). */
+  /** Liquidations reported by the venues that publish them, kept with the other recordings (in this browser, a day of them). */
   readonly liquidationStream: LiquidationStream;
   /** Every market order completed since the last pass, for the trade dust (never stored); null when nobody draws it. */
   onTape: ((batch: TapeBatch) => void) | null = null;
@@ -169,7 +169,7 @@ export class Engine {
   #lastTick = ''; #lastStatus = '';
   #timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, coverage = null, retentionMs = BROWSER_RETENTION_MS, historyFetch = webHistoryFetch, recoveryBudget = RECOVERY_BUDGET }: EngineOptions = {}) {
+  constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, coverage = null, liquidations = null, retentionMs = BROWSER_RETENTION_MS, historyFetch = webHistoryFetch, recoveryBudget = RECOVERY_BUDGET }: EngineOptions = {}) {
     this.#coin = coin; this.#venues = venues; this.#now = now; this.#get = get; this.#ping = ping; this.#historyFetch = historyFetch; this.#recoveryBudget = recoveryBudget;
     // A coin that trades less than BTC keeps smaller trades, groups and map cells (shared/coins.ts SCALES); BTC's are 1.
     const scale = SCALES[tier] ?? 1;
@@ -181,7 +181,7 @@ export class Engine {
     // memory already: at once, where a server spreads it out).
     const unknown = this.footprints.unknownLists();
     if (unknown) { const list: Print[] = []; this.printStream.eachIn(unknown.from, unknown.to, p => list.push(p)); this.footprints.fillLists(unknown.from, unknown.to, list); }
-    this.liquidationStream = new LiquidationStream(null, now, retentionMs, LIQUIDATION_FLOOR_USD * scale);
+    this.liquidationStream = new LiquidationStream(liquidations, now, retentionMs, LIQUIDATION_FLOOR_USD * scale);
     this.flows = new FlowRecorder(flow, now, Math.min(retentionMs, FLOW_MEMORY_MS), retentionMs);
     this.orders = new OrderBuilder(now);
     this.absorption = new AbsorptionRecorder(absorption, now, { retentionMs, floorUsd: GROUP_FLOOR_USD * scale });

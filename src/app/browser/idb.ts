@@ -5,6 +5,7 @@ import type { FlowMinuteRow, FlowStore } from '../../shared/flow.ts';
 import { fullerColumn, fullerFlowMinute, fullerFootprintMinute } from '../../shared/recording-merge.ts';
 import { peakOf, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from '../../shared/absorption.ts';
 import type { CoverageRow, CoverageStore } from '../../shared/coverage.ts';
+import { largestLiquidations, liquidationKey, type Liquidation, type LiquidationStore } from '../../shared/liquidations.ts';
 
 /**
  * Recordings kept in this browser (IndexedDB): the same four stores the server keeps in SQLite. The recorders read everything they
@@ -13,9 +14,9 @@ import type { CoverageRow, CoverageStore } from '../../shared/coverage.ts';
  * opened again if the browser closed it), so a page open for days keeps saving; only a newer page taking the database over ends it.
  */
 
-const VERSION = 4, WRITE_DELAY_MS = 500;
-type Name = 'columns' | 'footprint' | 'prints' | 'flow' | 'absorption' | 'absorptionMinutes' | 'coverage';
-const STORES: Name[] = ['columns', 'footprint', 'prints', 'flow', 'absorption', 'absorptionMinutes', 'coverage'];
+const VERSION = 5, WRITE_DELAY_MS = 500;
+type Name = 'columns' | 'footprint' | 'prints' | 'flow' | 'absorption' | 'absorptionMinutes' | 'coverage' | 'liquidations';
+const STORES: Name[] = ['columns', 'footprint', 'prints', 'flow', 'absorption', 'absorptionMinutes', 'coverage', 'liquidations'];
 /** Absorption groups held in memory by the recorder (older ones are read on demand). */
 const ABSORPTION_MEMORY_MS = 2 * 3_600_000;
 interface AbsorptionRow { inst: string; t0: number; side: 'buy' | 'sell'; price: number; peak: number; steps: AbsorptionGroup['steps'] }
@@ -23,6 +24,7 @@ interface AbsorptionMinuteRow { inst: string; t: number; n: number; mean: number
 /** `lt`/`ltN`: the Liquidity Tracker kept with the minute (`Column.lt`), absent in rows written before it was kept. */
 interface ColumnRow { inst: string; t: number; step: number; n: number; bins: Int32Array; bid: Float32Array; ask: Float32Array; lt?: Float32Array; ltN?: number }
 interface PrintRow extends Print { k: string }
+interface LiquidationRow extends Liquidation { k: string }
 /** A stretch of the coverage record, with its end as `t` (the time index every store prunes by). */
 interface CoverRow extends CoverageRow { t: number }
 
@@ -32,7 +34,8 @@ function openDatabase(name: string): Promise<IDBDatabase> {
     const request = indexedDB.open(name, VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      // Version 2 added the flow store, version 3 the absorption stores, version 4 the coverage record: an older database keeps what it has and gains only those.
+      // Version 2 added the flow store, version 3 the absorption stores, version 4 the coverage record, version 5 the liquidations: an older
+      // database keeps what it has and gains only those.
       if (!db.objectStoreNames.contains('columns')) db.createObjectStore('columns', { keyPath: ['inst', 't'] }).createIndex('t', 't');
       if (!db.objectStoreNames.contains('footprint')) db.createObjectStore('footprint', { keyPath: ['inst', 't'] }).createIndex('t', 't');
       if (!db.objectStoreNames.contains('prints')) db.createObjectStore('prints', { keyPath: 'k' }).createIndex('t', 't');
@@ -40,6 +43,7 @@ function openDatabase(name: string): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('absorption')) db.createObjectStore('absorption', { keyPath: ['inst', 't0', 'side', 'price'] }).createIndex('t', 't0');
       if (!db.objectStoreNames.contains('absorptionMinutes')) db.createObjectStore('absorptionMinutes', { keyPath: ['inst', 't'] }).createIndex('t', 't');
       if (!db.objectStoreNames.contains('coverage')) db.createObjectStore('coverage', { keyPath: ['inst', 'metric', 'from'] }).createIndex('t', 't');
+      if (!db.objectStoreNames.contains('liquidations')) db.createObjectStore('liquidations', { keyPath: 'k' }).createIndex('t', 't');
     };
     request.onsuccess = () => {
       const db = request.result;
@@ -85,7 +89,7 @@ function readSince<T>(db: IDBDatabase, name: Name, since: number): Promise<T[]> 
 const own = <A extends Int32Array | Float32Array>(array: A): A => array.byteLength === array.buffer.byteLength ? array : array.slice() as A;
 
 export interface Recordings {
-  columns: ColumnStore; footprint: FootprintStore; prints: PrintStore; flow: FlowStore; absorption: AbsorptionStore; coverage: CoverageStore;
+  columns: ColumnStore; footprint: FootprintStore; prints: PrintStore; flow: FlowStore; absorption: AbsorptionStore; coverage: CoverageStore; liquidations: LiquidationStore;
   /** Apply what is queued now instead of at the next half second. */
   flush(): Promise<void>;
   close(): void;
@@ -104,9 +108,9 @@ export async function openRecordings(name: string, since: number, canWrite: () =
   const watch = (connection: IDBDatabase): void => { connection.onclose = () => { lost = true; }; };
   watch(db);
   const absorptionSince = Math.max(since, Date.now() - ABSORPTION_MEMORY_MS), started = performance.now();
-  const [columnRows, footprintRows, printRows, flowRows, absorptionRows, absorptionMinuteRows, coverRows] = await Promise.all([readSince<ColumnRow>(db, 'columns', since), readSince<FootprintMinuteRow>(db, 'footprint', since), readSince<PrintRow>(db, 'prints', since), readSince<FlowMinuteRow>(db, 'flow', since),
-    readSince<AbsorptionRow>(db, 'absorption', absorptionSince), readSince<AbsorptionMinuteRow>(db, 'absorptionMinutes', absorptionSince), readSince<CoverRow>(db, 'coverage', since)]);
-  console.info(`recordings read back in ${Math.round(performance.now() - started)} ms: ${columnRows.length} map minutes, ${footprintRows.length} footprint minutes, ${printRows.length} trades`);
+  const [columnRows, footprintRows, printRows, flowRows, absorptionRows, absorptionMinuteRows, coverRows, liquidationRows] = await Promise.all([readSince<ColumnRow>(db, 'columns', since), readSince<FootprintMinuteRow>(db, 'footprint', since), readSince<PrintRow>(db, 'prints', since), readSince<FlowMinuteRow>(db, 'flow', since),
+    readSince<AbsorptionRow>(db, 'absorption', absorptionSince), readSince<AbsorptionMinuteRow>(db, 'absorptionMinutes', absorptionSince), readSince<CoverRow>(db, 'coverage', since), readSince<LiquidationRow>(db, 'liquidations', since)]);
+  console.info(`recordings read back in ${Math.round(performance.now() - started)} ms: ${columnRows.length} map minutes, ${footprintRows.length} footprint minutes, ${printRows.length} trades, ${liquidationRows.length} liquidations`);
   let queue: ((tx: IDBTransaction) => void)[] = [], timer: ReturnType<typeof setTimeout> | null = null, failed = false, closed = false, failures = 0;
   const schedule = (): void => { if (!timer) timer = setTimeout(() => { void write(); }, failures ? Math.min(RETRY_MAX_MS, WRITE_DELAY_MS * 2 ** failures) : WRITE_DELAY_MS); };
 
@@ -238,8 +242,27 @@ export async function openRecordings(name: string, since: number, canWrite: () =
     save: (rows, expireBefore) => enqueue(tx => { const store = tx.objectStore('coverage'); for (const row of rows) store.put({ ...row, t: row.to } satisfies CoverRow); prune(tx, 'coverage', expireBefore); }),
     close: () => {},
   };
+  // Liquidations, kept as the prints are: every one inside the retention, by the content it is known by (shared/liquidations.ts). They are
+  // few (BTC on the server: 900 to 3,500 a day across the venues, 2026-10-12 to 19), so a day of them is a small part of what is kept.
+  const toLiquidation = ({ k: _k, ...row }: LiquidationRow): Liquidation => row;
+  const everyLiquidation = new Map<string, LiquidationRow>(liquidationRows.map(row => [row.k, row]));
+  const liquidations: LiquidationStore = {
+    load: (_since, limit) => liquidationRows.slice(-limit).map(toLiquidation),
+    query: (from, to, minUsd, limit) => {
+      const out: Liquidation[] = [];
+      for (const row of everyLiquidation.values()) if (row.t >= from && row.t < to && row.usd >= minUsd) out.push(toLiquidation(row));
+      out.sort((a, b) => a.t - b.t);
+      return largestLiquidations(out, limit);
+    },
+    save: (rows, expireBefore) => {
+      for (const row of rows) everyLiquidation.set(liquidationKey(row), { ...row, k: liquidationKey(row) });
+      for (const [key, row] of everyLiquidation) if (row.t < expireBefore) everyLiquidation.delete(key);
+      enqueue(tx => { const store = tx.objectStore('liquidations'); for (const row of rows) store.put({ ...row, k: liquidationKey(row) } satisfies LiquidationRow); prune(tx, 'liquidations', expireBefore); });
+    },
+    close: () => {},
+  };
   return {
-    columns, footprint, prints, flow, absorption, coverage,
+    columns, footprint, prints, flow, absorption, coverage, liquidations,
     flush() { if (timer) clearTimeout(timer); return write(); },
     close() { if (timer) clearTimeout(timer); void write().finally(() => { closed = true; db.close(); }); },
   };
