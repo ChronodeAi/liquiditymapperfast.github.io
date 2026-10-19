@@ -1407,5 +1407,11 @@
  "Draw past ones on the chart": "在图表上绘制过去的",
  "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "每个绘制了线的日、周、月或时段，也会在图表上按各自的时间范围绘制其成交量分布：从起点开始的淡色柱条，由 K 线计算时为单一颜色。",
  "Session starts at": "交易时段开始于",
- "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "当日均值开始的时刻，按成交量分布和关键价位所用的时区。选午夜则保持日历日。"
+ "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "当日均值开始的时刻，按成交量分布和关键价位所用的时区。选午夜则保持日历日。",
+ "Value area width": "价值区域宽度",
+ "Weighted mean price": "加权平均价格",
+ "Median price": "中位价格",
+ "Above the point of control": "高于控制点",
+ "Below the point of control": "低于控制点",
+ "Price now": "当前价格"
 }

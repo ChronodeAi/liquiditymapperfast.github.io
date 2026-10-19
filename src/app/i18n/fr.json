@@ -1461,5 +1461,11 @@
  "Draw past ones on the chart": "Tracer les passés sur le graphique",
  "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Chaque jour, semaine, mois ou session dont les lignes sont tracées trace aussi son profil de volume négocié sur le graphique, sur sa propre période : des barres discrètes depuis son début, d'une seule couleur là où il est calculé à partir des bougies.",
  "Session starts at": "La séance commence à",
- "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "L'heure du jour à laquelle commence la moyenne du jour, dans le fuseau qu'utilisent le profil de volume et les niveaux clés. Minuit garde le jour calendaire."
+ "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "L'heure du jour à laquelle commence la moyenne du jour, dans le fuseau qu'utilisent le profil de volume et les niveaux clés. Minuit garde le jour calendaire.",
+ "Value area width": "Largeur de la zone de valeur",
+ "Weighted mean price": "Prix moyen pondéré",
+ "Median price": "Prix médian",
+ "Above the point of control": "Au-dessus du point de contrôle",
+ "Below the point of control": "Sous le point de contrôle",
+ "Price now": "Prix actuel"
 }

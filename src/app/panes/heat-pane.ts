@@ -21,7 +21,7 @@ import { cumulative, groupLevels, type Grouped } from './levels-data.ts';
 import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.ts';
 import { fitText } from '../text-fit.ts';
 import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } from '../prints.ts';
-import { tradedHeader, tradedLines, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
+import { tradedFigures, tradedHeader, tradedLines, tradedNet, tradedNetLine, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
 import { metricHeader, metricWords, type ProfileMetric } from '../traded/metrics.ts';
 import { flowIds, flowLoadIds, mapVenues } from '../cvd/ids.ts';
 import { aggregateIds } from '../cvd/model.ts';
@@ -105,6 +105,8 @@ export let AXIS_W = 64;
 const COUNTDOWN_H = 15;
 export let PROFILE_W = 128;
 export let TRADED_W = 96;
+/** What a column's pointer opens beside it: a row's box at its height, or the header's box for the whole window, opening downward. */
+type ColumnBox = { lines: InfoLine[]; y: number; placement?: 'center' | 'down' };
 /** The width the price labels need for the coin on screen: BTC's fit the usual width, a coin priced in millionths needs about eleven characters. */
 function axisNeed(): number {
   const price = currentCoin().price;
@@ -1653,16 +1655,18 @@ export class HeatPane {
   #paintTraded(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     const x = this.#tradedX(); if (x === null) return;
     // One column a measure, side by side; the box of the row under the pointer goes last, over the map left of them all.
-    let box: { lines: ReturnType<typeof tradedLines>; y: number } | null = null;
+    let box: ColumnBox | null = null;
     tradedColumns(state).forEach((metric, i) => { box = this.#paintColumn(ctx, state, pw, ph, metric, i, x + i * TRADED_W) ?? box; });
-    if (box) { const b: { lines: ReturnType<typeof tradedLines>; y: number } = box; paintInfoBox(ctx, b.lines, x, b.y, { x0: 0, y0: 0, x1: pw, y1: ph }, this.#palette, { placement: 'center' }); ctx.textBaseline = 'middle'; }
+    if (box) { const b: ColumnBox = box; paintInfoBox(ctx, b.lines, x, b.y, { x0: 0, y0: 0, x1: pw, y1: ph }, this.#palette, { placement: b.placement ?? 'center' }); ctx.textBaseline = 'middle'; }
   }
 
   /** One measure's column at `x0` (the `i`th): its bars, value area, selection, hovered row and header; the hovered row's box, for the caller to draw. */
-  #paintColumn(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, metric: ProfileMetric, i: number, x0: number): { lines: ReturnType<typeof tradedLines>; y: number } | null {
+  #paintColumn(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, metric: ProfileMetric, i: number, x0: number): ColumnBox | null {
     const p = this.#palette, v = this.view, W = TRADED_W, answer = this.#columnAnswer(metric);
     const rows: TradedRows | null = answer ? tradedRows(answer, this.#tradedStep(), v.p0, v.p1) : null;
     const s = state.traded, levels = this.#viewLevels(metric);
+    // The header: the total, the window's name when it has one, the line under the total, and the difference of the two sides.
+    const label = this.#tradedLabel(), headH = (label ? 40 : 28) + (rows && rows.total > 0 ? 12 : 0);
     ctx.save(); ctx.beginPath(); ctx.rect(x0, 0, W, ph); ctx.clip();
     ctx.fillStyle = p.panel; ctx.fillRect(x0, 0, W, ph);
     // The value area, shaded behind the bars.
@@ -1695,6 +1699,16 @@ export class HeatPane {
     if (s.valueArea && levels) {
       const mark = (price: number, width: number, dash: number[]): void => { const y = Math.round(v.yOf(price, ph)) + 0.5; if (y < 0 || y > ph) return; ctx.setLineDash(dash); ctx.strokeStyle = p.poc; ctx.lineWidth = width; ctx.beginPath(); ctx.moveTo(x0 + 1, y); ctx.lineTo(x0 + W, y); ctx.stroke(); };
       mark(levels.vah, 1, [3, 2]); mark(levels.val, 1, [3, 2]); mark(levels.poc, 2, []); ctx.setLineDash([]); ctx.lineWidth = 1;
+      // Their prices at the column's right edge, the point of control's first: one that would cover another, or the header, is left out.
+      ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      const placed: number[] = [];
+      for (const [code, price] of [[t('POC'), levels.poc], [t('VAH'), levels.vah], [t('VAL'), levels.val]] as const) {
+        const y = v.yOf(price, ph); if (y < headH + 7 || y > ph - 7 || placed.some(q => Math.abs(q - y) < 12)) continue;
+        placed.push(y);
+        const text = `${code} ${fmtPrice(price, this.#levelStep())}`, w = ctx.measureText(text).width + 6;
+        ctx.globalAlpha = 0.85; ctx.fillStyle = p.panel; ctx.fillRect(x0 + W - w - 1, y - 6, w, 12);
+        ctx.globalAlpha = 1; ctx.fillStyle = p.poc; ctx.fillText(text, x0 + W - 4, y);
+      }
     }
     // A selection made on the column (its window, a band of its rows), shaded on it.
     const sel = state.range, win = this.#tradedWindow();
@@ -1703,15 +1717,15 @@ export class HeatPane {
       ctx.fillStyle = p.text; ctx.globalAlpha = 0.14; ctx.fillRect(x0 + 1, ya, W - 1, yb - ya); ctx.globalAlpha = 1;
       ctx.strokeStyle = p.text; ctx.setLineDash([5, 4]); ctx.strokeRect(x0 + 1.5, Math.round(ya) + 0.5, W - 2, Math.max(1, Math.round(yb - ya) - 1)); ctx.setLineDash([]);
     }
-    // The row under the pointer, framed.
-    const hover = this.#tradedHover?.i === i ? this.#tradedHover : null, hoverRow = rows && hover ? tradedRowAt(rows, v.pOf(hover.y, ph)) : -1;
+    // The row under the pointer, framed; over the header, none: the header's box speaks for the whole window.
+    const hover = this.#tradedHover?.i === i ? this.#tradedHover : null, onHead = !!hover && hover.y < headH;
+    const hoverRow = rows && hover && !onHead ? tradedRowAt(rows, v.pOf(hover.y, ph)) : -1;
     if (rows && hoverRow >= 0) {
       const low = (rows.bin0 + hoverRow) * rows.step, y0 = v.yOf(low + rows.step, ph), y1 = v.yOf(low, ph);
       ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.globalAlpha = 0.9; ctx.strokeRect(x0 + 0.5, Math.round(y0) + 0.5, W - 1, Math.max(1, Math.round(y1 - y0))); ctx.globalAlpha = 1;
     }
     // A day, week or session names itself between the total and the line under it, so what the column adds up can be read at a glance.
-    const label = this.#tradedLabel();
-    ctx.globalAlpha = 0.9; ctx.fillStyle = p.panel; ctx.fillRect(x0 + 1, 0, W - 1, label ? 40 : 28); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.9; ctx.fillStyle = p.panel; ctx.fillRect(x0 + 1, 0, W - 1, headH); ctx.globalAlpha = 1;
     ctx.fillStyle = p.muted; ctx.font = `${pw < NARROW_PLOT ? 9.5 : 10}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     const held = metric === 'volume' ? null : this.hub.metricProfile(metric), flags = held && answer ? held.flags : { cut: false, incomplete: false };
     const measured = metric === 'volume' ? null : metricHeader(metric, rows, flags);
@@ -1725,9 +1739,12 @@ export class HeatPane {
     // A window that reaches back before the recording, or a measure whose record is cut, says so in the dot rows' amber.
     const warn = metric === 'volume' ? rows?.partial === true : measured!.warn;
     if (sub) { if (warn) ctx.fillStyle = '#e6a700'; ctx.fillText(sub, x0 + 4, lineY); }
+    if (rows && rows.total > 0) { const net = tradedNet(rows); ctx.fillStyle = net > 0 ? p.bid : net < 0 ? p.ask : p.muted; ctx.fillText(tradedNetLine(rows), x0 + 4, lineY + 12, W - 8); }
     ctx.restore(); ctx.textBaseline = 'middle';
     ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(x0 + 0.5, 0); ctx.lineTo(x0 + 0.5, ph); ctx.stroke();
     // The box stands to the left of the columns, over the map, like the profile's comparison.
+    // It opens downward from under the chart's corner buttons, which would otherwise cover its first lines.
+    if (rows && hover && onHead) return { lines: tradedFigures(rows, levels, state.mark.price, label || t('What is on the chart'), metricWords(metric)), y: 34, placement: 'down' };
     return rows && hover && hoverRow >= 0 ? { lines: tradedLines(rows, hoverRow, levels, metricWords(metric)), y: hover.y } : null;
   }
 

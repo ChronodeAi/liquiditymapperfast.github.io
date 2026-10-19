@@ -1407,5 +1407,11 @@
  "Draw past ones on the chart": "過去のものをチャートに描画",
  "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "線を描いている各日・週・月・セッションは、その約定出来高のプロファイルもチャート上に、それぞれの期間にわたって描きます：開始位置から薄いバーで、ローソク足から計算した場合は 1 色です。",
  "Session starts at": "セッション開始時刻",
- "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "一日の平均が始まる時刻（出来高プロファイルと主要レベルと同じタイムゾーン）。深夜0時なら暦の日になります。"
+ "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "一日の平均が始まる時刻（出来高プロファイルと主要レベルと同じタイムゾーン）。深夜0時なら暦の日になります。",
+ "Value area width": "バリューエリアの幅",
+ "Weighted mean price": "加重平均価格",
+ "Median price": "中央値の価格",
+ "Above the point of control": "ポイント・オブ・コントロールより上",
+ "Below the point of control": "ポイント・オブ・コントロールより下",
+ "Price now": "現在の価格"
 }

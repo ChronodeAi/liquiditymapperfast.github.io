@@ -1447,5 +1447,11 @@
  "Draw past ones on the chart": "Geçmiş olanları grafikte çiz",
  "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Çizgilerin çizildiği her gün, hafta, ay ya da seans için işlem hacmi profili de grafikte kendi süresi boyunca çizilir: başlangıcından itibaren soluk çubuklar; mumlardan hesaplandığı yerde tek renkte.",
  "Session starts at": "Oturum başlangıç saati",
- "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "Günün ortalamasının başladığı saat, hacim profili ve kilit seviyelerin kullandığı saat diliminde. Gece yarısı takvim gününü korur."
+ "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "Günün ortalamasının başladığı saat, hacim profili ve kilit seviyelerin kullandığı saat diliminde. Gece yarısı takvim gününü korur.",
+ "Value area width": "Değer alanı genişliği",
+ "Weighted mean price": "Ağırlıklı ortalama fiyat",
+ "Median price": "Medyan fiyat",
+ "Above the point of control": "Kontrol noktasının üstünde",
+ "Below the point of control": "Kontrol noktasının altında",
+ "Price now": "Şu anki fiyat"
 }

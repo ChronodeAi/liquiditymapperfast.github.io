@@ -1480,5 +1480,11 @@
  "Draw past ones on the chart": "Малювати минулі на графіку",
  "Each day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time: faint bars from its start, in one colour where it is worked out from candles.": "Для кожного дня, тижня, місяця чи сесії, для яких малюються лінії, на графіку також малюється їхній профіль обсягу угод на власному відрізку часу: бліді смуги від початку, одним кольором там, де він розраховується зі свічок.",
  "Session starts at": "Сесія починається о",
- "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "Час доби, з якого починається середня за день, у часовому поясі, який використовують профіль обсягу та ключові рівні. Північ лишає календарний день."
+ "The time of day the day's average starts at, in the zone the Volume profile and Key levels use. Midnight keeps the calendar day.": "Час доби, з якого починається середня за день, у часовому поясі, який використовують профіль обсягу та ключові рівні. Північ лишає календарний день.",
+ "Value area width": "Ширина зони вартості",
+ "Weighted mean price": "Середньозважена ціна",
+ "Median price": "Медіанна ціна",
+ "Above the point of control": "Вище точки контролю",
+ "Below the point of control": "Нижче точки контролю",
+ "Price now": "Ціна зараз"
 }
