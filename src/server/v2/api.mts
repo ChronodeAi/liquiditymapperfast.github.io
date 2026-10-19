@@ -31,6 +31,7 @@ import { AbsorptionRecorder, GROUP_FLOOR_USD, GROUPS_PER_MINUTE, ABSORPTION_WIND
 import { ExtraVenues, RECOMMENDED_EXTRA_VENUES } from './venues.mts';
 import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
+import { sendVerdict, type FrameKind } from './backpressure.mts';
 import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
 
 type App = ReturnType<typeof createLocalServer>;
@@ -51,10 +52,6 @@ const MAX_FLOW_SPAN_MS = 36 * 3_600_000, MAX_FLOW_INSTRUMENTS = 40;
 const MAX_FLOW_MINUTES_SPAN_MS = 8 * 24 * 3_600_000;
 /** The most instruments one sizes question may name: it is answered whole, never in parts (the minutes two parts saw could not be told apart), and the flow recorder keeps at most 48. */
 const MAX_SIZES_INSTRUMENTS = 96;
-/** A client whose unsent backlog passes this is dropped rather than buffered without bound; levels frames are skipped past a lower mark. */
-const MAX_CLIENT_BACKLOG_BYTES = 16_000_000, LEVELS_SKIP_BYTES = 4_000_000;
-/** A client behind by this much skips trade-dust batches (drawing only: a skipped one leaves a short gap in the dust, nothing else). */
-const TAPE_SKIP_BYTES = 2_000_000;
 /** The live socket says something at least this often, so a client can tell a quiet server from a dead connection. */
 const HEARTBEAT_MS = 5_000;
 /** Books with at least this many raw levels are re-valued no more often than the interval below. */
@@ -247,12 +244,12 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     for (const [id, rows] of Object.entries(app.state.candles ?? {})) { const row = rows[rows.length - 1]; if (row) out[id] = [row.start, row.open, row.high, row.low, row.close, row.volume ?? 0]; }
     return out;
   };
-  /** Send to every open client; one that has fallen too far behind is dropped, and one that is merely slow skips the frame when `skipAbove` is set. */
-  const broadcast = (message: string | Buffer, options?: { binary: boolean }, skipAbove = Infinity): void => {
+  /** Send to every open client by the kind of frame (`sendVerdict`): one that has fallen too far behind is dropped, a slow one skips a snapshot. */
+  const broadcast = (message: string | Buffer, options?: { binary: boolean }, kind: FrameKind = 'event'): void => {
     for (const client of wss.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
-      if (client.bufferedAmount > MAX_CLIENT_BACKLOG_BYTES) { client.terminate(); continue; }
-      if (client.bufferedAmount < skipAbove) client.send(message, options);
+      const verdict = sendVerdict(kind, client.bufferedAmount);
+      if (verdict === 'drop') client.terminate(); else if (verdict === 'send') client.send(message, options);
     }
   };
   const tick = (): void => {
@@ -305,13 +302,16 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       tapeSeq++;
       let encoded: Buffer | null = null;
       for (const client of wss.clients) {
-        if (client.readyState !== WebSocket.OPEN || !tapeClients.has(client) || client.bufferedAmount >= TAPE_SKIP_BYTES) continue;
+        if (client.readyState !== WebSocket.OPEN || !tapeClients.has(client)) continue;
+        // An event, never skipped for a backlog: a batch is about 1 KB beside the levels' 430 KB, and a skipped one is a hole in the dust.
+        const verdict = sendVerdict('event', client.bufferedAmount);
+        if (verdict === 'drop') { client.terminate(); continue; }
         encoded ??= encodeTape(packTape(tape, tapeSeq)); client.send(encoded, { binary: true });
       }
     }
     if (levelsDirty) {
       levelsDirty = false;
-      broadcast(encodeLevels(books, now), { binary: true }, LEVELS_SKIP_BYTES);
+      broadcast(encodeLevels(books, now), { binary: true }, 'snapshot');
     }
     const tick = JSON.stringify({ t: 'tick', price: app.state.markPrice, instrumentId: app.state.markInstrumentId, asOf: app.state.asOf, candles: lastCandles() });
     if (tick !== lastTick) { lastTick = tick; broadcast(tick); }
