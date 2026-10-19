@@ -19,6 +19,7 @@ import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.
 import { fitText } from '../text-fit.ts';
 import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } from '../prints.ts';
 import { tradedHeader, tradedLines, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
+import { metricHeader, metricWords } from '../traded/metrics.ts';
 import { flowIds, flowLoadIds, mapVenues } from '../cvd/ids.ts';
 import { aggregateIds } from '../cvd/model.ts';
 import { resolvePicks } from '../market-choice.ts';
@@ -511,7 +512,8 @@ export class HeatPane {
     if (state.keyLevels.on && anyLine(state.keyLevels)) this.#ensureKeyLevels(state);
     if (state.vwap.on) this.#ensureVwap(state);
     if (state.show.traded) { this.#ensureTraded(state); this.#ensureValueAreas(state); }
-    if (state.absorption.on) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes); }
+    // The column's absorption measure judges groups at the thresholds the marks use, which need the recent minutes the marks load.
+    if (state.absorption.on || (state.show.traded && state.traded.metric === 'absorption')) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes); }
     this.#stepFootprint(state);
     // Under a dominant footprint the heatmap is gone altogether, so there is nothing to draw.
     if (state.layer === 'liquidity' && this.#lodFrame.heatmapOpacity > 0.003) this.gl.draw(this.view, this.#style(), this.#placeholder()); else this.gl.clear();
@@ -1048,23 +1050,32 @@ export class HeatPane {
   #levelStep(): number { return this.#gridStep() * this.store.state.traded.rows; }
   /** The point of control and the value area of what is on the chart, read from the column's answer over every price (kept until either changes). */
   #viewLevels(): ValueLevels | null {
-    const held = this.hub.traded; if (!held) return null;
+    const answer = this.#columnAnswer(); if (!answer) return null;
     const step = this.#levelStep(), share = this.store.state.traded.share / 100, m = this.#levelsMemo;
-    if (m && m.answer === held.answer && m.step === step && m.share === share) return m.levels;
-    const levels = answerLevels(held.answer, step, share);
-    this.#levelsMemo = { answer: held.answer, step, share, levels };
+    if (m && m.answer === answer && m.step === step && m.share === share) return m.levels;
+    const levels = answerLevels(answer, step, share);
+    this.#levelsMemo = { answer, step, share, levels };
     return levels;
+  }
+  /** What the column draws: traded volume's answer, or the answer of the measure it is set to once that one is held (traded/metrics.ts). */
+  #columnAnswer(): ProfileAnswer | null {
+    const metric = this.store.state.traded.metric;
+    if (metric === 'volume') return this.hub.traded?.answer ?? null;
+    const held = this.hub.metricProfile;
+    return held && held.metric === metric ? held.answer : null;
   }
 
   /**
-   * Ask for the traded volume of the window on the map (whole minutes, up to the one that is open), on the instruments the flow column counts,
-   * on rows that both the column's rows and the level rows divide (see `requestStep`).
+   * Ask for what the column adds up over the window on the map (whole minutes, up to the one that is open), on the instruments the flow
+   * column counts, on rows that both the column's rows and the level rows divide (see `requestStep`): traded volume, or another measure.
    */
   #ensureTraded(state: AppState): void {
     const v = this.view;
     if (!(v.t1 > v.t0) || !(v.p1 > v.p0)) return;
-    const { from, to } = this.#tradedWindow();
-    this.hub.ensureTraded(flowIds(state, this.hub.flow.ids), from, to, requestStep(this.#tradedStep(), this.#levelStep(), this.#gridStep() / 40), state.followLive && !replaying());
+    const { from, to } = this.#tradedWindow(), ids = flowIds(state, this.hub.flow.ids), metric = state.traded.metric;
+    const step = requestStep(this.#tradedStep(), this.#levelStep(), this.#gridStep() / 40), live = state.followLive && !replaying();
+    if (metric === 'volume') this.hub.ensureTraded(ids, from, to, step, live);
+    else this.hub.ensureMetricProfile(metric, ids, from, to, step, live, metric === 'absorption' ? this.#absorptionContext(state).thresholds : undefined);
   }
 
   /**
@@ -1222,7 +1233,7 @@ export class HeatPane {
   /** Ask for what the lines of the days, weeks or sessions are worked out from: the recording's value areas, or the candles. */
   #ensureValueAreas(state: AppState): void {
     const s = state.traded;
-    if (s.period === 'view' || (!s.poc && !s.va)) return;
+    if (s.period === 'view' || s.metric !== 'volume' || (!s.poc && !s.va)) return;
     const windows = this.#linesWindows(state);
     if (!windows.length) return;
     if (s.source === 'recorded') { this.hub.ensureValueAreas(flowIds(state, this.hub.flow.ids), windows, this.#levelStep(), s.share / 100); return; }
@@ -1266,7 +1277,8 @@ export class HeatPane {
     if (!state.show.traded || (!s.poc && !s.va)) return;
     const v = this.view, p = this.#palette, now = pageNow(), step = this.#levelStep();
     const segments: { x0: number; x1: number; levels: ValueLevels; name: string; naked: number | null }[] = [];
-    if (s.period === 'view') {
+    // Another measure than traded volume draws its own levels over what is on the chart: days, weeks and sessions are traded volume's.
+    if (s.period === 'view' || s.metric !== 'volume') {
       const levels = this.#viewLevels();
       if (levels) segments.push({ x0: 0, x1: pw, levels, name: '', naked: null });
     } else {
@@ -1341,8 +1353,8 @@ export class HeatPane {
    */
   #paintTraded(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     const x0 = this.#tradedX(); if (x0 === null) return;
-    const p = this.#palette, v = this.view, W = TRADED_W, held = this.hub.traded;
-    const rows: TradedRows | null = held ? tradedRows(held.answer, this.#tradedStep(), v.p0, v.p1) : null;
+    const p = this.#palette, v = this.view, W = TRADED_W, answer = this.#columnAnswer();
+    const rows: TradedRows | null = answer ? tradedRows(answer, this.#tradedStep(), v.p0, v.p1) : null;
     const s = state.traded, levels = this.#viewLevels();
     ctx.save(); ctx.beginPath(); ctx.rect(x0, 0, W, ph); ctx.clip();
     ctx.fillStyle = p.panel; ctx.fillRect(x0, 0, W, ph);
@@ -1392,14 +1404,19 @@ export class HeatPane {
     }
     ctx.globalAlpha = 0.9; ctx.fillStyle = p.panel; ctx.fillRect(x0 + 1, 0, W - 1, 28); ctx.globalAlpha = 1;
     ctx.fillStyle = p.muted; ctx.font = `${pw < NARROW_PLOT ? 9.5 : 10}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    const [head, sub] = this.hub.tradedState === 'unavailable' && !rows ? [t('TRADED'), t('not on this server')] : tradedHeader(rows);
-    // A window that reaches back before the recording says so in the dot rows' amber.
-    ctx.fillText(head, x0 + 4, 4); if (sub) { if (rows?.partial) ctx.fillStyle = '#e6a700'; ctx.fillText(sub, x0 + 4, 16); }
+    const metric = s.metric, held = this.hub.metricProfile, flags = held?.metric === metric ? held.flags : { cut: false, incomplete: false };
+    const [head, sub] = metric === 'volume'
+      ? (this.hub.tradedState === 'unavailable' && !rows ? [t('TRADED'), t('not on this server')] : tradedHeader(rows))
+      : this.hub.metricState === 'unavailable' && !rows ? [metricHeader(metric, null, flags)[0], t('not on this server')]
+      : metricHeader(metric, rows, flags);
+    // A window that reaches back before the recording, or a measure whose record is cut, says so in the dot rows' amber.
+    const warn = metric === 'volume' ? rows?.partial === true : flags.cut || flags.incomplete;
+    ctx.fillText(head, x0 + 4, 4); if (sub) { if (warn) ctx.fillStyle = '#e6a700'; ctx.fillText(sub, x0 + 4, 16); }
     ctx.restore(); ctx.textBaseline = 'middle';
     ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(x0 + 0.5, 0); ctx.lineTo(x0 + 0.5, ph); ctx.stroke();
     if (rows && hover && hoverRow >= 0) {
       // The box stands to the left of the column, over the map, like the profile's comparison.
-      paintInfoBox(ctx, tradedLines(rows, hoverRow, levels), x0, hover.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'center' });
+      paintInfoBox(ctx, tradedLines(rows, hoverRow, levels, metricWords(metric)), x0, hover.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'center' });
       ctx.textBaseline = 'middle';
     }
   }

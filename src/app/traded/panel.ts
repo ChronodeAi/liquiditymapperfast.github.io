@@ -12,6 +12,10 @@ import { profileTarget, type KeyLevelHistory } from '../keylevels/history.ts';
 import { currentCoin } from '../coin.ts';
 import { venueLabel } from '../venues.ts';
 import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
+import { PROFILE_METRICS, type ProfileMetric } from './metrics.ts';
+
+/** A measure picked in the list (anything else is traded volume). */
+const oneMetric = (value: string): ProfileMetric => (PROFILE_METRICS as readonly string[]).includes(value) ? value as ProfileMetric : 'volume';
 
 /** What the panel says about where days, weeks and sessions come from: whether the page reads the exchanges itself, and the candles. */
 export interface TradedSources { browser: boolean; candles: ((barMs: number) => KeyLevelHistory) | null }
@@ -30,6 +34,11 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     switchRow(t('Show the volume profile'), t('The column of traded volume beside the book profile, and the point-of-control lines on the chart.'), store.state.show.traded, on => { store.set({ show: { ...store.state.show, traded: on } }); rebuild(); }),
     ...(compactBar() ? [note(t('A phone has no room for the column: the lines on the chart still show.'))] : []),
     heading(t('Column')),
+    selectRow(t('Measure'), t('What the column adds up at each price over what is on the chart: traded volume, absorption, or reported liquidations.'),
+      [['volume', t('Traded volume')], ['absorption', t('Absorption')], ['liquidations', t('Liquidations')]], s.metric, v => set({ metric: oneMetric(v) }, true)),
+    ...(s.metric === 'absorption' ? [note(t('The absorption marks at the threshold the Absorption settings judge them at, each counted once: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). Where a minute kept only its largest groups, the header says so.'))]
+      : s.metric === 'liquidations' ? [note(t('Liquidations as the venues report them: shorts liquidated, forced buys (bid colour), and longs liquidated, forced sells (ask colour). Only Binance, Bybit, OKX and Deribit report them, Binance at most one a market a second, so this is what was reported, not all there was.'))] : []),
+    ...(s.metric !== 'volume' ? [note(t('The point of control and the value area are this measure\'s, over what is on the chart: days, weeks and sessions are worked out from traded volume.'))] : []),
     selectRow(t('Bars'), t('Buys and sells side by side, or only their difference: which side was the bigger at each price, and by how much.'), [['split', t('Buys and sells')], ['delta', t('Delta')]], s.bars, v => set({ bars: v === 'delta' ? 'delta' : 'split' })),
     switchRow(t('Mark the value area'), t('Shade the value area on the column and draw its point of control across it.'), s.valueArea, valueArea => set({ valueArea })),
     note(t('Drag on the column (or click a row) to add up those prices in the Range panel.')),

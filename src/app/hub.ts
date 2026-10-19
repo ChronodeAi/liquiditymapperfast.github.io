@@ -17,6 +17,7 @@ import { t } from './i18n.ts';
 import { MAX_VALUE_AREA_WINDOWS, type ProfileAnswer, type ValueAreaWindow } from '../shared/footprint.ts';
 import { AbsorptionBook } from './absorption.ts';
 import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
+import { absorptionAnswer, liquidationAnswer, type MetricFlags, type ProfileMetric } from './traded/metrics.ts';
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
 import { webGet } from '../shared/history.ts';
 import { KeyLevelHistory } from './keylevels/history.ts';
@@ -26,6 +27,8 @@ import type { SumRow } from '../shared/print-sums.ts';
 
 export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
 const MINUTE = 60_000;
+/** The most absorption groups one question asks of each instrument (the largest). */
+const ABSORPTION_PER_INSTRUMENT = 4_000;
 /**
  * A window of recorded columns is complete once its last minute has ended and the recorder has taken that minute's last sample (seconds
  * later); this much room also covers a source whose clock is a little off.
@@ -245,6 +248,10 @@ export class Hub {
   #tradedLoading = false; #tradedAsked = ''; #tradedAt = 0; #tradedRetryAt = 0;
   /** Counts the traded-volume questions, so an answer can tell whether it is still the one wanted. */
   #tradedGen = 0;
+  /** The column's last answer for a measure other than traded volume (`ensureMetricProfile`), what it leaves out, and whether the source can answer. */
+  metricProfile: { metric: ProfileMetric; step: number; answer: ProfileAnswer; flags: MetricFlags } | null = null;
+  metricState: 'ready' | 'unavailable' = 'ready';
+  #metricLoading = false; #metricAsked = ''; #metricAt = 0; #metricRetryAt = 0; #metricMs = 0; #metricGen = 0;
   /** Oldest recorded depth minute across instruments (ms), or 0 when nothing is recorded. */
   recordedSince = 0;
   /** Instrument with candle history to fall back to when the selected market has none. */
@@ -526,7 +533,7 @@ export class Hub {
     const since = have && have.minutesFrom <= need ? Math.max(need, now - 3 * MIN) : need;
     const connection = this.#connection;
     this.#absorptionLoading = true;
-    this.source.absorption([...ids], mins, from, to, 4_000, since).then(
+    this.source.absorption([...ids], mins, from, to, ABSORPTION_PER_INSTRUMENT, since).then(
       answer => {
         // The answer covers its window for the connection it was asked on (one that reached the live edge is kept current by the stream), and
         // the book takes what it claims with its groups.
@@ -600,6 +607,36 @@ export class Hub {
       answer => { if (generation !== this.#tradedGen) return; this.traded = { step, answer }; this.tradedState = 'ready'; this.onTraded(); },
       () => { if (generation !== this.#tradedGen) return; this.tradedState = 'unavailable'; this.#tradedRetryAt = Date.now() + 60_000; this.#tradedAsked = ''; this.onTraded(); },
     ).finally(() => { this.#tradedLoading = false; });
+  }
+
+  /**
+   * Make sure the column has an answer for a measure other than traded volume (traded/metrics.ts) over this window, as `ensureTraded` does
+   * for volume: liquidations from the source's record (its largest 5,000 when more match), absorption groups at each instrument's threshold
+   * (`thresholds`; one with none yet has nothing marked). Asked again every five seconds while the map follows the live edge, no oftener
+   * than ten times the last answer took (an absorption question reads a server's store).
+   */
+  ensureMetricProfile(metric: Exclude<ProfileMetric, 'volume'>, ids: readonly string[], from: number, to: number, step: number, live: boolean, thresholds: ReadonlyMap<string, number | null> = new Map()): void {
+    if (this.#metricLoading || !(to > from) || !(step > 0)) return;
+    const now = Date.now();
+    if (this.metricState === 'unavailable' && now < this.#metricRetryAt) return;
+    const judged = metric === 'absorption' ? ids.filter(id => typeof thresholds.get(id) === 'number').slice(0, MAX_ABSORPTION_INSTRUMENTS) : [...ids];
+    const key = `${metric}|${judged.map(id => metric === 'absorption' ? `${id}:${thresholds.get(id)}` : id).join(',')}|${step}|${from}|${to}`;
+    if (key === this.#metricAsked && !(live && now - this.#metricAt >= Math.max(5_000, 10 * this.#metricMs))) return;
+    this.#metricLoading = true; this.#metricAsked = key; this.#metricAt = now;
+    const generation = ++this.#metricGen, started = performance.now(), source = this.source, none = { cut: false, incomplete: false };
+    const work: Promise<{ answer: ProfileAnswer; flags: MetricFlags }> = metric === 'liquidations'
+      ? (source.liquidations ? source.liquidations(from, to) : Promise.reject(new Error('no liquidations from this source')))
+        .then(rows => ({ answer: liquidationAnswer(rows, judged, from, to, step), flags: { cut: rows.length >= LIQUIDATIONS_PER_ANSWER, incomplete: false } }))
+      : !judged.length ? Promise.resolve({ answer: { from, to, instruments: [] }, flags: none })
+      // `since` at the window's end: the groups are wanted, not the minutes.
+      : source.absorption(judged, judged.map(id => thresholds.get(id)!), from, to, ABSORPTION_PER_INSTRUMENT, to).then(a => ({
+        answer: absorptionAnswer(a.groups, thresholds, from, to, step),
+        flags: { cut: a.capped.length > 0, incomplete: judged.some(id => (a.floors[id] ?? 0) > thresholds.get(id)!) },
+      }));
+    work.then(
+      ({ answer, flags }) => { if (generation !== this.#metricGen) return; this.#metricMs = performance.now() - started; this.metricProfile = { metric, step, answer, flags }; this.metricState = 'ready'; this.onTraded(); },
+      () => { if (generation !== this.#metricGen) return; this.metricState = 'unavailable'; this.#metricRetryAt = Date.now() + 60_000; this.#metricAsked = ''; this.onTraded(); },
+    ).finally(() => { this.#metricLoading = false; });
   }
 
   /**
