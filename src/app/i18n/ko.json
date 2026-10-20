@@ -1436,7 +1436,6 @@
  "Days": "일",
  "Weeks": "주",
  "Months": "월",
- "From candles, an estimate (≈)": "캔들 기반 추정치(≈)",
  "Data source": "데이터 출처",
  "Period time zone": "기간 시간대",
  "Periods shown, including current": "표시할 기간 수(진행 중 포함)",
@@ -1469,5 +1468,11 @@
  "Chart window": "차트 창",
  "Everything on the chart, as the columns add it up": "차트 위의 전체, 열이 합산하는 그대로",
  "No lines are ticked above: these settings draw nothing until one is.": "위에서 선택한 선이 없습니다: 하나를 선택할 때까지 이 설정은 아무것도 그리지 않습니다.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "체결 거래량이 가격별로 그려지지 않으므로 차트 창의 선은 가격별로 그려진 첫 번째 지표({measure})를 씁니다. 기간 선은 항상 체결 거래량을 씁니다."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "체결 거래량이 가격별로 그려지지 않으므로 차트 창의 선은 가격별로 그려진 첫 번째 지표({measure})를 씁니다. 기간 선은 항상 체결 거래량을 씁니다.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {market} {minutes}분 캔들",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{market}의 {minutes}분 캔들. 각 캔들의 거래량을 가격 범위에 고르게 나누고 테이커 매수로 매수·매도를 나눈 추정치입니다.",
+ "{venue} futures and spot": "{venue} 선물·현물",
+ "{market} candles do not say who bought: the total only.": "{market} 캔들은 누가 샀는지 알려 주지 않아 합계만 표시합니다.",
+ "From candles, split by taker buys (≈)": "캔들 기반, 테이커 매수로 분할(≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "월, 그리고 캔들로 계산한 일·주·세션은 한 거래소의 5분 캔들(코인이 상장된 경우 바이낸스 무기한 선물과 현물 합계)에서 나옵니다. 각 캔들의 거래량을 가격 범위에 고르게 나누고 테이커 매수로 매수와 매도를 나눕니다. 이 프로파일은 추정치이므로 프로파일 색 테두리와 출처를 밝힌 ≈ 라벨이 붙습니다. 시장의 캔들이 누가 샀는지 알려 주지 않으면 회색으로 그립니다. 차트의 프로파일 행을 가리키면 수치가 보입니다."
 }

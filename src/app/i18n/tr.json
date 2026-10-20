@@ -1476,7 +1476,6 @@
  "Days": "Günler",
  "Weeks": "Haftalar",
  "Months": "Aylar",
- "From candles, an estimate (≈)": "Mumlardan, bir tahmin (≈)",
  "Data source": "Veri kaynağı",
  "Period time zone": "Dönem saat dilimi",
  "Periods shown, including current": "Gösterilen dönemler, güncel dahil",
@@ -1515,5 +1514,11 @@
  "Chart window": "Grafik penceresi",
  "Everything on the chart, as the columns add it up": "Grafikteki her şey, sütunların topladığı gibi",
  "No lines are ticked above: these settings draw nothing until one is.": "Yukarıda işaretli çizgi yok: biri işaretlenene kadar bu ayarlar hiçbir şey çizmez.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "İşlem hacmi fiyata göre çizilmediği için grafik penceresinin çizgileri fiyata göre çizilen ilk ölçüyü ({measure}) kullanır; dönem çizgileri her zaman işlem hacmini kullanır."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "İşlem hacmi fiyata göre çizilmediği için grafik penceresinin çizgileri fiyata göre çizilen ilk ölçüyü ({measure}) kullanır; dönem çizgileri her zaman işlem hacmini kullanır.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {market} {minutes} dk mumları",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{market} {minutes} dakikalık mumları; her birinin hacmi aralığına yayılır ve taker alımlarına göre bölünür: bir tahmin.",
+ "{venue} futures and spot": "{venue} vadeli ve spot",
+ "{market} candles do not say who bought: the total only.": "{market} mumları kimin aldığını söylemez: yalnızca toplam.",
+ "From candles, split by taker buys (≈)": "Mumlardan, taker alımlarına göre bölünmüş (≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "Aylar ve mumlardan hesaplanan günler, haftalar veya seanslar tek bir borsanın 5 dakikalık mumlarından gelir (coin orada işlem görüyorsa Binance vadeli ve spot birlikte): her mumun hacmi aralığına eşit yayılır ve taker alımlarına göre alış ve satışa bölünür. Bu profiller bir tahmindir; bu yüzden profil renginde çerçevelenir ve kaynağıyla birlikte ≈ etiketi taşır; bir piyasanın mumları kimin aldığını söylemiyorsa gri çizilir. Rakamları için grafikteki herhangi bir profilin satırına gelin."
 }

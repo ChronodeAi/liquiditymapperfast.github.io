@@ -35,8 +35,8 @@ export type LadderShow = 'levels' | 'cumulative' | 'both';
 /** Which kind of market the liquidity views draw: spot books, perpetual books, or every enabled venue. */
 export type Scope = 'all' | 'spot' | 'perp';
 export interface Market { id?: string; instrumentId?: string; venue?: string; base?: string; quote?: string; marketType?: string; tickSize?: number; symbol?: string }
-/** [start, open, high, low, close, volume, sourceRows] */
-export type CandleRow = [number, number, number, number, number, number, number?];
+/** [start, open, high, low, close, volume, sourceRows, takerBuys] — the taker buys only on the volume profile's candles, where the venue reports them. */
+export type CandleRow = [number, number, number, number, number, number, number?, number?];
 /** [start, open, high, low, close] */
 export type OiBar = [number, number, number, number, number];
 export interface LayerLevel { id: string; side: string; price: number; notionalUsd: number; active?: boolean; amount?: number }

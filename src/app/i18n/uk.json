@@ -1509,7 +1509,6 @@
  "Days": "Дні",
  "Weeks": "Тижні",
  "Months": "Місяці",
- "From candles, an estimate (≈)": "За свічками, оцінка (≈)",
  "Data source": "Джерело даних",
  "Period time zone": "Часовий пояс періодів",
  "Periods shown, including current": "Показано періодів, включно з поточним",
@@ -1552,5 +1551,11 @@
  "Chart window": "Вікно графіка",
  "Everything on the chart, as the columns add it up": "Усе, що на графіку, як це підсумовують стовпці",
  "No lines are ticked above: these settings draw nothing until one is.": "Вище не позначено жодної лінії: ці налаштування нічого не малюють, доки не позначено хоча б одну.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Лінії вікна графіка використовують {measure} — першу міру, показану за ціною, бо обсяг угод за ціною не показано; лінії періодів завжди використовують обсяг угод."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Лінії вікна графіка використовують {measure} — першу міру, показану за ціною, бо обсяг угод за ціною не показано; лінії періодів завжди використовують обсяг угод.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {minutes}-хвилинні свічки {market}",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{minutes}-хвилинні свічки {market}: обсяг кожної розподілено по її діапазону й поділено за купівлями тейкерів — це оцінка.",
+ "{venue} futures and spot": "{venue}: ф’ючерси та спот",
+ "{market} candles do not say who bought: the total only.": "Свічки {market} не кажуть, хто купував: лише сума.",
+ "From candles, split by taker buys (≈)": "За свічками, поділено за купівлями тейкерів (≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "Місяці, а також дні, тижні чи сесії, розраховані за свічками, будуються з 5-хвилинних свічок однієї біржі (безстроковий контракт і спот Binance разом, якщо монета там торгується): обсяг кожної свічки рівномірно розподілено по її діапазону й поділено на купівлі та продажі за купівлями тейкерів. Ці профілі — оцінка, тому вони обведені кольором профілю й підписані ≈ із джерелом; де свічки ринку не кажуть, хто купував, їх намальовано сірим. Наведіть на рядок будь-якого профілю на графіку, щоб побачити його цифри."
 }

@@ -7,7 +7,7 @@ import { TIMEFRAMES, valueAreaKey, windowProfileKey, type Hub, type RasterResult
 import { gridStepFor } from '../../shared/grid.ts';
 import { MAX_PROFILE_INSTRUMENTS, type ProfileAnswer } from '../../shared/footprint.ts';
 import type { ValueLevels } from '../../shared/profile.ts';
-import { DRAWN_SHARE, answerLevels, candleBarMs, candleLevels, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../traded/levels.ts';
+import { DRAWN_SHARE, answerLevels, candleBarMs, candleLevels, linesWindows, mergeCandleProfiles, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../traded/levels.ts';
 import { LabelBoard } from '../labels.ts';
 import type { ProfileWindow } from '../traded/sessions.ts';
 import type { Kernels } from '../kernels.ts';
@@ -21,7 +21,7 @@ import { cumulative, groupLevels, type Grouped } from './levels-data.ts';
 import { activeIds, emptyScopeMessage, heatmapSourceOf, kindOf } from '../scope.ts';
 import { fitText } from '../text-fit.ts';
 import { bubbleHidden, bubbleRadius, printPriceLines, topPrints, type Print } from '../prints.ts';
-import { tradedFigures, tradedLines, tradedNet, tradedNetLine, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
+import { periodRowLines, tradedFigures, tradedLines, tradedNet, tradedNetLine, tradedRowAt, tradedRows, type TradedRows } from '../traded.ts';
 import { MEASURES, measureDef, metricWords, type ProfileMetric } from '../measures/registry.ts';
 import { lineMetric, onPriceAxis, placedOn } from '../traded/profiles.ts';
 import { MAX_BANDS, arrangeProfiles, arrangeSides, columnHit, type Arranged, type ProfileRoom } from '../traded/arrange.ts';
@@ -47,7 +47,7 @@ import { answerMedian, emphasisFloor, medianRow, splitStyles } from '../traded/e
 import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { MAX_BACK_MS, barMsFor, keyLines, neededFrom, type KeyLine } from '../keylevels/levels.ts';
 import { anyLine } from '../keylevels/settings.ts';
-import { historyTarget, profileTarget, type HistoryTarget } from '../keylevels/history.ts';
+import { historyTarget, profileCompanion, profileTarget, type HistoryTarget } from '../keylevels/history.ts';
 import { paintKeyLevels, paintKeyTags, periodDate, placeKeyTags, underTag, type KeyTag } from '../keylevels/paint.ts';
 import { sessionsOf, vwapBarMs, vwapSeries, whaleSeries } from '../vwap/vwap.ts';
 import { anchorsOf } from '../vwap/settings.ts';
@@ -116,6 +116,10 @@ export let TRADED_W = 96;
 /** The letter a line's tag on the price axis carries when several kinds are drawn, as the key levels' D, W and M. */
 const KIND_CODE: Record<LineKind | 'view', string> = { view: '', day: 'D', week: 'W', month: 'M', sessions: 'S' };
 type ColumnBox = { lines: InfoLine[]; y: number; placement?: 'center' | 'down' };
+/** A period profile drawn on the chart, for the pointer: where it begins, its rows and scale, and what its box says of it. */
+type ProfileHit = { x0: number; room: number; row: number; max: number; rows: Map<number, [number, number]>; total: number; split: boolean; name: string; levels: ValueLevels; source: string | null };
+/** The row of a period profile under the pointer. */
+type ProfileRowHit = { hit: ProfileHit; k: number; buy: number; sell: number };
 /** The width the price labels need for the coin on screen: BTC's fit the usual width, a coin priced in millionths needs about eleven characters. */
 function axisNeed(): number {
   const price = currentCoin().price;
@@ -226,11 +230,13 @@ export class HeatPane {
   /** The days, weeks or sessions the lines are drawn for, and what they were worked out for. */
   #vaWindows: { key: string; windows: ProfileWindow[] } | null = null;
   /** Levels of days, weeks or sessions worked out from candles, by window, bar size, rows and share; a window under way with the candles' version. */
-  readonly #candleLevels = new Map<string, { levels: ValueLevels; rows: Map<number, number> } | null>();
+  readonly #candleLevels = new Map<string, { levels: ValueLevels; rows: Map<number, number>; buys: Map<number, number> | null; spot: boolean } | null>();
   /** When each past point of control was first traded at again (`#touchedAfter`), by window, price and the candles read. */
   readonly #touched = new Map<string, number | null>();
   /** Each on-chart profile's rows on the display grid, by what they were grouped from (an answer, or a candle estimate), kept while it is. */
-  readonly #profileRows = new WeakMap<object, { row: number; rows: Map<number, [number, number]>; max: number; median: number }>();
+  readonly #profileRows = new WeakMap<object, { row: number; rows: Map<number, [number, number]>; max: number; median: number; total: number }>();
+  /** The period profiles drawn in the last frame, for the pointer: where each begins, its rows and scale, and what its box says of it. */
+  #profileHits: ProfileHit[] = [];
   /** The volume profile's tags on the price axis, placed with the key levels' and the VWAP's. */
   #valueTags: KeyTag[] = [];
   /** The names put at the lines' right ends this frame (Volume profile, key levels, VWAP). */
@@ -1444,8 +1450,9 @@ export class HeatPane {
   /** Where a window's lines come from: the recording or candles (a month's always candles). */
   #windowSource(state: AppState, w: ProfileWindow): TradedSettings['source'] { return linesSource({ period: windowKind(w), source: state.traded.source }); }
   /** The candles days, weeks and sessions are worked out from (`candles`): whose, and their size for that kind (the panel says the same). */
-  #profileCandles(state: AppState, kind: LineKind): { target: HistoryTarget | null; barMs: number } {
-    return { target: profileTarget(currentCoin()), barMs: candleBarMs({ period: kind, sessions: state.traded.sessions }) };
+  #profileCandles(state: AppState, kind: LineKind): { target: HistoryTarget | null; spot: HistoryTarget | null; barMs: number } {
+    const coin = currentCoin(), target = profileTarget(coin);
+    return { target, spot: profileCompanion(coin, target), barMs: candleBarMs({ period: kind, sessions: state.traded.sessions }) };
   }
   /** Ask for what the lines of the days, weeks or sessions are worked out from: the recording's value areas, or the candles. */
   #ensureValueAreas(state: AppState): void {
@@ -1469,11 +1476,15 @@ export class HeatPane {
     }
     // Newest first: back to the newest window the candles do not reach yet, then on back with each load (Karl, 2026-10-20: four months of
     // five-minute bars are twenty-four requests, and the month under way, which needs six, waited for all of them).
-    const target = profileTarget(currentCoin());
+    // The spot market's candles are asked the same way beside the perpetual's (`profileCompanion`): they join the profiles they reach.
+    const coin = currentCoin(), target = profileTarget(coin), spot = profileCompanion(coin, target);
     for (const [barMs, ats] of from) {
-      const h = this.hub.profileHistory(barMs), held = target && h.id === target.id && h.barMs === barMs ? h.heldFrom : Infinity;
-      const missing = ats.filter(at => at < held), at = missing.length ? Math.max(...missing) : Math.min(...ats);
-      h.ensure(target, Math.floor(at / barMs) * barMs, barMs, () => this.invalidate());
+      for (const [market, which] of [[target, 'main'], [spot, 'spot']] as const) {
+        if (which === 'spot' && !market) continue;
+        const h = this.hub.profileHistory(barMs, which), held = market && h.id === market.id && h.barMs === barMs ? h.heldFrom : Infinity;
+        const missing = ats.filter(at => at < held), at = missing.length ? Math.max(...missing) : Math.min(...ats);
+        h.ensure(market, Math.floor(at / barMs) * barMs, barMs, () => this.invalidate());
+      }
     }
   }
   /**
@@ -1499,25 +1510,30 @@ export class HeatPane {
    * that stopped being refreshed draws no further than it knows), or null when they cannot be drawn yet or at all: the history does not
    * reach its start, the window has ended but the candles known do not reach its end, or fewer than `DRAWN_SHARE` of its bars up to there
    * are there. A window whose bars are all final is worked out once; any other again when the candles change. `rows`: the estimate by row
-   * of `step`, which the window's profile on the chart draws.
+   * of `step`, which the window's profile on the chart draws, and `buys` the part bought at market (null where the candles do not say).
+   * The spot market's candles join once they reach the window as the perpetual's do (`spot`); until then the perpetual's draw alone.
    */
-  #windowFromCandles(state: AppState, w: ProfileWindow, step: number, share: number, now: number): { levels: ValueLevels; upTo: number; rows: Map<number, number> } | null {
-    const { target, barMs } = this.#profileCandles(state, windowKind(w)), h = this.hub.profileHistory(barMs);
+  #windowFromCandles(state: AppState, w: ProfileWindow, step: number, share: number, now: number): { levels: ValueLevels; upTo: number; rows: Map<number, number>; buys: Map<number, number> | null; spot: boolean } | null {
+    const { target, spot, barMs } = this.#profileCandles(state, windowKind(w)), h = this.hub.profileHistory(barMs);
     if (!target || h.id !== target.id || h.barMs !== barMs || h.heldFrom > w.from) return null;
     // Replay: the candles up to its moment (a bar under way carries its future).
-    const heldTo = Math.min(h.heldTo, now);
+    let heldTo = Math.min(h.heldTo, now);
     if (w.to <= now && heldTo < w.to) return null;
+    const s = spot ? this.hub.profileHistory(barMs, 'spot') : null, sHeldTo = s ? Math.min(s.heldTo, now) : -Infinity;
+    const joined = !!s && s.id === spot!.id && s.barMs === barMs && s.heldFrom <= w.from && (w.to > now || sHeldTo >= w.to);
+    if (joined) heldTo = Math.min(heldTo, sHeldTo);
     // Ended a bar before the candles known reach: its bars are final. Until then it is worked out again as they come.
     const ended = w.to + barMs <= heldTo;
-    const key = `${target.id}|${barMs}|${step}|${share}|${w.from}|${w.to}${ended ? '' : `|${h.version}|${Math.floor(heldTo / barMs)}`}`;
+    const key = `${target.id}|${joined ? spot!.id : ''}|${barMs}|${step}|${share}|${w.from}|${w.to}${ended ? '' : `|${h.version}|${joined ? s!.version : ''}|${Math.floor(heldTo / barMs)}`}`;
     if (!this.#candleLevels.has(key)) {
       // A bound on what is kept: the oldest go first (20 windows of each session at most are drawn).
       if (this.#candleLevels.size > 400) for (const k of [...this.#candleLevels.keys()].slice(0, 200)) this.#candleLevels.delete(k);
-      const r = candleLevels(h.bars, w.from, w.to, barMs, step, share, heldTo);
-      this.#candleLevels.set(key, r.covered >= DRAWN_SHARE && r.levels ? { levels: r.levels, rows: r.rows } : null);
+      let r = candleLevels(h.bars, w.from, w.to, barMs, step, share, heldTo), merged = false;
+      if (joined) { const other = candleLevels(s!.bars, w.from, w.to, barMs, step, share, heldTo); if (other.covered >= DRAWN_SHARE) { r = mergeCandleProfiles(r, other, step, share); merged = true; } }
+      this.#candleLevels.set(key, r.covered >= DRAWN_SHARE && r.levels ? { levels: r.levels, rows: r.rows, buys: r.buys, spot: merged } : null);
     }
     const held = this.#candleLevels.get(key);
-    return held ? { levels: held.levels, rows: held.rows, upTo: Math.min(w.to, heldTo) } : null;
+    return held ? { levels: held.levels, rows: held.rows, buys: held.buys, spot: held.spot, upTo: Math.min(w.to, heldTo) } : null;
   }
   /**
    * A past day, week, month or session's levels as its lines draw them, and how far what they come from reaches; null when it is not drawn:
@@ -1562,6 +1578,7 @@ export class HeatPane {
    * draws none.
    */
   #paintPastProfiles(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
+    this.#profileHits = [];
     const kind = this.#profilesKind(state); if (!kind) return;
     const v = this.view, p = this.#palette, now = pageNow(), step = this.#levelStep(), share = state.traded.share / 100, ids = this.#recordedIds(state);
     const row = Math.max(step, this.#tradedStep()), fromCandles = linesSource({ period: kind, source: state.traded.source }) === 'candles';
@@ -1574,36 +1591,74 @@ export class HeatPane {
       // scales to it, so a month zoomed in on its last days still shows its profile (Karl, 2026-10-20) and its longest row stays on the chart.
       const x0 = Math.max(0, v.xOf(w.from, pw)), x1 = Math.min(pw, v.xOf(Math.min(w.to, now, drawn.upTo), pw));
       if (x1 - x0 < 24) continue;
-      // Each row of the display grid: [buy, sell] (from candles all of it in the first), regrouped only when what it comes from or the rows
-      // change, never per frame.
-      const from = fromCandles ? this.#windowFromCandles(state, w, step, share, now)?.rows : this.hub.windowProfiles.get(windowProfileKey(ids, step, w))?.answer;
+      // Each row of the display grid: [buy, sell], regrouped only when what it comes from or the rows change, never per frame. From candles
+      // the split is their taker buys (Binance's), and where the candles do not say, all of a row is in the first, drawn grey.
+      const candle = fromCandles ? this.#windowFromCandles(state, w, step, share, now) : null;
+      const from = fromCandles ? candle?.rows : this.hub.windowProfiles.get(windowProfileKey(ids, step, w))?.answer;
       if (!from) continue;
+      const split = !candle || candle.buys !== null;
       let grouped = this.#profileRows.get(from);
       if (!grouped || grouped.row !== row) {
         const rows = new Map<number, [number, number]>(), into = (price: number, a: number, b: number): void => { const k = Math.floor(price / row * (1 + 1e-12)), c = rows.get(k) ?? [0, 0]; c[0] += a; c[1] += b; rows.set(k, c); };
-        if (from instanceof Map) for (const [k, usd] of from) into((k + 0.5) * step, usd, 0);
+        if (from instanceof Map) for (const [k, usd] of from) { const bought = candle?.buys ? Math.min(usd, candle.buys.get(k) ?? 0) : usd; into((k + 0.5) * step, bought, candle?.buys ? usd - bought : 0); }
         else for (const inst of from.instruments) for (const [low, buy, sell] of inst.rows) into(low + inst.step / 2, buy, sell);
-        let max = 0; for (const [a, b] of rows.values()) max = Math.max(max, a + b);
-        grouped = { row, rows, max, median: medianRow([...rows.values()].map(([a, b]) => a + b)) }; this.#profileRows.set(from, grouped);
+        let max = 0, total = 0; for (const [a, b] of rows.values()) { max = Math.max(max, a + b); total += a + b; }
+        grouped = { row, rows, max, total, median: medianRow([...rows.values()].map(([a, b]) => a + b)) }; this.#profileRows.set(from, grouped);
       }
-      const { rows, max, median } = grouped;
+      const { rows, max, median, total } = grouped;
       if (!(max > 0)) continue;
-      const room = (x1 - x0) * 0.6, floor = emphasisFloor(), on = state.traded.emphasis && state.traded.bars === 'split';
+      const room = (x1 - x0) * 0.6, floor = emphasisFloor(), on = state.traded.emphasis && state.traded.bars === 'split', edges: [number, number, number][] = [];
       for (const [k, [a, b]] of rows) {
         const y0 = v.yOf((k + 1) * row, ph), y1 = v.yOf(k * row, ph); if (y1 < 0 || y0 > ph) continue;
         const hgt = Math.max(1, y1 - y0 - 0.5), len = (a + b) / max * room;
         // A backing mutes the map under the bar, so the bar reads over the hottest heat as over none.
         ctx.globalAlpha = 1; ctx.fillStyle = halo; ctx.fillRect(x0, y0, len, hgt);
-        ctx.globalAlpha = 0.75;
-        if (fromCandles) { ctx.fillStyle = p.poc; ctx.fillRect(x0, y0, len, hgt); continue; }
+        if (candle) edges.push([y0, y0 + hgt, x0 + len]);
+        // Candles that do not say who bought: the whole row in a neutral grey, never a side's colour.
+        if (!split) { ctx.globalAlpha = 0.75; ctx.fillStyle = p.muted; ctx.fillRect(x0, y0, len, hgt); continue; }
         // The stronger side brighter and the weaker dimmer, on the scale the columns use (τ from the window's median row).
         const buyLen = len * a / (a + b), [first, second] = splitStyles(a, b, median, floor, p, on);
         if (a > 0) { ctx.globalAlpha = first.alpha; ctx.fillStyle = first.color; ctx.fillRect(x0, y0, buyLen, hgt); }
         if (b > 0) { ctx.globalAlpha = second.alpha; ctx.fillStyle = second.color; ctx.fillRect(x0 + buyLen, y0, len - buyLen, hgt); }
       }
       ctx.globalAlpha = 1;
+      const name = this.#windowName(state, w), { target, barMs } = this.#profileCandles(state, kind), minutes = Math.round(barMs / 60_000);
+      const market = target ? venueLabel(target.id) : '';
+      if (candle && edges.length) {
+        // From candles, an estimate: outlined in the profile colour along its edge and named with where it comes from (Karl, 2026-10-20).
+        edges.sort((a, b) => a[0] - b[0]);
+        ctx.strokeStyle = p.poc; ctx.lineWidth = 1; ctx.globalAlpha = 0.9; ctx.beginPath();
+        let last: [number, number, number] | null = null;
+        for (const e of edges) {
+          if (!last || e[0] - last[1] > 1.5) { if (last) ctx.lineTo(x0, last[1]); ctx.moveTo(x0, e[0]); }
+          ctx.lineTo(e[2], e[0]); ctx.lineTo(e[2], e[1]); last = e;
+        }
+        if (last) ctx.lineTo(x0, last[1]);
+        ctx.stroke(); ctx.globalAlpha = 1;
+        const label = t('≈ {name} · {market} {minutes}-min candles', { name, market, minutes }), top = edges[0]![0];
+        ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        const lw = ctx.measureText(label).width + 8, ly = top - 9 >= 8 ? top - 9 : top + 9;
+        ctx.globalAlpha = 0.85; ctx.fillStyle = p.panel; ctx.fillRect(x0, ly - 7, lw, 14);
+        ctx.globalAlpha = 1; ctx.fillStyle = p.poc; ctx.fillText(label, x0 + 4, ly);
+      }
+      const source = !candle ? null : split
+        ? t('{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.', { market: candle.spot ? t('{venue} futures and spot', { venue: market }) : market, minutes })
+        : t('{market} candles do not say who bought: the total only.', { market });
+      this.#profileHits.push({ x0, room, row, max, rows, total, split, name: candle ? `≈ ${name}` : name, levels: drawn.levels, source });
     }
     ctx.restore();
+  }
+
+  /** The row of a period profile under the pointer (the profile drawn last first), with a little slack beside short bars. */
+  #periodProfileAt(x: number, y: number, ph: number): ProfileRowHit | null {
+    const price = this.view.pOf(y, ph);
+    for (let i = this.#profileHits.length - 1; i >= 0; i--) {
+      const hit = this.#profileHits[i]!, k = Math.floor(price / hit.row * (1 + 1e-12)), r = hit.rows.get(k);
+      if (!r) continue;
+      const len = (r[0] + r[1]) / hit.max * hit.room;
+      if (x >= hit.x0 - 2 && x <= hit.x0 + Math.max(6, len) + 2) return { hit, k, buy: r[0], sell: r[1] };
+    }
+    return null;
   }
 
   /**
@@ -1945,7 +2000,7 @@ export class HeatPane {
     ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     const axisX = this.#w - AXIS_W;
     if (ownY && y >= 0 && y <= ph) { ctx.fillStyle = p.text; ctx.fillRect(axisX + 1, y - 9, AXIS_W - 1, 18); ctx.fillStyle = p.bg; ctx.textAlign = 'left'; ctx.fillText(fmtPrice(hv.price!), axisX + 6, y); }
-    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: ReturnType<TopProfile['readout']> = null;
+    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: ReturnType<TopProfile['readout']> = null, profiled: ProfileRowHit | null = null;
     const touch = hv.touch === true;
     if (touch && ownY && inX && y >= 0 && y <= ph) { ctx.strokeStyle = p.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
     const absorbed = ownY && here ? this.#absorptionAt(x, y) : null;
@@ -1973,6 +2028,10 @@ export class HeatPane {
       this.#paintFootprintPopup(ctx, rowHit, x, y, pw, ph, touch);
     } else if (ownY && here && (measured = this.#bands.readout(x, y, hv.t))) { // a bucket of a band along the top: its box, under the band
       paintInfoBox(ctx, measured.lines, x, measured.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'down' });
+    } else if (ownY && here && (profiled = this.#periodProfileAt(x, y, ph))) { // a row of a day's, week's, month's or session's profile
+      const { hit, k, buy, sell } = profiled, step = hit.row;
+      const lines = periodRowLines({ name: hit.name, low: k * step, high: (k + 1) * step, step, buy, sell, total: hit.total, split: hit.split, levels: hit.levels, source: hit.source });
+      paintInfoBox(ctx, lines, x, touch ? y - 24 : y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
     } else if (ownY && here && state.layer === 'liquidity') {
       const cell = this.valueAt(hv.t, hv.price!);
       const side = cell && cell.ask > cell.bid ? 'ask' : 'bid', source = cell ? this.#sourceOf(hv.t, hv.price!, side) : '';

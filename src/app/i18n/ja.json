@@ -1436,7 +1436,6 @@
  "Days": "日",
  "Weeks": "週",
  "Months": "月",
- "From candles, an estimate (≈)": "ローソク足からの推定(≈)",
  "Data source": "データソース",
  "Period time zone": "期間のタイムゾーン",
  "Periods shown, including current": "表示する期間数(進行中を含む)",
@@ -1469,5 +1468,11 @@
  "Chart window": "チャートの表示範囲",
  "Everything on the chart, as the columns add it up": "チャート上のすべて(列と同じ集計)",
  "No lines are ticked above: these settings draw nothing until one is.": "上で線が1つも選ばれていません:選ぶまで、これらの設定は何も描きません。",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "約定出来高が価格別に描かれていないため、チャート表示範囲の線は価格別に描かれた最初の指標({measure})を使います。期間の線は常に約定出来高を使います。"
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "約定出来高が価格別に描かれていないため、チャート表示範囲の線は価格別に描かれた最初の指標({measure})を使います。期間の線は常に約定出来高を使います。",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {market} {minutes}分足",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{market}の{minutes}分足。各足の出来高を値幅に均等に配分し、テイカー買いで売り買いに分けた推定値です。",
+ "{venue} futures and spot": "{venue} 先物・現物",
+ "{market} candles do not say who bought: the total only.": "{market}のローソク足は買い手を示さないため、合計のみです。",
+ "From candles, split by taker buys (≈)": "ローソク足から、テイカー買いで分割(≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "月、およびローソク足から算出した日・週・セッションは、1つの取引所の5分足(銘柄が上場していればBinanceの無期限先物と現物の合計)から作られます。各足の出来高を値幅に均等に配分し、テイカー買いで買いと売りに分けます。これらのプロファイルは推定値なので、プロファイル色の枠線と、出所を示す≈ラベルが付きます。市場のローソク足が買い手を示さない場合は灰色で描かれます。チャート上のプロファイルの行を指すと数値が表示されます。"
 }

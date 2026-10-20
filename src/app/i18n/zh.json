@@ -1436,7 +1436,6 @@
  "Days": "日",
  "Weeks": "周",
  "Months": "月",
- "From candles, an estimate (≈)": "来自 K 线,估算(≈)",
  "Data source": "数据来源",
  "Period time zone": "周期时区",
  "Periods shown, including current": "显示的周期数(含当前)",
@@ -1469,5 +1468,11 @@
  "Chart window": "图表窗口",
  "Everything on the chart, as the columns add it up": "图表上的全部内容,按列的方式汇总",
  "No lines are ticked above: these settings draw nothing until one is.": "上方未勾选任何线:勾选之前,这些设置不会绘制任何内容。",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "由于成交量未按价格绘制,图表窗口的线使用按价格绘制的第一个指标({measure});周期线始终使用成交量。"
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "由于成交量未按价格绘制,图表窗口的线使用按价格绘制的第一个指标({measure});周期线始终使用成交量。",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {market} {minutes} 分钟 K 线",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{market} 的 {minutes} 分钟 K 线:每根的成交量平均分布在其价格区间内,并按主动买入拆分为买卖,是一个估算。",
+ "{venue} futures and spot": "{venue} 合约和现货",
+ "{market} candles do not say who bought: the total only.": "{market} 的 K 线不区分买方:仅显示总量。",
+ "From candles, split by taker buys (≈)": "来自 K 线,按主动买入拆分(≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "月份,以及根据 K 线计算的日、周或时段,来自一家交易所的 5 分钟 K 线(若该币在币安上市,则合并币安永续合约与现货):每根 K 线的成交量平均分布在其价格区间内,并按主动买入拆分为买入和卖出。这些分布是估算,因此带有分布颜色的轮廓和标明来源的 ≈ 标签;若某市场的 K 线不区分买方,则以灰色绘制。指向图表上任一分布的某一行即可查看其数据。"
 }

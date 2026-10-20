@@ -1476,7 +1476,6 @@
  "Days": "Tage",
  "Weeks": "Wochen",
  "Months": "Monate",
- "From candles, an estimate (≈)": "Aus Kerzen, eine Schätzung (≈)",
  "Data source": "Datenquelle",
  "Period time zone": "Zeitzone der Zeiträume",
  "Periods shown, including current": "Angezeigte Zeiträume, inklusive aktuellem",
@@ -1515,5 +1514,11 @@
  "Chart window": "Chartfenster",
  "Everything on the chart, as the columns add it up": "Alles auf dem Chart, wie die Spalten es zusammenzählen",
  "No lines are ticked above: these settings draw nothing until one is.": "Oben ist keine Linie angehakt: Diese Einstellungen zeichnen nichts, bis eine angehakt ist.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Die Linien des Chartfensters nutzen {measure}, das erste nach Preis gezeichnete Maß, da gehandeltes Volumen nicht nach Preis gezeichnet wird; Zeitraumlinien nutzen immer gehandeltes Volumen."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Die Linien des Chartfensters nutzen {measure}, das erste nach Preis gezeichnete Maß, da gehandeltes Volumen nicht nach Preis gezeichnet wird; Zeitraumlinien nutzen immer gehandeltes Volumen.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {market} {minutes}-Min-Kerzen",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{minutes}-Minuten-Kerzen von {market}, jede über ihre Spanne verteilt und nach ihren Taker-Käufen aufgeteilt: eine Schätzung.",
+ "{venue} futures and spot": "{venue} Futures und Spot",
+ "{market} candles do not say who bought: the total only.": "Die Kerzen von {market} sagen nicht, wer gekauft hat: nur die Summe.",
+ "From candles, split by taker buys (≈)": "Aus Kerzen, nach Taker-Käufen aufgeteilt (≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "Monate sowie aus Kerzen berechnete Tage, Wochen oder Sessions stammen aus den 5-Minuten-Kerzen einer Börse (Binance-Perpetual und -Spot zusammen, wo die Münze dort gehandelt wird): das Volumen jeder Kerze gleichmäßig über ihre Spanne verteilt und nach ihren Taker-Käufen in Käufe und Verkäufe aufgeteilt. Diese Profile sind eine Schätzung, daher sind sie in der Profilfarbe umrandet und mit ≈ samt Herkunft beschriftet; wo die Kerzen eines Marktes nicht sagen, wer gekauft hat, werden sie grau gezeichnet. Zeige auf eine Zeile eines Profils auf dem Chart für ihre Zahlen."
 }

@@ -1504,7 +1504,6 @@
  "Days": "Дни",
  "Weeks": "Недели",
  "Months": "Месяцы",
- "From candles, an estimate (≈)": "По свечам, оценка (≈)",
  "Data source": "Источник данных",
  "Period time zone": "Часовой пояс периодов",
  "Periods shown, including current": "Показано периодов, включая текущий",
@@ -1547,5 +1546,11 @@
  "Chart window": "Окно графика",
  "Everything on the chart, as the columns add it up": "Всё, что на графике, как это суммируют столбцы",
  "No lines are ticked above: these settings draw nothing until one is.": "Выше не отмечено ни одной линии: эти настройки ничего не рисуют, пока не отмечена хотя бы одна.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Линии окна графика используют {measure} — первую меру, показанную по цене, раз объём сделок по цене не показан; линии периодов всегда используют объём сделок."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Линии окна графика используют {measure} — первую меру, показанную по цене, раз объём сделок по цене не показан; линии периодов всегда используют объём сделок.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · {minutes}-минутные свечи {market}",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "{minutes}-минутные свечи {market}: объём каждой распределён по её диапазону и разделён по покупкам тейкеров — это оценка.",
+ "{venue} futures and spot": "{venue}: фьючерсы и спот",
+ "{market} candles do not say who bought: the total only.": "Свечи {market} не говорят, кто покупал: только сумма.",
+ "From candles, split by taker buys (≈)": "По свечам, разделено по покупкам тейкеров (≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "Месяцы, а также дни, недели или сессии, рассчитанные по свечам, строятся по 5-минутным свечам одной биржи (бессрочный контракт и спот Binance вместе, если монета там торгуется): объём каждой свечи равномерно распределён по её диапазону и разделён на покупки и продажи по покупкам тейкеров. Эти профили — оценка, поэтому они обведены цветом профиля и подписаны ≈ с указанием источника; где свечи рынка не говорят, кто покупал, они рисуются серым. Наведите на строку любого профиля на графике, чтобы увидеть её цифры."
 }

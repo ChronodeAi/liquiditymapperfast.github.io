@@ -1490,7 +1490,6 @@
  "Days": "Giorni",
  "Weeks": "Settimane",
  "Months": "Mesi",
- "From candles, an estimate (≈)": "Da candele, una stima (≈)",
  "Data source": "Fonte dei dati",
  "Period time zone": "Fuso orario dei periodi",
  "Periods shown, including current": "Periodi mostrati, incluso quello in corso",
@@ -1531,5 +1530,11 @@
  "Chart window": "Finestra del grafico",
  "Everything on the chart, as the columns add it up": "Tutto ciò che è sul grafico, come lo sommano le colonne",
  "No lines are ticked above: these settings draw nothing until one is.": "Nessuna linea è spuntata sopra: queste impostazioni non disegnano nulla finché non ne spunti una.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Le linee della finestra del grafico usano {measure}, la prima misura disegnata per prezzo, perché il volume scambiato non lo è; le linee di periodo usano sempre il volume scambiato."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Le linee della finestra del grafico usano {measure}, la prima misura disegnata per prezzo, perché il volume scambiato non lo è; le linee di periodo usano sempre il volume scambiato.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · candele da {minutes} min di {market}",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "Candele da {minutes} minuti di {market}, ognuna distribuita sul suo intervallo e divisa secondo i suoi acquisti taker: una stima.",
+ "{venue} futures and spot": "{venue} futures e spot",
+ "{market} candles do not say who bought: the total only.": "Le candele di {market} non dicono chi ha comprato: solo il totale.",
+ "From candles, split by taker buys (≈)": "Da candele, diviso per acquisti taker (≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "I mesi, e i giorni, le settimane o le sessioni calcolati dalle candele, vengono dalle candele da 5 minuti di un exchange (il perpetuo e lo spot di Binance insieme, dove la moneta vi è quotata): il volume di ogni candela distribuito in modo uniforme sul suo intervallo e diviso in acquisti e vendite secondo i suoi acquisti taker. Questi profili sono una stima, quindi hanno un contorno del colore del profilo e l'etichetta ≈ con la loro origine; dove le candele di un mercato non dicono chi ha comprato, sono disegnati in grigio. Punta una riga di un profilo sul grafico per le sue cifre."
 }

@@ -171,7 +171,7 @@ function periodGrid(store: Store, set: (change: Partial<TradedSettings>, again?:
     el('label', { tip: `${windowName} · ${linesHead}` }, windowBox), el('span', { class: 'none', textContent: '—' }));
   for (const k of LINE_KINDS) {
     const name = PERIOD_ROWS[k], on = s.sessions.filter(x => x.on).map(x => x.name).join(', ');
-    const desc = k === 'month' ? t('From candles, an estimate (≈)') : k === 'sessions' ? on : '';
+    const desc = k === 'month' ? t('From candles, split by taker buys (≈)') : k === 'sessions' ? on : '';
     grid.append(el('span', { class: 'what', ...(k === 'month' ? { tip: t('A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈.') } : {}) },
       el('span', { class: 'name', textContent: name }), ...(desc ? [el('span', { class: 'desc', textContent: desc })] : [])));
     const box = el('input', { type: 'checkbox', checked: s.lines.includes(k), ariaLabel: `${name} · ${linesHead}` });

@@ -1490,7 +1490,6 @@
  "Days": "Jours",
  "Weeks": "Semaines",
  "Months": "Mois",
- "From candles, an estimate (≈)": "Des bougies, une estimation (≈)",
  "Data source": "Source des données",
  "Period time zone": "Fuseau horaire des périodes",
  "Periods shown, including current": "Périodes affichées, en cours incluse",
@@ -1531,5 +1530,11 @@
  "Chart window": "Fenêtre du graphique",
  "Everything on the chart, as the columns add it up": "Tout ce qui est sur le graphique, tel que les colonnes l’additionnent",
  "No lines are ticked above: these settings draw nothing until one is.": "Aucune ligne n’est cochée ci-dessus : ces réglages ne dessinent rien tant qu’aucune ne l’est.",
- "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Les lignes de la fenêtre du graphique utilisent {measure}, la première mesure tracée par prix, puisque le volume négocié ne l’est pas ; les lignes de période utilisent toujours le volume négocié."
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Les lignes de la fenêtre du graphique utilisent {measure}, la première mesure tracée par prix, puisque le volume négocié ne l’est pas ; les lignes de période utilisent toujours le volume négocié.",
+ "≈ {name} · {market} {minutes}-min candles": "≈ {name} · bougies {minutes} min de {market}",
+ "{market} {minutes}-minute candles, each spread over its range and split by its taker buys: an estimate.": "Bougies de {minutes} minutes de {market}, chacune répartie sur son amplitude et partagée selon ses achats taker : une estimation.",
+ "{venue} futures and spot": "{venue} futures et spot",
+ "{market} candles do not say who bought: the total only.": "Les bougies de {market} ne disent pas qui a acheté : le total seulement.",
+ "From candles, split by taker buys (≈)": "Des bougies, partagé selon les achats taker (≈)",
+ "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles of one exchange (Binance's perpetual and spot together, where the coin trades there): each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "Les mois, ainsi que les jours, semaines ou sessions calculés à partir de bougies, viennent des bougies de 5 minutes d’une plateforme (le perpétuel et le spot de Binance ensemble, là où la monnaie y est cotée) : le volume de chaque bougie réparti uniformément sur son amplitude et partagé entre achats et ventes selon ses achats taker. Ces profils sont une estimation : ils sont donc entourés de la couleur du profil et marqués ≈ avec leur source ; là où les bougies d’un marché ne disent pas qui a acheté, ils sont dessinés en gris. Pointez une ligne de n’importe quel profil du graphique pour ses chiffres."
 }
