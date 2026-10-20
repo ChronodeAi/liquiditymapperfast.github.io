@@ -2,8 +2,8 @@
  * A picture of the page, drawn by walking it: every canvas is copied at its place, and the boxes, borders and text of the ordinary
  * elements are painted around them. This needs no permission prompt (unlike capturing the screen), cannot taint the canvas (unlike
  * serialising the page into an image) and is exact where it matters, because the chart, the order book and the panes are canvases. The
- * toolbar and pane headers are approximated from their computed styles: boxes, borders, rounded corners, text, gradients, selects and
- * sliders; shadows and pseudo-elements are left out.
+ * toolbar and pane headers are approximated from their computed styles: boxes, borders, rounded corners, text, gradients, selects,
+ * sliders and SVG drawings (shape by shape); shadows and pseudo-elements are left out.
  *
  * The same walk serves a moving picture (`paintLayers`): what lies between two canvases is painted once into a layer of its own, and
  * each frame lays the layers and the canvases (as they are by then) over each other in the page's order.
@@ -145,6 +145,60 @@ function paintText(painter: Painter, node: Text, cs: CSSStyleDeclaration, alpha:
   ctx?.restore();
 }
 
+/** How an SVG text's `text-anchor` lines it up on its x, as a canvas `textAlign`. */
+export const svgAlign = (anchor: string): CanvasTextAlign => anchor === 'middle' ? 'center' : anchor === 'end' ? 'end' : 'start';
+/** An SVG text's `dominant-baseline` as a canvas `textBaseline` (the ones this page uses; anything else sits on the alphabetic baseline). */
+export const svgBaseline = (baseline: string): CanvasTextBaseline =>
+  baseline === 'middle' || baseline === 'central' ? 'middle' : baseline === 'hanging' ? 'hanging' : baseline === 'text-before-edge' ? 'top' : baseline === 'text-after-edge' ? 'bottom' : 'alphabetic';
+/** A computed `stroke-dasharray` ("none", "2px, 2px", "2 2") as a canvas line dash. */
+export const svgDash = (dash: string): number[] => dash && dash !== 'none' ? dash.split(/[\s,]+/).map(num).filter(n => n >= 0) : [];
+/** A computed `fill` or `stroke` that paints a plain colour: not "none", nor a gradient or pattern by reference. */
+export const svgPaints = (paint: string): boolean => !!paint && paint !== 'none' && !paint.startsWith('url(');
+
+/**
+ * An SVG drawing (the Volume profile panel's sketch of the chart), drawn shape by shape from each shape's computed style, where the page
+ * puts it and turned as it turns it (`getScreenCTM`, its viewBox and every transform up to the screen): rectangles, lines, circles, paths
+ * and texts, stroke and fill in the order its `paint-order` says. Walked as boxes and text, it came out as its words strewn unturned over
+ * the panel and none of its shapes (Karl, 2026-10-20).
+ */
+function paintSvg(ctx: Ctx2D, node: Element, alpha: number): void {
+  for (const child of node.children) {
+    if (!(child instanceof SVGGraphicsElement)) continue;
+    const cs = getComputedStyle(child);
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    const a = alpha * (cs.opacity === '' ? 1 : num(cs.opacity));
+    if (a <= 0) continue;
+    if (child instanceof SVGGElement || child instanceof SVGSVGElement) { paintSvg(ctx, child, a); continue; }
+    const m = child.getScreenCTM(); if (!m) continue;
+    let shape: Path2D | null = null, text: { content: string; x: number; y: number } | null = null;
+    if (child instanceof SVGRectElement) { shape = new Path2D(); shape.rect(child.x.baseVal.value, child.y.baseVal.value, child.width.baseVal.value, child.height.baseVal.value); }
+    else if (child instanceof SVGLineElement) { shape = new Path2D(); shape.moveTo(child.x1.baseVal.value, child.y1.baseVal.value); shape.lineTo(child.x2.baseVal.value, child.y2.baseVal.value); }
+    else if (child instanceof SVGCircleElement) { shape = new Path2D(); shape.arc(child.cx.baseVal.value, child.cy.baseVal.value, child.r.baseVal.value, 0, Math.PI * 2); }
+    else if (child instanceof SVGPathElement) shape = new Path2D(child.getAttribute('d') ?? '');
+    else if (child instanceof SVGTextElement) {
+      const xs = child.x.baseVal, ys = child.y.baseVal;
+      text = { content: child.textContent ?? '', x: xs.numberOfItems ? xs.getItem(0).value : 0, y: ys.numberOfItems ? ys.getItem(0).value : 0 };
+    } else continue;
+    ctx.save();
+    ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+    const fill = (): void => {
+      if (!svgPaints(cs.fill)) return;
+      ctx.globalAlpha = a * (cs.fillOpacity === '' ? 1 : num(cs.fillOpacity)); ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillStyle = cs.fill;
+      if (text) ctx.fillText(text.content, text.x, text.y); else ctx.fill(shape!, cs.fillRule === 'evenodd' ? 'evenodd' : 'nonzero');
+    };
+    const stroke = (): void => {
+      const width = num(cs.strokeWidth); if (!svgPaints(cs.stroke) || width <= 0) return;
+      ctx.globalAlpha = a * (cs.strokeOpacity === '' ? 1 : num(cs.strokeOpacity)); ctx.strokeStyle = 'rgba(0,0,0,0)'; ctx.strokeStyle = cs.stroke;
+      ctx.lineWidth = width; ctx.setLineDash(svgDash(cs.strokeDasharray)); ctx.lineJoin = text ? 'round' : 'miter';
+      if (text) ctx.strokeText(text.content, text.x, text.y); else ctx.stroke(shape!);
+      ctx.setLineDash([]);
+    };
+    if (text) { ctx.font = fontOf(cs); ctx.textAlign = svgAlign(cs.textAnchor); ctx.textBaseline = svgBaseline(cs.dominantBaseline); }
+    if (cs.paintOrder.trim().startsWith('stroke')) { stroke(); fill(); } else { fill(); stroke(); }
+    ctx.restore();
+  }
+}
+
 /**
  * A positioned element with a z-index above 0: the page paints it over everything else in its stacking context, wherever it sits in the
  * tree (the bars over the glass: the glass is a z-index 50 child of the body, the bars 52 deep inside it), so it is kept and painted
@@ -182,6 +236,11 @@ function paintNode(painter: Painter, node: Element, alpha: number, clip: Box | n
     if (clips) inner = intersect(box, clip) ?? box;
   }
   if (node instanceof HTMLSelectElement || node instanceof HTMLInputElement || node instanceof HTMLCanvasElement) return;
+  // An SVG drawing is drawn shape by shape: its shapes have no boxes, and its text is not laid out as an element's is.
+  if (node instanceof SVGSVGElement) {
+    if (rect.width > 0 && rect.height > 0 && intersect(box, intersect(painter.view, clip))) { const ctx = painter.ctx(); inState(ctx, 1, clip, () => paintSvg(ctx, node, a)); }
+    return;
+  }
   // Children with a z-index above 0 wait for the end of the stacking context they belong to (this one, if it starts one); those below 0
   // come first, the rest in the order of the page.
   const own = stacks(cs) ? [] as Raised[] : raised;
