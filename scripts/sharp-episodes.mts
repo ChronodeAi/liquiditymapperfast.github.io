@@ -285,7 +285,7 @@ interface Before {
 interface During {
   perpNet: N; spotNet: N; refNet: N; spotShare: N; liqLong: N; liqShort: N; liqMax: N; liqMaxBeforeEnd: N; bid50Chg: N; ask50Chg: N; endNet: N; endWick: N;
 }
-interface After { back5: N; back15: N; back30: N; beyond15: N; perpNet5: N }
+interface After { back5: N; back15: N; back30: N; perpNet5: N }
 interface Call { score: number; dir: 'up' | 'down' | null; p: N; loud: boolean; cascade?: N }
 type Calls5 = Partial<Record<Model, Call>>;
 interface Episode {
@@ -372,8 +372,7 @@ class Casebook {
     if (b + 30 >= this.s.length) return null;
     const from = m.up ? v.l[m.start]! : v.h[m.start]!, to = m.up ? v.h[b]! : v.l[b]!;
     const back = (k: number): N => r((to - this.near('c', b + k)) / (to - from) * 100);
-    const beyond = m.up ? this.extreme('h', b + 1, b + 15) - to : to - this.extreme('l', b + 1, b + 15);
-    return { back5: back(5), back15: back(15), back30: back(30), beyond15: r(Math.max(0, beyond) / to * 1e4), perpNet5: mUsd(this.sum('perpNet', b + 1, b + 5)) };
+    return { back5: back(5), back15: back(15), back30: back(30), perpNet5: mUsd(this.sum('perpNet', b + 1, b + 5)) };
   }
 
   /** The readings made as minute `i` closed. */
@@ -549,7 +548,7 @@ function summary(s: Series, book: Casebook, episodes: Episode[], alarms: Alarm[]
     ['  its minutes before the end', e => e.during.liqMaxBeforeEnd], ['bids within 50 bp changed (%)', e => e.during.bid50Chg], ['asks within 50 bp changed (%)', e => e.during.ask50Chg],
     ['end minute: net perpetual USD ($M)', e => e.during.endNet], ['end minute: wick back (bp)', e => e.during.endWick],
     ['given back 5 min after (% of move)', e => e.after?.back5 ?? null], ['given back 15 min after', e => e.after?.back15 ?? null], ['given back 30 min after', e => e.after?.back30 ?? null],
-    ['beyond the end within 15 min (bp)', e => e.after?.beyond15 ?? null], ['net perpetual USD, 5 min after ($M)', e => e.after?.perpNet5 ?? null],
+    ['net perpetual USD, 5 min after ($M)', e => e.after?.perpNet5 ?? null],
   ];
   for (const [name, f] of rows) L.push(`${name.padEnd(40)} ${by(f)}`);
   return L.join('\n') + '\n';
@@ -558,7 +557,7 @@ function summary(s: Series, book: Casebook, episodes: Episode[], alarms: Alarm[]
 function caseText(s: Series, book: Casebook, e: Episode, m: Swing): string {
   const v = s.v, up = m.up, L: string[] = [];
   L.push(`MOVE ${e.id}: ${up ? 'UP' : 'DOWN'} from ${usd(e.start.price)} (${e.start.t.slice(11)}) to ${usd(e.end.price)} (${e.end.t.slice(11)} UTC), ${up ? '+' : '-'}${usd(Math.abs(e.moveUsd))} (${cell(e.movePct, 2)} %), ${cell(e.sizeSigma)} sigma${e.strong ? ' (strong)' : ''}, ${e.minutes} min.`);
-  L.push(`Sharp minutes ${e.firstSharp.slice(11)} to ${e.lastSharp.slice(11)} (${e.sharpMinutes}). ${e.after ? `Given back: ${cell(e.after.back5, 0)} % after 5 min, ${cell(e.after.back15, 0)} % after 15, ${cell(e.after.back30, 0)} % after 30; ${cell(e.after.beyond15, 0)} bp beyond the end within 15 min.` : 'Too recent for what came after.'}`);
+  L.push(`Sharp minutes ${e.firstSharp.slice(11)} to ${e.lastSharp.slice(11)} (${e.sharpMinutes}). ${e.after ? `Given back: ${cell(e.after.back5, 0)} % after 5 min, ${cell(e.after.back15, 0)} % after 15, ${cell(e.after.back30, 0)} % after 30.` : 'Too recent for what came after.'}`);
   L.push(`Loud in the 15 min before: ${e.warned.map(x => NAMES[x]).join(', ') || 'none'}; in the first 5 min: ${e.caught.map(x => NAMES[x]).join(', ') || 'none'}.`);
   const b30 = e.before30, b10 = e.before10;
   if (b30 && b10) L.push(`Before the start (30 min | 10 min; it is a turning point, so price ran the other way into it): price ${cell(b30.ret, 0)} | ${cell(b10.ret, 0)} bp; perpetual net ${cell(b30.perpNet)} | ${cell(b10.perpNet)} $M (z ${cell(b30.perpZ)} | ${cell(b10.perpZ)}); spot net ${cell(b30.spotNet)} | ${cell(b10.spotNet)} $M; range ${cell(b30.rangeSigma)} | ${cell(b10.rangeSigma)} sigma; liquidations long ${cell(b30.liqLong)} short ${cell(b30.liqShort)} $M; book within 50 bp bids ${cell(b30.bid50Chg, 0)} % asks ${cell(b30.ask50Chg, 0)} %; OI ${cell(b30.oiChg, 2)} %.`);
