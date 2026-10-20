@@ -15,15 +15,15 @@ import { confluence, type Confluence } from '../src/shared/sharp/confluence.ts';
 
 const MINUTE = 60_000;
 
-interface Row {
+export interface Row {
   features: { coin: string; t: number; price: number; values: Record<string, number | boolean | null> };
   /** Absent on a minute Jev was not asked (no key, backing off) or did not answer. */
-  verdict?: { score: number; scoreConfidence: number; direction: 'up' | 'down'; concepts: Record<string, number>; ms?: number; inputTokens?: number };
+  verdict?: { score: number; scoreConfidence: number; direction: 'up' | 'down'; directionP: number; concepts: Record<string, number>; ms?: number; inputTokens?: number };
   /** The SubQ arms' verdicts on the same minute (see `SUBQ_ARMS` in shared/sharp/jev.ts). */
   arms?: Partial<Record<'subq' | 'subqHistory' | 'subqImage', Row['verdict']>>;
 }
-/** `ret`: log return (%) from the row to the last row within the horizon. */
-interface Labelled { row: Row; sharp: boolean; up: boolean; ret: number }
+/** `ret`: log return (%) from the row to the last row within the horizon; `sd`: the standard deviation of 15-minute log returns it was judged by. */
+export interface Labelled { row: Row; sharp: boolean; up: boolean; ret: number; sd: number }
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -31,7 +31,7 @@ function arg(name: string, fallback: string): string {
 }
 
 /** The rows of a log, oldest file first; a line that does not parse is skipped. */
-function readLog(file: string): Row[] {
+export function readLog(file: string): Row[] {
   const rotated = path.join(path.dirname(file), 'sharp-log.1.jsonl');
   const rows: Row[] = [];
   for (const f of [rotated, file]) {
@@ -47,6 +47,10 @@ function readLog(file: string): Row[] {
   return rows;
 }
 
+/**
+ * Each row that has 48 15-minute returns in the 24 hours before it and a log reaching its horizon, judged sharp when its largest move within
+ * the horizon is at least `k` standard deviations of those returns.
+ */
 export function label(rows: readonly Row[], horizonMin: number, k: number): Labelled[] {
   const out: Labelled[] = [];
   const byCoin = new Map<string, Row[]>();
@@ -54,13 +58,19 @@ export function label(rows: readonly Row[], horizonMin: number, k: number): Labe
   for (const list of byCoin.values()) {
     list.sort((a, b) => a.features.t - b.features.t);
     const priceAt = new Map(list.map(r => [r.features.t, r.features.price]));
-    // 15-minute log returns ending at each row (where the row 15 minutes earlier exists).
+    // 15-minute log returns ending at each row (where the row 15 minutes earlier exists), oldest first, and their running sums: the 24 hours
+    // before a row are the returns between two indices that only move forward.
     const returns = list.flatMap(r => { const p0 = priceAt.get(r.features.t - 15 * MINUTE); return p0 ? [{ t: r.features.t, r: Math.log(r.features.price / p0) }] : []; });
+    const sums = new Float64Array(returns.length + 1), squares = new Float64Array(returns.length + 1);
+    for (let i = 0; i < returns.length; i++) { sums[i + 1] = sums[i]! + returns[i]!.r; squares[i + 1] = squares[i]! + returns[i]!.r ** 2; }
+    let from = 0, to = 0;
     for (let i = 0; i < list.length; i++) {
       const row = list[i]!, t = row.features.t, p = row.features.price;
-      const prior = returns.filter(x => x.t <= t && x.t > t - 24 * 60 * MINUTE).map(x => x.r);
-      if (prior.length < 48) continue;
-      const m = prior.reduce((a, b) => a + b, 0) / prior.length, sd = Math.sqrt(prior.reduce((a, b) => a + (b - m) * (b - m), 0) / prior.length);
+      while (to < returns.length && returns[to]!.t <= t) to++;
+      while (from < to && returns[from]!.t <= t - 24 * 60 * MINUTE) from++;
+      const n = to - from;
+      if (n < 48) continue;
+      const m = (sums[to]! - sums[from]!) / n, sd = Math.sqrt(Math.max(0, (squares[to]! - squares[from]!) / n - m * m));
       if (!(sd > 0)) continue;
       let extreme = 0, last = t, lastPrice = p;
       for (let j = i + 1; j < list.length && list[j]!.features.t <= t + horizonMin * MINUTE; j++) {
@@ -68,7 +78,7 @@ export function label(rows: readonly Row[], horizonMin: number, k: number): Labe
         if (Math.abs(x) > Math.abs(extreme)) extreme = x;
       }
       if (last < t + (horizonMin - 2) * MINUTE) continue; // the log ends before the horizon does
-      out.push({ row, sharp: Math.abs(extreme) >= k * sd, up: extreme > 0, ret: Math.log(lastPrice / p) * 100 });
+      out.push({ row, sharp: Math.abs(extreme) >= k * sd, up: extreme > 0, ret: Math.log(lastPrice / p) * 100, sd });
     }
   }
   return out;
@@ -148,12 +158,15 @@ function main(): void {
     if (ms.length) console.log(`latency p50 ${ms[ms.length >> 1]} ms, p90 ${ms[Math.floor(ms.length * 0.9)]} ms; input tokens mean ${tokens.length ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : 'n/a'}`);
   }
 
-  // The fair comparison: the same minutes for every model.
-  const answered = MODELS.filter(m => labelled.some(l => verdictOf(l.row, m)));
+  // The fair comparison: the same minutes for every model still answering. One with no answer over the last 24 hours of labelled minutes
+  // (a paused SubQ arm) is left out, or it would hold the comparison to the minutes before it stopped; its own section above still counts.
+  const newest = labelled.reduce((t, l) => Math.max(t, l.row.features.t), -Infinity);
+  const answered = MODELS.filter(m => labelled.some(l => l.row.features.t > newest - 24 * 60 * MINUTE && verdictOf(l.row, m)));
+  const silent = MODELS.filter(m => !answered.includes(m) && labelled.some(l => verdictOf(l.row, m)));
   const paired = labelled.filter(l => answered.every(m => verdictOf(l.row, m)));
   if (answered.length > 1 && paired.length) {
     const yp = paired.map(l => l.sharp), sharpRows = paired.filter(l => l.sharp);
-    console.log(`\n== paired: ${paired.length} minutes every model answered (${sharpRows.length} sharp)`);
+    console.log(`\n== paired: ${paired.length} minutes every model answered (${sharpRows.length} sharp)${silent.length ? `; left out, silent for 24 h: ${silent.join(', ')}` : ''}`);
     for (const m of answered) {
       const right = sharpRows.filter(l => (verdictOf(l.row, m)!.direction === 'up') === l.up).length;
       console.log(`${m.padEnd(12)} score AUC ${fmt(auc(paired.map(l => verdictOf(l.row, m)!.score), yp))}, direction on sharp ${sharpRows.length ? `${right}/${sharpRows.length}` : 'n/a'}`);

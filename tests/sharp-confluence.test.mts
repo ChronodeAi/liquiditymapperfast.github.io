@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { confluence } from '../src/shared/sharp/confluence.ts';
-import { SharpWatch } from '../src/server/v2/sharp.mts';
+import { SharpWatch, subqArmsFrom } from '../src/server/v2/sharp.mts';
 import type { SharpInputs } from '../src/shared/sharp/features.ts';
+import { SUBQ_ARMS, type DecisionExtras, type SubqArm } from '../src/shared/sharp/jev.ts';
 
 /** Spot buying hard, asks pulled while bids held: two families say up. */
 const upFlowAndBook = { spotZ15: 2.4, whaleOpposite: false, bidChangePct: 2, askChangePct: -40, ltFlipped: false, ltNow: 0.01, imbPctile6h: 50, imb1pct: 0.02 };
@@ -59,4 +60,36 @@ test('without a key the watch still reads and logs the confluence every minute, 
   assert.equal(rows.length, 1);
   assert.ok(rows[0]!.confluence && !('verdict' in rows[0]!));
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a SubQ arm left out of SUBQ_ARMS is never asked, its history is never built, and it is absent from the log', async () => {
+  assert.deepEqual(subqArmsFrom(undefined), { arms: [...SUBQ_ARMS], unknown: [] });
+  assert.deepEqual(subqArmsFrom(''), { arms: [], unknown: [] }, 'set but empty: every arm paused');
+  assert.deepEqual(subqArmsFrom('subq, subqimage ,subqImage'), { arms: ['subq', 'subqImage'], unknown: ['subqimage'] });
+
+  const now = Date.UTC(2026, 9, 13, 12, 0);
+  const px = new Float32Array(10).fill(100_000), flow = new Float32Array(10).fill(1_000);
+  const inputs: SharpInputs = {
+    now, coin: 'BTC', spot: [], perp: [{ id: 'p', t0: now - 10 * 60_000, buy: flow, sell: flow, px, lo: px, hi: px }],
+    binanceSpotId: null, refPerpId: 'p', depth: [], liquidations: [], oi: [], whale: [],
+  };
+  const run = async (subqArms?: SubqArm[]) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sharp-arms-'));
+    const asked: DecisionExtras[] = [];
+    const watch = new SharpWatch({ dir, read: () => inputs, clock: () => now + 15_000, subqKey: 'key', ...(subqArms ? { subqArms } : {}), ask: async (features, _key, _signal, extras = {}) => {
+      asked.push(extras);
+      return { t: features.t, coin: features.coin, price: features.price, concepts: {}, score: 1, scoreConfidence: 0.5, direction: 'up', directionP: 0.6, model: 'subq-snap-preview' };
+    } });
+    await watch.tick();
+    const row = JSON.parse(fs.readFileSync(path.join(dir, 'sharp-log.jsonl'), 'utf8')) as { arms?: Record<string, unknown> };
+    fs.rmSync(dir, { recursive: true, force: true });
+    return { asked, logged: Object.keys(row.arms ?? {}).sort(), answered: Object.keys(watch.answer().arms ?? {}) };
+  };
+  const every = await run();
+  assert.deepEqual(every.logged, ['subq', 'subqHistory'], 'by default the history arm is asked (no heatmap here, so the image arm is not)');
+  assert.ok(every.asked.some(x => typeof x.series === 'string'));
+  const paused = await run(['subq', 'subqImage']);
+  assert.deepEqual(paused.asked, [{ provider: 'subq' }]);
+  assert.deepEqual(paused.logged, ['subq']);
+  assert.ok(!paused.answered.includes('subqHistory'));
 });
