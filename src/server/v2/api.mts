@@ -55,6 +55,8 @@ const MAX_FLOW_MINUTES_SPAN_MS = 8 * 24 * 3_600_000;
 const MAX_SIZES_INSTRUMENTS = 96;
 /** The live socket says something at least this often, so a client can tell a quiet server from a dead connection. */
 const HEARTBEAT_MS = 5_000;
+/** How long after starting the stored absorption hours are packed (`AbsorptionRecorder.warm`). */
+const ABSORPTION_WARM_AFTER_MS = 3_000;
 /** Books with at least this many raw levels are re-valued no more often than the interval below. */
 const DEEP_BOOK_LEVELS = 2_000, DEEP_BOOK_INTERVAL_MS = 1_000;
 /** A far book reader that has done nothing for this long while its book is live is replaced (a working one ticks every FAR_EVERY_MS). */
@@ -130,6 +132,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   /** Absorption candidates (see shared/absorption.ts): every fill the builder took, once each. */
   const absorption = new AbsorptionRecorder(persist ? path.join(dataDir, 'depth-v2.sqlite') : null);
   const detect = (taken: readonly TakenFill[]): void => { for (const f of taken) absorption.add(f.instrumentId, f.t, f.price, f.usd, f.side); };
+  // The stored hours are packed for the absorption column once the start's own work is done, so the page's first question does not read them.
+  const absorptionWarm = setTimeout(() => { void absorption.warm(); }, ABSORPTION_WARM_AFTER_MS);
+  absorptionWarm.unref();
   /** Every order completed since the last dust batch, for the clients that asked for it (`tapeClients`), at most a batch's worth. */
   let tapeOut: MarketOrder[] = [], tapeSeq = 0;
   const tapeClients = new WeakSet<WebSocket>();
@@ -518,8 +523,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   /**
    * The absorption column for some instruments over a window (shared/absorption.ts `AbsorptionProfile`): the marked USD of every group that
    * began in it, at each instrument's threshold (`min`, one per instrument or one for all), by price on rows of `step`, none left out, and the
-   * instruments whose rows may be short. No minute after the window is read, and the stored hours are read one at a time with the event loop
-   * let go between.
+   * instruments whose rows may be short. No minute after the window is read; whole stored hours are answered from their packed groups (read
+   * once, see shared/absorption-hours.ts) and the part hours read as they are, with the event loop let go between.
    */
   const absorptionProfileRoute = (url: URL, res: ServerResponse) => {
     const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean);
@@ -688,7 +693,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     },
     close() {
       closed = true;
-      clearInterval(loop); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
+      clearInterval(loop); clearTimeout(absorptionWarm); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
       for (const client of wss.clients) client.terminate();
       // Each part gets its turn even when one of them fails, so what can still be written is (the open minutes and the open orders are written here).
       for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => footprint.close(), () => coverage.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {
