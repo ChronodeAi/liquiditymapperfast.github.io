@@ -50,7 +50,15 @@ interface CandleSpec {
   page(interval: string, intervalMs: number, endMs: number, get: Fetcher, symbol: string, limit?: number): Promise<CandleRow[]>;
 }
 
-const row = (start: unknown, open: unknown, high: unknown, low: unknown, close: unknown, volume: unknown, buy?: unknown): CandleRow => ({ start: num(start), open: num(open), high: num(high), low: num(low), close: num(close), volume: num(volume), ...(buy === undefined ? {} : { buy: num(buy) }) });
+/** A taker-buy figure that is a number from nothing to the volume, or none: null, '', false or a figure past the volume is not a zero. */
+const takerBuy = (buy: unknown, volume: number): number | null => {
+  const n = typeof buy === 'number' ? buy : typeof buy === 'string' && buy.trim() !== '' ? Number(buy) : NaN;
+  return Number.isFinite(n) && n >= 0 && Number.isFinite(volume) && n <= volume * (1 + 1e-9) ? n : null;
+};
+const row = (start: unknown, open: unknown, high: unknown, low: unknown, close: unknown, volume: unknown, buy?: unknown): CandleRow => {
+  const v = num(volume), b = buy === undefined ? null : takerBuy(buy, v);
+  return { start: num(start), open: num(open), high: num(high), low: num(low), close: num(close), volume: v, ...(b === null ? {} : { buy: b }) };
+};
 
 /** Binance's klines, the perpetual's and the spot market's alike: the tenth field is the taker buy volume, the part bought at market. */
 const binanceRows = (json: unknown): CandleRow[] => list(json).map(r => row(at(r, 0), at(r, 1), at(r, 2), at(r, 3), at(r, 4), at(r, 5), at(r, 9)));

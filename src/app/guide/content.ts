@@ -157,7 +157,7 @@ export const SECTIONS: readonly Section[] = [
     blocks: [
       { t: 'p', text: 'The **volume profile** adds up what traded at each price. In its settings (≡ beside **Volume profile**), tick where each measure goes: a column right or left of the map adds it up by price, a band along the top by time, each over what is on the chart.' },
       { t: 'p', text: '**Traded volume by period** draws days, weeks, months or sessions on the chart over their own time, as lines or bar profiles. Point at a row of a profile for its figures.' },
-      { t: 'note', text: '**Months** come from 5-minute candles (Binance\'s perpetual and spot together), split by their taker buys: an estimate, so they are outlined in the profile colour and labelled ≈ with their source. Days, weeks and sessions come from the recorded trades.' },
+      { t: 'note', text: '**Months** come from 5-minute candles of the most traded market (Binance\'s perpetual, with its spot market where the coin has one), split by their taker buys: an estimate, so they are outlined in the profile colour and labelled ≈ with their source. Days, weeks and sessions come from the recorded trades unless set to candles.' },
     ],
   },
   {

@@ -83,6 +83,12 @@ test('asked for, Binance candles carry their taker buys (the tenth field), summe
   assert.equal(withBuy[0]![5], 5, 'five minutes of one coin');
   assert.equal(withBuy[0]![7], (0 + 0.25 + 0.5 + 0.75 + 0) , 'their taker buys summed');
   assert.equal(aggregateCandles([{ start: T0, open: 1, high: 1, low: 1, close: 1, volume: 1, buy: 0.5 }, { start: T0 + MINUTE, open: 1, high: 1, low: 1, close: 1, volume: 1 }], 5 * MINUTE, true)[0]![7], undefined, 'a row without them: the candle has none');
+  // A taker figure that is no number from nothing to the volume is none, never a zero that would draw the bar all sold.
+  for (const bad of [null, '', false, 'x', '-1', '2']) {
+    const odd: Fetcher = async () => [[T0, '1', '1', '1', '1', '1', T0 + MINUTE - 1, '1', 1, bad, '1', '0']];
+    const [c] = await fetchCandles('binance:BTCUSDT', MINUTE, T0, T0 + 1, odd, undefined, 1, { buy: true });
+    assert.equal(c![7], undefined, `taker buys ${JSON.stringify(bad)}: none`);
+  }
 });
 
 test('a misbehaving endpoint that keeps returning the same page cannot loop', async () => {
