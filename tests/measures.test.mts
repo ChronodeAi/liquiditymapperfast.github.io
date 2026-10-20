@@ -10,13 +10,15 @@ import { readLayouts, settingsToApply } from '../src/app/layouts/layouts.ts';
 import { TRADED_DEFAULTS, readTraded } from '../src/app/traded/settings.ts';
 import { tradedHeader, tradedLines, tradedRows } from '../src/app/traded.ts';
 import { metricHeader, metricWords } from '../src/app/traded/metrics.ts';
-import { BAND_GAP, BAND_H, BUCKETS_MS, bandCaption, bucketAt, bucketFor, bucketMs, bucketSpan, eventRows, flowRows, minuteFlowAt, oiRows, oiSteps, stripBand, timeLevels, timeLines, timeText } from '../src/app/measures/model.ts';
+import { BAND_GAP, BAND_H, BUCKETS_MS, bandCaption, bucketAt, bucketFor, bucketMs, bucketSpan, eventRows, flowRows, minuteFlowAt, oiRows, oiSpread, stripBand, timeLevels, timeLines, timeText, type OiMarket } from '../src/app/measures/model.ts';
 import { TopProfile, topAbsorption, topShown, type BandHub, type TopPlace } from '../src/app/measures/strip.ts';
 import type { Liquidation } from '../src/app/liquidations.ts';
 import type { AbsorptionMark } from '../src/app/absorption.ts';
 import { PALETTES } from '../src/app/theme.ts';
 import { View } from '../src/app/view.ts';
 import { usd } from '../src/app/format.ts';
+import { paintBand } from '../src/app/measures/paint.ts';
+import { emphasisRamps } from '../src/app/traded/emphasis.ts';
 
 const SEC = 1000, MIN = 60_000, HOUR = 3_600_000;
 const T = Date.UTC(2026, 9, 19, 12);
@@ -26,7 +28,7 @@ const MARKETS = [{ instrumentId: 'binance:BTCUSDT', venue: 'binance', base: 'BTC
 /** The page's state as far as the band reads it: the Volume profile on, its profile along the top showing `metric`. */
 function stateOf(patch: Partial<AppState> = {}, metric: AppState['traded']['top']['metric'] = 'volume'): AppState {
   return { markets: MARKETS, marketId: 'binance:BTCUSDT', seriesInstrument: 'binance:BTCUSDT', disabledVenues: [], scope: 'all', levels: null, bookGone: {}, timeframe: '1m',
-    oi: [], oiParts: [], oiInstrument: '', oiPrice: 0, candles: [], hover: null, show: { volume: true, traded: true }, liquidations: { on: false, minUsd: 1_000, side: 'both', scale: 1, labels: true },
+    oi: [], oiParts: [], oiInstrument: '', oiPrice: 0, candles: [], hover: null, mark: { price: 100, asOf: 0 }, show: { volume: true, traded: true }, liquidations: { on: false, minUsd: 1_000, side: 'both', scale: 1, labels: true },
     traded: { ...TRADED_DEFAULTS, top: { on: true, metric } }, ...patch } as unknown as AppState;
 }
 
@@ -38,13 +40,13 @@ function bookOf(from: number, to: number): FlowBook {
 }
 
 /** A hub that holds `flow`, answers the liquidations and minute open interest given, holds the absorption marks given, and counts what it is asked. */
-function hubOf(flow: FlowBook, o: { liquidations?: Liquidation[]; marks?: AbsorptionMark[]; absorptionCut?: Map<string, number>; oi?: Record<string, OiBar[]> } = {}): BandHub & { asked: number; liquidationsAsked: [number, number][]; oiAsked: string[] } {
+function hubOf(flow: FlowBook, o: { liquidations?: Liquidation[]; marks?: AbsorptionMark[]; absorptionCut?: Map<string, number>; oi?: Record<string, OiBar[]>; floor?: number } = {}): BandHub & { asked: number; liquidationsAsked: [number, number][]; oiAsked: string[] } {
   const hub = {
     flow, asked: 0, liquidationsAsked: [] as [number, number][], oiAsked: [] as string[],
     ensureFlow: async (): Promise<void> => { hub.asked++; }, ensureFlowMinutes: async (): Promise<void> => { hub.asked++; },
     oiSeries: async (id: string, tf: string): Promise<{ bars: OiBar[] }> => { hub.oiAsked.push(`${id}|${tf}`); return { bars: o.oi?.[id] ?? [] }; },
     source: { liquidations: async (from: number, to: number): Promise<Liquidation[]> => { hub.liquidationsAsked.push([from, to]); return o.liquidations ?? []; } },
-    absorption: { marks: (): AbsorptionMark[] => o.marks ?? [], version: 1, cover: { from: T - HOUR, to: Infinity } },
+    absorption: { marks: (): AbsorptionMark[] => o.marks ?? [], version: 1, cover: { from: T - HOUR, to: Infinity }, floorIn: (): number | undefined => o.floor },
     absorptionCut: o.absorptionCut ?? new Map<string, number>(), absorptionState: 'ready' as const,
   };
   return hub;
@@ -127,40 +129,67 @@ test('traded volume: ten quiet minutes or more are not recorded, a short lull is
   assert.equal(minuteFlowAt([k], T), false, 'a track that is exact everywhere');
 });
 
-test('open interest: each venue\'s additions and removals are added up apart, in dollars, and never netted', () => {
-  const bars = (step: number, from: number): OiBar[] => Array.from({ length: 6 }, (_, i) => [T + i * 5 * MIN, from + i * step, from + i * step, from + i * step, from + i * step]);
-  const parts: OiPart[] = [{ id: 'binance:BTCUSDT', bars: bars(10, 1000) }, { id: 'bybit:BTCUSDT', bars: bars(-4, 500), usdAt: 25 }];
-  const steps = oiSteps(parts, MIN, () => 50);
-  assert.equal(steps.length, 10, 'one change for each reading after the first, of each venue');
-  const rows = oiRows(steps, T, T + 30 * MIN, 5 * MIN);
-  assert.equal(rows.buy[1], 500, 'Binance added 10 coins at $50');
-  assert.equal(rows.sell[1], 100, 'Bybit, an inverse market at its one price of $25, removed 4: said apart, not netted to +400');
-  assert.equal(rows.gaps[0], 'noHistory', 'before the first change the readings give');
-  const fine = oiRows(steps, T, T + 30 * MIN, MIN);
-  assert.equal(fine.gaps[5], null); assert.equal(fine.gaps[6], 'noReading', 'between readings five minutes apart: no reading, not a zero');
-  const words = metricWords('oi'), lines = timeLines(fine, 5, { metric: 'oi', spacingMs: 5 * MIN, levels: null, now: T + HOUR });
-  assert.ok(lines.some(l => l.label === words.buy && l.text === '$500') && lines.some(l => l.label === words.sell && l.text === '$100'));
-  assert.ok(lines.every(l => !/\bbuy|bought|sell|sold\b/i.test(l.label ?? '')), 'an increase is never called buying');
-  assert.ok(lines.some(l => /about every 5 min/.test(l.text)), 'a bucket finer than the readings says so');
-  assert.ok(timeLines(fine, 6, { metric: 'oi', spacingMs: 5 * MIN, levels: null, now: T + HOUR }).some(l => /No new reading/.test(l.text)));
-  assert.deepEqual(oiSteps([{ id: 'x', bars: bars(-3, 900) }], 5 * MIN, at => at === T + 5 * MIN ? 10 : undefined), [{ t: T + 5 * MIN, usd: -30 }], 'a change with no price is left out');
+/** A market's flow as the OI spread reads it: `perSecond` traded each second from before T, at 100 plus one a minute after T. */
+const flowTrack = (perSecond = 1, flat = false): { first: number; cumGross(sec: number): number; priceAt(sec: number): number } => ({
+  first: T / SEC - 3600, cumGross: sec => flat ? 0 : (sec - (T / SEC - 3600)) * perSecond, priceAt: sec => 100 + Math.floor((sec - T / SEC) / 60),
 });
 
-test('open interest along the top is read by the minute whatever the chart\'s timeframe, so an hour\'s ups and downs are both kept', async () => {
+test('open interest: the column\'s rule, each change spread over the minutes it came about in by their volume, valued at the prices that traded, never netted', () => {
+  const minute = (i: number, oi: number): OiBar => [T + i * MIN, oi, oi, oi, oi];
+  const markets: OiMarket[] = [
+    // Read every minute: +10 coins, an unchanged reading, then −10.
+    { id: 'binance:BTCUSDT', bars: [minute(0, 1000), minute(1, 1010), minute(2, 1010), minute(3, 1000)], track: flowTrack() },
+    // An inverse market read every five minutes: −4 at its one price of $25, spread evenly over the five minutes that traded the same.
+    { id: 'bybit:BTCUSD', bars: [minute(0, 500), minute(5, 496)], usdAt: 25, track: flowTrack() },
+  ];
+  const spread = oiSpread(markets, T, T + 10 * MIN, 77_000);
+  assert.equal(spread.unplaced, 0);
+  const rows = oiRows(spread.parts, spread.covered, T, T + 10 * MIN, MIN, spread.first);
+  assert.equal(rows.buy[1], 10 * 101, 'the change came about in the minute after its first reading, at the price traded then');
+  assert.equal(rows.sell[3], 10 * 103 + 20, 'a fall at that minute\'s price, beside the other market\'s share');
+  assert.equal(rows.sell[1], 20, 'an increase on one market and a decrease on another both show');
+  assert.deepEqual([rows.buy[2], rows.gaps[2]], [0, null], 'a reading that did not move is a zero, not a gap');
+  assert.equal(rows.gaps[0], 'noHistory', 'before the first reading');
+  assert.deepEqual(rows.gaps.slice(6), ['noReading', 'noReading', 'noReading', 'noReading'], 'after the last: no reading stands for these minutes');
+  const words = metricWords('oi'), lines = timeLines(rows, 1, { metric: 'oi', spacingMs: 5 * MIN, levels: null, now: T + HOUR });
+  assert.ok(lines.some(l => l.label === words.buy && l.text === `$${usd(1010)}`) && lines.every(l => !/\bbuy|bought|sell|sold\b/i.test(l.label ?? '')), 'never called buying');
+  assert.ok(lines.some(l => /spread over the minutes in between/.test(l.text)), 'how a change between readings five minutes apart is placed');
+  assert.ok(timeLines(rows, 7, { metric: 'oi', spacingMs: 5 * MIN, levels: null, now: T + HOUR }).some(l => /No open-interest reading/.test(l.text)));
+});
+
+test('open interest: a change across more than an hour, with nothing traded under it, or past the window is not placed, and the header says so', () => {
+  const minute = (i: number, oi: number): OiBar => [T + i * MIN, oi, oi, oi, oi];
+  const gap = oiSpread([{ id: 'binance:BTCUSDT', bars: [minute(0, 1000), minute(90, 1010)], track: flowTrack() }], T, T + 120 * MIN, 77_000);
+  assert.deepEqual(gap.parts, [], 'readings 90 minutes apart: the column\'s gap rule (an hour), not the pane\'s two-hour hold');
+  assert.equal(gap.unplaced, 10 * (100 + 119), 'valued at the market\'s last price, as the column values what it cannot place');
+  const rows = oiRows(gap.parts, gap.covered, T, T + 120 * MIN, 5 * MIN, gap.first);
+  assert.equal(rows.total, 0); assert.ok(rows.gaps.slice(1).every(g => g === 'noReading'), 'the gap is no reading, not growth');
+  const head = metricHeader('oi', rows, { cut: false, incomplete: false, unplaced: gap.unplaced });
+  assert.equal(head.warn, true); assert.match(head.sub, /not placed/);
+  const quiet = oiSpread([{ id: 'binance:BTCUSDT', bars: [minute(0, 1000), minute(1, 1010)], track: flowTrack(1, true) }], T, T + 10 * MIN, 77_000);
+  assert.deepEqual([quiet.parts.length, quiet.unplaced], [0, 10 * 109], 'nothing traded between the readings: not placed');
+  const edge = oiSpread([{ id: 'binance:BTCUSDT', bars: [minute(-3, 1000), minute(1, 1010)], track: flowTrack() }], T, T + 10 * MIN, 77_000);
+  assert.deepEqual([edge.parts.length, edge.unplaced], [0, 10 * 109], 'reaching back past the window\'s start: not placed');
+});
+
+test('open interest along the top is read by the minute whatever the chart\'s timeframe, and the chart\'s candles never price it', async () => {
   // Within one hour Binance adds 10 coins and takes 10 away: on an hourly chart the candle's change is zero; the minutes keep both.
   const minute = (i: number, oi: number): OiBar => [T + i * MIN, oi, oi, oi, oi];
   const oi = { 'binance:BTCUSDT': [minute(0, 100), minute(1, 110), minute(2, 100), minute(3, 100)] };
-  const hub = hubOf(bookOf(T - MIN, T + 10 * MIN), { oi }), top = new TopProfile(), state = stateOf({ timeframe: '1h', candles: [[T, 1, 1, 1, 50, 1]] }, 'oi');
-  let drawn = 0;
-  top.work(state, hub, { from: T, to: T + 10 * MIN }, 10 * MIN, 1200, T + 10 * MIN, noAbsorption, () => drawn++);
-  assert.deepEqual(hub.oiAsked, ['binance:BTCUSDT|1m', 'bybit:BTCUSDT|1m'], 'the columns\' perpetuals, by the minute, on an hourly chart');
-  await settle();
-  assert.equal(drawn, 1, 'the answer redraws the map');
-  const w = top.work(state, hub, { from: T, to: T + 10 * MIN }, 10 * MIN, 1200, T + 10 * MIN, noAbsorption)!;
-  assert.equal(w.rows.step, MIN, 'a minute at least: open interest is read no finer');
-  assert.equal(w.limit, 'data');
-  assert.deepEqual([w.rows.buy[1], w.rows.sell[2], w.rows.total], [500, 500, 1000], '+10 then −10 coins at $50: both, not zero');
-  assert.equal(w.rows.gaps[0], 'noHistory'); assert.equal(w.rows.gaps[5], 'noReading', 'after the last reading: none');
+  const totals: number[] = [];
+  for (const close of [50, 999]) {
+    const hub = hubOf(bookOf(T - HOUR, T + 10 * MIN), { oi }), top = new TopProfile(), state = stateOf({ timeframe: '1h', candles: [[T, 1, 1, 1, close, 1]] }, 'oi');
+    let drawn = 0;
+    top.work(state, hub, { from: T, to: T + 10 * MIN }, 10 * MIN, 1200, T + 10 * MIN, noAbsorption, () => drawn++);
+    assert.deepEqual(hub.oiAsked, ['binance:BTCUSDT|1m', 'bybit:BTCUSDT|1m'], 'the columns\' perpetuals, by the minute, on an hourly chart');
+    await settle();
+    assert.equal(drawn, 1, 'the answer redraws the map');
+    const w = top.work(state, hub, { from: T, to: T + 10 * MIN }, 10 * MIN, 1200, T + 10 * MIN, noAbsorption)!;
+    assert.deepEqual([w.rows.step, w.limit], [MIN, 'data'], 'a minute at least: open interest is read no finer');
+    assert.deepEqual([w.rows.buy[1], w.rows.sell[2]], [1000, 1000], '+10 then −10 coins at the $100 that traded: both, not zero');
+    totals.push(w.rows.total);
+  }
+  assert.equal(totals[0], totals[1], 'the same readings and trades give the same dollars whatever the candles\' closes');
 });
 
 test('liquidations and absorption: the column\'s markets and thresholds, their two sides in its places, partial when the record is cut', async () => {
@@ -199,6 +228,67 @@ test('liquidations and absorption: the column\'s markets and thresholds, their t
   assert.equal(held.total, 0, 'an event outside what is held is not counted');
   assert.ok(timeLines(held, 0, { metric: 'liquidations', spacingMs: 0, levels: null, now: T + HOUR }).some(l => /Nothing is held/.test(l.text)));
   assert.ok(timeLines(held, 1, { metric: 'liquidations', spacingMs: 0, levels: null, now: T + HOUR }).some(l => /No liquidation reported in this stretch/.test(l.text)), 'held and empty: nothing reported');
+});
+
+test('absorption: a busy minute that left out a marked group makes the band say "some minutes in part", by the column\'s rule', () => {
+  const mark = (t: number, usd: number): AbsorptionMark => ({ id: 'binance:BTCUSDT', side: 'sell', price: 1, t0: t, t1: t, usd, fills: 1, peak: usd, threshold: 100_000 });
+  const abs = (): { thresholds: Map<string, number | null> } => ({ thresholds: new Map<string, number | null>([['binance:BTCUSDT', 100_000]]) });
+  const flagsAt = (floor: number | undefined): { incomplete: boolean; sub: string; warn: boolean } => {
+    const hub = hubOf(bookOf(T - MIN, T + 10 * MIN), { marks: [mark(T + MIN, 300_000)], floor });
+    const w = new TopProfile().work(stateOf({}, 'absorption'), hub, { from: T, to: T + 10 * MIN }, 10 * MIN, 300, T + 10 * MIN, abs)!;
+    const head = metricHeader('absorption', w.rows, w.flags);
+    return { incomplete: w.flags.incomplete, sub: head.sub, warn: head.warn };
+  };
+  assert.deepEqual(flagsAt(200_000), { incomplete: true, sub: 'some minutes in part', warn: true }, 'a $200K floor over a $100K threshold: a mark may have been left out');
+  assert.equal(flagsAt(100_000).incomplete, false, 'a floor at the threshold with fewer groups than a minute keeps: complete');
+  assert.equal(flagsAt(50_000).incomplete, false, 'under the threshold: nothing marked was left out');
+  assert.equal(flagsAt(undefined).incomplete, false, 'no floors held');
+});
+
+/** A canvas that writes down what is drawn on it: each call with its arguments, and the style and alpha it was made with. */
+function recorder(): { ctx: CanvasRenderingContext2D; calls: { name: string; args: unknown[]; fill: unknown; stroke: unknown; alpha: unknown; dash: unknown }[] } {
+  const calls: { name: string; args: unknown[]; fill: unknown; stroke: unknown; alpha: unknown; dash: unknown }[] = [];
+  const state: Record<string, unknown> = { globalAlpha: 1, fillStyle: '#000', strokeStyle: '#000' };
+  let dash: number[] = [];
+  const ctx = new Proxy(state, {
+    get: (target, key: string) => key in target ? target[key] : key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+      : (...args: unknown[]) => { if (key === 'setLineDash') dash = args[0] as number[]; calls.push({ name: key, args, fill: target.fillStyle, stroke: target.strokeStyle, alpha: target.globalAlpha, dash }); },
+    set: (target, key: string, value) => { target[key] = value; return true; },
+  }) as unknown as CanvasRenderingContext2D;
+  return { ctx, calls };
+}
+
+test('a stretch with no data is drawn as such: a dotted line where its bar would hang, never the blank of a reading that did not move', () => {
+  const p = PALETTES.light!, band = { top: 50, height: 96 }, frame = { view: new View({ t0: T, t1: T + 10 * MIN, p0: 1, p1: 2 }), pw: 1000, ph: 600, palette: p };
+  const draw = { bars: 'split' as const, emphasis: true, levels: null, head: 'OI', sub: '', warn: false, net: null, caption: '', hovered: -1, now: T + HOUR };
+  const dotted = (rows: ReturnType<typeof oiRows>): number[][] => {
+    const { ctx, calls } = recorder();
+    paintBand(ctx, rows, band, frame, draw);
+    return calls.filter(c => (c.name === 'moveTo' || c.name === 'lineTo') && c.args[1] === band.top + 2.5 && JSON.stringify(c.dash) === '[1,3]').map(c => c.args as number[]);
+  };
+  // Five-minute readings: minute 1 holds the change; with the gap rule broken at 3 minutes the minutes after have no reading.
+  const minute = (i: number, oi: number): OiBar => [T + i * MIN, oi, oi, oi, oi];
+  const gaps = oiSpread([{ id: 'binance:BTCUSDT', bars: [minute(0, 1000), minute(1, 1010), minute(70, 1010)], track: flowTrack() }], T, T + 10 * MIN);
+  const holes = dotted(oiRows(gaps.parts, gaps.covered, T, T + 10 * MIN, MIN, gaps.first));
+  assert.deepEqual(holes, [[0, 52.5], [100, 52.5], [200, 52.5], [1000, 52.5]], 'minute 0 (before the readings) and minutes 2 to 9 (none stands for them), one dotted run each');
+  // The same change, then readings that did not move: zeros, recorded, with no line.
+  const flat = oiSpread([{ id: 'binance:BTCUSDT', bars: [minute(0, 1000), minute(1, 1010), ...Array.from({ length: 9 }, (_, i) => minute(i + 2, 1010))], track: flowTrack() }], T, T + 10 * MIN);
+  assert.deepEqual(dotted(oiRows(flat.parts, flat.covered, T, T + 10 * MIN, MIN, flat.first)), [[0, 52.5], [100, 52.5]], 'only the minute before the first reading');
+});
+
+test('split bars are drawn at the shared alphas, 0.85 for the stronger side and 0.35 for the weaker at full one-sidedness, in every painter', () => {
+  const p = PALETTES.light!, band = { top: 50, height: 96 }, frame = { view: new View({ t0: T, t1: T + 10 * MIN, p0: 1, p1: 2 }), pw: 1000, ph: 600, palette: p };
+  const rows = eventRows([{ t: T + 5 * SEC, side: 0, usd: 50e6 }, { t: T + 6 * SEC, side: 1, usd: 1e6 }], T, T + 10 * MIN, MIN, { from: -Infinity, to: Infinity });
+  const { ctx, calls } = recorder();
+  paintBand(ctx, rows, band, frame, { bars: 'split', emphasis: true, levels: null, head: '', sub: '', warn: false, net: null, caption: '', hovered: -1, now: T + HOUR });
+  const bars = calls.filter(c => c.name === 'fillRect' && (c.args[1] as number) >= band.top + 1 && (c.args[1] as number) < band.top + band.height);
+  const strong = bars.find(c => c.fill === emphasisRamps(p).bid[255]), weak = bars.find(c => c.fill === p.ask);
+  assert.ok(strong && Math.abs((strong.alpha as number) - 0.85) < 1e-9, `the stronger side at 0.85 (${strong?.alpha})`);
+  assert.ok(weak && Math.abs((weak.alpha as number) - 0.35) < 1e-9, `the weaker side at 0.35 (${weak?.alpha})`);
+  // The map's own painters (the columns, the profiles on the chart) call the shared function with its own alpha, never one of their own.
+  const source = fs.readFileSync(path.join(process.cwd(), 'src', 'app', 'panes', 'heat-pane.ts'), 'utf8'), uses = [...source.matchAll(/splitStyles\(([^()]*)\)/g)];
+  assert.equal(uses.length, 2, 'the columns and the profiles on the chart');
+  for (const use of uses) assert.equal(use[1]!.split(',').length, 6, `no alpha of its own: splitStyles(${use[1]})`);
 });
 
 test('the point of control is the busiest bucket and the value area the run around it holding the share, read as the column reads prices', () => {

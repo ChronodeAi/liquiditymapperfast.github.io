@@ -1,5 +1,5 @@
 import { UNRECORDED_MS, type DeltaTrack } from '../delta/candles.ts';
-import { heldOiAt, type OiPart } from '../oi-change.ts';
+import { OI_GAP_MS, oiIntervals } from '../../shared/oi-profile.ts';
 import type { OiBar } from '../store.ts';
 import type { InfoLine } from '../infobox.ts';
 import { rowBody, type ColumnWords, type TradedRows } from '../traded.ts';
@@ -133,39 +133,67 @@ export function minuteFlowAt(tracks: readonly DeltaTrack[], from: number): boole
   return tracks.some(k => k.first !== null && k.settled !== undefined && k.settled(s) !== s);
 }
 
-/** One reading-to-reading change of one market's open interest in USD, at the bar it lands in. */
+/** A part of one market's change of open interest in USD, in the minute it is put in. */
 export interface OiStep { t: number; usd: number }
 
 /**
- * Each market's own changes of open interest in USD, one for each of its readings (its bars of `tfMs`, a minute for the profile along the
- * top, so a candle's ups and downs are not netted into one change): the change from the reading before, as `sumOi` counts it (a reading held
- * until its next within two hours, or for `carryMs` after its newest), at the price then (`priceAt`) or, for an inverse market, the one
- * price its coins were put at (`usdAt`). Kept apart by market, so a bucket where one venue added and another removed says both.
+ * One perpetual's open interest by the minute and what its changes are put in dollars with: an inverse market's own USD (its coins were put
+ * at one price, `usdAt`, so a change times it is its change in USD), else its coins at the prices that traded on it (`track`, its flow).
  */
-export function oiSteps(parts: readonly OiPart[], tfMs: number, priceAt: (t: number) => number | undefined): OiStep[] {
-  const out: OiStep[] = [];
-  const carryMs = Math.max(2 * tfMs, 10 * MINUTE);
-  for (const part of parts) {
-    const sorted = [...part.bars].sort((a, b) => a[0] - b[0]);
-    for (const bar of sorted) {
-      const before = heldOiAt(sorted, bar[0] - tfMs, carryMs);
-      if (!before) continue;
-      const price = part.usdAt !== undefined && part.usdAt > 0 ? part.usdAt : priceAt(bar[0]);
-      if (price !== undefined) out.push({ t: bar[0], usd: (bar[4] - before[4]) * price });
-    }
-  }
-  return out;
+export interface OiMarket {
+  id: string; bars: readonly OiBar[]; usdAt?: number;
+  track?: { readonly first: number | null; cumGross(sec: number): number; priceAt(sec: number): number };
 }
 
 /**
- * Open interest by time: in each bucket the changes that added to it (bid colour) and those that took from it (ask colour), added up apart,
- * never netted, and never called buying or selling. A bucket with no reading in it has no data; one before the first change held, no history.
+ * Each market's changes of open interest spread over time as the column spreads them over prices (shared/oi-profile.ts): the changes between
+ * consecutive readings that lie wholly inside [from, to) and span no gap of more than `OI_GAP_MS` (`oiIntervals`, the column's rule), each
+ * over the minutes it came about in by their share of the market's traded volume, each part in coins valued at the price that traded on the
+ * market in its minute (its last), or an inverse market's USD as it is. So the chart's candles never price it, and switching the timeframe
+ * changes nothing. A change with nothing traded on its market between its readings, across a gap, or reaching past the window is not
+ * placed: `unplaced` (USD, signed; coins at `price`, the market's last, or the page's mark), which the header says as the column's does.
+ * `covered` are the minutes readings no further apart than the gap rule stand for, a change or none: outside them a bucket has no reading;
+ * `first`, when the first reading held stands (before it, no history).
  */
-export function oiRows(steps: readonly OiStep[], from: number, to: number, step: number): TimeRows {
+export function oiSpread(markets: readonly OiMarket[], from: number, to: number, mark = 0): { parts: OiStep[]; covered: [number, number][]; unplaced: number; first: number } {
+  const parts: OiStep[] = [], covered: [number, number][] = [];
+  let unplaced = 0, first = Infinity;
+  for (const m of markets) {
+    const bars = [...m.bars].sort((a, b) => a[0] - b[0]), k = m.track, inverse = m.usdAt !== undefined && m.usdAt > 0;
+    if (bars.length) first = Math.min(first, bars[0]![0] + MINUTE);
+    for (let i = 1; i < bars.length; i++) if (bars[i]![0] - bars[i - 1]![0] <= OI_GAP_MS) covered.push([bars[i - 1]![0] + MINUTE, bars[i]![0] + MINUTE]);
+    const last = k ? k.priceAt(Math.floor(to / 1000) - 1) : NaN, price = inverse ? m.usdAt! : Number.isFinite(last) && last > 0 ? last : mark;
+    const { intervals, skipped } = oiIntervals(bars, from, to);
+    unplaced += skipped * price;
+    for (const iv of intervals) {
+      // The market's volume in each minute of the interval: where the change is put, and how much of it.
+      const minutes: [number, number][] = [];
+      let total = 0;
+      for (let t = iv.from; t < iv.to; t += MINUTE) {
+        const s = t / 1000, g = k && k.first !== null && k.first <= s - 1 ? k.cumGross(s + 59) - k.cumGross(s - 1) : 0;
+        if (g > 0) { minutes.push([t, g]); total += g; }
+      }
+      if (!(total > 0)) { unplaced += iv.amount * price; continue; }
+      for (const [t, g] of minutes) {
+        const at = inverse ? m.usdAt! : k!.priceAt(t / 1000 + 59);
+        parts.push({ t, usd: iv.amount * g / total * (Number.isFinite(at) && at > 0 ? at : price) });
+      }
+    }
+  }
+  return { parts, covered, unplaced, first };
+}
+
+/**
+ * Open interest by time: in each bucket the parts that added to it (bid colour) and those that took from it (ask colour), added up apart,
+ * never netted, and never called buying or selling. A bucket no reading stands for has no data (`covered`); one before the first, no history.
+ */
+export function oiRows(steps: readonly OiStep[], covered: readonly [number, number][], from: number, to: number, step: number, first = Infinity): TimeRows {
   const rows = emptyRows(from, to, step, 'noReading');
-  let first = Infinity;
+  for (const [a, b] of covered) {
+    if (b <= from || a >= to) continue;
+    for (let i = Math.max(0, Math.floor(Math.max(a, from) / step) - rows.bin0), end = Math.min(rows.gaps.length - 1, Math.floor((Math.min(b, to) - 1) / step) - rows.bin0); i <= end; i++) rows.gaps[i] = null;
+  }
   for (const s of steps) {
-    if (s.t < first) first = s.t;
     if (s.t < from || s.t >= to || !Number.isFinite(s.usd)) continue;
     const i = Math.floor(s.t / step) - rows.bin0;
     rows.gaps[i] = null;
@@ -236,11 +264,11 @@ export function timeWords(metric: ProfileMetric): ColumnWords {
 const minutes = (ms: number): number => Math.max(1, Math.round(ms / MINUTE));
 
 /** Why a bucket has no data, in words. */
-export function gapText(gap: TimeGap, spacingMs: number, step: number): string {
+export function gapText(gap: TimeGap): string {
   switch (gap) {
     case 'notRecorded': return t('No flow is recorded for this stretch.');
     case 'quietGap': return t('No trade on any of the markets for ten minutes or more: taken as not recorded, not as zero.');
-    case 'noReading': return spacingMs > step ? t('No new reading in this stretch: open interest is read about every {n} min here.', { n: minutes(spacingMs) }) : t('No open-interest reading in this stretch.');
+    case 'noReading': return t('No open-interest reading in this stretch.');
     case 'noHistory': return t('The open-interest readings held do not reach this far back.');
     default: return t('Nothing is held for this stretch yet.');
   }
@@ -257,10 +285,10 @@ export function timeLines(rows: TimeRows, i: number, c: TimeBoxContext): InfoLin
   const [a, b] = bucketSpan(rows, i), gap = rows.gaps[i];
   const open = (rows.bin0 + i + 1) * rows.step > c.now;
   const lines: InfoLine[] = [{ text: `${timeText(a, rows.step, c.now)} – ${timeText(b, rows.step, c.now)}${open ? ` · ${t('under way')}` : ''}`, bold: true }];
-  if (gap) { lines.push({ text: gapText(gap, c.spacingMs, rows.step), color: 'muted', wrap: true }); return lines; }
+  if (gap) { lines.push({ text: gapText(gap), color: 'muted', wrap: true }); return lines; }
   const l = c.levels, where = !l ? null : i === l.poc ? t('Point of control') : i >= l.lo && i <= l.hi ? t('In the value area') : i < l.lo ? t('Before the value area') : t('After the value area');
   lines.push(...rowBody(rows, i, timeWords(c.metric), where));
-  if (c.metric === 'oi' && c.spacingMs > rows.step) lines.push({ text: t('Open interest is read about every {n} min here, so most stretches this short have no reading.', { n: minutes(c.spacingMs) }), color: 'muted', wrap: true });
+  if (c.metric === 'oi' && c.spacingMs > MINUTE) lines.push({ text: t('Open interest is read about every {n} min here: a change between readings is spread over the minutes in between by their volume, as the column spreads it over prices.', { n: minutes(c.spacingMs) }), color: 'muted', wrap: true });
   return lines;
 }
 

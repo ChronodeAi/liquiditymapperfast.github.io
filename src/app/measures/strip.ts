@@ -1,5 +1,5 @@
 import { askedSpan } from '../hub.ts';
-import type { AppState, CandleRow, OiBar } from '../store.ts';
+import type { AppState, OiBar } from '../store.ts';
 import type { InfoLine } from '../infobox.ts';
 import type { Liquidation } from '../liquidations.ts';
 import type { AbsorptionMark } from '../absorption.ts';
@@ -10,12 +10,12 @@ import { tradedHeader, tradedNet, tradedNetLine } from '../traded.ts';
 import { metricHeader, type MetricFlags, type ProfileMetric } from '../traded/metrics.ts';
 import { oiInstrument } from '../../shared/oi-profile.ts';
 import { MAX_PROFILE_INSTRUMENTS } from '../../shared/footprint.ts';
-import { MAX_ABSORPTION_INSTRUMENTS } from '../../shared/absorption.ts';
+import { AbsorptionProfile, MAX_ABSORPTION_INSTRUMENTS } from '../../shared/absorption.ts';
 import { LIQUIDATIONS_PER_ANSWER } from '../../shared/liquidations.ts';
 import { clock, startOfDay } from '../format.ts';
 import { t } from '../i18n.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
-import { bandCaption, bucketAt, bucketFor, eventRows, flowRows, minuteFlowAt, oiRows, oiSteps, readingSpacing, stripBand, timeLevels, timeLines, type BucketLimit, type TimeEvent, type TimeLevels, type TimeRows } from './model.ts';
+import { bandCaption, bucketAt, bucketFor, eventRows, flowRows, minuteFlowAt, oiRows, oiSpread, readingSpacing, stripBand, timeLevels, timeLines, type BucketLimit, type TimeEvent, type TimeLevels, type TimeRows } from './model.ts';
 import { paintBand, type BandFrame } from './paint.ts';
 
 /**
@@ -28,6 +28,7 @@ export interface BandHub extends FlowLoader {
   readonly absorption: {
     marks(ids: readonly string[], thresholds: ReadonlyMap<string, number | null>, t0: number, t1: number, p0: number, p1: number): AbsorptionMark[];
     readonly version: number; readonly cover: { readonly from: number; readonly to: number } | null;
+    floorIn(id: string, from: number, to: number): number | undefined;
   };
   readonly absorptionCut: ReadonlyMap<string, number>;
   readonly absorptionState: 'ready' | 'unavailable' | 'failed';
@@ -180,16 +181,20 @@ export class TopProfile {
       return done(key, [], flowRows(tracks, from, to, step, now), limit);
     }
     if (metric === 'oi') {
-      // The column's perpetuals, read by the minute from ten minutes before the window, so its first reading has one before it.
-      const oiIds = ids.filter(oiInstrument).slice(0, MAX_PROFILE_INSTRUMENTS), base = oiIds.join(','), askFrom = Math.floor((from - 10 * MINUTE) / MINUTE) * MINUTE, askTo = Math.ceil(to / MINUTE) * MINUTE + MINUTE;
+      // The column's perpetuals, read by the minute from ten minutes before the window, so its first reading has one before it; and their
+      // flow, whose volume places each change in time and whose prices value it, as the column's footprint does by price.
+      const { from: of, to: ot } = askedSpan(win.from, win.to);
+      const oiIds = ids.filter(oiInstrument).slice(0, MAX_PROFILE_INSTRUMENTS), base = oiIds.join(','), askFrom = Math.floor((of - 10 * MINUTE) / MINUTE) * MINUTE, askTo = Math.ceil(ot / MINUTE) * MINUTE + MINUTE;
       this.#oi.ensure(base, askFrom, askTo, live, async () => ({ ids: base, parts: (await Promise.all(oiIds.map(async id => ({ id, ...await hub.oiSeries(id, '1m', askFrom, askTo).catch(() => ({ bars: [] as OiBar[] })) })))).filter(p => p.bars.length) }), loaded);
       const { step, limit } = bucketFor(span, pw, MINUTE);
-      const key = `o|${step}|${from}|${second}|${this.#oi.version}`, refs = [state.candles];
-      if (this.#worked?.key === key && this.#worked.refs.every((r, i) => r === refs[i])) return this.#worked;
+      const key = `o|${step}|${of}|${ot}|${second}|${this.#oi.version}|${hub.flow.loads}`;
+      if (this.#worked?.key === key) return this.#worked;
+      ensureDeltaFlow(hub, flowLoadIds(state, hub.flow.ids), of, Date.now());
       // Replay: only the minutes that had ended by its moment.
       const held = this.#oi.held, parts = (held?.parts ?? []).map(p => ({ ...p, bars: replaying() ? p.bars.filter(b => b[0] + MINUTE <= now) : p.bars }));
-      const steps = oiSteps(parts, MINUTE, priceOf(state.candles));
-      return done(key, refs, oiRows(steps, from, to, step), limit, { spacingMs: readingSpacing(parts.map(p => p.bars)) });
+      const spread = oiSpread(parts.map(p => ({ ...p, track: hub.flow.track(p.id) })), of, ot, state.mark.price);
+      return done(key, [], oiRows(spread.parts, spread.covered, of, ot, step, spread.first), limit,
+        { spacingMs: readingSpacing(parts.map(p => p.bars)), flags: { cut: false, incomplete: false, unplaced: spread.unplaced }, since: of > win.from + MINUTE ? of : null });
     }
     const { step, limit } = bucketFor(span, pw);
     if (metric === 'liquidations') {
@@ -210,9 +215,16 @@ export class TopProfile {
     const key = `a|${step}|${from}|${second}|${judged.join(',')}|${book.version}|${hub.absorptionState}`, refs = [thresholds];
     if (this.#worked?.key === key && this.#worked.refs.every((r, i) => r === refs[i])) return this.#worked;
     // Market sells resting buyers took first (bid colour), then market buys resting sellers took (ask colour).
-    const events = book.marks(judged, thresholds, from, to, -Infinity, Infinity).map((m): TimeEvent => ({ t: m.t0, side: m.side === 'sell' ? 0 : 1, usd: m.usd }));
+    const marks = book.marks(judged, thresholds, from, to, -Infinity, Infinity).filter(m => m.t0 >= from && m.t0 < to);
+    const events = marks.map((m): TimeEvent => ({ t: m.t0, side: m.side === 'sell' ? 0 : 1, usd: m.usd }));
     const cut = judged.some(id => { const least = hub.absorptionCut.get(id), threshold = thresholds.get(id); return least !== undefined && threshold !== null && threshold !== undefined && least >= threshold; });
-    return done(key, refs, eventRows(events, from, to, step, book.cover), limit, { flags: { cut, incomplete: false }, unavailable: hub.absorptionState === 'unavailable' });
+    // Where a busy minute kept only its largest groups and left out one that was a mark: judged from the minutes' floors by the column's own
+    // rule (`AbsorptionProfile`), so the band says "some minutes in part" when the column does.
+    const judge = new AbsorptionProfile(new Map(judged.map(id => [id, thresholds.get(id) ?? null])), from, to, 1);
+    for (const m of marks) judge.marked(m.id, m.side, m.price, m.t0, m.usd);
+    for (const id of judged) { const floor = book.floorIn(id, from, to); if (floor !== undefined) judge.floor(id, null, floor); }
+    const incomplete = judge.answer().incomplete.length > 0;
+    return done(key, refs, eventRows(events, from, to, step, book.cover), limit, { flags: { cut, incomplete }, unavailable: hub.absorptionState === 'unavailable' });
   }
 
   /** The columns' markets (`flowIds`), worked out again only when what they depend on changes (as the footprint's markets are). */
@@ -221,22 +233,4 @@ export class TopProfile {
     if (!this.#ids || this.#ids.key.some((k, i) => k !== key[i])) this.#ids = { key, ids: flowIds(state, hub.flow.ids) };
     return this.#ids.ids;
   }
-}
-
-const prices = new WeakMap<readonly CandleRow[], (t: number) => number | undefined>();
-/**
- * The price a change of open interest at `t` is put in dollars at: the close of the chart's candle holding it, or of the nearest candle where
- * none does (the OI pane puts its changes at its candles' closes too). None without candles.
- */
-function priceOf(candles: readonly CandleRow[]): (t: number) => number | undefined {
-  let f = prices.get(candles);
-  if (f) return f;
-  f = (at: number): number | undefined => {
-    if (!candles.length) return undefined;
-    let lo = 0, hi = candles.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (candles[mid]![0] <= at) lo = mid + 1; else hi = mid; }
-    return candles[Math.max(0, lo - 1)]![4];
-  };
-  prices.set(candles, f);
-  return f;
 }

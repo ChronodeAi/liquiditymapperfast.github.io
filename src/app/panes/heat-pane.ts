@@ -1535,7 +1535,7 @@ export class HeatPane {
         ctx.globalAlpha = 0.75;
         if (fromCandles) { ctx.fillStyle = p.poc; ctx.fillRect(x0, y0, len, hgt); continue; }
         // The stronger side brighter and the weaker dimmer, against the busiest row of the window, as in the columns.
-        const buyLen = len * a / (a + b), [first, second] = splitStyles(a, b, max, floor, p, on, 0.75);
+        const buyLen = len * a / (a + b), [first, second] = splitStyles(a, b, max, floor, p, on);
         if (a > 0) { ctx.globalAlpha = first.alpha; ctx.fillStyle = first.color; ctx.fillRect(x0, y0, buyLen, hgt); }
         if (b > 0) { ctx.globalAlpha = second.alpha; ctx.fillStyle = second.color; ctx.fillRect(x0 + buyLen, y0, len - buyLen, hgt); }
       }

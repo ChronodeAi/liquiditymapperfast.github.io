@@ -1493,12 +1493,10 @@
  "No liquidation reported in this stretch.": "У цьому відрізку ліквідацій не повідомлялося.",
  "Nothing traded in this stretch.": "У цьому відрізку нічого не торгувалося.",
  "No flow is recorded for this stretch.": "Для цього відрізка потік не записано.",
- "No new reading in this stretch: open interest is read about every {n} min here.": "У цьому відрізку немає нового зчитування: тут відкритий інтерес зчитують приблизно кожні {n} хв.",
  "No open-interest reading in this stretch.": "У цьому відрізку немає зчитування відкритого інтересу.",
  "Nothing is held for this stretch yet.": "Для цього відрізка ще нічого немає.",
  "Before the value area": "До зони вартості",
  "After the value area": "Після зони вартості",
- "Open interest is read about every {n} min here, so most stretches this short have no reading.": "Тут відкритий інтерес зчитують приблизно кожні {n} хв, тож більшість таких коротких відрізків не має зчитування.",
  "Bars of {size}, the finest there are": "Смуги по {size}, найдрібніші",
  "Bars of {size}, the finest open interest is read at": "Смуги по {size}, так часто, як зчитують відкритий інтерес",
  "Bars of {size}, the finest the flow is held at here": "Смуги по {size}, так докладно, як тут зберігається потік",
@@ -1506,7 +1504,6 @@
  "VA start": "Початок VA",
  "VA end": "Кінець VA",
  "Bought and sold at market in each stretch, on the columns' markets: to the second for the last day the page holds, to the minute before it, where a bar is a minute at least. Ten minutes or more with no trade on any of them counts as not recorded.": "Куплено й продано за ринком у кожному відрізку, на ринках колонок: посекундно за останній день, який зберігає сторінка, похвилинно до нього, де смуга — щонайменше хвилина. Десять хвилин і більше без угод на жодному з них вважаються незаписаними.",
- "Where open interest grew (bid colour) and where it shrank (ask colour) in each stretch, each perpetual on its own, in dollars, from its readings by the minute whatever the chart's timeframe: a bar is a minute at least, and a venue read every five minutes leaves the minutes between empty. It never says who bought or sold.": "Де відкритий інтерес у кожному відрізку зростав (колір бідів) і де скорочувався (колір асків), для кожного безстрокового контракту окремо, у доларах, за його похвилинними зчитуваннями, яким би не був таймфрейм графіка: смуга — щонайменше хвилина, а в біржі, яку зчитують раз на п'ять хвилин, хвилини між зчитуваннями порожні. Він ніколи не каже, хто купував чи продавав.",
  "The absorption marks at the threshold the Absorption settings judge them at, on the column's markets: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). They are loaded for the time on the chart while this shows, marks on or off.": "Позначки поглинання за порогом, за яким їх оцінюють налаштування «Поглинання», на ринках колонки: ринкові продажі, які поглинули покупці в стакані (колір бідів), і ринкові купівлі, які поглинули продавці в стакані (колір асків). Поки це показано, їх завантажують за час графіка, з позначками чи без.",
  "Liquidations as the column adds them up, every size the record keeps: shorts liquidated (bid colour) and longs liquidated (ask colour). Where the time on the chart holds more than 5,000, only the largest are counted, and the header says so.": "Ліквідації так, як їх підсумовує колонка, будь-якого розміру, що його зберігає запис: ліквідовані шорти (колір бідів) і ліквідовані лонги (колір асків). Якщо за час графіка їх понад 5000, враховують лише найбільші, і заголовок про це каже.",
  "Time profile (along the top)": "Профіль за часом (згори)",
@@ -1523,5 +1520,7 @@
  "Emphasise the bigger side": "Виділяти більшу сторону",
  "In each row and each stretch the bigger side is drawn stronger and the smaller one fainter, the more one-sided the more; thin rows stay even. It shows what happened, not what comes next.": "У кожному рядку й кожному відрізку більша сторона малюється насиченіше, а менша блідіше, тим сильніше, чим нерівніше; тонкі рядки лишаються рівними. Це показує, що було, а не що буде.",
  "Delta bars draw only the difference of the two sides, which already says which was the bigger: this applies to split bars.": "Смуги «Дельта» малюють лише різницю двох сторін, яка вже каже, яка була більшою: це стосується розділених смуг.",
- "Length: how much. Strength of colour: how one-sided.": "Довжина: скільки. Насиченість кольору: наскільки однобічно."
+ "Length: how much. Strength of colour: how one-sided.": "Довжина: скільки. Насиченість кольору: наскільки однобічно.",
+ "Open interest is read about every {n} min here: a change between readings is spread over the minutes in between by their volume, as the column spreads it over prices.": "Тут відкритий інтерес зчитують приблизно кожні {n} хв: зміну між зчитуваннями розподіляють між хвилинами між ними за їхнім обсягом, як колонка розподіляє її за цінами.",
+ "Where open interest grew (bid colour) and where it shrank (ask colour) in each stretch, each perpetual on its own, from its readings by the minute whatever the chart's timeframe: each change spread over the minutes it came about in by their volume and valued at the prices that traded, as the column does by price. A change across more than an hour, or with nothing traded under it, is not placed, and the header says how much. It never says who bought or sold.": "Де відкритий інтерес у кожному відрізку зростав (колір бідів) і де скорочувався (колір асків), для кожного безстрокового контракту окремо, за його похвилинними зчитуваннями, яким би не був таймфрейм графіка: кожну зміну розподілено між хвилинами, у які вона сталася, за їхнім обсягом і оцінено за цінами угод, як колонка робить це за ціною. Зміну понад годину або без угод під нею не розміщують, і заголовок каже, скільки. Він ніколи не каже, хто купував чи продавав."
 }

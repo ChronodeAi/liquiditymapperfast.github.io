@@ -1420,12 +1420,10 @@
  "No liquidation reported in this stretch.": "此时段内没有强平报告。",
  "Nothing traded in this stretch.": "此时段内没有成交。",
  "No flow is recorded for this stretch.": "此时段没有记录资金流。",
- "No new reading in this stretch: open interest is read about every {n} min here.": "此时段没有新的读数：这里持仓量约每 {n} 分钟读取一次。",
  "No open-interest reading in this stretch.": "此时段没有持仓量读数。",
  "Nothing is held for this stretch yet.": "此时段暂无数据。",
  "Before the value area": "价值区域之前",
  "After the value area": "价值区域之后",
- "Open interest is read about every {n} min here, so most stretches this short have no reading.": "这里持仓量约每 {n} 分钟读取一次，因此这么短的时间段大多没有读数。",
  "Bars of {size}, the finest there are": "每根柱条 {size}，已是最细",
  "Bars of {size}, the finest open interest is read at": "每根柱条 {size}，即持仓量读取的最细间隔",
  "Bars of {size}, the finest the flow is held at here": "每根柱条 {size}，即此处资金流保存的最细间隔",
@@ -1433,7 +1431,6 @@
  "VA start": "VA 起点",
  "VA end": "VA 终点",
  "Bought and sold at market in each stretch, on the columns' markets: to the second for the last day the page holds, to the minute before it, where a bar is a minute at least. Ten minutes or more with no trade on any of them counts as not recorded.": "各时间段以市价买入和卖出的量，使用与列相同的市场：页面保存的最近一天精确到秒，更早的精确到分钟，那里每根柱条至少一分钟。所有市场都没有成交持续十分钟或更久，视为未记录。",
- "Where open interest grew (bid colour) and where it shrank (ask colour) in each stretch, each perpetual on its own, in dollars, from its readings by the minute whatever the chart's timeframe: a bar is a minute at least, and a venue read every five minutes leaves the minutes between empty. It never says who bought or sold.": "各时间段持仓量增加（买方颜色）和减少（卖方颜色）的部分，每个永续合约单独计算，以美元计，无论图表周期如何都按分钟读数计算：每根柱条至少一分钟，每五分钟读取一次的交易所，中间的分钟为空。它从不说明是谁买入或卖出。",
  "The absorption marks at the threshold the Absorption settings judge them at, on the column's markets: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). They are loaded for the time on the chart while this shows, marks on or off.": "按“吸收”设置所用阈值判定的吸收标记，使用与列相同的市场：挂单买方吸收的市价卖出（买方颜色）和挂单卖方吸收的市价买入（卖方颜色）。只要显示此项，无论标记是否开启，都会加载图表时间内的数据。",
  "Liquidations as the column adds them up, every size the record keeps: shorts liquidated (bid colour) and longs liquidated (ask colour). Where the time on the chart holds more than 5,000, only the largest are counted, and the header says so.": "与列相同方式汇总的强平，包含记录中的所有规模：空头强平（买方颜色）和多头强平（卖方颜色）。如果图表时间内超过 5,000 笔，只计入最大的那些，标题会注明。",
  "Time profile (along the top)": "时间分布（顶部）",
@@ -1450,5 +1447,7 @@
  "Emphasise the bigger side": "突出较大的一方",
  "In each row and each stretch the bigger side is drawn stronger and the smaller one fainter, the more one-sided the more; thin rows stay even. It shows what happened, not what comes next.": "在每行和每个时间段中，较大的一方画得更浓，较小的一方画得更淡，越偏向一方越明显；量很小的行保持均衡。它显示的是已发生的情况，而不是将要发生的。",
  "Delta bars draw only the difference of the two sides, which already says which was the bigger: this applies to split bars.": "Delta 柱条只画出两侧之差，已经说明哪一方更大：此设置适用于分割柱条。",
- "Length: how much. Strength of colour: how one-sided.": "长度：数量。颜色浓淡：偏向程度。"
+ "Length: how much. Strength of colour: how one-sided.": "长度：数量。颜色浓淡：偏向程度。",
+ "Open interest is read about every {n} min here: a change between readings is spread over the minutes in between by their volume, as the column spreads it over prices.": "这里持仓量约每 {n} 分钟读取一次：两次读数之间的变化按成交量分配到其间的各分钟，就像列按价格分配一样。",
+ "Where open interest grew (bid colour) and where it shrank (ask colour) in each stretch, each perpetual on its own, from its readings by the minute whatever the chart's timeframe: each change spread over the minutes it came about in by their volume and valued at the prices that traded, as the column does by price. A change across more than an hour, or with nothing traded under it, is not placed, and the header says how much. It never says who bought or sold.": "各时间段持仓量增加（买方颜色）和减少（卖方颜色）的部分，每个永续合约单独计算，无论图表周期如何都按分钟读数计算：每个变化按成交量分配到它发生的各分钟，并按成交的价格计价，与列按价格的做法相同。跨越一小时以上、或其间没有成交的变化不作分配，标题会注明金额。它从不说明是谁买入或卖出。"
 }

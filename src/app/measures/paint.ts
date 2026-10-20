@@ -73,6 +73,17 @@ export function paintBand(ctx: CanvasRenderingContext2D, rows: TimeRows, band: {
     }
     ctx.globalAlpha = 1;
   }
+  // A stretch with no data is not a zero: a faint dotted line along the top edge where its bars would hang, so four missing minutes between
+  // readings never look like four readings that did not move (those have no bar and no line).
+  ctx.save(); ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.7; ctx.lineWidth = 1; ctx.setLineDash([1, 3]); ctx.beginPath();
+  for (let i = 0; i < rows.gaps.length;) {
+    if (!rows.gaps[i]) { i++; continue; }
+    let j = i; while (j + 1 < rows.gaps.length && rows.gaps[j + 1]) j++;
+    const x0 = Math.max(0, xOf(bucketSpan(rows, i)[0])), x1 = Math.min(pw, xOf(bucketSpan(rows, j)[1]));
+    if (x1 > x0) { ctx.moveTo(x0, top + 2.5); ctx.lineTo(x1, top + 2.5); }
+    i = j + 1;
+  }
+  ctx.stroke(); ctx.restore();
   // The header's width, measured before the marks so their tags keep clear of it.
   const font = `${pw < NARROW_PLOT ? 9.5 : 10}px ui-sans-serif, system-ui, sans-serif`;
   ctx.font = font;

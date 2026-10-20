@@ -1420,12 +1420,10 @@
  "No liquidation reported in this stretch.": "この区間では清算の報告がありません。",
  "Nothing traded in this stretch.": "この区間では約定がありません。",
  "No flow is recorded for this stretch.": "この区間のフローは記録されていません。",
- "No new reading in this stretch: open interest is read about every {n} min here.": "この区間には新しい読み取りがありません。ここでは建玉は約{n}分ごとに読み取られます。",
  "No open-interest reading in this stretch.": "この区間には建玉の読み取りがありません。",
  "Nothing is held for this stretch yet.": "この区間のデータはまだありません。",
  "Before the value area": "バリューエリアより前",
  "After the value area": "バリューエリアより後",
- "Open interest is read about every {n} min here, so most stretches this short have no reading.": "ここでは建玉は約{n}分ごとに読み取られるため、これほど短い区間の多くには読み取りがありません。",
  "Bars of {size}, the finest there are": "{size}ごとのバー（最も細かい単位）",
  "Bars of {size}, the finest open interest is read at": "{size}ごとのバー（建玉を読み取る最も細かい単位）",
  "Bars of {size}, the finest the flow is held at here": "{size}ごとのバー（ここで保持しているフローの最も細かい単位）",
@@ -1433,7 +1431,6 @@
  "VA start": "VA開始",
  "VA end": "VA終了",
  "Bought and sold at market in each stretch, on the columns' markets: to the second for the last day the page holds, to the minute before it, where a bar is a minute at least. Ten minutes or more with no trade on any of them counts as not recorded.": "各区間で成行で買われた量と売られた量を、列と同じ市場で示します。ページが保持する直近 1 日は秒単位、それより前は分単位で、そこではバーは最低 1 分です。どの市場にも約定がない状態が10分以上続くと、記録されていないとみなします。",
- "Where open interest grew (bid colour) and where it shrank (ask colour) in each stretch, each perpetual on its own, in dollars, from its readings by the minute whatever the chart's timeframe: a bar is a minute at least, and a venue read every five minutes leaves the minutes between empty. It never says who bought or sold.": "各区間で建玉が増えたところ（買い色）と減ったところ（売り色）を、無期限先物ごとに別々に、ドル建てで示します。チャートの時間足に関係なく、分ごとの読み取りから計算します。バーは最低 1 分で、5 分ごとに読み取る取引所ではその間の分は空になります。誰が買ったか売ったかは示しません。",
  "The absorption marks at the threshold the Absorption settings judge them at, on the column's markets: market sells resting buyers took (bid colour) and market buys resting sellers took (ask colour). They are loaded for the time on the chart while this shows, marks on or off.": "吸収の設定が判定するしきい値での吸収マークを、列と同じ市場で示します：待機中の買い手が吸収した成行売り（買い色）と、待機中の売り手が吸収した成行買い（売り色）。これを表示している間は、マークのオン・オフにかかわらず、チャートの時間分が読み込まれます。",
  "Liquidations as the column adds them up, every size the record keeps: shorts liquidated (bid colour) and longs liquidated (ask colour). Where the time on the chart holds more than 5,000, only the largest are counted, and the header says so.": "列と同じく集計した清算で、記録にあるすべての規模を含みます：ショート清算（買い色）とロング清算（売り色）。チャートの時間内に 5,000 件を超える場合は大きいものだけを数え、ヘッダーにその旨を示します。",
  "Time profile (along the top)": "時間プロファイル（上端）",
@@ -1450,5 +1447,7 @@
  "Emphasise the bigger side": "大きい側を強調",
  "In each row and each stretch the bigger side is drawn stronger and the smaller one fainter, the more one-sided the more; thin rows stay even. It shows what happened, not what comes next.": "各行・各区間で、大きい側を濃く、小さい側を淡く描きます。偏りが大きいほど強くなり、薄い行は均等のままです。起きたことを示すもので、先行きを示すものではありません。",
  "Delta bars draw only the difference of the two sides, which already says which was the bigger: this applies to split bars.": "デルタのバーは両側の差だけを描き、それだけでどちらが大きかったかが分かります。これは分割バーに適用されます。",
- "Length: how much. Strength of colour: how one-sided.": "長さ：量。色の濃さ：偏りの度合い。"
+ "Length: how much. Strength of colour: how one-sided.": "長さ：量。色の濃さ：偏りの度合い。",
+ "Open interest is read about every {n} min here: a change between readings is spread over the minutes in between by their volume, as the column spreads it over prices.": "ここでは建玉は約{n}分ごとに読み取られます。読み取りの間の変化は、列が価格に配分するのと同じく、その間の各分に出来高に応じて配分されます。",
+ "Where open interest grew (bid colour) and where it shrank (ask colour) in each stretch, each perpetual on its own, from its readings by the minute whatever the chart's timeframe: each change spread over the minutes it came about in by their volume and valued at the prices that traded, as the column does by price. A change across more than an hour, or with nothing traded under it, is not placed, and the header says how much. It never says who bought or sold.": "各区間で建玉が増えたところ（買い色）と減ったところ（売り色）を、無期限先物ごとに別々に示します。チャートの時間足に関係なく分ごとの読み取りから求め、各変化はそれが生じた分に出来高に応じて配分し、約定した価格で評価します。列が価格別に行うのと同じです。1 時間を超える変化や、その間に約定がない変化は配分せず、その額をヘッダーに示します。誰が買ったか売ったかは示しません。"
 }
