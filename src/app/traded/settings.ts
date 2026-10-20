@@ -7,12 +7,13 @@ import { PROFILE_METRICS, type ProfileMetric } from './metrics.ts';
  * - the column's bars: buys and sells side by side, or the difference (delta);
  * - whether the column marks the point of control and the value area, which share of the volume the value area holds, and the size of the
  *   price rows they are read from (a multiple of the map's grid step: the column's own rows follow the zoom, these must not);
- * - the lines on the chart: the point of control, the value area high and low, their labels, and what they are worked out over: what is on
- *   the chart, each day or week of a zone, or sessions; what days, weeks and sessions are worked out from (the recording, as far back as it
- *   keeps trades, or the most traded venue's candles, an estimate that reaches back further); how many past ones are drawn, and whether a
- *   point of control nobody has traded through since (a naked one) runs on to the right.
+ * - the lines on the chart: the point of control, the value area high and low, their labels and tags; across the chart what the columns add
+ *   up, which is always what is on the chart, and on it the periods chosen (each day, week or month of a zone, or sessions) with their past
+ *   ones, the profiles of one kind of them, what they are worked out from (the recording, as far back as it keeps trades, or the most traded
+ *   venue's candles, an estimate that reaches back further), and whether a point of control nobody has traded through since (a naked one)
+ *   runs on to the right.
  */
-/** A kind of window the lines can be drawn for. */
+/** A kind of window drawn on the chart. */
 export type LineKind = 'day' | 'week' | 'month' | 'sessions';
 export const LINE_KINDS: readonly LineKind[] = ['day', 'week', 'month', 'sessions'];
 
@@ -29,12 +30,14 @@ export interface TradedSettings {
   /** Row size for the point of control and the value area, as a multiple of the map's grid step. */
   rows: number;
   poc: boolean; va: boolean; labels: boolean;
-  period: 'view' | LineKind;
   /**
-   * The periods whose lines are drawn as well as the window the columns add up (`period`): days and weeks, say, beside the month, each
-   * with its own past ones and names. Empty: the lines are the columns' window's alone, as before there was a choice.
+   * The periods drawn on the chart (Karl, 2026-10-19: the columns always add up what is on the chart, so the fixed column at the side is in
+   * step with it; days, weeks, months and sessions are drawn over their own time): each kind's point-of-control and value-area lines, its
+   * past ones, names and untouched runs. Empty: across the chart, the columns' own lines.
    */
   lines: LineKind[];
+  /** The one kind whose traded-volume profiles are drawn on the chart, over each window's own time (one, so they never lie over each other); null: none. */
+  profiles: LineKind | null;
   /**
    * What days, weeks and sessions are worked out from: `recorded`, the recording's trades on the flow column's venues (only as far back as
    * the recording keeps them: `recordedCount`), or `candles`, one venue's candles with each one's volume spread over its range (`candleLevels`).
@@ -47,8 +50,6 @@ export interface TradedSettings {
   naked: boolean;
   /** Whether the lines that reach the right edge (the window under way, an untouched point of control running on) are named on the price axis. */
   tags: boolean;
-  /** Whether each past day, week, month or session the lines are drawn for also draws its traded-volume profile on the chart, over its own time. */
-  pastProfiles: boolean;
   sessions: SessionDef[];
 }
 
@@ -62,29 +63,31 @@ const DAY = 86_400_000;
  * trades: those that began inside it (`recordedWindows`). Days and sessions: one a day kept. Weeks: the one under way, which began at most
  * seven days ago, and none when less than a week is kept (a page reading the exchanges itself keeps a day). Older ones are no longer there.
  */
-export function recordedCount(period: TradedSettings['period'], retentionMs: number): number {
+export function recordedCount(period: LineKind, retentionMs: number): number {
   if (period === 'month') return 0;
   if (period === 'week') return retentionMs >= 7 * DAY ? 1 : 0;
   return Math.max(0, Math.floor(retentionMs / DAY));
 }
+/** The settings as they apply to one kind of window: what the helpers below read. */
+export type KindSettings = Pick<TradedSettings, 'source' | 'count' | 'zone' | 'sessions'> & { period: LineKind };
 /** How many past ones are drawn: the setting, and from the recording no more than it can still work out. */
-export function linesCount(s: TradedSettings, retentionMs: number): number {
+export function linesCount(s: KindSettings, retentionMs: number): number {
   return linesSource(s) === 'candles' ? Math.min(s.count, mostCount(s)) : Math.min(s.count, recordedCount(s.period, retentionMs));
+}
+/**
+ * The kinds of window drawn on the chart: those whose lines are on, then the profiles' kind when its lines are not, each once (a profile is
+ * drawn on its window's levels, so its windows are worked out either way).
+ */
+export function chartKinds(s: Pick<TradedSettings, 'lines' | 'profiles'>): LineKind[] {
+  return [...s.lines, ...(s.profiles && !s.lines.includes(s.profiles) ? [s.profiles] : [])];
 }
 /**
  * What the lines of past days, weeks, months or sessions are worked out from: the setting, but a month always from candles (it is longer
  * than the recording keeps, so no month can be worked out from it; the panel says so rather than offer the choice).
  */
-/**
- * The kinds of window the lines are drawn for: the columns' window's first (when it is a period and the lines are traded volume's: another
- * measure draws its own levels over it), then the others switched on, each once.
- */
-export function lineKinds(s: Pick<TradedSettings, 'period' | 'lines'>, volumeLines = true): LineKind[] {
-  return [...(s.period !== 'view' && volumeLines ? [s.period] : []), ...s.lines.filter(k => k !== s.period)];
-}
-export const linesSource = (s: Pick<TradedSettings, 'period' | 'source'>): TradedSettings['source'] => s.period === 'month' ? 'candles' : s.source;
+export const linesSource = (s: Pick<KindSettings, 'period' | 'source'>): TradedSettings['source'] => s.period === 'month' ? 'candles' : s.source;
 /** How many past ones candles can draw: twenty weeks of them hold four whole months. */
-export const mostCount = (s: Pick<TradedSettings, 'period'>): number => s.period === 'month' ? MAX_MONTHS : MAX_COUNT;
+export const mostCount = (s: Pick<KindSettings, 'period'>): number => s.period === 'month' ? MAX_MONTHS : MAX_COUNT;
 
 /** The zones offered by name: the page's clock, UTC, this computer, and the cities whose markets set the usual sessions. */
 export const ZONES: readonly { zone: string; label: string }[] = [
@@ -107,7 +110,7 @@ const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!,
 
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
   metrics: ['volume'], bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true, tags: true,
-  period: 'view', lines: [], source: 'recorded', zone: 'page', count: 5, naked: true, pastProfiles: false,
+  lines: [], profiles: null, source: 'recorded', zone: 'page', count: 5, naked: true,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
 
@@ -145,16 +148,20 @@ export function readTraded(saved: unknown): TradedSettings {
   // Ids are what a window's key is made of: two sessions must not share one.
   const seen = new Set<string>();
   for (const x of sessions) { while (seen.has(x.id)) x.id = `${x.id}x`.slice(-24); seen.add(x.id); }
+  // A save from when the columns could add up a day, week, month or sessions (`period`): that kind is drawn on the chart instead, with its
+  // profiles there when they were drawn (`pastProfiles`).
+  const kind = (v: unknown): LineKind | null => LINE_KINDS.includes(v as LineKind) ? v as LineKind : null;
+  const old = kind(s.period), wanted = Array.isArray(s.lines) ? s.lines as unknown[] : [];
   return {
     // A save from when the column showed one measure (`metric`) reads as that one column.
     metrics: readMetrics(Array.isArray(s.metrics) ? s.metrics : [s.metric]) ?? [...d.metrics],
     bars: oneOf(['split', 'delta'] as const, s.bars, d.bars),
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels), tags: flag(s.tags, d.tags),
-    period: oneOf(['view', 'day', 'week', 'month', 'sessions'] as const, s.period, d.period),
-    lines: Array.isArray(s.lines) ? LINE_KINDS.filter(k => (s.lines as unknown[]).includes(k)) : [],
+    lines: LINE_KINDS.filter(k => wanted.includes(k) || k === old),
+    profiles: s.profiles === null ? null : kind(s.profiles) ?? (s.pastProfiles === true ? old : null),
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
-    zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), pastProfiles: flag(s.pastProfiles, d.pastProfiles), sessions,
+    zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), sessions,
   };
 }
 

@@ -8,8 +8,8 @@ import { QuotaLedger } from '../src/core/quota.mts';
 import { levelsOf, pointOfControl, valueArea } from '../src/shared/profile.ts';
 import { FootprintRecorder, parseProfile, parseValueAreas } from '../src/shared/footprint.ts';
 import { dayWindows, fromWall, lastWindows, offsetMs, sessionWindows, weekWindows, type SessionDef } from '../src/app/traded/sessions.ts';
-import { TRADED_DEFAULTS, lineKinds, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
-import { answerLevels, candleBarMs, candleLevels, columnWindow, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
+import { TRADED_DEFAULTS, chartKinds, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
+import { answerLevels, candleBarMs, candleLevels, linesWindows, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
 import { TradeCoverage, recordedMinutes } from '../src/shared/coverage.ts';
 import { tradedRows } from '../src/app/traded.ts';
 import { initialState } from '../src/app/store.ts';
@@ -86,7 +86,7 @@ test('saved settings are read field by field: a bad zone, time or count falls ba
   const r = readTraded({ bars: 'delta', share: 80, rows: 2, period: 'sessions', zone: 'Mars/Olympus', count: 99, sessions: [
     { id: 'x', name: 'A', zone: 'Asia/Tokyo', start: '09:00', end: '18:00' }, { id: 'x', name: 'B', zone: 'UTC', start: '9:00', end: '25:00' }, { id: 'x', name: 'C', zone: 'page', start: '01:00', end: '02:00' },
     { id: 'x', name: 'D', zone: 'UTC', start: '01:00', end: '02:00', on: false, weekdays: true }] });
-  assert.deepEqual([r.bars, r.share, r.rows, r.period, r.zone, r.count], ['delta', 80, 2, 'sessions', 'page', 20]);
+  assert.deepEqual([r.bars, r.share, r.rows, r.lines, r.zone, r.count], ['delta', 80, 2, ['sessions'], 'page', 20], 'a saved period is drawn on the chart');
   assert.deepEqual(r.sessions.map(s => [s.id, s.name, s.on, s.weekdays]), [['x', 'A', true, false], ['xx', 'D', false, true]], 'a 25:00 end and the page zone are not a session');
   assert.equal(readTraded({ share: 71, rows: 3 }).share, 70);
   assert.equal(resolveZone('page', 'utc'), 'UTC'); assert.equal(resolveZone('Asia/Tokyo', 'local'), 'Asia/Tokyo');
@@ -142,38 +142,30 @@ test('the column asks on a step both its rows and the level rows divide, and the
   const candles: [number, number, number, number, number, number][] = [[T0 + 5 * MIN, 0, 85_100, 85_050, 0, 0], [T0 + 6 * MIN, 0, 85_060, 85_015, 0, 0]];
   assert.equal(touchedAt(85_010, T0 + 5 * MIN, candles, 10), T0 + 6 * MIN);
   assert.equal(touchedAt(85_010, T0 + 5 * MIN, candles, 1), null, 'still naked as far as the candles go');
-  assert.deepEqual(linesWindows({ ...TRADED_DEFAULTS, period: 'view' }, 'utc', T0, T0 + DAY, T0 + DAY), []);
+  assert.deepEqual(linesWindows({ ...TRADED_DEFAULTS, period: 'day', count: 0 }, 'utc', T0, T0 + DAY, T0 + DAY), []);
   assert.equal(linesWindows({ ...TRADED_DEFAULTS, period: 'day', count: 2 }, 'utc', T0 - 5 * DAY, T0, T0).length, 2, 'the last two days that touch the view');
 });
 
-test('the traded column adds up the day, week or session the settings pick, the newest at the chart\'s right edge', () => {
+test('days, weeks and sessions are windows of their zone, the last ones up to the chart\'s right edge, named by their date', () => {
   const at = (day: number, hh = 0, mm = 0): number => Date.UTC(2026, 9, day, hh, mm);   // October 2026: the 12th is a Monday
   const base = { ...TRADED_DEFAULTS, zone: 'UTC' }, now = at(14, 15, 30);
-  assert.equal(columnWindow({ ...base, period: 'view' }, 'utc', now, now), null, 'what is on the chart: the column follows the chart');
+  const last = (k: Parameters<typeof linesWindows>[0], t0: number, t1: number, at: number) => linesWindows({ ...k, count: 1 }, 'utc', t0, t1, at).at(-1)!;
   // A day, and a week from Monday, in the zone; the chart's right edge past the clock counts as now.
-  const day = columnWindow({ ...base, period: 'day' }, 'utc', now + 5 * MIN, now)!, week = columnWindow({ ...base, period: 'week' }, 'utc', now + DAY, now)!;
+  const day = last({ ...base, period: 'day' }, now - DAY, now + 5 * MIN, now), week = last({ ...base, period: 'week' }, now - 8 * DAY, now + DAY, now);
   assert.deepEqual([day.from, day.to], [at(14), at(15)]);
   assert.deepEqual([week.from, week.to], [at(12), at(19)]);
-  // The chart looking back: the window at its right edge, however little of it the chart holds and however many the lines draw.
-  assert.deepEqual([columnWindow({ ...base, period: 'day', count: 20 }, 'utc', at(12, 10), now)!.from, columnWindow({ ...base, period: 'week' }, 'utc', at(9, 10), now)!.from], [at(12), at(5)]);
   // A day of a zone whose clocks change is 25 hours long on the day they go back.
-  const berlin = columnWindow({ ...base, zone: 'Europe/Berlin', period: 'day' }, 'utc', at(25, 12), at(25, 12))!;
+  const berlin = last({ ...base, zone: 'Europe/Berlin', period: 'day' }, at(25), at(25, 12), at(25, 12));
   assert.deepEqual([berlin.from, berlin.to], [at(24, 22), at(25, 23)]);
-  // Sessions: of those under way the one that began last; when none is, the one that ended last.
+  // Sessions: each session's own, named after it; one switched off is not drawn.
   const def = (id: string, start: string, end: string, on = true): SessionDef => ({ id, name: id, zone: 'UTC', start, end, on, weekdays: false });
-  const sessions = [def('asia', '00:00', '09:00'), def('london', '07:00', '16:00'), def('ny', '12:00', '21:00')];
-  const pick = (t: number, list = sessions) => columnWindow({ ...base, period: 'sessions', sessions: list }, 'utc', t, t)?.name ?? null;
-  assert.equal(pick(at(14, 15, 30)), 'ny', 'London and New York are open: the one that began last');
-  assert.equal(pick(at(14, 8)), 'london', 'Asia and London are open');
-  assert.equal(pick(at(14, 22)), 'ny', 'none is open: the one that ended last');
-  assert.equal(pick(at(14, 6)), 'asia');
-  assert.equal(pick(at(14, 12), [def('short', '00:00', '08:00'), def('whole', '00:00', '00:00')]), 'whole', 'two began together: the one still open');
-  assert.equal(pick(at(14, 12), sessions.map(s => ({ ...s, on: false }))), null, 'no session on: the column follows the chart');
+  const sessions = [def('asia', '00:00', '09:00'), def('london', '07:00', '16:00'), def('ny', '12:00', '21:00', false)];
+  assert.deepEqual(linesWindows({ ...base, period: 'sessions', sessions, count: 1 }, 'utc', at(14), now, now).map(w => w.name).sort(), ['asia', 'london']);
   const labelled = (w: typeof day, kind: string): string => windowLabel({ ...w, key: `${kind}|x|${w.from}`, name: '' }, t => new Date(t).toISOString().slice(5, 10), 'Week');
   assert.deepEqual([labelled(day, 'day'), labelled(week, 'week'), windowLabel({ key: 'session|asia|1', name: 'Asia', from: at(14), to: at(14, 9) }, () => '10-14', 'Week'), labelled(day, 'session')], ['10-14', 'Week 10-12', 'Asia 10-14', '10-14']);
   // A session's date is read in its own zone: Tokyo's midnight of the 15th is still the 14th in UTC.
   const tokyo = { ...base, period: 'sessions' as const, sessions: [{ ...def('tk', '00:00', '09:00'), zone: 'Asia/Tokyo', name: 'Tokyo' }] };
-  const tk = columnWindow(tokyo, 'utc', at(14, 16), at(14, 16))!;
+  const tk = last(tokyo, at(14, 12), at(14, 16), at(14, 16));
   assert.equal(tk.from, at(14, 15), 'midnight of the 15th in Tokyo');
   assert.equal(windowZone(tk, tokyo, 'utc'), 'Asia/Tokyo');
   assert.equal(windowZone(day, base, 'utc'), 'UTC', 'a day: the zone days start in');
@@ -223,14 +215,12 @@ test('each month: calendar months of the zone, named by month, worked out from c
   const oct20 = Date.UTC(2026, 9, 20, 12), months = linesWindows(base, 'utc', Date.UTC(2026, 6, 15), oct20, oct20);
   assert.deepEqual(months.map(w => new Date(w.from).toISOString().slice(0, 10)), ['2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01'], 'every month that touches the chart, the open one last');
   assert.equal(new Date(months[1]!.to).toISOString().slice(0, 10), '2026-09-01', 'August runs to the 1st of September');
-  const col = columnWindow(base, 'utc', oct20, oct20)!;
-  assert.equal(new Date(col.from).toISOString().slice(0, 10), '2026-10-01', 'the column adds up the month under way, though it began more than eight days back');
-  assert.equal(windowLabel(col, () => 'Oct 1', 'Week', () => 'Oct 2026'), 'Oct 2026');
+  assert.equal(windowLabel(months[3]!, () => 'Oct 1', 'Week', () => 'Oct 2026'), 'Oct 2026');
   assert.equal(linesSource({ period: 'month', source: 'recorded' }), 'candles', 'no month fits the recording');
   assert.equal(linesSource({ period: 'week', source: 'recorded' }), 'recorded');
   assert.equal(recordedCount('month', 7 * DAY), 0);
   assert.equal(linesCount(base, 7 * DAY), 4, 'twenty weeks of candles hold four whole months');
-  assert.equal(readTraded({ period: 'month' }).period, 'month');
+  assert.deepEqual(readTraded({ period: 'month' }).lines, ['month'], 'a month the columns added up is drawn on the chart');
 });
 
 test('a profile over whole hours, read from the hours added together, is the same as its half hours read minute by minute, order counts too', () => {
@@ -270,16 +260,21 @@ test('from the recording only what it still holds is offered: as many days or se
   assert.equal(linesCount({ ...TRADED_DEFAULTS, period: 'week', count: 5, source: 'candles' }, 7 * DAY), 5, 'candles reach back');
   assert.equal(readTraded({}).source, 'recorded', 'a save from before the choice');
   assert.equal(readTraded({ source: 'candles' }).source, 'candles'); assert.equal(readTraded({ source: 'tea leaves' }).source, 'recorded');
-  assert.equal(readTraded({}).pastProfiles, false, 'past profiles on the chart are off until switched on');
-  assert.equal(readTraded({ pastProfiles: true }).pastProfiles, true); assert.equal(readTraded({ pastProfiles: 'yes' }).pastProfiles, false);
+  // Profiles on the chart: one kind or none; a save from when they followed the columns' period keeps them for that period.
+  assert.equal(readTraded({}).profiles, null, 'none until chosen');
+  assert.equal(readTraded({ profiles: 'week' }).profiles, 'week'); assert.equal(readTraded({ profiles: 'year' }).profiles, null);
+  assert.deepEqual([readTraded({ period: 'day', pastProfiles: true }).lines, readTraded({ period: 'day', pastProfiles: true }).profiles], [['day'], 'day']);
+  assert.equal(readTraded({ period: 'view', pastProfiles: true }).profiles, null, 'what is on the chart had no profiles of its own');
+  assert.equal(readTraded({ period: 'day', pastProfiles: true, profiles: null }).profiles, null, 'a choice of none, once saved, stands');
   assert.equal(readTraded({}).tags, true, 'a save from before the tags names its lines on the axis'); assert.equal(readTraded({ tags: false }).tags, false);
   // Other periods' lines beside the columns' own: kept in their order, each once, nothing unknown; a save from before draws the columns' alone.
   assert.deepEqual(readTraded({}).lines, []);
   assert.deepEqual(readTraded({ lines: ['month', 'day', 'month', 'year'] }).lines, ['day', 'month']);
   assert.deepEqual(readTraded({ lines: 'day' }).lines, []);
-  assert.deepEqual(lineKinds({ period: 'month', lines: ['day', 'month', 'week'] }), ['month', 'day', 'week'], 'the columns\' kind first, each once');
-  assert.deepEqual(lineKinds({ period: 'view', lines: ['week'] }), ['week']);
-  assert.deepEqual(lineKinds({ period: 'day', lines: ['week'] }, false), ['week'], 'another measure draws its own levels over the columns\' window');
+  assert.deepEqual(chartKinds({ lines: ['day', 'week'], profiles: 'month' }), ['day', 'week', 'month'], 'the profiles\' kind is worked out even with its lines off');
+  assert.deepEqual(chartKinds({ lines: ['day'], profiles: 'day' }), ['day'], 'each once');
+  assert.deepEqual(chartKinds({ lines: [], profiles: null }), []);
+  assert.deepEqual(readTraded({ period: 'week', lines: ['day', 'week'] }).lines, ['day', 'week'], 'a saved period already among the lines is there once');
   assert.deepEqual(['day|UTC|1', 'week|UTC|1', 'month|UTC|1', 'session|s1|1'].map(key => windowKind({ key })), ['day', 'week', 'month', 'sessions']);
   // Weeks in UTC on Sunday 2026-10-18: this week began on the 12th, inside the seven days; the week of the 5th did not.
   const now = Date.UTC(2026, 9, 18, 15), weeks = linesWindows({ ...TRADED_DEFAULTS, period: 'week', zone: 'UTC', count: 5, source: 'candles' }, 'utc', now - 30 * DAY, now, now);
