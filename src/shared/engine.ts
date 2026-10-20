@@ -26,6 +26,8 @@ import { RECOVERY_BUDGET, historySource, planRecovery, rebuildOrders, runRecover
  */
 
 export { BROWSER_RETENTION_MS };
+/** How long after starting the absorption recorder reads the rest of its day back (the page asks its first questions meanwhile). */
+const HYDRATE_AFTER_MS = 5_000;
 const FLUSH_MS = 30_000, PRUNE_MS = 3_600_000, OI_SAMPLE_MS = 60_000, OI_KEEP_MS = 3 * 24 * 3_600_000, PROBE_AFTER_MS = 10_000, PROBE_AGAIN_MS = 5 * 60_000;
 /** A trade this recent is the venue's price; older than that the book's mid stands in. */
 const TRADE_PRICE_MS = 15_000;
@@ -177,6 +179,7 @@ export class Engine {
   #lastSample = 0; #lastFlush = 0; #lastPrune = 0; #lastFlowPush = 0;
   #lastTick = ''; #lastStatus = '';
   #timer: ReturnType<typeof setInterval> | null = null;
+  #hydration: ReturnType<typeof setTimeout> | null = null;
 
   constructor({ coin = BTC, tier = coin.tier, venues = browserVenues(coin), now = Date.now, get = webGet, ping = defaultPing, columns = null, footprint = null, prints = null, flow = null, absorption = null, coverage = null, liquidations = null, oi = null, retentionMs = BROWSER_RETENTION_MS, historyFetch = webHistoryFetch, recoveryBudget = RECOVERY_BUDGET }: EngineOptions = {}) {
     this.#oiStore = oi; this.#retentionMs = retentionMs;
@@ -201,7 +204,8 @@ export class Engine {
     this.liquidationStream = new LiquidationStream(liquidations, now, retentionMs, LIQUIDATION_FLOOR_USD * scale);
     this.flows = new FlowRecorder(flow, now, Math.min(retentionMs, FLOW_MEMORY_MS), retentionMs);
     this.orders = new OrderBuilder(now);
-    this.absorption = new AbsorptionRecorder(absorption, now, { retentionMs, floorUsd: GROUP_FLOOR_USD * scale });
+    // It holds the whole day the page keeps, to answer the absorption column without reading the recordings (`start` reads it back).
+    this.absorption = new AbsorptionRecorder(absorption, now, { retentionMs, floorUsd: GROUP_FLOOR_USD * scale, memoryMs: retentionMs });
     this.tradeCoverage = new TradeCoverage(coverage, now, retentionMs);
     for (const id of this.footprints.instruments) this.#loadedThrough.set(id, this.footprints.lastMinute(id) + COLUMN_MS);
     this.#recorded = new RecordedBefore(this.flows, this.footprints);
@@ -249,9 +253,13 @@ export class Engine {
 
   // ---- The loop -------------------------------------------------------------------------------------------------------------------
 
-  start(intervalMs = 250): void { if (!this.#timer) this.#timer = setInterval(() => this.step(), intervalMs); }
+  start(intervalMs = 250): void {
+    if (!this.#timer) this.#timer = setInterval(() => this.step(), intervalMs);
+    if (!this.#hydration) { this.#hydration = setTimeout(() => { void this.absorption.hydrate(); }, HYDRATE_AFTER_MS); (this.#hydration as { unref?: () => void }).unref?.(); }
+  }
   stop(): void {
     if (this.#timer) clearInterval(this.#timer); this.#timer = null;
+    if (this.#hydration) clearTimeout(this.#hydration); this.#hydration = null;
     for (const run of this.#runs.values()) { for (const c of [run.book, ...run.feeds]) c.stop(); this.tradeCoverage.end(run.book.instrumentId, this.#now()); }
     this.#runs.clear(); this.flush();
   }

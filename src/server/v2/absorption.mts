@@ -46,12 +46,15 @@ class SqliteAbsorptionStore implements AbsorptionStore {
     const statement = this.#db.prepare('SELECT inst, t0, side, price, steps FROM absorption_groups WHERE inst = ? AND t0 >= ? AND t0 < ? AND peak >= ? ORDER BY peak DESC LIMIT ?');
     return ids.flatMap((id, i) => (statement.all(id, from, to, mins[i] ?? Number.MAX_VALUE, limit) as GroupRow[]).flatMap(row => asGroup(row) ?? []));
   }
-  async eachHour(ids: readonly string[], mins: readonly number[], from: number, to: number, take: (groups: readonly AbsorptionGroup[], minutes: readonly AbsorptionMinute[]) => void): Promise<void> {
+  async eachHour(ids: readonly string[] | null, mins: readonly number[], from: number, to: number, take: (groups: readonly AbsorptionGroup[], minutes: readonly AbsorptionMinute[]) => void): Promise<void> {
     const groups = this.#db.prepare('SELECT inst, t0, side, price, steps FROM absorption_groups WHERE inst = ? AND t0 >= ? AND t0 < ? AND peak >= ?');
     const minutes = this.#db.prepare('SELECT inst, t, n, mean, m2, floor FROM absorption_minutes WHERE inst = ? AND t >= ? AND t < ? AND floor >= ?');
+    const everyGroup = this.#db.prepare('SELECT inst, t0, side, price, steps FROM absorption_groups WHERE t0 >= ? AND t0 < ?');
+    const everyMinute = this.#db.prepare('SELECT inst, t, n, mean, m2, floor FROM absorption_minutes WHERE t >= ? AND t < ?');
     for (const hour of hoursOf(from, to)) {
       const min = (i: number): number => mins[i] ?? Number.MAX_VALUE;
-      take(ids.flatMap((id, i) => (groups.all(id, hour.from, hour.to, min(i)) as GroupRow[]).flatMap(row => asGroup(row) ?? [])),
+      if (!ids) take((everyGroup.all(hour.from, hour.to) as GroupRow[]).flatMap(row => asGroup(row) ?? []), (everyMinute.all(hour.from, hour.to) as MinuteRow[]).map(asMinute));
+      else take(ids.flatMap((id, i) => (groups.all(id, hour.from, hour.to, min(i)) as GroupRow[]).flatMap(row => asGroup(row) ?? [])),
         ids.flatMap((id, i) => (minutes.all(id, hour.from, hour.to, min(i)) as MinuteRow[]).map(asMinute)));
       // The event loop is let go between hours: a week of a busy market is a few hundred thousand rows.
       await new Promise<void>(resolve => setImmediate(resolve));

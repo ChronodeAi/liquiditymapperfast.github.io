@@ -79,13 +79,12 @@ class MemoryStore implements AbsorptionStore {
   save(): void {}
   query(): AbsorptionGroup[] { throw new Error('the column asked for capped groups'); }
   minutes(): AbsorptionMinute[] { throw new Error('the column asked for minutes outside its hours'); }
-  async eachHour(ids: readonly string[], mins: readonly number[], from: number, to: number, take: (groups: readonly AbsorptionGroup[], minutes: readonly AbsorptionMinute[]) => void): Promise<void> {
-    const min = new Map(ids.map((id, i) => [id, mins[i]!]));
+  async eachHour(ids: readonly string[] | null, mins: readonly number[], from: number, to: number, take: (groups: readonly AbsorptionGroup[], minutes: readonly AbsorptionMinute[]) => void): Promise<void> {
+    const min = ids ? new Map(ids.map((id, i) => [id, mins[i]!])) : null, passes = (id: string, v: number): boolean => !min || v >= (min.get(id) ?? Infinity);
     for (const hour of hoursOf(from, to)) {
       if (this.failAt !== null && hour.from >= this.failAt) throw new Error('the store failed');
       this.asked.push([hour.from, hour.to]);
-      take(this.groups.filter(g => g.t0 >= hour.from && g.t0 < hour.to && peakOf(g) >= (min.get(g.id) ?? Infinity)),
-        this.stored.filter(m => m.t >= hour.from && m.t < hour.to && m.floor >= (min.get(m.id) ?? Infinity)));
+      take(this.groups.filter(g => g.t0 >= hour.from && g.t0 < hour.to && passes(g.id, peakOf(g))), this.stored.filter(m => m.t >= hour.from && m.t < hour.to && passes(m.id, m.floor)));
       await new Promise<void>(resolve => setImmediate(resolve));
     }
   }
@@ -120,10 +119,11 @@ test('the column adds up exactly what judging every group gives, more than 4,000
   }
 });
 
-test('a group found again is counted once, whether memory holds it twice or the store and memory both bring it', async () => {
+test('a group found again is counted once, whether memory was given it twice or the page has it twice', async () => {
   const end = T0 + 3 * HOUR, g: AbsorptionGroup = { id: 'a:BTC', side: 'sell', price: 100, t0: end - 30 * MIN, steps: [[60_000, 60_000, 2, end - 30 * MIN, end - 30 * MIN]] };
   const older: AbsorptionGroup = { ...g, t0: end - 150 * MIN, steps: [[70_000, 70_000, 1, end - 150 * MIN, end - 150 * MIN]] };
-  const store = new MemoryStore([g, { ...g, steps: [[60_000, 60_000, 2, g.t0, g.t0]] }, older, { ...older }], []);
+  // The store reads `g` back twice when the recorder starts (a store keeps a row once, so it hands `older` over once).
+  const store = new MemoryStore([g, { ...g, steps: [[60_000, 60_000, 2, g.t0, g.t0]] }, older], []);
   const answer = await new AbsorptionRecorder(store, () => end).profile(['a:BTC'], [25_000], T0, end, 10);
   assert.deepEqual(answer.instruments[0]!.rows, [[100, 130_000, 0]]);
   const profile = new AbsorptionProfile(new Map([['a:BTC', 25_000]]), T0, end, 10);

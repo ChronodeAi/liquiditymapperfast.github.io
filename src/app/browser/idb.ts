@@ -18,7 +18,7 @@ import type { OiReading, OiStore } from '../../shared/engine.ts';
 const VERSION = 6, WRITE_DELAY_MS = 500;
 type Name = 'columns' | 'footprint' | 'prints' | 'flow' | 'absorption' | 'absorptionMinutes' | 'coverage' | 'liquidations' | 'oi';
 const STORES: Name[] = ['columns', 'footprint', 'prints', 'flow', 'absorption', 'absorptionMinutes', 'coverage', 'liquidations', 'oi'];
-/** Absorption groups held in memory by the recorder (older ones are read on demand). */
+/** Absorption groups read when the database opens: the recorder starts with these and reads the rest of its day back after (`AbsorptionRecorder.hydrate`). */
 const ABSORPTION_MEMORY_MS = 2 * 3_600_000;
 interface AbsorptionRow { inst: string; t0: number; side: 'buy' | 'sell'; price: number; peak: number; steps: AbsorptionGroup['steps'] }
 interface AbsorptionMinuteRow { inst: string; t: number; n: number; mean: number; m2: number; floor: number }
@@ -214,8 +214,8 @@ export async function openRecordings(name: string, since: number, canWrite: () =
     }),
     close: () => {},
   };
-  // Absorption: the recorder holds the last two hours; older groups and minutes are read when the page asks for them, an hour of the time
-  // index at a time, one request each. A cursor walked them one round trip a row: a day of 100,000 groups took 1.9 s that way, 0.9 s in one
+  // Absorption: the recorder opens with the last two hours and reads the rest of its day back in the background; until then older groups
+  // and minutes are read when the page asks for them. Either way an hour of the time index at a time, one request each. A cursor walked them one round trip a row: a day of 100,000 groups took 1.9 s that way, 0.9 s in one
   // request (Chromium, 2026-10-19), and an hour holds at most the per-minute cap's 600 groups an instrument, so no request holds a day.
   const toGroup = (row: AbsorptionRow): AbsorptionGroup => ({ id: row.inst, side: row.side, price: row.price, t0: row.t0, steps: row.steps });
   const toMinute = (row: AbsorptionMinuteRow): AbsorptionMinute => ({ id: row.inst, t: row.t, n: row.n, mean: row.mean, m2: row.m2, floor: row.floor });
@@ -254,19 +254,22 @@ export async function openRecordings(name: string, since: number, canWrite: () =
       await readHours<AbsorptionMinuteRow>('absorptionMinutes', from, to, rows => { for (const row of rows) if (wanted.has(row.inst)) out.push(toMinute(row)); });
       return out;
     },
-    // The column's read: each hour's groups and minutes in one transaction, so they are of one moment of the store.
+    // The column's read, and the recorder's reading its day back (`ids` null): each hour's groups and minutes in one transaction, so they are
+    // of one moment of the store.
     eachHour: async (ids, mins, from, to, take) => {
-      const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity]));
+      const min = ids ? new Map(ids.map((id, i) => [id, mins[i] ?? Infinity])) : null;
+      const passes = (inst: string, value: number): boolean => !min || value >= (min.get(inst) ?? Infinity);
       for (const range of hourRanges(from, to)) {
         const [rows, minuteRows] = await new Promise<[AbsorptionRow[], AbsorptionMinuteRow[]]>((resolve, reject) => {
           const tx = db.transaction(['absorption', 'absorptionMinutes'], 'readonly');
           const groups = tx.objectStore('absorption').index('t').getAll(range), minutes = tx.objectStore('absorptionMinutes').index('t').getAll(range);
           tx.oncomplete = () => resolve([groups.result as AbsorptionRow[], minutes.result as AbsorptionMinuteRow[]]);
-          tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error ?? new Error('the absorption read was aborted'));
+          const failed = (): void => reject(tx.error ?? new Error('the absorption read was aborted'));
+          tx.onerror = failed; tx.onabort = failed;
         });
         const groups: AbsorptionGroup[] = [], minutes: AbsorptionMinute[] = [];
-        for (const row of rows) if (row.peak >= (min.get(row.inst) ?? Infinity)) groups.push(toGroup(row));
-        for (const row of minuteRows) if (row.floor >= (min.get(row.inst) ?? Infinity)) minutes.push(toMinute(row));
+        for (const row of rows) if (passes(row.inst, row.peak)) groups.push(toGroup(row));
+        for (const row of minuteRows) if (passes(row.inst, row.floor)) minutes.push(toMinute(row));
         take(groups, minutes);
       }
     },
