@@ -129,6 +129,7 @@ async function main(): Promise<void> {
   for (const pane of [depth, oi, delta, ls, lt, bars]) pane.useTimeGestures(heat.timeGestures());
   heat.onFrame = lower; heat.onView = lower;
   heat.onTopProfile = () => toolbar.openTradedPanel();
+  heat.onArrangedChange = () => toolbar.refreshTradedPanel();
   // The panel says what of the profiles has no room, in the room the map had when it was last drawn.
   toolbar.profileRoom = () => heat.profileRoom();
   // The Range tool: a drag on the map, on a pane under it or across the flow column selects, and its panel adds up what happened there.

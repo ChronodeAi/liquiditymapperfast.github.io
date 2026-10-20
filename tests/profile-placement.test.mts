@@ -173,6 +173,9 @@ test('stacked bands: about 96 px alone, 70 at two, 56 at three, a quarter of the
   assert.deepEqual(stackedBands({ ...place, ph: 500 }, 3).map(b => b.height), [39, 39, 39], 'a shorter chart: shorter bands');
   assert.deepEqual(stackedBands({ ...place, ph: 400 }, 3).map(b => b.height), [48, 48], 'three would be slivers: two');
   assert.deepEqual(stackedBands({ ...place, ph: 60 }, 3), [], 'no room for one');
+  // One band alone keeps to the quarter too: a 36 px band on a 120 px plot would take 30 %, and a 30 px one is a sliver.
+  assert.deepEqual(stackedBands({ ...place, ph: 120, volume: false }, 1), [], 'one band on a tiny plot: none');
+  for (const ph of [160, 200, 300]) { const one = stackedBands({ ...place, ph, volume: false }, 1)[0]; if (one) assert.ok(one.height <= ph * BANDS_SHARE, `one band, a quarter at most at ${ph}`); }
   for (const ph of [300, 450, 700, 1000, 1400]) for (const n of [2, 3]) {
     const bands = stackedBands({ ...place, ph }, n), last = bands[bands.length - 1];
     if (bands.length > 1) assert.ok(last!.top + last!.height - bands[0]!.top <= ph * BANDS_SHARE + 1, `a quarter at most at ${ph}`);

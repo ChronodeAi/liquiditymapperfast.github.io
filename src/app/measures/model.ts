@@ -359,5 +359,7 @@ export function stackedBands(o: BandPlace, count: number): { top: number; height
     const height = Math.floor(Math.min(STACK_H[n - 1]!, (room - (n - 1) * STACK_GAP) / n));
     if (height >= MIN_BAND_H) return Array.from({ length: n }, (_, i) => ({ top: top + i * (height + STACK_GAP), height }));
   }
-  return [one];
+  // One band as `stripBand` places it, no taller than the quarter the bands may take, and none if that leaves a sliver.
+  const height = Math.min(one.height, Math.floor(room));
+  return height >= MIN_BAND_H ? [{ top: one.top, height }] : [];
 }

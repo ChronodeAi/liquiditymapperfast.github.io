@@ -30,8 +30,11 @@ export interface TopPlace extends BandFrame {
 
 /** Whether a band along the top shows: the bands are part of the Volume profile, so their places count only while the Volume profile is on. */
 export const topShown = (state: Pick<AppState, 'show' | 'traded'>): boolean => state.show.traded && placedOn(state.traded.placements, 'top').length > 0;
-/** Whether a band shows a measure judged at the absorption marks: the marks' groups must then be loaded for the window, marks on or off. */
-export const topMarks = (state: Pick<AppState, 'show' | 'traded'>): boolean => state.show.traded && placedOn(state.traded.placements, 'top').some(p => measureDef(p.metric).judgedByMarks);
+/**
+ * Whether a band drawn this frame shows a measure judged at the absorption marks: the marks' groups must then be loaded for the window, marks
+ * on or off. Only the bands that fit count: one switched on with no room asks for nothing.
+ */
+export const topMarks = (state: Pick<AppState, 'show'>, drawn: readonly PlacedBand[]): boolean => state.show.traded && drawn.some(b => measureDef(b.instance.metric).judgedByMarks);
 
 const MINUTE = 60_000;
 

@@ -356,8 +356,10 @@ test('while the Volume profile or its bands along the top are off, the bands wor
   assert.equal(hub.asked, 0);
   assert.equal(bands.readout(400, 60, T - MIN), null); assert.equal(bands.onHeader(10, 60), false);
   assert.equal(bands.misplaced(56), false, 'off: nothing to place');
-  assert.equal(topMarks(stateOf({}, 'absorption')), true, 'showing absorption: the marks\' groups are loaded');
-  assert.equal(topMarks(stateOf({ show: { volume: true, traded: false } } as Partial<AppState>, 'absorption')), false);
+  const drawn = arrangeProfiles(stateOf({}, 'absorption').traded.placements, room).top;
+  assert.equal(topMarks(stateOf({}, 'absorption'), drawn), true, 'showing absorption: the marks\' groups are loaded');
+  assert.equal(topMarks(stateOf({ show: { volume: true, traded: false } } as Partial<AppState>, 'absorption'), drawn), false);
+  assert.equal(topMarks(stateOf({}, 'absorption'), []), false, 'a band switched on with no room asks for nothing');
 });
 
 test('the band sits under the legend and the corner buttons, the column\'s width tall, and keeps clear of the volume strip', () => {

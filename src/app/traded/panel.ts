@@ -2,7 +2,6 @@ import type { Store } from '../store.ts';
 import { el } from '../dom.ts';
 import { heading, note, numberRow, selectRow, switchRow } from '../ui.ts';
 import { helpButton } from '../help.ts';
-import { compactBar } from '../device.ts';
 import { usd } from '../format.ts';
 import { t } from '../i18n.ts';
 import { LINE_KINDS, MAX_SESSIONS, ROW_MULTIPLES, SESSION_PRESETS, SHARES, ZONES, chartKinds, linesSource, mostCount, newSessionId, recordedCount, type KindSettings, type LineKind, type TradedSettings } from './settings.ts';
@@ -49,7 +48,7 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     switchRow(t('Show the volume profile'), t('The profiles beside the map and along the top of the chart, and the point-of-control lines on the chart.'), store.state.show.traded, on => { store.set({ show: { ...store.state.show, traded: on } }); rebuild(); }),
     // Every choice below is kept while the switch is off, and none of it shows: said rather than leave the rows looking live.
     ...(off ? [note(t('The volume profile is off: nothing set below shows until it is switched on.'))] : []),
-    ...(compactBar() ? [note(t('A phone has no room for the columns: it draws the first band along the top, and the lines on the chart.'))] : []),
+    ...(!off && room?.sides === 0 ? [note(t('A phone has no room for the columns: it draws the first band along the top, and the lines on the chart.'))] : []),
     // What the profile itself looks like, first: the bars, the value area and its share are the same for the columns and the time profile.
     selectRow(t('Bars'), t('Each row and each stretch as its two sides, or only their difference: which side was the bigger, and by how much.'), [['split', t('Buys and sells')], ['delta', t('Delta')]], s.bars, v => set({ bars: v === 'delta' ? 'delta' : 'split' }, true)),
     ...(s.bars === 'delta' ? [note(t('With Delta, each row and each stretch is drawn faintly at its whole size and the difference of its two sides over it, on the same scale: a busy row whose sides were close still shows. The point of control and the value area are read from the whole.'))] : []),
@@ -62,7 +61,7 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     el('div', { class: 'place-box' }, placementGrid(places, (metric, placement, on) => set({ placements: setPlaced(store.state.traded.placements, metric, placement, on) }, true)), placementSketch(places, arranged)),
     ...(!sides && !tops ? [note(t('No profile is placed: only the lines on the chart show.'))] : []),
     // What has no room stays switched on and is said, here and on the map (a phone has no columns at all, said above).
-    ...(!off && arranged && arranged.hidden.some(p => !compactBar() || p.placement === 'top') ? [note(hiddenText(arranged.hidden.filter(p => !compactBar() || p.placement === 'top')))] : []),
+    ...(!off && arranged && arranged.hidden.some(p => room!.sides > 0 || p.placement === 'top') ? [note(hiddenText(arranged.hidden.filter(p => room!.sides > 0 || p.placement === 'top')))] : []),
     ...(sides ? [note(t('The map keeps at least half the width, counting the columns on both sides: when they do not all fit, the ones nearest the map stay and the outermost wait for room.'))] : []),
     ...(tops ? [note(t('Up to three bands stack along the top, each shorter the more there are and all of them a quarter of the chart\'s height at most; the first in the list is the lowest, nearest the chart.')),
       note(t('Each bar adds up a stretch of a round length, from a second to a day, about as thin as the column\'s rows at the zoom: zoom in for finer ones. Where the data is no finer (the flow before the last day, open interest), the caption says so. Point at a bar for its figures; click its header for these settings.'))] : []),

@@ -243,6 +243,9 @@ export class HeatPane {
   onAnchor: ((t: number) => void) | null = null;
   /** A click on the header of the profile along the top (set by the page): its settings, in the Volume profile panel. */
   onTopProfile: () => void = () => {};
+  /** What of the profiles has no room changed (a resize, a taller legend): the open panel says it again. */
+  onArrangedChange: () => void = () => {};
+  #hiddenKey = '';
   /** The tags the key levels want on the price axis this frame. */
   #keyTags: KeyTag[] = [];
   #touchSelect: { start: Pt; at: Pt } | null = null;
@@ -595,8 +598,12 @@ export class HeatPane {
     }
     // The absorption column judges groups at the thresholds the marks use, which need the recent minutes the marks load: with the marks off,
     // those minutes alone (and none for a fixed threshold). The column's groups are added up where they are kept (`Hub.ensureMetricProfile`).
-    // A band along the top adds up the marks' own groups, so while one shows absorption they are loaded as for the marks.
-    const set = state.traded.placements, column = state.show.traded && MEASURES.some(m => m.judgedByMarks && onPriceAxis(set, m.id)), marked = state.absorption.on || topMarks(state);
+    // A band along the top adds up the marks' own groups, so while one shows absorption they are loaded as for the marks (only a band that
+    // fits: where they go is worked out here, before the data is asked for, and kept for the overlay).
+    this.#arranged = this.#arrange(state);
+    const hiddenKey = this.#arranged.hidden.map(p => p.id).join(',');
+    if (hiddenKey !== this.#hiddenKey) { this.#hiddenKey = hiddenKey; queueMicrotask(() => this.onArrangedChange()); }
+    const set = state.traded.placements, column = state.show.traded && MEASURES.some(m => m.judgedByMarks && onPriceAxis(set, m.id)), marked = state.absorption.on || topMarks(state, this.#arranged.top);
     if (marked || (column && state.absorption.mode === 'auto')) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes, !marked); }
     this.#stepFootprint(state);
     // Under a dominant footprint the heatmap is gone altogether, so there is nothing to draw.
@@ -666,7 +673,6 @@ export class HeatPane {
     ctx.clearRect(0, 0, this.#paneW, h);
     // Everything is drawn in the plot's coordinates: the plot starts at 0, the columns left of the map are at negative x.
     ctx.setTransform(this.#dpr, 0, 0, this.#dpr, this.#dpr * left, 0);
-    this.#arranged = this.#arrange(state);
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
     ctx.textBaseline = 'middle';
     // grid

@@ -22,6 +22,7 @@ export function placementGrid(set: ProfileSet, onToggle: (metric: ProfileMetric,
   const rows = MEASURES.map(m => {
     const cells = PLACEMENTS.map(p => {
       const box = el('input', { type: 'checkbox', checked: isPlaced(set, m.id, p), ariaLabel: `${m.name()} · ${placeName(p)}` });
+      box.dataset.focus = `placement-${m.id}-${p}`;
       box.onchange = () => onToggle(m.id, p, box.checked);
       return el('label', { class: 'place-cell' }, el('span', { class: 'switch' }, box, el('i')));
     });
