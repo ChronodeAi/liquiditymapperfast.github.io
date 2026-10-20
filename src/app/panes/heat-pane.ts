@@ -56,6 +56,7 @@ import { drawVenueMark } from '../venue-marks.ts';
 import { draftLabel } from '../range/stats.ts';
 import type { RangePoint, RangeTool } from '../range/tool.ts';
 import { paintDivergence, type Divergence } from '../delta/divergence.ts';
+import { MeasureStrip } from '../measures/strip.ts';
 import { countdown, lineSide } from '../price-line.ts';
 import { candlesAt, formingCandle, pageNow, replaying, replayView } from '../replay/clock.ts';
 import { TapeGL, type DustStyle } from '../tape/gl.ts';
@@ -232,6 +233,8 @@ export class HeatPane {
   #pulseFrame = 0; #pulseDrawn = 0;
   #lod = new FootprintLod();
   #lodFrame: LodFrame = { barAlpha: 0, sellBuyAlpha: 0, needsFrame: false, heatmapOpacity: 1, narrowing: 0 };
+  /** The measure strip along the top of the map (measures/): each candle's delta or change of open interest, under the legend. */
+  readonly #measures = new MeasureStrip();
   #volume: VolumeAnalysis | null = null;
   /** Absorption icons drawn in the last frame (centre, size, the marks they stand for), for hover. */
   #absorptionIcons: { x: number; y: number; s: number; marks: AbsorptionMark[]; usd: number }[] = [];
@@ -637,6 +640,8 @@ export class HeatPane {
     this.#paintTapeStart(ctx, state, pw, ph, p);
     this.#paintLayers(ctx, state, pw, ph);
     this.#paintVolume(ctx, state, pw, ph, this.#lodFrame.narrowing);
+    // Under the candles as the volume bars are, and under the legend and the corner buttons, whose bottoms it is placed by.
+    this.#measures.paint(ctx, state, this.hub, { view: v, pw, ph, palette: p, narrowing: this.#lodFrame.narrowing, legendBottom: this.#legendBox.bottom, toolsBottom: () => { const c = this.root.querySelector<HTMLElement>('.map-tools'); return c ? c.offsetTop + c.offsetHeight + 3 : 0; } });
     this.#pulseRects = [];
     if (state.show.footprint) {
       const marks = this.#footprintMarks.get(this.#footprint, state.barStatOptions), fp = state.footprint;
@@ -708,6 +713,7 @@ export class HeatPane {
     // Which clock the labels are on, under the price axis where no tick label goes (a screenshot says it too).
     ctx.textAlign = 'right'; ctx.fillText(zoneName(), w - 6, ph + TIME_H / 2); ctx.textAlign = 'center';
     this.#paintLegend(ctx, state);
+    if (this.#measures.misplaced(this.#legendBox.bottom)) this.invalidate(); // the legend changed height: place the strip under it again
     if (!this.#wasLoaded && state.levels) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('Collecting depth history…'), 12, 50); }
     const emptyScope = heatmapSourceOf(state) === 'aggregated' ? emptyScopeMessage(state) : null;
     if (emptyScope) { // the filter selected nothing: say so instead of drawing a blank map
@@ -1788,7 +1794,7 @@ export class HeatPane {
     ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     const axisX = this.#w - AXIS_W;
     if (ownY && y >= 0 && y <= ph) { ctx.fillStyle = p.text; ctx.fillRect(axisX + 1, y - 9, AXIS_W - 1, 18); ctx.fillStyle = p.bg; ctx.textAlign = 'left'; ctx.fillText(fmtPrice(hv.price!), axisX + 6, y); }
-    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null;
+    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: InfoLine[] | null = null;
     const touch = hv.touch === true;
     if (touch && ownY && inX && y >= 0 && y <= ph) { ctx.strokeStyle = p.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
     const absorbed = ownY && here ? this.#absorptionAt(x, y) : null;
@@ -1814,6 +1820,8 @@ export class HeatPane {
       this.#paintTrapPopup(ctx, trapHit, x, y, pw, ph, touch);
     } else if (ownY && here && (rowHit = this.#footprintUnder(x, hv.t, hv.price!, pw))) {
       this.#paintFootprintPopup(ctx, rowHit, x, y, pw, ph, touch);
+    } else if (ownY && here && (measured = this.#measures.readout(y, hv.t, state.timeframe))) { // the measure strip's candle: its value, or why it has none
+      paintInfoBox(ctx, measured, x, touch ? y + 18 : y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'down' : 'center' });
     } else if (ownY && here && state.layer === 'liquidity') {
       const cell = this.valueAt(hv.t, hv.price!);
       const side = cell && cell.ask > cell.bid ? 'ask' : 'bid', source = cell ? this.#sourceOf(hv.t, hv.price!, side) : '';

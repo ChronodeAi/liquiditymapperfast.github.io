@@ -11,7 +11,7 @@ import { t } from './i18n.ts';
  * button opens (Trades, Absorption, Highlights, Sounds) has it in its panel's tool strip; a settings window opened from a pane's header
  * shares that pane's. Windows that only do a job (About, Install, the venue menu, the venue and coin pickers) explain themselves and have none.
  */
-export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'barStats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
+export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'measures' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'barStats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
 
 export interface HelpTopic {
   title: string;
@@ -131,6 +131,14 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
     title: t('Volume'), guide: 'chart',
     tip: t('Volume bars along the bottom of the chart. Unusually large ones are drawn stronger (see Highlights).'),
     body: [],
+  },
+  measures: {
+    title: t('Measure strip'), guide: 'chart',
+    tip: t('A strip along the top of the chart: one bar per candle for its delta (bought minus sold at market) or its change in open interest, above the zero line for more and below it for less.'),
+    body: [t('The columns right of the chart show measures by price; this strip shows them by time, one bar per candle, as the volume bars along the bottom do. Its button switches it on or off, and its key chooses the measure.'),
+      t('Delta is what was bought at market minus what was sold in each candle, in dollars, over the same markets as the Delta pane and worked out the same way: ten minutes or more with no trade on any of them counts as not recorded.'),
+      t('OI change is how much the open interest of the OI pane\'s markets rose or fell in each candle, in coins: up means positions were opened, down that they were closed, never who bought. Most exchanges report it every minute or every five, so on a fine timeframe one change stands for several candles and the candles between have none; the strip says how often it is read.'),
+      t('Every bar is scaled against the largest in view, above and below zero alike. A candle with no data has no bar and a dotted zero line, and says why when you point at it: it is not a zero.')],
   },
   bubbles: {
     title: t('Trades'), guide: 'trades',
