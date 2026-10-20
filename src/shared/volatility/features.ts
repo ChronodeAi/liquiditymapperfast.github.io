@@ -1,15 +1,15 @@
 /**
- * The order-flow readings behind the sharp-move question (docs/sharp-moves.md): each is one of the ideas @karlbooklover posts about,
- * computed from what the local server records and phrased as a sentence a language model can read. Pure: the server gathers `SharpInputs`
- * (server/v2/sharp.mts), this turns them into numbers and words. Words are English on purpose (the reader is a model, not the page).
+ * The order-flow readings behind the volatile-move question (docs/volatility-watch.md): each is one of the ideas @karlbooklover posts about,
+ * computed from what the local server records and phrased as a sentence a language model can read. Pure: the server gathers `VolatilityInputs`
+ * (server/v2/volatility.mts), this turns them into numbers and words. Words are English on purpose (the reader is a model, not the page).
  */
 import { anomalies } from '../anomaly.ts';
 import type { FlowMinutesSeries } from '../flow.ts';
 
 const MINUTE = 60_000;
 /** How far back the inputs reach: a day of baseline plus the hour being judged. */
-export const SHARP_HISTORY_MS = 25 * 3_600_000;
-const N = SHARP_HISTORY_MS / MINUTE, DAY_MIN = 1_440;
+export const VOLATILITY_HISTORY_MS = 25 * 3_600_000;
+const N = VOLATILITY_HISTORY_MS / MINUTE, DAY_MIN = 1_440;
 /** A z-score needs at least this many earlier windows to stand against. */
 const MIN_WINDOWS = 12;
 /** A reading counts as a side only from this many standard deviations. */
@@ -17,7 +17,7 @@ const SIDE_Z = 1;
 /** The highlight rule's parameters (the page's defaults). */
 const HIGHLIGHT = { mult: 2, length: 72 };
 
-export interface SharpInputs {
+export interface VolatilityInputs {
   /** Whole minute (ms) the judged minute ends at. */
   now: number;
   coin: string;
@@ -34,20 +34,20 @@ export interface SharpInputs {
   /** Per minute over the last 60 min, large market orders (the third size band, about $1M on BTC). */
   whale: { t: number; buyUsd: number; sellUsd: number }[];
   /**
-   * Optional, for the image arm (server/v2/sharp-image.mts): resting USD summed over the coin's books, one column per minute over the last
+   * Optional, for the image arm (server/v2/volatility-image.mts): resting USD summed over the coin's books, one column per minute over the last
    * `HEAT_MINUTES`, in `HEAT_ROWS` price rows of `HEAT_ROW_BP` around the judged minute's price (row 0 lowest), bids and asks apart, column-major.
    */
   heat?: { bid: Float64Array; ask: Float64Array; price: Float64Array };
 }
 
 export const HEAT_MINUTES = 120, HEAT_ROWS = 60, HEAT_ROW_BP = 5;
-/** Minutes of raw history the long-context arm sends (`sharpSeries`). */
+/** Minutes of raw history the long-context arm sends (`volatilitySeries`). */
 export const SERIES_MINUTES = 1_440;
 
-export type SharpValue = number | boolean | null;
-export interface SharpFeatures {
+export type VolatilityValue = number | boolean | null;
+export interface VolatilityFeatures {
   coin: string; t: number; price: number;
-  values: Record<string, SharpValue>;
+  values: Record<string, VolatilityValue>;
   /** One sentence per concept (the ids in `CONCEPT_IDS`); a concept with no data yet is absent. */
   words: Record<string, string>;
 }
@@ -125,7 +125,7 @@ function nearest<T extends { t: number }>(rows: readonly T[], at: number, within
   return best;
 }
 
-export function sharpFeatures(input: SharpInputs): SharpFeatures | null {
+export function volatilityFeatures(input: VolatilityInputs): VolatilityFeatures | null {
   const { now, coin } = input;
   if (!input.spot.length && !input.perp.length) return null;
   const spot = groupOf(input.spot, now), perp = groupOf(input.perp, now);
@@ -222,7 +222,7 @@ export function sharpFeatures(input: SharpInputs): SharpFeatures | null {
   const binanceLeads = binanceSpotZ60 === null || !Number.isFinite(ret60) ? null : Math.abs(binanceSpotZ60) >= SIDE_Z && ret60 !== 0 && Math.sign(binanceSpotZ60) !== Math.sign(ret60);
   const priceCvdOpposite = opposite(aggZ15, retZ15);
 
-  const values: Record<string, SharpValue> = {
+  const values: Record<string, VolatilityValue> = {
     ret15: finite(ret15) === null ? null : round(ret15, 3), ret60: finite(ret60) === null ? null : round(ret60, 3), retZ15,
     spotZ15, perpZ15, spotZ60, perpZ60, spotPerpOpposite,
     binanceSpotZ60, binanceLeads, aggZ15, priceCvdOpposite,
@@ -258,7 +258,7 @@ export function sharpFeatures(input: SharpInputs): SharpFeatures | null {
  * `SERIES_MINUTES` (oldest first) with price, spot and perpetual net taker flow and gross volume ($K), resting USD within 1 % ($K, the last
  * 6 h only) and liquidations ($K). Empty fields are minutes with nothing recorded. Null when there is no price.
  */
-export function sharpSeries(input: SharpInputs): string | null {
+export function volatilitySeries(input: VolatilityInputs): string | null {
   const { now } = input;
   const spot = groupOf(input.spot, now), perp = groupOf(input.perp, now);
   const refPerp = input.perp.find(s => s.id === input.refPerpId);

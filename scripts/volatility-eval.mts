@@ -1,9 +1,9 @@
 /**
- * Measure the sharp-move log, `sharp-log.jsonl`, against what price did next (docs/sharp-moves.md).
+ * Measure the volatility log, `volatility-log.jsonl`, against what price did next (docs/volatility-watch.md).
  *
- *   npm run sharp:eval -- [--log <path>] [--horizon 15] [--k 3]
+ *   npm run volatility:eval -- [--log <path>] [--horizon 15] [--k 3]
  *
- * A row is "sharp" when, within `horizon` minutes after it, price's largest excursion from the row's price is at least `k` times the
+ * A row is "volatile" when, within `horizon` minutes after it, price's largest excursion from the row's price is at least `k` times the
  * standard deviation of 15-minute returns over the 24 hours of rows before it. Jev's score and each concept's yes probability (rows Jev
  * answered) are ranked against that (ROC AUC, Brier), beside a plain baseline (the largest of |spotZ15|, |perpZ15|, |retZ15|, volSigma and
  * liqZ5) and the model-free confluence, recomputed from each row's logged values so rows written before it existed count too. The
@@ -11,7 +11,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { confluence, type Confluence } from '../src/shared/sharp/confluence.ts';
+import { confluence, type Confluence } from '../src/shared/volatility/confluence.ts';
 
 const MINUTE = 60_000;
 
@@ -19,11 +19,11 @@ export interface Row {
   features: { coin: string; t: number; price: number; values: Record<string, number | boolean | null> };
   /** Absent on a minute Jev was not asked (no key, backing off) or did not answer. */
   verdict?: { score: number; scoreConfidence: number; direction: 'up' | 'down'; directionP: number; concepts: Record<string, number>; ms?: number; inputTokens?: number };
-  /** The SubQ arms' verdicts on the same minute (see `SUBQ_ARMS` in shared/sharp/jev.ts). */
+  /** The SubQ arms' verdicts on the same minute (see `SUBQ_ARMS` in shared/volatility/jev.ts). */
   arms?: Partial<Record<'subq' | 'subqHistory' | 'subqImage', Row['verdict']>>;
 }
 /** `ret`: log return (%) from the row to the last row within the horizon; `sd`: the standard deviation of 15-minute log returns it was judged by. */
-export interface Labelled { row: Row; sharp: boolean; up: boolean; ret: number; sd: number }
+export interface Labelled { row: Row; volatile: boolean; up: boolean; ret: number; sd: number }
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -32,7 +32,7 @@ function arg(name: string, fallback: string): string {
 
 /** The rows of a log, oldest file first; a line that does not parse is skipped. */
 export function readLog(file: string): Row[] {
-  const rotated = path.join(path.dirname(file), 'sharp-log.1.jsonl');
+  const rotated = path.join(path.dirname(file), 'volatility-log.1.jsonl');
   const rows: Row[] = [];
   for (const f of [rotated, file]) {
     if (!fs.existsSync(f)) continue;
@@ -48,7 +48,7 @@ export function readLog(file: string): Row[] {
 }
 
 /**
- * Each row that has 48 15-minute returns in the 24 hours before it and a log reaching its horizon, judged sharp when its largest move within
+ * Each row that has 48 15-minute returns in the 24 hours before it and a log reaching its horizon, judged volatile when its largest move within
  * the horizon is at least `k` standard deviations of those returns.
  */
 export function label(rows: readonly Row[], horizonMin: number, k: number): Labelled[] {
@@ -78,7 +78,7 @@ export function label(rows: readonly Row[], horizonMin: number, k: number): Labe
         if (Math.abs(x) > Math.abs(extreme)) extreme = x;
       }
       if (last < t + (horizonMin - 2) * MINUTE) continue; // the log ends before the horizon does
-      out.push({ row, sharp: Math.abs(extreme) >= k * sd, up: extreme > 0, ret: Math.log(lastPrice / p) * 100, sd });
+      out.push({ row, volatile: Math.abs(extreme) >= k * sd, up: extreme > 0, ret: Math.log(lastPrice / p) * 100, sd });
     }
   }
   return out;
@@ -106,36 +106,36 @@ const pctOf = (a: number, b: number): string => b ? `${(a / b * 100).toFixed(1)}
 const bp = (xs: readonly number[]): string => xs.length ? `${(xs.reduce((a, b) => a + b, 0) / xs.length * 100).toFixed(1)} bp` : 'n/a';
 
 /**
- * How the confluence did: as a ranking of sharpness (|score|), its direction on sharp rows, and its calls as trades held to the horizon
+ * How the confluence did: as a ranking of volatility (|score|), its direction on volatile rows, and its calls as trades held to the horizon
  * (the mean signed return, against the mean absolute return of every row as the scale of a coin flip's luck).
  */
 export function confluenceReport(labelled: readonly Labelled[]): string[] {
   const read = labelled.map(l => ({ l, c: confluence(l.row.features.values) as Confluence }));
   const lines: string[] = [];
-  const y = read.map(x => x.l.sharp);
+  const y = read.map(x => x.l.volatile);
   lines.push(`confluence |score| AUC: ${fmt(auc(read.map(x => Math.abs(x.c.score)), y))}`);
-  const sharpDirected = read.filter(x => x.l.sharp && x.c.direction), right = sharpDirected.filter(x => (x.c.direction === 'up') === x.l.up).length;
-  lines.push(`confluence direction on sharp rows: ${sharpDirected.length ? `${right}/${sharpDirected.length} = ${pctOf(right, sharpDirected.length)}` : 'n/a'}`);
+  const volatileDirected = read.filter(x => x.l.volatile && x.c.direction), right = volatileDirected.filter(x => (x.c.direction === 'up') === x.l.up).length;
+  lines.push(`confluence direction on volatile rows: ${volatileDirected.length ? `${right}/${volatileDirected.length} = ${pctOf(right, volatileDirected.length)}` : 'n/a'}`);
   const calls = read.filter(x => x.c.call), signed = (x: { l: Labelled; c: Confluence }): number => (x.c.direction === 'up' ? 1 : -1) * x.l.ret;
-  const callsSharp = calls.filter(x => x.l.sharp).length, callsRight = calls.filter(x => signed(x) > 0).length;
-  lines.push(`confluence calls: ${calls.length}, of them sharp ${pctOf(callsSharp, calls.length)}, right way at the horizon ${pctOf(callsRight, calls.length)}, mean signed return ${bp(calls.map(signed))} (every row's mean |return| ${bp(read.map(x => Math.abs(x.l.ret)))})`);
+  const callsVolatile = calls.filter(x => x.l.volatile).length, callsRight = calls.filter(x => signed(x) > 0).length;
+  lines.push(`confluence calls: ${calls.length}, of them volatile ${pctOf(callsVolatile, calls.length)}, right way at the horizon ${pctOf(callsRight, calls.length)}, mean signed return ${bp(calls.map(signed))} (every row's mean |return| ${bp(read.map(x => Math.abs(x.l.ret)))})`);
   const directed = read.filter(x => x.c.direction && x.c.agree >= 2 && x.c.against === 0);
   lines.push(`families agreeing (any trigger or none): ${directed.length}, right way ${pctOf(directed.filter(x => signed(x) > 0).length, directed.length)}, mean signed return ${bp(directed.map(signed))}`);
   return lines;
 }
 
 function main(): void {
-  const file = arg('log', 'data/runtime/sharp-log.jsonl'), horizon = Number(arg('horizon', '15')), k = Number(arg('k', '3'));
+  const file = arg('log', 'data/runtime/volatility-log.jsonl'), horizon = Number(arg('horizon', '15')), k = Number(arg('k', '3'));
   if (!fs.existsSync(file)) { console.error(`no log at ${file}`); process.exit(1); }
   const rows = readLog(file), labelled = label(rows, horizon, k);
-  console.log(`log ${file}: ${rows.length} minutes, ${labelled.length} labelled (horizon ${horizon} min, sharp = move of ${k} sigma of 15-minute returns)`);
-  const y = labelled.map(l => l.sharp), positives = y.filter(Boolean).length;
+  console.log(`log ${file}: ${rows.length} minutes, ${labelled.length} labelled (horizon ${horizon} min, volatile = move of ${k} sigma of 15-minute returns)`);
+  const y = labelled.map(l => l.volatile), positives = y.filter(Boolean).length;
   if (!labelled.length) { console.log('nothing labelled yet: needs 48 rows of history before a row and the horizon after it'); return; }
-  console.log(`base rate: ${(positives / labelled.length * 100).toFixed(1)} % (${positives} sharp)\n`);
+  console.log(`base rate: ${(positives / labelled.length * 100).toFixed(1)} % (${positives} volatile)\n`);
   for (const line of confluenceReport(labelled)) console.log(line);
 
   for (const model of MODELS) {
-    const judged = labelled.filter(l => verdictOf(l.row, model)), yj = judged.map(l => l.sharp);
+    const judged = labelled.filter(l => verdictOf(l.row, model)), yj = judged.map(l => l.volatile);
     console.log(`\n== ${model}: answered ${judged.length} of the labelled minutes`);
     if (!judged.length) continue;
     const v = (l: Labelled): Verdict => verdictOf(l.row, model)!;
@@ -148,11 +148,11 @@ function main(): void {
     const width = Math.max(...table.map(r => r[0].length));
     console.log(`${'predictor'.padEnd(width)}  ${'AUC'.padStart(6)}  ${'Brier'.padStart(6)}`);
     for (const [name, scores, probability] of table) console.log(`${name.padEnd(width)}  ${fmt(auc(scores, yj)).padStart(6)}  ${(probability ? fmt(brier(scores, yj)) : 'n/a').padStart(6)}`);
-    const sharp = judged.filter(l => l.sharp);
-    const hits = sharp.filter(l => (v(l).direction === 'up') === l.up).length;
-    console.log(`direction on sharp rows: ${sharp.length ? `${hits}/${sharp.length} = ${pctOf(hits, sharp.length)}` : 'n/a'}`);
-    const called = judged.filter(l => v(l).score >= 3), right = called.filter(l => l.sharp).length;
-    console.log(`score >= 3: ${called.length} calls, precision ${pctOf(right, called.length)}, recall ${pctOf(right, sharp.length)}`);
+    const volatile = judged.filter(l => l.volatile);
+    const hits = volatile.filter(l => (v(l).direction === 'up') === l.up).length;
+    console.log(`direction on volatile rows: ${volatile.length ? `${hits}/${volatile.length} = ${pctOf(hits, volatile.length)}` : 'n/a'}`);
+    const called = judged.filter(l => v(l).score >= 3), right = called.filter(l => l.volatile).length;
+    console.log(`score >= 3: ${called.length} calls, precision ${pctOf(right, called.length)}, recall ${pctOf(right, volatile.length)}`);
     const ms = judged.map(l => v(l).ms).filter((x): x is number => typeof x === 'number').sort((a, b) => a - b);
     const tokens = judged.map(l => v(l).inputTokens).filter((x): x is number => typeof x === 'number');
     if (ms.length) console.log(`latency p50 ${ms[ms.length >> 1]} ms, p90 ${ms[Math.floor(ms.length * 0.9)]} ms; input tokens mean ${tokens.length ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : 'n/a'}`);
@@ -165,11 +165,11 @@ function main(): void {
   const silent = MODELS.filter(m => !answered.includes(m) && labelled.some(l => verdictOf(l.row, m)));
   const paired = labelled.filter(l => answered.every(m => verdictOf(l.row, m)));
   if (answered.length > 1 && paired.length) {
-    const yp = paired.map(l => l.sharp), sharpRows = paired.filter(l => l.sharp);
-    console.log(`\n== paired: ${paired.length} minutes every model answered (${sharpRows.length} sharp)${silent.length ? `; left out, silent for 24 h: ${silent.join(', ')}` : ''}`);
+    const yp = paired.map(l => l.volatile), volatileRows = paired.filter(l => l.volatile);
+    console.log(`\n== paired: ${paired.length} minutes every model answered (${volatileRows.length} volatile)${silent.length ? `; left out, silent for 24 h: ${silent.join(', ')}` : ''}`);
     for (const m of answered) {
-      const right = sharpRows.filter(l => (verdictOf(l.row, m)!.direction === 'up') === l.up).length;
-      console.log(`${m.padEnd(12)} score AUC ${fmt(auc(paired.map(l => verdictOf(l.row, m)!.score), yp))}, direction on sharp ${sharpRows.length ? `${right}/${sharpRows.length}` : 'n/a'}`);
+      const right = volatileRows.filter(l => (verdictOf(l.row, m)!.direction === 'up') === l.up).length;
+      console.log(`${m.padEnd(12)} score AUC ${fmt(auc(paired.map(l => verdictOf(l.row, m)!.score), yp))}, direction on volatile ${volatileRows.length ? `${right}/${volatileRows.length}` : 'n/a'}`);
     }
   }
 }

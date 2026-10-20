@@ -1,8 +1,8 @@
 /**
- * The sharp-move casebook (docs/sharp-moves.md): every recorded minute, kept past the recordings' week, and every volatile move up or down
+ * The volatility casebook (docs/volatility-watch.md): every recorded minute, kept past the recordings' week, and every volatile move up or down
  * with what the markets and the models showed before, during and after it.
  *
- *   npm run sharp:episodes -- [--data data/runtime] [--out Research_Results/sharp-episodes] [--ref binance:BTCUSDT] [--coin BTC]
+ *   npm run volatility:episodes -- [--data data/runtime] [--out Research_Results/volatility-episodes] [--ref binance:BTCUSDT] [--coin BTC]
  *
  * First each whole UTC day not kept yet is written to `<out>/minutes/<day>.jsonl.gz`, one `Minute` a line. The recordings it reads keep a
  * week (RETENTION_MS in shared/recorder.ts), so it has to run at least every six days. Then the casebook is rebuilt from every kept day and
@@ -13,9 +13,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
-import { auc, label, readLog, type Row } from './sharp-eval.mts';
-import { confluence } from '../src/shared/sharp/confluence.ts';
-import { SUBQ_ARMS } from '../src/shared/sharp/jev.ts';
+import { auc, label, readLog, type Row } from './volatility-eval.mts';
+import { confluence } from '../src/shared/volatility/confluence.ts';
+import { SUBQ_ARMS } from '../src/shared/volatility/jev.ts';
 import { BROWSER_VENUES } from '../src/shared/venues.ts';
 import { columnOf } from '../src/server/v2/store.mts';
 import { toRow } from '../src/server/v2/flow.mts';
@@ -25,9 +25,9 @@ const MINUTE = 60_000, DAY = 86_400_000;
 const BANDS_BP = [10, 25, 50, 100, 200];
 /** All books on one fixed price grid: its cell ($) and its reach either side of the close (a fraction). */
 const CELL_USD = 50, GRID_REACH = 0.02;
-/** A minute is sharp when price moves K sigma of 15-minute returns within HORIZON minutes; a move is strong with a minute at STRONG_K. */
+/** A minute is volatile when price moves K sigma of 15-minute returns within HORIZON minutes; a move is strong with a minute at STRONG_K. */
 const K = 2, STRONG_K = 3, HORIZON = 15;
-/** Sharp minutes of one direction at most GAP minutes apart are one move; its swing is sought from LEAD minutes before them to TRAIL after. */
+/** Volatile minutes of one direction at most GAP minutes apart are one move; its swing is sought from LEAD minutes before them to TRAIL after. */
 const GAP = 15, LEAD = 10, TRAIL = 20;
 /** A model's reading is loud from this score of 4 (the Sounds panel's default); the confluence's is loud when it makes a call. */
 const LOUD = 3;
@@ -50,8 +50,8 @@ export interface Minute {
   grid?: { from: number; perpBid: number[]; perpAsk: number[]; spotBid: number[]; spotAsk: number[] };
   /** Per perpetual: open interest at the minute's end in coins, and in USD where the venue says. */
   oi: Record<string, [number, number | null]>;
-  /** The sharp-move reading made as this minute closed (its `features.t` is `t` + 1 minute): the `sharp-log.jsonl` row as logged. */
-  sharp?: Row;
+  /** The volatility reading made as this minute closed (its `features.t` is `t` + 1 minute): the `volatility-log.jsonl` row as logged. */
+  reading?: Row;
 }
 
 const KINDS = new Map(BROWSER_VENUES.map(v => [v.id, v.kind]));
@@ -106,7 +106,7 @@ function readMinutes(src: Sources, from: number, to: number): Minute[] {
     m.depth[r.inst] = bands.map(Math.round);
   }
   for (const [t, g] of grids) minute(t).grid = { from: g.from, perpBid: g.perpBid.map(Math.round), perpAsk: g.perpAsk.map(Math.round), spotBid: g.spotBid.map(Math.round), spotAsk: g.spotAsk.map(Math.round) };
-  for (const m of at.values()) { const row = src.log.get(m.t + MINUTE); if (row) m.sharp = row; }
+  for (const m of at.values()) { const row = src.log.get(m.t + MINUTE); if (row) m.reading = row; }
   return [...at.values()].sort((a, b) => a.t - b.t);
 }
 
@@ -218,7 +218,7 @@ class Series {
     }
     const oi = m.oi[this.ref];
     if (oi) v.oi[i] = oi[1] ?? (c ? oi[0] * c.c : NaN);
-    const row = m.sharp;
+    const row = m.reading;
     if (!row) return;
     const put = (model: Model, x: Row['verdict']): void => {
       if (!x || typeof x.score !== 'number') return;
@@ -233,16 +233,16 @@ class Series {
   }
 }
 
-/** A move as indices into the minutes: its swing from `start` to `end` (`move` apart in price), and the sharp minutes behind it. */
-export interface Swing { up: boolean; start: number; end: number; move: number; first: number; last: number; sharp: number }
+/** A move as indices into the minutes: its swing from `start` to `end` (`move` apart in price), and the volatile minutes behind it. */
+export interface Swing { up: boolean; start: number; end: number; move: number; first: number; last: number; volatileMinutes: number }
 
 /**
- * The moves in a run of minutes. `sharp[i]`: null, or whether the sharp move after minute i is up; `h`, `l`: candle highs and lows (NaN: no
- * candle). Sharp minutes of one direction at most `gap` minutes apart are one move, measured by its swing: the largest run that way, from a
- * low to a later high for a rise (a high to a later low for a fall), from `lead` minutes before its first sharp minute to `trail` after its
+ * The moves in a run of minutes. `volatile[i]`: null, or whether the volatile move after minute i is up; `h`, `l`: candle highs and lows (NaN: no
+ * candle). Volatile minutes of one direction at most `gap` minutes apart are one move, measured by its swing: the largest run that way, from a
+ * low to a later high for a rise (a high to a later low for a fall), from `lead` minutes before its first volatile minute to `trail` after its
  * last. Moves of one direction whose swings overlap are one move; a rise may overlap a fall (a flush and its bounce).
  */
-export function findSwings(sharp: readonly (boolean | null)[], h: readonly number[], l: readonly number[], gap = GAP, lead = LEAD, trail = TRAIL): Swing[] {
+export function findSwings(volatile: readonly (boolean | null)[], h: readonly number[], l: readonly number[], gap = GAP, lead = LEAD, trail = TRAIL): Swing[] {
   const out: Swing[] = [];
   for (const up of [true, false]) {
     const swingOf = (first: number, last: number, count: number): Swing | null => {
@@ -252,19 +252,19 @@ export function findSwings(sharp: readonly (boolean | null)[], h: readonly numbe
         // A level held for several minutes: the move starts at the last of them.
         if (pivot < 0 || (up ? l[i]! <= l[pivot]! : h[i]! >= h[pivot]!)) pivot = i;
         const move = up ? h[i]! - l[pivot]! : h[pivot]! - l[i]!;
-        if (!best || move > best.move) best = { up, start: pivot, end: i, move, first, last, sharp: count };
+        if (!best || move > best.move) best = { up, start: pivot, end: i, move, first, last, volatileMinutes: count };
       }
       return best && best.move > 0 ? best : null;
     };
     const moves: Swing[] = [];
     const close = (first: number, last: number, count: number): void => {
       let s = swingOf(first, last, count);
-      while (s && moves.length && s.start <= moves.at(-1)!.end) { const p = moves.pop()!; s = swingOf(Math.min(p.first, s.first), Math.max(p.last, s.last), p.sharp + s.sharp) ?? p; }
+      while (s && moves.length && s.start <= moves.at(-1)!.end) { const p = moves.pop()!; s = swingOf(Math.min(p.first, s.first), Math.max(p.last, s.last), p.volatileMinutes + s.volatileMinutes) ?? p; }
       if (s) moves.push(s);
     };
     let first = -1, last = -1, count = 0;
-    for (let i = 0; i < sharp.length; i++) {
-      if (sharp[i] !== up) continue;
+    for (let i = 0; i < volatile.length; i++) {
+      if (volatile[i] !== up) continue;
       if (first >= 0 && i - last <= gap) { last = i; count++; continue; }
       if (first >= 0) close(first, last, count);
       first = last = i; count = 1;
@@ -276,7 +276,7 @@ export function findSwings(sharp: readonly (boolean | null)[], h: readonly numbe
 }
 
 type N = number | null;
-/** What the minutes up to one showed (`docs/sharp-moves.md` explains each). */
+/** What the minutes up to one showed (`docs/volatility-watch.md` explains each). */
 interface Before {
   ret: N; range: N; rangeSigma: N; perpNet: N; spotNet: N; refNet: N; refSpotNet: N; perpZ: N; spotZ: N; spotShare: N; spotShareRatio: N;
   liqLong: N; liqShort: N; liqMax: N; bid50: N; ask50: N; bid50Chg: N; ask50Chg: N; imb50: N; bidAdded: N; bidPulled: N; askAdded: N; askPulled: N;
@@ -290,7 +290,7 @@ interface Call { score: number; dir: 'up' | 'down' | null; p: N; loud: boolean; 
 type Calls5 = Partial<Record<Model, Call>>;
 interface Episode {
   id: string; direction: 'up' | 'down'; start: { t: string; price: number }; end: { t: string; price: number }; minutes: number;
-  moveUsd: number; movePct: N; sigmaPct: N; sizeSigma: N; strong: boolean; firstSharp: string; lastSharp: string; sharpMinutes: number;
+  moveUsd: number; movePct: N; sigmaPct: N; sizeSigma: N; strong: boolean; firstVolatile: string; lastVolatile: string; volatileMinutes: number;
   before10: Before | null; before30: Before | null; during: During; after: After | null;
   calls: { before10: Calls5; before: Calls5; in3: Calls5; atEnd: Calls5 };
   warned: Model[]; caught: Model[];
@@ -508,11 +508,11 @@ function summary(s: Series, book: Casebook, episodes: Episode[], alarms: Alarm[]
   const L: string[] = [];
   const recorded = s.v.c.filter(fin).length, read = s.calls.confluence.score.filter(fin).length;
   const ups = episodes.filter(e => e.direction === 'up'), strong = episodes.filter(e => e.strong);
-  L.push(`SHARP-MOVE CASEBOOK, rebuilt ${iso(now)} UTC (scripts/sharp-episodes.mts; definitions in docs/sharp-moves.md). All times UTC.`);
+  L.push(`VOLATILITY CASEBOOK, rebuilt ${iso(now)} UTC (scripts/volatility-episodes.mts; definitions in docs/volatility-watch.md). All times UTC.`);
   L.push(`Minutes: ${iso(s.time(0))} to ${iso(s.time(s.length - 1))}, ${recorded} with a ${s.ref} candle, ${read} with a model reading.`);
   L.push(`A move: minutes after which ${s.ref} closes ${K} sigma of 15-minute returns away within ${HORIZON} minutes (sigma over the 24 h before),`);
   L.push(`one direction, at most ${GAP} minutes apart; measured on 1-minute candles from the high a fall starts at (the low a rise starts at) to where`);
-  L.push(`it ends. Strong: one of its minutes reached ${STRONG_K} sigma (the daily evaluation's sharp move). A reading made "as minute M closed" saw up to M's end.`);
+  L.push(`it ends. Strong: one of its minutes reached ${STRONG_K} sigma (the daily evaluation's volatile move). A reading made "as minute M closed" saw up to M's end.`);
   L.push('');
   L.push(`MOVES ${episodes.length}: ${ups.length} up, ${episodes.length - ups.length} down; strong ${strong.length} (${strong.filter(e => e.direction === 'up').length} up). Median ${cell(median(episodes.map(e => (e.movePct === null ? NaN : Math.abs(e.movePct)))), 2)} % (${cell(median(episodes.map(e => e.sizeSigma ?? NaN)))} sigma) in ${median(episodes.map(e => e.minutes))} min.`);
 
@@ -557,7 +557,7 @@ function summary(s: Series, book: Casebook, episodes: Episode[], alarms: Alarm[]
 function caseText(s: Series, book: Casebook, e: Episode, m: Swing): string {
   const v = s.v, up = m.up, L: string[] = [];
   L.push(`MOVE ${e.id}: ${up ? 'UP' : 'DOWN'} from ${usd(e.start.price)} (${e.start.t.slice(11)}) to ${usd(e.end.price)} (${e.end.t.slice(11)} UTC), ${up ? '+' : '-'}${usd(Math.abs(e.moveUsd))} (${cell(e.movePct, 2)} %), ${cell(e.sizeSigma)} sigma${e.strong ? ' (strong)' : ''}, ${e.minutes} min.`);
-  L.push(`Sharp minutes ${e.firstSharp.slice(11)} to ${e.lastSharp.slice(11)} (${e.sharpMinutes}). ${e.after ? `Given back: ${cell(e.after.back5, 0)} % after 5 min, ${cell(e.after.back15, 0)} % after 15, ${cell(e.after.back30, 0)} % after 30.` : 'Too recent for what came after.'}`);
+  L.push(`Volatile minutes ${e.firstVolatile.slice(11)} to ${e.lastVolatile.slice(11)} (${e.volatileMinutes}). ${e.after ? `Given back: ${cell(e.after.back5, 0)} % after 5 min, ${cell(e.after.back15, 0)} % after 15, ${cell(e.after.back30, 0)} % after 30.` : 'Too recent for what came after.'}`);
   L.push(`Loud in the 15 min before: ${e.warned.map(x => NAMES[x]).join(', ') || 'none'}; in the first 5 min: ${e.caught.map(x => NAMES[x]).join(', ') || 'none'}.`);
   const b30 = e.before30, b10 = e.before10;
   if (b30 && b10) L.push(`Before the start (30 min | 10 min; it is a turning point, so price ran the other way into it): price ${cell(b30.ret, 0)} | ${cell(b10.ret, 0)} bp; perpetual net ${cell(b30.perpNet)} | ${cell(b10.perpNet)} $M (z ${cell(b30.perpZ)} | ${cell(b10.perpZ)}); spot net ${cell(b30.spotNet)} | ${cell(b10.spotNet)} $M; range ${cell(b30.rangeSigma)} | ${cell(b10.rangeSigma)} sigma; liquidations long ${cell(b30.liqLong)} short ${cell(b30.liqShort)} $M; book within 50 bp bids ${cell(b30.bid50Chg, 0)} % asks ${cell(b30.ask50Chg, 0)} %; OI ${cell(b30.oiChg, 2)} %.`);
@@ -569,7 +569,7 @@ function caseText(s: Series, book: Casebook, e: Episode, m: Swing): string {
   const from = Math.max(0, m.start - 30), to = Math.min(s.length - 1, m.end + 30, from + 150);
   for (let i = from; i <= to; i++) {
     const c = book.calls(i), j = c.jev;
-    const mark = i === m.start ? (up ? '  < start (low)' : '  < start (high)') : i === m.end ? (up ? '  < end (high)' : '  < end (low)') : i === m.first ? '  < first sharp minute' : '';
+    const mark = i === m.start ? (up ? '  < start (low)' : '  < start (high)') : i === m.end ? (up ? '  < end (high)' : '  < end (low)') : i === m.first ? '  < first volatile minute' : '';
     const gross = v.perpGross[i]! + v.spotGross[i]!;
     const big = v.liqMax[i]! >= 1e5 ? ` (${(v.liqMax[i]! / 1e6).toFixed(1)} @${Math.round(v.liqMaxPrice[i]!)})` : '';
     L.push(`${hm(s.time(i))}  ${cell(v.o[i], 0).padStart(6)}  ${cell(v.h[i], 0).padStart(6)}  ${cell(v.l[i], 0).padStart(6)}  ${cell(v.c[i], 0).padStart(6)} | ${cell(r(v.liqLong[i]! / 1e6, 1)).padStart(5)}/${cell(r(v.liqShort[i]! / 1e6, 1)).padEnd(5)}${big.padEnd(16)} | ${cell(r(v.refNet[i]! / 1e6, 1)).padStart(8)} ${cell(r(v.perpNet[i]! / 1e6, 1)).padStart(6)} ${cell(r(v.spotNet[i]! / 1e6, 1)).padStart(6)} | ${cell(r(v.spotGross[i]! / gross * 100, 0), 0).padStart(4)}  | ${cell(r(v.bid50[i]! / 1e6, 0), 0).padStart(8)} ${cell(r(v.ask50[i]! / 1e6, 0), 0).padStart(4)}  | ${fin(v.topBid[i]!) ? `${v.topBid[i]} ${(v.topBidUsd[i]! / 1e6).toFixed(0)}`.padEnd(15) : '-'.padEnd(15)} ${fin(v.topAsk[i]!) ? `${v.topAsk[i]} ${(v.topAskUsd[i]! / 1e6).toFixed(0)}`.padEnd(15) : '-'.padEnd(15)} | ${cell(r((v.oi[i]! / oi0 - 1) * 100, 2), 2).padStart(6)} | ${j ? `${j.score.toFixed(1)} ${callText(j)}`.padEnd(8) : '-'.padEnd(8)}${cell(j?.cascade === undefined || j.cascade === null ? null : j.cascade * 100, 0).padStart(3)} | ${callText(c.subq).padEnd(6)} ${callText(c.subqImage).padEnd(6)} ${c.confluence ? callText(c.confluence) + (c.confluence.loud ? '!' : '') : '-'}${mark}`);
@@ -583,9 +583,9 @@ function arg(name: string, fallback: string): string {
 }
 
 function main(): void {
-  const data = arg('data', 'data/runtime'), out = arg('out', 'Research_Results/sharp-episodes'), ref = arg('ref', 'binance:BTCUSDT'), coin = arg('coin', 'BTC');
+  const data = arg('data', 'data/runtime'), out = arg('out', 'Research_Results/volatility-episodes'), ref = arg('ref', 'binance:BTCUSDT'), coin = arg('coin', 'BTC');
   const now = Date.now(), daysDir = path.join(out, 'minutes');
-  const log = new Map(readLog(path.join(data, 'sharp-log.jsonl')).filter(row => row.features.coin === coin).map(row => [row.features.t, row] as const));
+  const log = new Map(readLog(path.join(data, 'volatility-log.jsonl')).filter(row => row.features.coin === coin).map(row => [row.features.t, row] as const));
   // Opened read-only beside the running server (the installed Node typings predate the option).
   const readOnly: ConstructorParameters<typeof DatabaseSync>[1] & { readOnly: boolean } = { readOnly: true };
   const src: Sources = { history: new DatabaseSync(path.join(data, 'history.sqlite'), readOnly), depth: new DatabaseSync(path.join(data, 'depth-v2.sqlite'), readOnly), log, ref, coin };
@@ -598,14 +598,14 @@ function main(): void {
   for (const m of readMinutes(src, Math.max(kept, now - 7 * DAY), Math.floor(now / MINUTE) * MINUTE - MINUTE)) s.add(m);
   if (!s.length) { console.log('nothing recorded yet'); return; }
 
-  // Sharp minutes on the reference's closes, as the evaluation labels the log's rows.
+  // Volatile minutes on the reference's closes, as the evaluation labels the log's rows.
   const rows = s.v.c.flatMap((c, i) => (c > 0 ? [{ features: { coin, t: s.time(i), price: c, values: {} } }] : []));
-  const sharp = new Array<boolean | null>(s.length).fill(null), strong = new Array<boolean | null>(s.length).fill(null), sd = new Array<number>(s.length).fill(NaN);
-  for (const l of label(rows, HORIZON, K)) { const i = Math.round((l.row.features.t - s.t0) / MINUTE); sd[i] = l.sd; if (l.sharp) sharp[i] = l.up; }
-  for (const l of label(rows, HORIZON, STRONG_K)) if (l.sharp) strong[Math.round((l.row.features.t - s.t0) / MINUTE)] = l.up;
+  const volatile = new Array<boolean | null>(s.length).fill(null), strong = new Array<boolean | null>(s.length).fill(null), sd = new Array<number>(s.length).fill(NaN);
+  for (const l of label(rows, HORIZON, K)) { const i = Math.round((l.row.features.t - s.t0) / MINUTE); sd[i] = l.sd; if (l.volatile) volatile[i] = l.up; }
+  for (const l of label(rows, HORIZON, STRONG_K)) if (l.volatile) strong[Math.round((l.row.features.t - s.t0) / MINUTE)] = l.up;
 
   const book = new Casebook(s, sd), v = s.v;
-  const swings = findSwings(sharp, v.h, v.l);
+  const swings = findSwings(volatile, v.h, v.l);
   const idOf = (m: Swing): string => `${new Date(s.time(m.start)).toISOString().slice(0, 16)}Z-${m.up ? 'up' : 'down'}`;
   const episodes: Episode[] = swings.map(m => {
     const from = m.up ? v.l[m.start]! : v.h[m.start]!, to = m.up ? v.h[m.end]! : v.l[m.end]!, sigma = nearSd(sd, m.start);
@@ -614,7 +614,7 @@ function main(): void {
     return {
       id: idOf(m), direction: m.up ? 'up' : 'down', start: { t: iso(s.time(m.start)), price: from }, end: { t: iso(s.time(m.end)), price: to }, minutes: m.end - m.start,
       moveUsd: Math.round(to - from), movePct: r((to / from - 1) * 100, 3), sigmaPct: r(sigma * 100, 3), sizeSigma: r(Math.abs(Math.log(to / from)) / sigma, 2), strong: strongMinutes > 0,
-      firstSharp: iso(s.time(m.first)), lastSharp: iso(s.time(m.last)), sharpMinutes: m.sharp,
+      firstVolatile: iso(s.time(m.first)), lastVolatile: iso(s.time(m.last)), volatileMinutes: m.volatileMinutes,
       before10: book.window(m.start - 1, 10), before30: book.window(m.start - 1, 30), during: book.during(m), after: book.after(m),
       calls: { before10: book.calls(m.start - 10), before: book.calls(m.start - 1), in3: book.calls(m.start + 2), atEnd: book.calls(m.end) },
       warned: MODELS.filter(model => book.loud(model, m.start - 15, m.start - 1)), caught: MODELS.filter(model => book.loud(model, m.start, m.start + 4)),

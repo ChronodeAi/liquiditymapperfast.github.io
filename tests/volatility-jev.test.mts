@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { askDecision, SHARP_QUESTIONS } from '../src/shared/sharp/jev.ts';
-import type { SharpFeatures } from '../src/shared/sharp/features.ts';
+import { askDecision, VOLATILITY_QUESTIONS } from '../src/shared/volatility/jev.ts';
+import type { VolatilityFeatures } from '../src/shared/volatility/features.ts';
 
-const features: SharpFeatures = {
+const features: VolatilityFeatures = {
   coin: 'BTC', t: Date.UTC(2026, 9, 12, 12), price: 100_000, values: { spotZ15: 2.1 },
   words: { spotPerpDivergence: 'Spot is buying, perps are selling.', liquidationCascade: 'No liquidations.' },
 };
@@ -35,7 +35,7 @@ test('a valid answer becomes a verdict, and only concepts with a reading are ask
   const request = JSON.parse(String(sent[0]!.init.body)) as { model: string; questions: Record<string, unknown>; state: { readings: unknown } };
   assert.equal(request.model, 'jev-latest');
   assert.deepEqual(Object.keys(request.questions).sort(), ['direction', 'liquidationCascade', 'sharpMove', 'spotPerpDivergence']);
-  assert.deepEqual(request.questions.sharpMove, SHARP_QUESTIONS.sharpMove);
+  assert.deepEqual(request.questions.sharpMove, VOLATILITY_QUESTIONS.sharpMove);
   assert.deepEqual(request.state.readings, features.words);
 });
 

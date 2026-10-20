@@ -201,6 +201,10 @@ test('panel sounds are off by default, read field by field, and clamped', () => 
   assert.deepEqual(readSounds({ on: true }).panels, DEFAULT_PANEL_SOUNDS);
 });
 
+test('a volatile-move sound setting saved under its old name carries over', () => {
+  assert.deepEqual(readSounds({ panels: { sharp: { on: true, score: 3.5 } } }).panels.volatility, { on: true, score: 3.5 });
+});
+
 test('every alert has notes that rise for buying and fall for selling, and none is silent', () => {
   const kinds: AlertKind[] = ['flow-burst', 'bar-delta', 'wall-appeared', 'wall-pulled', 'imbalance', 'depth-extreme', 'oi-jump'];
   const mean = (n: Note[]) => n[0]!.freq - n[n.length - 1]!.freq;
@@ -320,15 +324,15 @@ test('Test plays a sample whatever the switches say', async () => {
   assert.equal(player.played.length, 1);
 });
 
-// ---- Jev: a sharp move is likely ----------------------------------------------------------------------------------------------------
+// ---- Jev: a volatile move is likely -------------------------------------------------------------------------------------------------
 
 const verdict = (t: number, score: number, direction: 'up' | 'down' = 'down', scoreConfidence = 0.8) =>
   ({ t, coin: 'BTC', price: 100_000, concepts: {}, score, scoreConfidence, direction, directionP: 0.7, model: 'jev-1.13.0' });
 
-test('the sharp-move sound treats the first answer as history, then sounds only a new, fresh, high-scoring, confident assessment', async () => {
+test('the volatile-move sound treats the first answer as history, then sounds only a new, fresh, high-scoring, confident assessment', async () => {
   let verdicts = [verdict(T - 60_000, 4)];
   const state: AppState = initialState();
-  state.sounds = readSounds({ on: true, volume: 1, panels: { sharp: { on: true, score: 3 } } });
+  state.sounds = readSounds({ on: true, volume: 1, panels: { volatility: { on: true, score: 3 } } });
   const player = new FakePlayer();
   let now = T;
   const alerts = new Alerts({ state }, new FlowBook(), player, () => now, undefined, undefined, async () => ({ enabled: true, coin: 'BTC', verdicts }));
@@ -349,21 +353,21 @@ test('the sharp-move sound treats the first answer as history, then sounds only 
   await step(30_000);
   assert.equal(player.played.length, 1, 'a fresh score of 3.5');
   assert.deepEqual(player.played[0]!.map(n => n.freq), [783.99, 659.25, 523.25], 'falling for down');
-  assert.match(alerts.log[0]!.text, /Sharp move likely within 15 min \(70 % down\), Jev score 3\.5 of 4/);
+  assert.match(alerts.log[0]!.text, /Volatile move likely within 15 min \(70 % down\), Jev score 3\.5 of 4/);
   verdicts = [...verdicts, verdict(now - 5_000, 4, 'up')];
   await step(30_000);
   assert.equal(player.played.length, 1, 'the cool-down is ten minutes');
 });
 
-test('the sharp-move sound asks nothing while its rule is off, and reports why the server is silent', async () => {
+test('the volatile-move sound asks nothing while its rule is off, and reports why the server is silent', async () => {
   let asked = 0;
   const state: AppState = initialState();
-  state.sounds = readSounds({ on: true, volume: 1, panels: { sharp: { on: false, score: 3 } } });
+  state.sounds = readSounds({ on: true, volume: 1, panels: { volatility: { on: false, score: 3 } } });
   const alerts = new Alerts({ state }, new FlowBook(), new FakePlayer(), () => T, undefined, undefined, async () => { asked++; return { enabled: false, reason: 'TYPESAFE_API_KEY is not set', coin: null, verdicts: [] }; });
   alerts.tick(T); await new Promise(r => setImmediate(r));
   assert.equal(asked, 0);
-  state.sounds = readSounds({ on: true, volume: 1, panels: { sharp: { on: true, score: 3 } } });
+  state.sounds = readSounds({ on: true, volume: 1, panels: { volatility: { on: true, score: 3 } } });
   alerts.tick(T + 1000); await new Promise(r => setImmediate(r));
   assert.equal(asked, 1);
-  assert.deepEqual(alerts.sharpState, { reason: 'TYPESAFE_API_KEY is not set' });
+  assert.deepEqual(alerts.volatilityStatus, { reason: 'TYPESAFE_API_KEY is not set' });
 });

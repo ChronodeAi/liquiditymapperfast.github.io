@@ -1,10 +1,10 @@
 /**
- * A directional reading of the sharp-move features without a model (docs/sharp-moves.md, "Confluence"). The readings are grouped into three
+ * A directional reading of the volatility features without a model (docs/volatility-watch.md, "Confluence"). The readings are grouped into three
  * families of independent data, each casts one vote in [-1, 1], and a call is made only when families agree, none disagrees and something
  * unusual is happening now. Readings inside a family move together, so they never count twice. Pure, and a function of the logged values
- * alone, so `scripts/sharp-eval.mts` scores rows written before it existed.
+ * alone, so `scripts/volatility-eval.mts` scores rows written before it existed.
  */
-import type { SharpValue } from './features.ts';
+import type { VolatilityValue } from './features.ts';
 
 export const FAMILY_IDS = ['flow', 'book', 'positioning'] as const;
 export type FamilyId = typeof FAMILY_IDS[number];
@@ -41,7 +41,7 @@ const UNUSUAL_SIGMA = 2;
 const OI_BUILD_PCT = 0.3;
 export const MIN_AGREE = 2;
 
-const num = (v: SharpValue | undefined): number | null => typeof v === 'number' && Number.isFinite(v) ? v : null;
+const num = (v: VolatilityValue | undefined): number | null => typeof v === 'number' && Number.isFinite(v) ? v : null;
 const clamp = (x: number): number => Math.max(-1, Math.min(1, x));
 const strength = (z: number): number => Math.sign(z) * Math.min(Math.abs(z) / FULL_Z, 1);
 /** Sum of the parts, clamped; null when no part had a reading. */
@@ -52,7 +52,7 @@ const family = (parts: (number | null)[]): number | null => { const present = pa
  * else the hour's; without a spot side, Binance spot over the hour at three quarters. Large orders trading against everyone add half a vote
  * their way, a steady Binance spot slicer a quarter.
  */
-function flowVote(v: Record<string, SharpValue>): number | null {
+function flowVote(v: Record<string, VolatilityValue>): number | null {
   const spotZ = num(v.spotZ15) ?? num(v.spotZ60), binanceZ = num(v.binanceSpotZ60);
   let lead: number | null = null;
   if (spotZ !== null) lead = Math.abs(spotZ) >= SIDE_Z ? strength(spotZ) : 0;
@@ -68,7 +68,7 @@ function flowVote(v: Record<string, SharpValue>): number | null {
  * Resting liquidity. A side pulled while the other holds leaves no cushion that way (market makers stop replenishing bids: price falls
  * through); the tracker flipping votes for the side it flipped to; an imbalance at the edge of the last 6 h votes with the heavy side.
  */
-function bookVote(v: Record<string, SharpValue>): number | null {
+function bookVote(v: Record<string, VolatilityValue>): number | null {
   const bid = num(v.bidChangePct), ask = num(v.askChangePct);
   const pulled = bid === null || ask === null ? null : bid <= -PULL_PCT && ask >= HOLD_PCT ? -0.5 : ask <= -PULL_PCT && bid >= HOLD_PCT ? 0.5 : 0;
   const ltNow = num(v.ltNow);
@@ -82,7 +82,7 @@ function bookVote(v: Record<string, SharpValue>): number | null {
  * Forced and crowded positions, read against the move: a liquidation burst that is mostly longs marks forced sellers at a pivot (votes up),
  * mostly shorts the reverse; open interest building into a 15-minute move is fuel for the next forced wave the other way.
  */
-function positioningVote(v: Record<string, SharpValue>): number | null {
+function positioningVote(v: Record<string, VolatilityValue>): number | null {
   const liqZ = num(v.liqZ5), longs = num(v.liqLong5), shorts = num(v.liqShort5);
   const liq = liqZ === null || longs === null || shorts === null ? null
     : liqZ >= UNUSUAL_SIGMA && longs > 2 * shorts ? 0.5 : liqZ >= UNUSUAL_SIGMA && shorts > 2 * longs ? -0.5 : 0;
@@ -92,7 +92,7 @@ function positioningVote(v: Record<string, SharpValue>): number | null {
 }
 
 /** What makes the minute unusual: a highlighted bar, a liquidation burst, or flow disagreeing with itself or with price. */
-function triggersOf(v: Record<string, SharpValue>): string[] {
+function triggersOf(v: Record<string, VolatilityValue>): string[] {
   const out: string[] = [];
   const vol = num(v.volSigma), delta = num(v.deltaSigma), liq = num(v.liqZ5);
   if ((vol !== null && vol >= UNUSUAL_SIGMA) || (delta !== null && delta >= UNUSUAL_SIGMA)) out.push('highlight');
@@ -102,7 +102,7 @@ function triggersOf(v: Record<string, SharpValue>): string[] {
   return out;
 }
 
-export function confluence(values: Record<string, SharpValue>): Confluence {
+export function confluence(values: Record<string, VolatilityValue>): Confluence {
   const votes: Record<FamilyId, number | null> = { flow: flowVote(values), book: bookVote(values), positioning: positioningVote(values) };
   const cast = FAMILY_IDS.map(id => votes[id]).filter((x): x is number => x !== null && Math.abs(x) >= VOTE_MIN);
   const sum = FAMILY_IDS.reduce((s, id) => s + (votes[id] ?? 0), 0);

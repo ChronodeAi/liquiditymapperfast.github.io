@@ -1,10 +1,10 @@
 /**
- * The image the SubQ image arm sends with each minute (docs/sharp-moves.md, "Side by side"): the last two hours of resting liquidity around
+ * The image the SubQ image arm sends with each minute (docs/volatility-watch.md, "Side by side"): the last two hours of resting liquidity around
  * the price, drawn like the page's heatmap (bids green, asks red, brightness by size on a log scale) with the price as a white line. PNG,
  * encoded here with node:zlib so the server needs no image library.
  */
 import zlib from 'node:zlib';
-import { HEAT_MINUTES, HEAT_ROWS, type SharpInputs } from '../../shared/sharp/features.ts';
+import { HEAT_MINUTES, HEAT_ROWS, type VolatilityInputs } from '../../shared/volatility/features.ts';
 
 /** Pixels per minute column and per price row. */
 const SCALE = 4;
@@ -25,7 +25,7 @@ export function encodePng(width: number, height: number, rgb: Uint8Array): Buffe
 }
 
 /** The heatmap of `heat` as a PNG, or null when it holds no liquidity. */
-export function heatPng(heat: NonNullable<SharpInputs['heat']>, rowBp: number): Buffer | null {
+export function heatPng(heat: NonNullable<VolatilityInputs['heat']>, rowBp: number): Buffer | null {
   let max = 0;
   for (let i = 0; i < heat.bid.length; i++) max = Math.max(max, heat.bid[i]!, heat.ask[i]!);
   if (!(max > 0)) return null;

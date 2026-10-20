@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { sharpFeatures, sharpSeries, HEAT_ROW_BP, type SharpFeatures, type SharpInputs } from '../../shared/sharp/features.ts';
-import { confluence, type ConfluenceReading } from '../../shared/sharp/confluence.ts';
-import { askDecision, DecisionHttpError, SUBQ_ARMS, type DecisionExtras, type SubqArm, type SharpAnswer, type SharpVerdict } from '../../shared/sharp/jev.ts';
-import { heatPng } from './sharp-image.mts';
+import { volatilityFeatures, volatilitySeries, HEAT_ROW_BP, type VolatilityFeatures, type VolatilityInputs } from '../../shared/volatility/features.ts';
+import { confluence, type ConfluenceReading } from '../../shared/volatility/confluence.ts';
+import { askDecision, DecisionHttpError, SUBQ_ARMS, type DecisionExtras, type SubqArm, type VolatilityAnswer, type VolatilityVerdict } from '../../shared/volatility/jev.ts';
+import { heatPng } from './volatility-image.mts';
 
 /** Once a minute, at this many ms past it: the flow recorder has closed the minute by then. */
 const OFFSET_MS = 15_000;
@@ -13,11 +13,11 @@ const LOG_MAX_BYTES = 50 * 1024 * 1024;
 const WARN_EVERY_MS = 3_600_000;
 const BACKOFF_MS = 5 * MINUTE;
 
-export interface SharpWatchOptions {
-  /** Where `sharp-log.jsonl` goes; null keeps nothing on disk. */
+export interface VolatilityWatchOptions {
+  /** Where `volatility-log.jsonl` goes; null keeps nothing on disk. */
   dir: string | null;
   /** Gathers the inputs for the minute that ends at `now`, or null when the server has nothing for the coin yet. */
-  read(now: number): SharpInputs | null;
+  read(now: number): VolatilityInputs | null;
   /** The Jev key; absent: the confluence is still read and logged every minute, Jev is not asked. */
   apiKey?: string;
   /** The SubQ key; present: the SubQ arms (`subqArms`) are asked beside Jev every minute, in shadow. */
@@ -29,15 +29,15 @@ export interface SharpWatchOptions {
 }
 
 /**
- * Once a minute reads the model-free confluence (shared/sharp/confluence.ts) and, with keys, asks Jev and the SubQ arms whether a sharp move is
- * coming (docs/sharp-moves.md). Every minute is kept (the last 120 in memory, all of them in `sharp-log.jsonl` beside the recording, not in
+ * Once a minute reads the model-free confluence (shared/volatility/confluence.ts) and, with keys, asks Jev and the SubQ arms whether a volatile move is
+ * coming (docs/volatility-watch.md). Every minute is kept (the last 120 in memory, all of them in `volatility-log.jsonl` beside the recording, not in
  * the history store, which has a hard size budget) with the readings behind it.
  */
-export class SharpWatch {
-  readonly #options: SharpWatchOptions;
+export class VolatilityWatch {
+  readonly #options: VolatilityWatchOptions;
   readonly #ask: typeof askDecision;
   readonly #now: () => number;
-  readonly #ring: SharpVerdict[] = [];
+  readonly #ring: VolatilityVerdict[] = [];
   readonly #confluence: ConfluenceReading[] = [];
   readonly #warned = new Map<string, number>();
   readonly #abort = new AbortController();
@@ -49,21 +49,21 @@ export class SharpWatch {
   #logBytes = 0;
   #stopped = false;
   /** Per SubQ arm: its newest verdict, last error and back-off. */
-  readonly #arms = new Map<SubqArm, { verdict: SharpVerdict | null; lastError?: string; backoffUntil: number }>();
+  readonly #arms = new Map<SubqArm, { verdict: VolatilityVerdict | null; lastError?: string; backoffUntil: number }>();
 
-  constructor(options: SharpWatchOptions) {
+  constructor(options: VolatilityWatchOptions) {
     this.#options = options; this.#ask = options.ask ?? askDecision; this.#now = options.clock ?? Date.now;
     if (options.dir) {
       try { fs.mkdirSync(options.dir, { recursive: true }); this.#logBytes = fs.existsSync(this.#logPath()) ? fs.statSync(this.#logPath()).size : 0; } catch (error) { this.#warn(`log unavailable: ${(error as Error).message}`); }
     }
   }
 
-  #logPath(): string { return path.join(this.#options.dir!, 'sharp-log.jsonl'); }
+  #logPath(): string { return path.join(this.#options.dir!, 'volatility-log.jsonl'); }
 
   /** Whether Jev is asked. */
   get enabled(): boolean { return Boolean(this.#options.apiKey); }
 
-  answer(): SharpAnswer {
+  answer(): VolatilityAnswer {
     const confluence = [...this.#confluence];
     const arms = this.#options.subqKey ? { arms: Object.fromEntries([...this.#arms].map(([id, a]) => [id, { verdict: a.verdict, ...(a.lastError ? { lastError: a.lastError } : {}) }])) } : {};
     if (!this.enabled) return { enabled: false, reason: 'TYPESAFE_API_KEY is not set', coin: this.#coin, verdicts: [], confluence, ...arms };
@@ -101,7 +101,7 @@ export class SharpWatch {
       const inputs = this.#options.read(now);
       if (!inputs) return this.#fail('no recorded data for the coin yet');
       this.#coin = inputs.coin;
-      const features = sharpFeatures(inputs);
+      const features = volatilityFeatures(inputs);
       if (!features) return this.#fail('no price or no flow for the coin yet');
       if (!Object.keys(features.words).length) return this.#fail('no readings yet');
       const reading: ConfluenceReading = { t: features.t, coin: features.coin, price: features.price, ...confluence(features.values) };
@@ -116,7 +116,7 @@ export class SharpWatch {
     } finally { this.#busy = false; }
   }
 
-  async #askJev(features: SharpFeatures): Promise<SharpVerdict | undefined> {
+  async #askJev(features: VolatilityFeatures): Promise<VolatilityVerdict | undefined> {
     try {
       const verdict = await this.#ask(features, this.#options.apiKey!, this.#abort.signal);
       this.#lastError = undefined; this.#backoffUntil = 0;
@@ -134,18 +134,18 @@ export class SharpWatch {
    * The SubQ arms asked that are not backing off, in parallel: plain, with the raw history, with the heatmap image. A paused arm is not
    * asked and its extra input is not built.
    */
-  async #askArms(features: SharpFeatures, inputs: SharpInputs): Promise<Partial<Record<SubqArm, SharpVerdict>>> {
+  async #askArms(features: VolatilityFeatures, inputs: VolatilityInputs): Promise<Partial<Record<SubqArm, VolatilityVerdict>>> {
     const key = this.#options.subqKey;
     if (!key) return {};
     const asked = this.#options.subqArms ?? SUBQ_ARMS;
-    const series = asked.includes('subqHistory') ? sharpSeries(inputs) ?? undefined : undefined;
+    const series = asked.includes('subqHistory') ? volatilitySeries(inputs) ?? undefined : undefined;
     const png = asked.includes('subqImage') && inputs.heat ? heatPng(inputs.heat, HEAT_ROW_BP) : null;
     const extrasOf: Record<SubqArm, DecisionExtras | null> = {
       subq: { provider: 'subq' },
       subqHistory: series ? { provider: 'subq', series } : null,
       subqImage: png ? { provider: 'subq', images: [{ mediaType: 'image/png', base64: png.toString('base64') }] } : null,
     };
-    const out: Partial<Record<SubqArm, SharpVerdict>> = {};
+    const out: Partial<Record<SubqArm, VolatilityVerdict>> = {};
     await Promise.all(asked.map(async id => {
       const arm = this.#arms.get(id) ?? { verdict: null, backoffUntil: 0 };
       this.#arms.set(id, arm);
@@ -172,14 +172,14 @@ export class SharpWatch {
     const now = this.#now(), at = this.#warned.get(message);
     if (at !== undefined && now - at < WARN_EVERY_MS) return;
     this.#warned.set(message, now);
-    console.warn(`sharp: ${message}`);
+    console.warn(`volatility: ${message}`);
   }
 
   #append(row: unknown): void {
     if (!this.#options.dir) return;
     try {
       const line = JSON.stringify(row) + '\n';
-      if (this.#logBytes + line.length > LOG_MAX_BYTES) { fs.renameSync(this.#logPath(), path.join(this.#options.dir, 'sharp-log.1.jsonl')); this.#logBytes = 0; }
+      if (this.#logBytes + line.length > LOG_MAX_BYTES) { fs.renameSync(this.#logPath(), path.join(this.#options.dir, 'volatility-log.1.jsonl')); this.#logBytes = 0; }
       fs.appendFileSync(this.#logPath(), line); this.#logBytes += Buffer.byteLength(line);
     } catch (error) { this.#warn(`log write failed: ${(error as Error).message}`); }
   }

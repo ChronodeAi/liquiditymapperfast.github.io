@@ -30,9 +30,9 @@ import { ExtraVenues, RECOMMENDED_EXTRA_VENUES } from './venues.mts';
 import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
 import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
-import { SharpWatch, subqArmsFrom } from './sharp.mts';
-import { HEAT_MINUTES, HEAT_ROWS, HEAT_ROW_BP, SHARP_HISTORY_MS, type SharpInputs } from '../../shared/sharp/features.ts';
-import { SUBQ_ARMS } from '../../shared/sharp/jev.ts';
+import { VolatilityWatch, subqArmsFrom } from './volatility.mts';
+import { HEAT_MINUTES, HEAT_ROWS, HEAT_ROW_BP, VOLATILITY_HISTORY_MS, type VolatilityInputs } from '../../shared/volatility/features.ts';
+import { SUBQ_ARMS } from '../../shared/volatility/jev.ts';
 import { ltIndex } from '../../shared/lt-sample.ts';
 
 type App = ReturnType<typeof createLocalServer>;
@@ -578,10 +578,10 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
 
   /**
-   * What the sharp-move watch reads (shared/sharp/features.ts, docs/sharp-moves.md): the coin of the chart's own market, and every spot and
+   * What the volatility watch reads (shared/volatility/features.ts, docs/volatility-watch.md): the coin of the chart's own market, and every spot and
    * perpetual market of it the server records, as the recordings hold them for the minute that ends at `now`.
    */
-  const sharpRead = (now: number): SharpInputs | null => {
+  const volatilityRead = (now: number): VolatilityInputs | null => {
     type Row = { instrumentId?: unknown; id?: unknown; venue?: unknown; base?: unknown; baseNormalized?: unknown; marketType?: unknown; symbol?: unknown };
     const all = [...(app.state.markets ?? []), ...extra.markets()] as Row[];
     const idOf = (m: Row): string => String(m.instrumentId ?? m.id ?? '');
@@ -599,7 +599,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const binancePerp = mine.find(m => m.marketType === 'perpetual' && m.venue === 'binance');
     const refPerpId = binancePerp ? idOf(binancePerp) : perpIds[0] ?? null;
 
-    const frame = flow.minutes(ids, now - SHARP_HISTORY_MS, now);
+    const frame = flow.minutes(ids, now - VOLATILITY_HISTORY_MS, now);
     const spot = frame.instruments.filter(s => spotIds.includes(s.id)), perp = frame.instruments.filter(s => perpIds.includes(s.id));
 
     // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours.
@@ -620,7 +620,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       }
     }
     // The image arm's heatmap (when that arm is asked): the last two hours of minute columns around the price, summed over the coin's books.
-    let heat: SharpInputs['heat'];
+    let heat: VolatilityInputs['heat'];
     const refSeries = perp.find(s => s.id === refPerpId) ?? perp[0] ?? spot[0];
     const p0 = refSeries ? [...refSeries.px].reverse().find(p => p > 0) ?? 0 : 0;
     if (subqKey && subqArms.arms.includes('subqImage') && p0 > 0) {
@@ -647,17 +647,17 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     return {
       now, coin, spot, perp, binanceSpotId, refPerpId,
       depth: [...depthByMinute.values()].sort((a, b) => a.t - b.t),
-      liquidations: liquidations.query(now - SHARP_HISTORY_MS, now, LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER).filter(l => idSet.has(l.id)).map(l => ({ t: l.t, side: l.side, usd: l.usd })),
+      liquidations: liquidations.query(now - VOLATILITY_HISTORY_MS, now, LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER).filter(l => idSet.has(l.id)).map(l => ({ t: l.t, side: l.side, usd: l.usd })),
       oi: refPerpId ? oiBars(refPerpId, now - 2 * 3_600_000, now, 60_000).map(b => ({ t: b[0], close: b[4] })) : [],
       whale: (prints.printSums(ids, now - 3_600_000, now, band, 60_000)?.rows ?? []).map(r => ({ t: r[0], buyUsd: r[1], sellUsd: r[3] })),
       ...(heat ? { heat } : {}),
     };
   };
   const subqKey = process.env.SUBQ_API_KEY || undefined, subqArms = subqArmsFrom(process.env.SUBQ_ARMS);
-  if (subqArms.unknown.length) console.warn(`sharp: SUBQ_ARMS names no arm ${subqArms.unknown.join(', ')} (the arms: ${SUBQ_ARMS.join(', ')})`);
-  const sharp = new SharpWatch({ dir: persist ? dataDir : null, read: sharpRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
-  sharp.start();
-  const sharpRoute = (res: ServerResponse) => sendJson(res, sharp.answer());
+  if (subqArms.unknown.length) console.warn(`volatility: SUBQ_ARMS names no arm ${subqArms.unknown.join(', ')} (the arms: ${SUBQ_ARMS.join(', ')})`);
+  const volatility = new VolatilityWatch({ dir: persist ? dataDir : null, read: volatilityRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
+  volatility.start();
+  const volatilityRoute = (res: ServerResponse) => sendJson(res, volatility.answer());
 
   /**
    * The footprint's lists of large orders for the minutes recorded before they were kept (see `FootprintRecorder.fillLists`), filled from the
@@ -696,7 +696,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/candles': candles(url, res); return true;
           case '/api/v2/oi': oi(url, res); return true;
           case '/api/v2/long-short': longShortRoute(url, res); return true;
-          case '/api/v2/sharp': sharpRoute(res); return true;
+          case '/api/v2/volatility': volatilityRoute(res); return true;
           case '/api/v2/footprint': footprintRoute(url, res); return true;
           case '/api/v2/prints': printsRoute(url, res); return true;
           case '/api/v2/print-sums': printSumsRoute(url, res); return true;
@@ -721,7 +721,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     },
     close() {
       closed = true;
-      clearInterval(loop); sharp.stop(); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
+      clearInterval(loop); volatility.stop(); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
       for (const client of wss.clients) client.terminate();
       // Each part gets its turn even when one of them fails, so what can still be written is (the open minutes and the open orders are written here).
       for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => footprint.close(), () => coverage.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {
