@@ -550,8 +550,10 @@ export class HeatPane {
       this.#ensureValueAreas(state);
       this.#ensurePastProfiles(state);
     }
-    // The absorption column judges groups at the thresholds the marks use, which need the recent minutes the marks load.
-    if (state.absorption.on || (state.show.traded && state.traded.metrics.includes('absorption'))) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes); }
+    // The absorption column judges groups at the thresholds the marks use, which need the recent minutes the marks load: with the marks off,
+    // those minutes alone (and none for a fixed threshold). The column's groups are added up where they are kept (`Hub.ensureMetricProfile`).
+    const column = state.show.traded && state.traded.metrics.includes('absorption');
+    if (state.absorption.on || (column && state.absorption.mode === 'auto')) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes, !state.absorption.on); }
     this.#stepFootprint(state);
     // Under a dominant footprint the heatmap is gone altogether, so there is nothing to draw.
     if (state.layer === 'liquidity' && this.#lodFrame.heatmapOpacity > 0.003) this.gl.draw(this.view, this.#style(), this.#placeholder()); else this.gl.clear();

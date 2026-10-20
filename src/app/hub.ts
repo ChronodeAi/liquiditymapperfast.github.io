@@ -18,7 +18,7 @@ import { MAX_PROFILE_INSTRUMENTS, MAX_PROFILE_SPAN_MS, MAX_VALUE_AREA_WINDOWS, t
 import { oiInstrument } from '../shared/oi-profile.ts';
 import { AbsorptionBook } from './absorption.ts';
 import { ABSORPTION_RETENTION_MS, MAX_ABSORPTION_INSTRUMENTS } from '../shared/absorption.ts';
-import { absorptionAnswer, liquidationAnswer, type MetricFlags, type ProfileMetric } from './traded/metrics.ts';
+import { liquidationAnswer, type MetricFlags, type ProfileMetric } from './traded/metrics.ts';
 import { PRINTS_PER_ANSWER } from '../shared/prints.ts';
 import { webGet } from '../shared/history.ts';
 import { KeyLevelHistory } from './keylevels/history.ts';
@@ -573,11 +573,13 @@ export class Hub {
    * again (one with no threshold yet is asked only for its minutes, and then again once they give it one). As with the bubbles, history is
    * asked once per window and the live stream keeps it current: again when the window leaves what the book still claims (a full book lets go
    * of claimed groups the view no longer reaches, and its cover then starts after them), a threshold falls under what it was asked from, or
-   * the stream reconnected. A source that cannot answer (an older server) is asked again a minute later.
+   * the stream reconnected. A source that cannot answer (an older server) is asked again a minute later. With `statsOnly` (the marks are off
+   * and only the absorption column judges groups) only the minutes are asked for (`#ensureAbsorptionMinutes`).
    */
-  ensureAbsorption(allIds: readonly string[], allThresholds: readonly (number | null)[], view: Bounds, sdMinutes: number): void {
+  ensureAbsorption(allIds: readonly string[], allThresholds: readonly (number | null)[], view: Bounds, sdMinutes: number, statsOnly = false): void {
     // More instruments than one question may name is more markets than any page has; the first are asked about.
     const ids = allIds.slice(0, MAX_ABSORPTION_INSTRUMENTS), thresholds = allThresholds.slice(0, MAX_ABSORPTION_INSTRUMENTS);
+    if (statsOnly) { if (ids.length) this.#ensureAbsorptionMinutes(ids, sdMinutes); return; }
     if (!ids.length || !(view.t1 > view.t0)) return;
     const now = Date.now(), MIN = 60_000;
     // Nothing older than the recorder keeps exists (and the server refuses a question of more than eight days): a map zoomed out further
@@ -606,6 +608,36 @@ export class Hub {
         this.absorption.load(answer, current ? { from, to: to >= now ? Infinity : to, mins: new Map(ids.map((id, i) => [id, mins[i]!])) } : null);
         this.absorptionState = 'ready';
         if (current) this.#absorptionCover = { key, minutesFrom: Math.min(since, have?.minutesFrom ?? Infinity) };
+        this.onAbsorptionChanged();
+      },
+      (error: unknown) => {
+        this.absorptionState = (error as { status?: unknown } | null)?.status === 404 ? 'unavailable' : 'failed';
+        this.#absorptionRetryAt = Date.now() + 60_000; this.onAbsorptionChanged();
+      },
+    ).finally(() => { this.#absorptionLoading = false; });
+  }
+
+  /**
+   * The minutes of the last `sdMinutes` alone, for the automatic threshold the absorption column judges at while the marks are off: asked
+   * once, as the marks ask them (the live stream then brings each minute as it settles), and again when the instruments or the span change or
+   * the stream reconnected. The question names the last minute with every threshold out of reach, so it reads no group, and any server that
+   * answers the marks answers it.
+   */
+  #ensureAbsorptionMinutes(ids: readonly string[], sdMinutes: number): void {
+    const now = Date.now();
+    if (this.#absorptionLoading) return;
+    if (this.absorptionState !== 'ready' && now < this.#absorptionRetryAt) return;
+    const key = `${ids.join(',')}|${sdMinutes}`, have = this.#absorptionCover?.key === key ? this.#absorptionCover : null;
+    const since = Math.floor(now / MINUTE) * MINUTE - (sdMinutes + 1) * MINUTE;
+    if (have && have.minutesFrom <= since) return;
+    const connection = this.#connection;
+    this.#absorptionLoading = true;
+    this.source.absorption([...ids], ids.map(() => Number.MAX_SAFE_INTEGER), now - MINUTE, now, 1, since).then(
+      answer => {
+        // No cover: the answer claims no groups.
+        this.absorption.load(answer);
+        this.absorptionState = 'ready';
+        if (connection === this.#connection) this.#absorptionCover = { key, minutesFrom: Math.min(since, have?.minutesFrom ?? Infinity) };
         this.onAbsorptionChanged();
       },
       (error: unknown) => {
@@ -733,10 +765,9 @@ export class Hub {
       ? (source.liquidations ? source.liquidations(from, to) : Promise.reject(new Error('no liquidations from this source')))
         .then(rows => ({ answer: liquidationAnswer(rows, judged, from, to, step), flags: { cut: rows.length >= LIQUIDATIONS_PER_ANSWER, incomplete: false } }))
       : !judged.length ? Promise.resolve({ answer: { from, to, instruments: [] }, flags: none })
-      // `since` at the window's end: the groups are wanted, not the minutes.
-      : source.absorption(judged, judged.map(id => thresholds.get(id)!), from, to, ABSORPTION_PER_INSTRUMENT, to).then(a => ({
-        answer: absorptionAnswer(a.groups, thresholds, from, to, step),
-        flags: { cut: a.capped.length > 0, incomplete: judged.some(id => (a.floors[id] ?? 0) > thresholds.get(id)!) },
+      // Added up where the groups are kept, every one of the window and no minutes (the thresholds are the marks', `ensureAbsorption`).
+      : source.absorptionProfile(judged, judged.map(id => thresholds.get(id)!), from, to, step).then(answer => ({
+        answer, flags: { cut: answer.cut.length > 0, incomplete: answer.incomplete.length > 0 },
       }));
     work.then(
       ({ answer, flags }) => { if (generation !== c.gen) return; c.ms = performance.now() - started; c.held = { step, answer, flags, tag: period.tag }; c.state = 'ready'; this.onTraded(); },

@@ -26,6 +26,8 @@
  * complete there. Per minute, the window sums' count, mean and squared deviations are kept for the automatic threshold.
  */
 
+import { binOf, parseProfile, type FootprintRow, type ProfileAnswer } from './footprint.ts';
+
 /** The window, in ms (the usual default of absorption indicators). */
 export const ABSORPTION_WINDOW_MS = 10;
 /** The smallest credit a group must reach to be kept. */
@@ -36,7 +38,7 @@ export const GROUPS_PER_MINUTE = 10;
 export const LATE_MS = 250;
 /** The most instruments one history question may name (the page asks about every market it knows). */
 export const MAX_ABSORPTION_INSTRUMENTS = 200;
-const MINUTE = 60_000;
+const MINUTE = 60_000, HOUR = 3_600_000;
 /** An instrument with nothing new for this long (by the receiving clock) has its runs and windows closed. */
 const QUIET_MS = 500;
 /** A minute is settled (written, and its floor final) once its instrument's clock, or the receiving clock for a quiet one, is this far past its end. */
@@ -66,7 +68,18 @@ export interface AbsorptionStore {
   query(ids: readonly string[], mins: readonly number[], from: number, to: number, limit: number): AbsorptionGroup[] | Promise<AbsorptionGroup[]>;
   /** Minutes of `ids` in [from, to). */
   minutes(ids: readonly string[], from: number, to: number): AbsorptionMinute[] | Promise<AbsorptionMinute[]>;
+  /**
+   * For the absorption column, [from, to) handed to `take` an hour of the store at a time (the per-minute cap bounds an hour), other work let
+   * run between hours: every group of `ids` that began in the hour with a largest credit of at least its `mins` entry, none left out and in
+   * no order, and the minutes whose floor is at least that, read together. Nothing after `to` is read, and nothing is kept.
+   */
+  eachHour(ids: readonly string[], mins: readonly number[], from: number, to: number, take: (groups: readonly AbsorptionGroup[], minutes: readonly AbsorptionMinute[]) => void): Promise<void>;
   close(): void;
+}
+
+/** The hours of [from, to), cut at whole hours: how a store hands over a long window a part at a time. */
+export function* hoursOf(from: number, to: number): Generator<{ from: number; to: number }> {
+  for (let at = from; at < to;) { const end = Math.min(to, (Math.floor(at / HOUR) + 1) * HOUR); yield { from: at, to: end }; at = end; }
 }
 
 /** The largest credit of a group. */
@@ -112,6 +125,82 @@ export function markedPart(g: AbsorptionGroup, threshold: number): { usd: number
   let found: AbsorptionStep | null = null;
   for (const step of g.steps) { if (step[0] >= threshold) found = step; else break; }
   return found ? { usd: found[1], fills: found[2], t0: found[3], t1: found[4], peak: peakOf(g) } : null;
+}
+
+/**
+ * The absorption column's answer (traded/metrics.ts): per instrument, rows of the step ([row price, market sells resting buyers took, market
+ * buys resting sellers took], USD), each group's marked part counted once on the row of its price; and the instruments whose rows may be
+ * short: `incomplete`, where a minute kept only its largest groups and one left out would have been marked; `cut`, where the source answered
+ * only the largest groups (an older server).
+ */
+export interface AbsorptionProfileAnswer extends ProfileAnswer { incomplete: string[]; cut: string[] }
+
+/**
+ * Adds groups up into the absorption column's rows at each instrument's threshold (none: nothing of it is marked), the groups that began in
+ * [from, to) only, each once whatever store or memory brought it, and takes the minutes' floors to say where the rows may be short.
+ *
+ * A minute's floor is the base floor, or raised to the peak of a group it left out. A floor over the threshold left out a group that was
+ * marked. A floor equal to it may have (`markedPart` marks a peak equal to the threshold), but then every group the minute kept reached it
+ * too, so the minute is called short only when it kept `perMinute` groups at or over the threshold. Only a minute that kept exactly that many
+ * and left nothing out, at a threshold equal to the base floor, is called short when it is not.
+ */
+export class AbsorptionProfile {
+  readonly #by = new Map<string, Map<number, [number, number]>>();
+  readonly #seen = new Set<string>();
+  /** Groups at or over the threshold, per instrument and minute (`id|minute number`). */
+  readonly #kept = new Map<string, number>();
+  /** Per instrument, the minutes whose floor equals the threshold (null: one of them, which is not known). */
+  readonly #ties = new Map<string, Set<number> | null>();
+  readonly #short = new Set<string>();
+  readonly #thresholds: ReadonlyMap<string, number | null>;
+
+  constructor(thresholds: ReadonlyMap<string, number | null>, readonly from: number, readonly to: number, readonly step: number, readonly perMinute = GROUPS_PER_MINUTE) {
+    this.#thresholds = thresholds;
+  }
+
+  add(g: AbsorptionGroup): void {
+    const threshold = this.#thresholds.get(g.id);
+    if (threshold === null || threshold === undefined || g.t0 < this.from || g.t0 >= this.to) return;
+    const part = markedPart(g, threshold);
+    if (!part) return;
+    // A group found again (trades sent again after a restart) is one group.
+    const key = `${g.id}|${g.side}|${g.price}|${g.t0}`;
+    if (this.#seen.has(key)) return;
+    this.#seen.add(key);
+    let bins = this.#by.get(g.id); if (!bins) { bins = new Map(); this.#by.set(g.id, bins); }
+    const bin = binOf(g.price, this.step), cell = bins.get(bin);
+    if (cell) cell[g.side === 'sell' ? 0 : 1] += part.usd; else bins.set(bin, g.side === 'sell' ? [part.usd, 0] : [0, part.usd]);
+    const slot = `${g.id}|${Math.floor(g.t0 / MINUTE)}`;
+    this.#kept.set(slot, (this.#kept.get(slot) ?? 0) + 1);
+  }
+
+  /** The floor of `id`'s minute starting at `t` (null: the highest of the window's, its minute not known). */
+  floor(id: string, t: number | null, floor: number): void {
+    const threshold = this.#thresholds.get(id);
+    if (threshold === null || threshold === undefined) return;
+    if (floor > threshold) { this.#short.add(id); return; }
+    if (floor < threshold) return;
+    const ties = this.#ties.get(id);
+    if (t === null || ties === null) { this.#ties.set(id, null); return; }
+    if (ties) ties.add(Math.floor(t / MINUTE)); else this.#ties.set(id, new Set([Math.floor(t / MINUTE)]));
+  }
+
+  answer(cut: readonly string[] = []): AbsorptionProfileAnswer {
+    const short = new Set(this.#short);
+    for (const [id, minutes] of this.#ties) {
+      if (short.has(id)) continue;
+      if (minutes) { for (const m of minutes) if ((this.#kept.get(`${id}|${m}`) ?? 0) >= this.perMinute) { short.add(id); break; } continue; }
+      for (const [slot, n] of this.#kept) if (n >= this.perMinute && slot.slice(0, slot.lastIndexOf('|')) === id) { short.add(id); break; }
+    }
+    const instruments = [];
+    for (const id of this.#thresholds.keys()) {
+      const bins = this.#by.get(id);
+      if (!bins) continue;
+      const rows = [...bins].sort((a, b) => a[0] - b[0]).map(([bin, [a, b]]): FootprintRow => [bin * this.step, a, b]);
+      instruments.push({ id, step: this.step, minutes: 0, first: null, earliest: null, rows });
+    }
+    return { from: this.from, to: this.to, instruments, incomplete: [...short], cut: [...cut] };
+  }
 }
 
 interface Fill { t: number; usd: number; credit: number }
@@ -329,11 +418,17 @@ export class AbsorptionRecorder {
    * settled minutes of [since, now] for the automatic threshold. Memory answers from `#memoryFrom` on, the store before that.
    */
   async query(ids: readonly string[], mins: readonly number[], from: number, to: number, limit: number, since: number): Promise<AbsorptionAnswer> {
-    const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity])), split = Math.max(from, this.#memoryFrom);
+    const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity])), memoryFrom = this.#memoryFrom, split = Math.max(from, memoryFrom);
+    // Memory's part is taken before anything is awaited: memory may let go of its oldest part while the store reads, and the store is asked
+    // only up to where memory answered from.
+    const recent: AbsorptionGroup[] = [], open: [string, number][] = [];
+    for (const g of this.#memoryGroups) if (g.t0 >= split && g.t0 < to && peakOf(g) >= (min.get(g.id) ?? Infinity)) recent.push(g);
+    for (const [id, s] of this.#instruments) if (min.has(id)) for (const [t, m] of s.minutes) if (t >= from && t < to) open.push([id, m.floor]);
+    const recentFloors = this.#memoryMinutesOf(ids, from, to, memoryFrom), recentMinutes = this.#memoryMinutesOf(ids, since, Infinity, memoryFrom);
     const found: AbsorptionGroup[] = [];
     // One more than the limit, so an instrument with exactly `limit` groups is not reported as cut.
-    if (this.#store && from < this.#memoryFrom) for (const g of await this.#store.query(ids, mins, from, Math.min(to, this.#memoryFrom), limit + 1)) found.push(g);
-    for (const g of this.#memoryGroups) if (g.t0 >= split && g.t0 < to && peakOf(g) >= (min.get(g.id) ?? Infinity)) found.push(g);
+    if (this.#store && from < memoryFrom) for (const g of await this.#store.query(ids, mins, from, Math.min(to, memoryFrom), limit + 1)) found.push(g);
+    for (const g of recent) found.push(g);
     // A group found again (trades sent again after a restart) is one group: the store keeps one row, and memory may hold both.
     const byId = new Map<string, AbsorptionGroup[]>(), keys = new Set<string>();
     for (const g of found) {
@@ -344,18 +439,49 @@ export class AbsorptionRecorder {
     for (const [id, list] of byId) { list.sort((a, b) => peakOf(b) - peakOf(a)); if (list.length > limit) capped.push(id); groups.push(...list.slice(0, limit)); }
     const floors: Record<string, number> = {};
     const raise = (id: string, floor: number): void => { floors[id] = Math.max(floors[id] ?? 0, floor); };
-    for (const m of await this.#minutesOf(ids, from, to)) raise(m.id, m.floor);
-    for (const [id, s] of this.#instruments) if (min.has(id)) for (const [t, m] of s.minutes) if (t >= from && t < to) raise(id, m.floor);
-    return { groups, floors, minutes: await this.#minutesOf(ids, since, Infinity), capped };
-  }
-
-  async #minutesOf(ids: readonly string[], from: number, to: number): Promise<AbsorptionMinute[]> {
-    const out: AbsorptionMinute[] = [];
+    for (const m of await this.#storedMinutesOf(ids, from, to, memoryFrom)) raise(m.id, m.floor);
+    for (const m of recentFloors) raise(m.id, m.floor);
+    for (const [id, floor] of open) raise(id, floor);
     // Pushed one by one: a week of stored minutes over many instruments spread into one call overflowed the stack (the first questions
     // after a restart, when memory holds nothing yet; Karl, 2026-10-15).
-    if (this.#store && from < this.#memoryFrom) for (const m of await this.#store.minutes(ids, from, Math.min(to, this.#memoryFrom))) out.push(m);
-    for (const id of ids) for (const [t, m] of this.#memoryMinutes.get(id) ?? []) if (t >= Math.max(from, this.#memoryFrom) && t < to) out.push(m);
-    return out.sort((a, b) => a.t - b.t);
+    const minutes: AbsorptionMinute[] = [];
+    for (const m of await this.#storedMinutesOf(ids, since, Infinity, memoryFrom)) minutes.push(m);
+    for (const m of recentMinutes) minutes.push(m);
+    return { groups, floors, minutes: minutes.sort((a, b) => a.t - b.t), capped };
+  }
+
+  /**
+   * The absorption column's question (`AbsorptionProfile`): the marked part of every group of `ids` that began in [from, to), at its
+   * instrument's `thresholds` entry, by price on rows of `step`, none left out; and where a minute's floor may have left marked groups out.
+   * Nothing after the window is read: the column wants no statistics. The store hands its part over an hour at a time and keeps nothing.
+   */
+  async profile(ids: readonly string[], thresholds: readonly (number | null)[], from: number, to: number, step: number): Promise<AbsorptionProfileAnswer> {
+    const judged = new Map(ids.map((id, i) => [id, thresholds[i] ?? null])), memoryFrom = this.#memoryFrom, split = Math.min(to, Math.max(from, memoryFrom));
+    const out = new AbsorptionProfile(judged, from, to, step, this.#perMinute);
+    // Memory's part first, before anything is awaited (as in `query`).
+    for (const g of this.#memoryGroups) if (g.t0 >= split && g.t0 < to) out.add(g);
+    for (const m of this.#memoryMinutesOf(ids, from, to, memoryFrom)) out.floor(m.id, m.t, m.floor);
+    for (const [id, s] of this.#instruments) if (judged.has(id)) for (const [t, m] of s.minutes) if (t >= from && t < to) out.floor(id, t, m.floor);
+    const asked = ids.filter(id => typeof judged.get(id) === 'number');
+    if (this.#store && from < split && asked.length) {
+      await this.#store.eachHour(asked, asked.map(id => judged.get(id)!), from, split, (groups, minutes) => {
+        for (const g of groups) out.add(g);
+        for (const m of minutes) out.floor(m.id, m.t, m.floor);
+      });
+    }
+    return out.answer();
+  }
+
+  /** The settled minutes memory holds of `ids` in [from, to), from `memoryFrom` on. */
+  #memoryMinutesOf(ids: readonly string[], from: number, to: number, memoryFrom: number): AbsorptionMinute[] {
+    const out: AbsorptionMinute[] = [], start = Math.max(from, memoryFrom);
+    for (const id of ids) for (const [t, m] of this.#memoryMinutes.get(id) ?? []) if (t >= start && t < to) out.push(m);
+    return out;
+  }
+
+  /** The stored minutes of `ids` in [from, to) before `memoryFrom` (memory answers from there on). */
+  async #storedMinutesOf(ids: readonly string[], from: number, to: number, memoryFrom: number): Promise<AbsorptionMinute[]> {
+    return this.#store && from < memoryFrom ? await this.#store.minutes(ids, from, Math.min(to, memoryFrom)) : [];
   }
 }
 
@@ -393,6 +519,15 @@ export function parseAbsorptionAnswer(value: unknown, ids: readonly string[]): A
   for (const item of body.minutes as unknown[]) { const m = parseMinute(item); if (!m || !asked.has(m.id)) return null; minutes.push(m); }
   for (const [id, floor] of Object.entries(body.floors as Record<string, unknown>)) { if (!asked.has(id) || !finite(floor) || floor < 0) return null; floors[id] = floor; }
   return { groups, floors, minutes, capped };
+}
+
+/** An absorption column answer checked against the instruments asked for: the answer, or null when it is anything else. */
+export function parseAbsorptionProfile(value: unknown, ids: readonly string[]): AbsorptionProfileAnswer | null {
+  const answer = parseProfile(value, ids), body = value as { incomplete?: unknown; cut?: unknown } | null;
+  const idList = (list: unknown): string[] | null => Array.isArray(list) && list.every(id => typeof id === 'string' && ids.includes(id)) ? list as string[] : null;
+  const incomplete = idList(body?.incomplete), cut = idList(body?.cut);
+  if (!answer || !incomplete || !cut) return null;
+  return { ...answer, incomplete, cut };
 }
 
 /** What the live stream says (groups found, minutes settled), each item checked; broken items are dropped, never drawn. */

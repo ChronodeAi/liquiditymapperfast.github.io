@@ -7,7 +7,7 @@ import { LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER, LiquidationStream, type
 import { OrderBuilder, orderRow } from './orders.ts';
 import { packTape, type TapeBatch } from './tape.ts';
 import { RecordedBefore } from './restart.ts';
-import { AbsorptionRecorder, GROUP_FLOOR_USD, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from './absorption.ts';
+import { AbsorptionRecorder, GROUP_FLOOR_USD, type AbsorptionAnswer, type AbsorptionProfileAnswer, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from './absorption.ts';
 import { FLOW_MEMORY_MS, FLOW_SEC, FlowRecorder, type FlowFrame, type FlowStore, type FlowUpdate } from './flow.ts';
 import { TIMEFRAMES, quoteRows, type Candle, type OiBar, type OiRow } from './series.ts';
 import { OI_SAMPLE_VENUES, fetchCandles, fetchOiHistory, fetchOiReading, oiBars, venueOf, webGet, type Fetcher } from './history.ts';
@@ -384,6 +384,8 @@ export class Engine {
 
   /** Absorption candidates for these instruments over [from, to) and the minutes since `since` (see AbsorptionRecorder.query). */
   absorptionHistory(ids: readonly string[], mins: readonly number[], from: number, to: number, limit: number, since: number): Promise<AbsorptionAnswer> { return this.absorption.query(ids, mins, from, to, limit, since); }
+  /** The absorption column for these instruments over [from, to), each at its threshold, on rows of `step` (see AbsorptionRecorder.profile). */
+  absorptionProfile(ids: readonly string[], thresholds: readonly (number | null)[], from: number, to: number, step: number): Promise<AbsorptionProfileAnswer> { return this.absorption.profile(ids, thresholds, from, to, step); }
 
   /** Traded volume by price for these instruments over [from, to) (the traded-volume column). */
   profile(ids: readonly string[], from: number, to: number, rowStep: number): ProfileAnswer { return this.footprints.profile(ids, from, to, rowStep); }

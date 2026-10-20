@@ -515,6 +515,26 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       answer => sendJson(res, { windowMs: ABSORPTION_WINDOW_MS, floorUsd: GROUP_FLOOR_USD, perMinute: GROUPS_PER_MINUTE, ...answer }),
       error => { console.error('v2 /api/v2/absorption failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); });
   };
+  /**
+   * The absorption column for some instruments over a window (shared/absorption.ts `AbsorptionProfile`): the marked USD of every group that
+   * began in it, at each instrument's threshold (`min`, one per instrument or one for all), by price on rows of `step`, none left out, and the
+   * instruments whose rows may be short. No minute after the window is read, and the stored hours are read one at a time with the event loop
+   * let go between.
+   */
+  const absorptionProfileRoute = (url: URL, res: ServerResponse) => {
+    const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean);
+    if (!ids.length || ids.length > MAX_ABSORPTION_INSTRUMENTS) return sendJson(res, { error: `inst must name 1 to ${MAX_ABSORPTION_INSTRUMENTS} instruments` }, 400);
+    const span = windowOf(url, Date.now() + 60_000, 3_600_000); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
+    if (span.to - span.from > MAX_COLUMN_SPAN_MS) return sendJson(res, { error: 'the window may be at most eight days' }, 400);
+    const mins = (url.searchParams.get('min') ?? '').split(',').filter(Boolean).map(Number);
+    if (!mins.length || (mins.length > 1 && mins.length !== ids.length)) return sendJson(res, { error: 'min must be one amount, or one per instrument' }, 400);
+    if (mins.some(m => !Number.isFinite(m) || m < 0)) return sendJson(res, { error: 'min must be USD amounts' }, 400);
+    const step = Number(url.searchParams.get('step'));
+    if (!(step > 0) || !Number.isFinite(step)) return sendJson(res, { error: 'step must be a positive number' }, 400);
+    absorption.profile(ids, ids.map((_, i) => mins.length > 1 ? mins[i]! : mins[0]!), span.from, span.to, step).then(
+      answer => sendJson(res, answer),
+      error => { console.error('v2 /api/v2/absorption-profile failed:', error); if (!res.headersSent) sendJson(res, { error: 'internal error' }, 500); });
+  };
   /** Traded volume by price for some instruments over a window (the page's traded-volume column). */
   const profileRoute = (url: URL, res: ServerResponse) => {
     const ids = (url.searchParams.get('inst') ?? '').split(',').filter(Boolean);
@@ -654,6 +674,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/range': rangeRoute(url, res); return true;
           case '/api/v2/value-areas': valueAreasRoute(url, res); return true;
           case '/api/v2/absorption': absorptionRoute(url, res); return true;
+          case '/api/v2/absorption-profile': absorptionProfileRoute(url, res); return true;
           case '/api/v2/coverage': coverageRoute(url, res); return true;
           case '/api/v2/venues': venuesRoute(res); return true;
           case '/coins.json': return coins?.send(res) ?? false;

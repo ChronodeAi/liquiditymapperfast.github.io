@@ -3,7 +3,7 @@ import type { FootprintMinuteRow, FootprintStore } from '../../shared/footprint.
 import { largestPrints, type Print, type PrintStore } from '../../shared/prints.ts';
 import type { FlowMinuteRow, FlowStore } from '../../shared/flow.ts';
 import { fullerColumn, fullerFlowMinute, fullerFootprintMinute } from '../../shared/recording-merge.ts';
-import { peakOf, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from '../../shared/absorption.ts';
+import { hoursOf, peakOf, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStore } from '../../shared/absorption.ts';
 import type { CoverageRow, CoverageStore } from '../../shared/coverage.ts';
 import { largestLiquidations, liquidationKey, type Liquidation, type LiquidationStore } from '../../shared/liquidations.ts';
 import type { OiReading, OiStore } from '../../shared/engine.ts';
@@ -214,15 +214,26 @@ export async function openRecordings(name: string, since: number, canWrite: () =
     }),
     close: () => {},
   };
-  // Absorption: the recorder holds the last two hours; older groups and minutes are read when the page asks for them, a cursor over the time index.
+  // Absorption: the recorder holds the last two hours; older groups and minutes are read when the page asks for them, an hour of the time
+  // index at a time, one request each. A cursor walked them one round trip a row: a day of 100,000 groups took 1.9 s that way, 0.9 s in one
+  // request (Chromium, 2026-10-19), and an hour holds at most the per-minute cap's 600 groups an instrument, so no request holds a day.
   const toGroup = (row: AbsorptionRow): AbsorptionGroup => ({ id: row.inst, side: row.side, price: row.price, t0: row.t0, steps: row.steps });
   const toMinute = (row: AbsorptionMinuteRow): AbsorptionMinute => ({ id: row.inst, t: row.t, n: row.n, mean: row.mean, m2: row.m2, floor: row.floor });
-  const scan = <Row>(name: Name, from: number, to: number, keep: (row: Row) => boolean): Promise<Row[]> => new Promise((resolve, reject) => {
-    const out: Row[] = [], range = IDBKeyRange.bound(from, Number.isFinite(to) ? to : Number.MAX_SAFE_INTEGER, false, true);
-    const request = db.transaction(name, 'readonly').objectStore(name).index('t').openCursor(range);
-    request.onsuccess = () => { const cursor = request.result; if (cursor) { const row = cursor.value as Row; if (keep(row)) out.push(row); cursor.continue(); } else resolve(out); };
-    request.onerror = () => reject(request.error);
-  });
+  /** The ranges of [from, to) an hour at a time, from the retention's start on; a range reaching past the next hour (or open) is read in one. */
+  const hourRanges = (from: number, to: number): IDBKeyRange[] => {
+    const out: IDBKeyRange[] = [], start = Math.max(from, since), end = Math.min(to, Date.now() + 3_600_000);
+    for (const hour of hoursOf(start, end)) out.push(IDBKeyRange.bound(hour.from, hour.to, false, true));
+    const rest = Math.max(start, end);
+    if (to > rest) out.push(IDBKeyRange.bound(rest, Number.isFinite(to) ? to : Number.MAX_SAFE_INTEGER, false, true));
+    return out;
+  };
+  const readHours = async <Row>(name: Name, from: number, to: number, take: (rows: Row[]) => void): Promise<void> => {
+    for (const range of hourRanges(from, to)) take(await new Promise<Row[]>((resolve, reject) => {
+      const request = db.transaction(name, 'readonly').objectStore(name).index('t').getAll(range);
+      request.onsuccess = () => resolve(request.result as Row[]);
+      request.onerror = () => reject(request.error);
+    }));
+  };
   const absorption: AbsorptionStore = {
     load: () => ({ groups: absorptionRows.map(toGroup), minutes: absorptionMinuteRows.map(toMinute) }),
     save: (groups, minutes, expireBefore) => enqueue(tx => {
@@ -232,13 +243,33 @@ export async function openRecordings(name: string, since: number, canWrite: () =
       prune(tx, 'absorption', expireBefore); prune(tx, 'absorptionMinutes', expireBefore);
     }),
     query: async (ids, mins, from, to, limit) => {
-      const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity]));
-      const rows = await scan<AbsorptionRow>('absorption', from, to, row => row.peak >= (min.get(row.inst) ?? Infinity));
-      const byId = new Map<string, AbsorptionRow[]>();
-      for (const row of rows) { let list = byId.get(row.inst); if (!list) { list = []; byId.set(row.inst, list); } list.push(row); }
+      const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity])), byId = new Map<string, AbsorptionRow[]>();
+      await readHours<AbsorptionRow>('absorption', from, to, rows => {
+        for (const row of rows) if (row.peak >= (min.get(row.inst) ?? Infinity)) { let list = byId.get(row.inst); if (!list) { list = []; byId.set(row.inst, list); } list.push(row); }
+      });
       return [...byId.values()].flatMap(list => list.sort((a, b) => b.peak - a.peak).slice(0, limit).map(toGroup));
     },
-    minutes: async (ids, from, to) => { const wanted = new Set(ids); return (await scan<AbsorptionMinuteRow>('absorptionMinutes', from, to, row => wanted.has(row.inst))).map(toMinute); },
+    minutes: async (ids, from, to) => {
+      const wanted = new Set(ids), out: AbsorptionMinute[] = [];
+      await readHours<AbsorptionMinuteRow>('absorptionMinutes', from, to, rows => { for (const row of rows) if (wanted.has(row.inst)) out.push(toMinute(row)); });
+      return out;
+    },
+    // The column's read: each hour's groups and minutes in one transaction, so they are of one moment of the store.
+    eachHour: async (ids, mins, from, to, take) => {
+      const min = new Map(ids.map((id, i) => [id, mins[i] ?? Infinity]));
+      for (const range of hourRanges(from, to)) {
+        const [rows, minuteRows] = await new Promise<[AbsorptionRow[], AbsorptionMinuteRow[]]>((resolve, reject) => {
+          const tx = db.transaction(['absorption', 'absorptionMinutes'], 'readonly');
+          const groups = tx.objectStore('absorption').index('t').getAll(range), minutes = tx.objectStore('absorptionMinutes').index('t').getAll(range);
+          tx.oncomplete = () => resolve([groups.result as AbsorptionRow[], minutes.result as AbsorptionMinuteRow[]]);
+          tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error ?? new Error('the absorption read was aborted'));
+        });
+        const groups: AbsorptionGroup[] = [], minutes: AbsorptionMinute[] = [];
+        for (const row of rows) if (row.peak >= (min.get(row.inst) ?? Infinity)) groups.push(toGroup(row));
+        for (const row of minuteRows) if (row.floor >= (min.get(row.inst) ?? Infinity)) minutes.push(toMinute(row));
+        take(groups, minutes);
+      }
+    },
     close: () => {},
   };
   // The coverage record: a stretch is written again as it grows (its start is its key), cut at the minute still open (shared/coverage.ts).
