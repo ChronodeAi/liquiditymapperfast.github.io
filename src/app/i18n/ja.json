@@ -1441,8 +1441,6 @@
  "Period time zone": "期間のタイムゾーン",
  "Periods shown, including current": "表示する期間数(進行中を含む)",
  "Line contents": "線の内容",
- "No period lines selected: these settings apply to the chart window.": "期間の線が選ばれていません:これらの設定はチャートの表示範囲に適用されます。",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "チェックした期間の線は、チャート表示範囲そのものの線に置き換わります。すべて外すと元に戻ります。",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "マップの横とチャート上端に置く約定のプロファイルです。マップに表示中の時間で、各価格・各時間区間に成行でどれだけ買われ、売られたかを示します。待機中の流動性と並べることで、どの水準で実際に取引が成立したか、そしていつかが分かります。",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "設定のグリッドで、各指標（約定出来高、建玉の変化、吸収、清算）をどこに描くかを決めます。マップの右か左の列（左の列は鏡像で、どちらもチャートの側を向きます）、または上端の帯です。帯では同じプロファイルが時間軸の上に置かれ、区間ごとに 1 本のバー（ズームに応じて 1 秒から 1 日）が上から下へ伸び、最も活発な区間がポイント・オブ・コントロール、その周りがバリューエリアです。帯は 3 本まで重ねられます。余地がないものはオンのまま、パネルとマップでそのことを示します。バーにカーソルを合わせると数値が分かり、帯の見出しをクリックするとこの設定が開きます。",
  "OI change": "OI 変化",
@@ -1468,5 +1466,8 @@
  "{measure} right of the map": "マップの右の{measure}",
  "{measure} left of the map": "マップの左の{measure}",
  "{measure} along the top": "上端の{measure}",
- "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "{n} 件のプロファイルを余地不足で非表示：{which}。オンのままで、余地ができれば表示されます（ウィンドウを広くする、チャートを高くする、プロファイルを減らす）。"
+ "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "{n} 件のプロファイルを余地不足で非表示：{which}。オンのままで、余地ができれば表示されます（ウィンドウを広くする、チャートを高くする、プロファイルを減らす）。",
+ "Chart window": "チャートの表示範囲",
+ "Everything on the chart, as the columns add it up": "チャート上のすべて(列と同じ集計)",
+ "No lines are ticked above: these settings draw nothing until one is.": "上で線が1つも選ばれていません:選ぶまで、これらの設定は何も描きません。"
 }

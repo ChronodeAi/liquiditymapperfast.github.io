@@ -80,8 +80,6 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     heading(t('Traded volume by period')),
     note(t('Choose Lines for reference levels—the point of control and value-area boundaries—and select any combination of periods. Choose Bar profiles to inspect volume by price inside each period; select one period type or None, independently of Lines.')),
     periodGrid(store, set),
-    // Period lines take the place of the chart window's own (heat-pane.ts #paintValueLines): said where they are ticked.
-    ...(s.lines.length ? [note(t('Ticked period lines replace the chart window\'s own lines; untick them all to bring those back.'))] : []),
     // The sessions are edited right under the grid that asks for them, not at the panel's foot where they read as something else.
     ...(kinds.includes('sessions') ? [sessionEditor(store, set)] : []),
   );
@@ -115,9 +113,9 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
   // What each set of lines draws: the periods' chosen in the grid, or, with none chosen, the chart window's (the columns' own levels).
   body.append(
     heading(t('Line contents')),
-    ...(!s.lines.length ? [note(t('No period lines selected: these settings apply to the chart window.'))] : []),
+    ...(!s.windowLines && !s.lines.length ? [note(t('No lines are ticked above: these settings draw nothing until one is.'))] : []),
     // Whose lines they are is said whenever it is not traded volume's, so moving or switching a column never changes their meaning unsaid.
-    ...(lines !== 'volume' && !s.lines.length ? [note(t('Traded volume is not drawn by price, so the lines across the chart are {measure}\'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.', { measure: measureDef(lines).name() }))] : []),
+    ...(lines !== 'volume' && s.windowLines ? [note(t('Traded volume is not drawn by price, so the lines across the chart are {measure}\'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.', { measure: measureDef(lines).name() }))] : []),
     switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
     switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
     switchRow(t('Labels'), t('Each line\'s name and price at its right end, where there is room.'), s.labels, labels => set({ labels })),
@@ -150,8 +148,8 @@ function emphasisRows(store: Store, set: (change: Partial<TradedSettings>, again
 const PERIOD_ROWS: Readonly<Record<LineKind, string>> = { day: t('Days'), week: t('Weeks'), month: t('Months'), sessions: t('Sessions') };
 
 /**
- * The periods grid: a row a period, its lines in the first column (boxes, any of them) and its bar profiles in the second (round buttons, one
- * kind or None, so profiles never lie over each other), the two independent. A month is longer than the recording keeps, so its row says it
+ * The periods grid: the chart window's lines, then a row a period, its lines in the first column (boxes, any of them) and its bar profiles in
+ * the second (round buttons, one kind or None, so profiles never lie over each other), the two independent. A month is longer than the recording keeps, so its row says it
  * comes from candles; the sessions' row names the sessions switched on.
  */
 function periodGrid(store: Store, set: (change: Partial<TradedSettings>, again?: boolean) => void): HTMLElement {
@@ -164,6 +162,13 @@ function periodGrid(store: Store, set: (change: Partial<TradedSettings>, again?:
     radio.onchange = () => { if (radio.checked) set({ profiles: kind }, true); };
     return el('label', { tip: `${name} · ${profilesHead}` }, radio);
   };
+  // The chart window first: its point of control and value area, the columns' own levels, on or off on their own; its profile is the
+  // columns, so it has no bar profiles of its own.
+  const windowName = t('Chart window'), windowBox = el('input', { type: 'checkbox', checked: s.windowLines, ariaLabel: `${windowName} · ${linesHead}` });
+  windowBox.dataset.focus = 'period-lines-window';
+  windowBox.onchange = () => set({ windowLines: windowBox.checked }, true);
+  grid.append(el('span', { class: 'what' }, el('span', { class: 'name', textContent: windowName }), el('span', { class: 'desc', textContent: t('Everything on the chart, as the columns add it up') })),
+    el('label', { tip: `${windowName} · ${linesHead}` }, windowBox), el('span', { class: 'none', textContent: '—' }));
   for (const k of LINE_KINDS) {
     const name = PERIOD_ROWS[k], on = s.sessions.filter(x => x.on).map(x => x.name).join(', ');
     const desc = k === 'month' ? t('From candles, an estimate (≈)') : k === 'sessions' ? on : '';

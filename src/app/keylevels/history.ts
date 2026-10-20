@@ -102,7 +102,8 @@ export class KeyLevelHistory {
     else return;
     const asked = this.#key, before = this.heldFrom;
     this.#pending = true; if (!this.#bars.length) this.state = 'loading';
-    void fetchCandles(target.id, barMs, a, b, this.get, target.listing, MAX_PAGES, { pageSize: 1500 }).then(rows => {
+    // A page that fails after others came keeps them: the next call asks on from where they reach.
+    void fetchCandles(target.id, barMs, a, b, this.get, target.listing, MAX_PAGES, { pageSize: 1500, partial: true }).then(rows => {
       if (asked !== this.#key) return;
       if (forward) this.#refreshedAt = this.now();
       if (rows.length) { this.#merge(rows as CandleRow[]); if (forward) this.#heldTo = Math.max(this.#heldTo, b); }

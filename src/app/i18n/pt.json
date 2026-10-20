@@ -1495,8 +1495,6 @@
  "Period time zone": "Fuso horário dos períodos",
  "Periods shown, including current": "Períodos exibidos, incluindo o atual",
  "Line contents": "Conteúdo das linhas",
- "No period lines selected: these settings apply to the chart window.": "Nenhuma linha de período selecionada: estas configurações valem para a janela do gráfico.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "As linhas de período marcadas substituem as linhas da própria janela do gráfico; desmarque todas para trazê-las de volta.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "Perfis do que foi negociado, ao lado do mapa e ao longo do topo do gráfico: quanto foi comprado e vendido a mercado em cada preço, e em cada intervalo de tempo, durante o tempo do mapa. Ao lado da liquidez em espera, mostra que níveis mudaram mesmo de mãos, e quando.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "Nas definições, uma grelha define onde cada medida é desenhada (volume negociado, variação do open interest, absorção ou liquidações): como coluna à direita ou à esquerda do mapa, as da esquerda em espelho para que ambas olhem para o gráfico, ou como faixa ao longo do topo, onde o mesmo perfil é estendido sobre o eixo do tempo: uma barra por cada intervalo, de um segundo a um dia conforme o zoom, a crescer de cima para baixo, com o intervalo mais ativo como ponto de controle e a área de valor à volta. Empilham-se até três faixas. O que não cabe continua ligado e é indicado, no painel e no mapa. Aponte para uma barra para ver os seus números; clique no cabeçalho de uma faixa para estas definições.",
  "OI change": "Variação de OI",
@@ -1530,5 +1528,8 @@
   "one": "{n} perfil oculto por falta de espaço: {which}. Continua ligado e aparece quando houver espaço: uma janela mais larga, um gráfico mais alto ou menos perfis.",
   "many": "{n} perfis ocultos por falta de espaço: {which}. Continuam ligados e aparecem quando houver espaço: uma janela mais larga, um gráfico mais alto ou menos perfis.",
   "other": "{n} perfis ocultos por falta de espaço: {which}. Continuam ligados e aparecem quando houver espaço: uma janela mais larga, um gráfico mais alto ou menos perfis."
- }
+ },
+ "Chart window": "Janela do gráfico",
+ "Everything on the chart, as the columns add it up": "Tudo o que está no gráfico, como as colunas o somam",
+ "No lines are ticked above: these settings draw nothing until one is.": "Nenhuma linha marcada acima: estas configurações não desenham nada até que uma seja marcada."
 }

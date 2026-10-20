@@ -1481,8 +1481,6 @@
  "Period time zone": "Zeitzone der Zeiträume",
  "Periods shown, including current": "Angezeigte Zeiträume, inklusive aktuellem",
  "Line contents": "Linieninhalt",
- "No period lines selected: these settings apply to the chart window.": "Keine Zeitraumlinien gewählt: Diese Einstellungen gelten für das Chartfenster.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "Angehakte Zeitraumlinien ersetzen die eigenen Linien des Chartfensters; alle abwählen, um diese zurückzuholen.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "Profile des Gehandelten neben der Karte und am oberen Rand des Charts: wie viel an jedem Preis und in jedem Zeitabschnitt am Markt gekauft und verkauft wurde, über die Zeit auf der Karte. Neben der ruhenden Liquidität zeigt es, welche Niveaus tatsächlich den Besitzer gewechselt haben, und wann.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "In den Einstellungen legt ein Raster fest, wo jede Messgröße gezeichnet wird (gehandeltes Volumen, die Änderung des Open Interest, Absorption oder Liquidationen): als Spalte rechts oder links der Karte, die linken gespiegelt, sodass beide zum Chart zeigen, oder als Band am oberen Rand, wo dasselbe Profil auf der Zeitachse liegt: ein Balken für jeden Zeitabschnitt, von einer Sekunde bis zu einem Tag, wie der Zoom es erlaubt, von oben nach unten wachsend, mit dem aktivsten Abschnitt als Point of Control und der Value Area um ihn herum. Bis zu drei Bänder stapeln sich. Was keinen Platz hat, bleibt eingeschaltet und wird genannt, im Panel und auf der Karte. Zeige auf einen Balken für seine Zahlen; klicke auf den Kopf eines Bands für diese Einstellungen.",
  "OI change": "OI-Änderung",
@@ -1514,5 +1512,8 @@
  "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": {
   "one": "{n} Profil aus Platzgründen ausgeblendet: {which}. Es bleibt eingeschaltet und erscheint, sobald Platz ist: ein breiteres Fenster, ein höherer Chart oder weniger Profile.",
   "other": "{n} Profile aus Platzgründen ausgeblendet: {which}. Sie bleiben eingeschaltet und erscheinen, sobald Platz ist: ein breiteres Fenster, ein höherer Chart oder weniger Profile."
- }
+ },
+ "Chart window": "Chartfenster",
+ "Everything on the chart, as the columns add it up": "Alles auf dem Chart, wie die Spalten es zusammenzählen",
+ "No lines are ticked above: these settings draw nothing until one is.": "Oben ist keine Linie angehakt: Diese Einstellungen zeichnen nichts, bis eine angehakt ist."
 }

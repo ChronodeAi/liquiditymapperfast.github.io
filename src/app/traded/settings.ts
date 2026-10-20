@@ -38,9 +38,15 @@ export interface TradedSettings {
   /**
    * The periods drawn on the chart (Karl, 2026-10-19: the columns always add up what is on the chart, so the fixed column at the side is in
    * step with it; days, weeks, months and sessions are drawn over their own time): each kind's point-of-control and value-area lines, its
-   * past ones, names and untouched runs. Empty: across the chart, the columns' own lines.
+   * past ones, names and untouched runs.
    */
   lines: LineKind[];
+  /**
+   * Whether the chart window's own lines are drawn: the point of control and value area of everything on the chart, the columns' levels
+   * (Karl, 2026-10-20: a row of the periods grid of its own, on by default and independent of the period lines, so no lines at all is a choice
+   * the grid can show).
+   */
+  windowLines: boolean;
   /** The one kind whose traded-volume profiles are drawn on the chart, over each window's own time (one, so they never lie over each other); null: none. */
   profiles: LineKind | null;
   /**
@@ -123,7 +129,7 @@ const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!,
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
   placements: defaultSet(), bars: 'split', emphasis: true, valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true, tags: true,
   // Each day on the chart, its lines and its profile, from the first visit (Karl, 2026-10-20: what is new must show without hunting for it).
-  lines: ['day'], profiles: 'day', source: 'recorded', zone: 'page', count: 5, naked: true,
+  lines: ['day'], windowLines: true, profiles: 'day', source: 'recorded', zone: 'page', count: 5, naked: true,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
 
@@ -175,7 +181,7 @@ export function readTraded(saved: unknown, strip: LegacyTop | null = null): Trad
     bars: oneOf(['split', 'delta'] as const, s.bars, d.bars), emphasis: flag(s.emphasis, d.emphasis),
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels), tags: flag(s.tags, d.tags),
-    lines: LINE_KINDS.filter(k => wanted.includes(k) || k === old),
+    lines: LINE_KINDS.filter(k => wanted.includes(k) || k === old), windowLines: flag(s.windowLines, d.windowLines),
     profiles: s.profiles === null ? null : kind(s.profiles) ?? (s.pastProfiles === true ? old : s.profiles === undefined ? d.profiles : null),
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
     zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), sessions,

@@ -1481,8 +1481,6 @@
  "Period time zone": "Dönem saat dilimi",
  "Periods shown, including current": "Gösterilen dönemler, güncel dahil",
  "Line contents": "Çizgi içeriği",
- "No period lines selected: these settings apply to the chart window.": "Dönem çizgisi seçilmedi: bu ayarlar grafik penceresine uygulanır.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "İşaretli dönem çizgileri grafik penceresinin kendi çizgilerinin yerini alır; geri getirmek için hepsinin işaretini kaldırın.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "Haritanın yanında ve grafiğin üst kenarında işlem görenlerin profilleri: haritadaki süre boyunca her fiyatta ve her zaman diliminde piyasadan ne kadar alınıp satıldığı. Bekleyen likiditenin yanında hangi seviyelerin gerçekten el değiştirdiğini ve ne zaman değiştirdiğini gösterir.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "Ayarlardaki bir tablo her ölçünün nereye çizileceğini belirler (işlem hacmi, açık pozisyon değişimi, emilim ya da tasfiyeler): haritanın sağında ya da solunda bir sütun olarak (soldakiler aynalanır, böylece ikisi de grafiğe bakar) ya da üst kenarda bir bant olarak; bantta aynı profil zaman ekseni üzerine yatırılır: her dilim için bir çubuk (yakınlaştırmaya göre bir saniyeden bir güne kadar) yukarıdan aşağı uzanır; en yoğun dilim kontrol noktasıdır, çevresi değer alanı. En fazla üç bant üst üste gelir. Yer bulamayan açık kalır ve bu, panelde ve haritada belirtilir. Rakamları için bir çubuğun üzerine gelin; bu ayarlar için bir bandın başlığına tıklayın.",
  "OI change": "OI değişimi",
@@ -1514,5 +1512,8 @@
  "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": {
   "one": "{n} profil yer olmadığı için gizli: {which}. Açık kalır ve yer olduğunda görünür: daha geniş bir pencere, daha yüksek bir grafik ya da daha az profil.",
   "other": "{n} profil yer olmadığı için gizli: {which}. Açık kalırlar ve yer olduğunda görünürler: daha geniş bir pencere, daha yüksek bir grafik ya da daha az profil."
- }
+ },
+ "Chart window": "Grafik penceresi",
+ "Everything on the chart, as the columns add it up": "Grafikteki her şey, sütunların topladığı gibi",
+ "No lines are ticked above: these settings draw nothing until one is.": "Yukarıda işaretli çizgi yok: biri işaretlenene kadar bu ayarlar hiçbir şey çizmez."
 }

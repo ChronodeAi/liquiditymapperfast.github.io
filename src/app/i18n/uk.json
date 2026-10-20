@@ -1514,8 +1514,6 @@
  "Period time zone": "Часовий пояс періодів",
  "Periods shown, including current": "Показано періодів, включно з поточним",
  "Line contents": "Вміст ліній",
- "No period lines selected: these settings apply to the chart window.": "Лінії періодів не обрано: ці налаштування стосуються вікна графіка.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "Позначені лінії періодів замінюють власні лінії вікна графіка; зніміть усі позначки, щоб повернути їх.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "Профілі угод поруч із картою та вздовж верхнього краю графіка: скільки було куплено й продано за ринком на кожній ціні та в кожному відрізку часу за час на карті. Поруч із ліквідністю в стакані він показує, які рівні справді перейшли з рук у руки, і коли.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "У налаштуваннях сітка задає, де малюється кожен показник (обсяг угод, зміна відкритого інтересу, поглинання або ліквідації): колонкою праворуч чи ліворуч від карти, причому ліві дзеркальні, щоб обидві сторони дивилися на графік, або смугою вздовж верхнього краю, де той самий профіль лежить на осі часу: по смузі на кожен відрізок, від секунди до дня, як дозволяє масштаб, що росте згори вниз; найактивніший відрізок — точка контролю, навколо нього — зона вартості. Можна скласти до трьох смуг. Те, чому забракло місця, лишається увімкненим, і про це сказано в панелі та на карті. Наведіть на смугу, щоб побачити її цифри; клацніть заголовок смуги, щоб відкрити ці налаштування.",
  "OI change": "Зміна OI",
@@ -1551,5 +1549,8 @@
   "few": "Приховано {n} профілі, немає місця: {which}. Вони лишаються увімкненими й з’являться, коли знайдеться місце: ширше вікно, вищий графік або менше профілів.",
   "many": "Приховано {n} профілів, немає місця: {which}. Вони лишаються увімкненими й з’являться, коли знайдеться місце: ширше вікно, вищий графік або менше профілів.",
   "other": "Приховано {n} профілю, немає місця: {which}. Вони лишаються увімкненими й з’являться, коли знайдеться місце: ширше вікно, вищий графік або менше профілів."
- }
+ },
+ "Chart window": "Вікно графіка",
+ "Everything on the chart, as the columns add it up": "Усе, що на графіку, як це підсумовують стовпці",
+ "No lines are ticked above: these settings draw nothing until one is.": "Вище не позначено жодної лінії: ці налаштування нічого не малюють, доки не позначено хоча б одну."
 }

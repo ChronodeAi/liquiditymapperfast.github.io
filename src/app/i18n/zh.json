@@ -1441,8 +1441,6 @@
  "Period time zone": "周期时区",
  "Periods shown, including current": "显示的周期数(含当前)",
  "Line contents": "线的内容",
- "No period lines selected: these settings apply to the chart window.": "未选择周期线:这些设置作用于图表窗口。",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "勾选的周期线会取代图表窗口自身的线;全部取消即可恢复。",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "地图旁边和图表顶部的成交分布：在地图所示的时间内，每个价格、每个时间段以市价买入和卖出了多少。与挂单流动性并列，可以看出哪些价位真正成交过，以及何时成交。",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "在设置中，用一个网格决定每个指标（成交量、持仓量变化、吸收或强平）画在哪里：作为地图右侧或左侧的一列（左侧的列是镜像的，两侧都朝向图表），或作为顶部的条带；条带中同一分布被放在时间轴上：每个时间段一根柱条（随缩放从一秒到一天），从上往下延伸；最活跃的时间段是控制点，其周围是价值区域。最多可叠放三条条带。放不下的仍保持开启，并在面板和地图上注明。悬停柱条可查看数值；点击条带的标题可打开这些设置。",
  "OI change": "OI 变化",
@@ -1468,5 +1466,8 @@
  "{measure} right of the map": "地图右侧的{measure}",
  "{measure} left of the map": "地图左侧的{measure}",
  "{measure} along the top": "顶部的{measure}",
- "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "{n} 个分布因空间不足而隐藏：{which}。它们保持开启，有空间时就会显示：更宽的窗口、更高的图表或更少的分布。"
+ "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "{n} 个分布因空间不足而隐藏：{which}。它们保持开启，有空间时就会显示：更宽的窗口、更高的图表或更少的分布。",
+ "Chart window": "图表窗口",
+ "Everything on the chart, as the columns add it up": "图表上的全部内容,按列的方式汇总",
+ "No lines are ticked above: these settings draw nothing until one is.": "上方未勾选任何线:勾选之前,这些设置不会绘制任何内容。"
 }

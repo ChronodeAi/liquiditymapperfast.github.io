@@ -1509,8 +1509,6 @@
  "Period time zone": "Часовой пояс периодов",
  "Periods shown, including current": "Показано периодов, включая текущий",
  "Line contents": "Содержимое линий",
- "No period lines selected: these settings apply to the chart window.": "Линии периодов не выбраны: эти настройки относятся к окну графика.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "Отмеченные линии периодов заменяют собственные линии окна графика; снимите все отметки, чтобы вернуть их.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "Профили сделок рядом с картой и вдоль верхнего края графика: сколько было куплено и продано по рынку на каждой цене и в каждом отрезке времени за время на карте. Рядом с ожидающей ликвидностью он показывает, какие уровни действительно перешли из рук в руки, и когда.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "В настройках сетка задаёт, где рисуется каждый показатель (объём сделок, изменение открытого интереса, поглощение или ликвидации): колонкой справа или слева от карты, причём левые зеркальны, чтобы обе стороны смотрели на график, или полосой вдоль верхнего края, где тот же профиль лежит на оси времени: по полосе на каждый отрезок, от секунды до дня, как позволяет масштаб, растущей сверху вниз; самый активный отрезок — точка контроля, вокруг него — зона стоимости. Можно сложить до трёх полос. То, чему не хватило места, остаётся включённым, и об этом сказано в панели и на карте. Наведите на полосу, чтобы увидеть её цифры; щёлкните заголовок полосы, чтобы открыть эти настройки.",
  "OI change": "Изменение OI",
@@ -1546,5 +1544,8 @@
   "few": "Скрыто {n} профиля, нет места: {which}. Они остаются включёнными и появятся, когда найдётся место: окно шире, график выше или меньше профилей.",
   "many": "Скрыто {n} профилей, нет места: {which}. Они остаются включёнными и появятся, когда найдётся место: окно шире, график выше или меньше профилей.",
   "other": "Скрыто {n} профиля, нет места: {which}. Они остаются включёнными и появятся, когда найдётся место: окно шире, график выше или меньше профилей."
- }
+ },
+ "Chart window": "Окно графика",
+ "Everything on the chart, as the columns add it up": "Всё, что на графике, как это суммируют столбцы",
+ "No lines are ticked above: these settings draw nothing until one is.": "Выше не отмечено ни одной линии: эти настройки ничего не рисуют, пока не отмечена хотя бы одна."
 }

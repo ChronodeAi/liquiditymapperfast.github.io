@@ -158,11 +158,12 @@ export function leftGutter(state: AppState): number { return sideColumns(state).
 type Side = 'right' | 'left';
 /**
  * The measures asked by price this frame: each drawn column's measure once, whichever side it is on and however many sides, then the lines'
- * measure (asked with no room for its column too, since the lines are drawn from it).
+ * measure while the chart window's lines are drawn (asked with no room for its column too, since the lines are drawn from it).
  */
 export function priceQuestions(state: AppState): ProfileMetric[] {
-  const sides = sideColumns(state);
-  return [...new Set([...sides.right, ...sides.left].map(p => p.metric)).add(lineMetric(state.traded.placements))];
+  const sides = sideColumns(state), asked = new Set([...sides.right, ...sides.left].map(p => p.metric));
+  if (state.traded.windowLines) asked.add(lineMetric(state.traded.placements));
+  return [...asked];
 }
 
 /** Rolling volume baseline for a candle array, keyed by the sensitivity it was computed with. */
@@ -1453,16 +1454,22 @@ export class HeatPane {
     const recorded = windows.filter(w => this.#windowSource(state, w) === 'recorded');
     if (recorded.length) this.hub.ensureValueAreas(this.#recordedIds(state), recorded, this.#levelStep(), s.share / 100);
     // The candles, of each size the kinds use: what the lines come from, or, from the recording, what tells whether a past point of control
-    // was traded through since (`#touchedAfter`), from the earliest window's end.
-    const from = new Map<number, number>();
+    // was traded through since (`#touchedAfter`), from each window's end.
+    const from = new Map<number, number[]>();
     for (const w of windows) {
       const fromRecording = this.#windowSource(state, w) === 'recorded';
       if (fromRecording && !(s.naked && s.poc)) continue;
-      const { barMs } = this.#profileCandles(state, windowKind(w)), at = fromRecording ? w.to : w.from;
-      from.set(barMs, Math.min(from.get(barMs) ?? Infinity, at));
+      const { barMs } = this.#profileCandles(state, windowKind(w)), at = fromRecording ? w.to : w.from, list = from.get(barMs) ?? [];
+      list.push(at); from.set(barMs, list);
     }
+    // Newest first: back to the newest window the candles do not reach yet, then on back with each load (Karl, 2026-10-20: four months of
+    // five-minute bars are twenty-four requests, and the month under way, which needs six, waited for all of them).
     const target = profileTarget(currentCoin());
-    for (const [barMs, at] of from) this.hub.profileHistory(barMs).ensure(target, Math.floor(at / barMs) * barMs, barMs, () => this.invalidate());
+    for (const [barMs, ats] of from) {
+      const h = this.hub.profileHistory(barMs), held = target && h.id === target.id && h.barMs === barMs ? h.heldFrom : Infinity;
+      const missing = ats.filter(at => at < held), at = missing.length ? Math.max(...missing) : Math.min(...ats);
+      h.ensure(target, Math.floor(at / barMs) * barMs, barMs, () => this.invalidate());
+    }
   }
   /**
    * When price first traded at a past window's point of control after the window ended: a time, null when it has not (as far as the
@@ -1545,7 +1552,7 @@ export class HeatPane {
   }
   /**
    * Each day, week, month or session of the profiles' kind (`profiles`) draws its traded-volume profile on the chart, over its own time: bars from
-   * its start, the longest 60 % of its width, under the candles over a backing that mutes the map; from the recording in the bid and ask colours, from candles (an
+   * its start (or the chart's left edge, for one that began before it), the longest 60 % of its width on the chart, under the candles over a backing that mutes the map; from the recording in the bid and ask colours, from candles (an
    * estimate, marked ≈ on its lines) in the profile colour alone, since a candle says nothing of who traded. A window narrower than 24 px
    * draws none.
    */
@@ -1558,7 +1565,9 @@ export class HeatPane {
     for (const w of this.#linesWindows(state)) {
       if (windowKind(w) !== kind || (replaying() && w.to > now)) continue;
       const drawn = this.#windowLevels(state, ids, w, step, share, now); if (!drawn) continue;
-      const x0 = v.xOf(w.from, pw), x1 = v.xOf(Math.min(w.to, now, drawn.upTo), pw);
+      // A window that began left of the chart draws from the chart's left edge, over the part of it on the chart: a month zoomed in on its last
+      // days still shows its profile (Karl, 2026-10-20), where from its start it lay off the chart.
+      const x0 = Math.max(0, v.xOf(w.from, pw)), x1 = v.xOf(Math.min(w.to, now, drawn.upTo), pw);
       if (x1 - x0 < 24 || x1 < 0 || x0 > pw) continue;
       // Each row of the display grid: [buy, sell] (from candles all of it in the first), regrouped only when what it comes from or the rows
       // change, never per frame.
@@ -1611,9 +1620,9 @@ export class HeatPane {
     // levels, over the window the columns add up (what is on the chart, or the day, week or session under way): past days, weeks and
     // sessions are traded volume's.
     const lines = lineMetric(s.placements);
-    // Across the chart, the columns' own levels (what is on the chart), while no period is drawn on it: with days or weeks on the chart, a
-    // second point of control across all of them would be one more line that belongs to none.
-    if (!s.lines.length) {
+    // Across the chart, the columns' own levels (what is on the chart), when the periods grid's Chart window row is ticked, whatever periods
+    // are drawn with them (Karl, 2026-10-20).
+    if (s.windowLines) {
       // From where the column's numbers begin: a chart wider than what it could add up gets lines over the part it did, not across all of it.
       const levels = this.#viewLevels(lines), covers = this.#columnCovers(lines);
       if (levels) segments.push({ x0: covers === null ? 0 : v.xOf(covers, pw), x1: pw, levels, name: '', naked: null, live: true, key: 'view', kind: 'view' });
@@ -1664,7 +1673,8 @@ export class HeatPane {
       const runsOn = s.poc && seg.naked !== null && seg.naked > x1, runsTo = runsOn ? Math.min(pw, seg.naked!) : x1;
       if (s.poc) { line(x0, x1, poc, 2 * heavy, []); if (runsOn) line(x1, Math.min(pw + 4, seg.naked!), poc, 2 * heavy, [2, 3]); }
       ctx.setLineDash([]);
-      const name = seg.name ? `${seg.name} ` : '', pocText = `${name}${t('POC')} ${fmtPrice(poc, step)}`;
+      // The chart window's lines are named only beside a period's, which carry their own names.
+      const own = seg.kind === 'view' && many ? t('Chart') : seg.name, name = own ? `${own} ` : '', pocText = `${name}${t('POC')} ${fmtPrice(poc, step)}`;
       if (s.labels && x1 - x0 > 70) {
         // The point of control is named where it ends: at the end of its run when it runs on.
         if (s.poc) label(pocText, runsTo, poc, runsOn ? 2 : 0);

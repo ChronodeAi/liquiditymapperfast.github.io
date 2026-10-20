@@ -1495,8 +1495,6 @@
  "Period time zone": "Fuseau horaire des périodes",
  "Periods shown, including current": "Périodes affichées, en cours incluse",
  "Line contents": "Contenu des lignes",
- "No period lines selected: these settings apply to the chart window.": "Aucune ligne de période sélectionnée : ces réglages s’appliquent à la fenêtre du graphique.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "Les lignes de période cochées remplacent les lignes propres à la fenêtre du graphique ; décochez-les toutes pour les retrouver.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "Des profils de ce qui s'est négocié, à côté de la carte et le long du haut du graphique : combien a été acheté et vendu au marché à chaque prix, et dans chaque tranche de temps, sur la période de la carte. À côté de la liquidité en attente, il montre quels niveaux ont réellement changé de mains, et quand.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "Dans les réglages, une grille fixe où chaque mesure est dessinée (volume négocié, variation de l'open interest, absorption ou liquidations) : en colonne à droite ou à gauche de la carte, celles de gauche en miroir pour que les deux regardent le graphique, ou en bande le long du haut, où le même profil est posé sur l'axe du temps : une barre par tranche, d'une seconde à un jour selon le zoom, qui descend depuis le haut, avec la tranche la plus active comme point de contrôle et la zone de valeur autour. Jusqu'à trois bandes s'empilent. Ce qui n'a pas la place reste activé et est signalé, dans le panneau et sur la carte. Pointez une barre pour ses chiffres ; cliquez l'en-tête d'une bande pour ces réglages.",
  "OI change": "Variation d'OI",
@@ -1530,5 +1528,8 @@
   "one": "{n} profil masqué faute de place : {which}. Il reste activé et s'affiche quand il y a la place : une fenêtre plus large, un graphique plus haut ou moins de profils.",
   "many": "{n} profils masqués faute de place : {which}. Ils restent activés et s'affichent quand il y a la place : une fenêtre plus large, un graphique plus haut ou moins de profils.",
   "other": "{n} profils masqués faute de place : {which}. Ils restent activés et s'affichent quand il y a la place : une fenêtre plus large, un graphique plus haut ou moins de profils."
- }
+ },
+ "Chart window": "Fenêtre du graphique",
+ "Everything on the chart, as the columns add it up": "Tout ce qui est sur le graphique, tel que les colonnes l’additionnent",
+ "No lines are ticked above: these settings draw nothing until one is.": "Aucune ligne n’est cochée ci-dessus : ces réglages ne dessinent rien tant qu’aucune ne l’est."
 }

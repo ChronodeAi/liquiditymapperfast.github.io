@@ -1441,8 +1441,6 @@
  "Period time zone": "기간 시간대",
  "Periods shown, including current": "표시할 기간 수(진행 중 포함)",
  "Line contents": "선 내용",
- "No period lines selected: these settings apply to the chart window.": "선택한 기간 선이 없습니다: 이 설정은 차트 창에 적용됩니다.",
- "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "선택한 기간 선은 차트 창 자체의 선을 대신합니다. 모두 해제하면 다시 나타납니다.",
  "Profiles of what traded, beside the map and along the top of the chart: how much was bought and sold at market at each price, and in each stretch of time, over the time on the map. Next to the resting liquidity, it shows which levels have actually changed hands, and when.": "지도 옆과 차트 위쪽에 놓는 체결 프로필입니다. 지도에 보이는 시간 동안 각 가격과 각 시간 구간에서 시장가로 얼마나 매수·매도되었는지 보여 줍니다. 대기 중인 유동성 옆에서 어떤 수준이 실제로 거래되었는지, 그리고 언제인지 보여 줍니다.",
  "In the settings a grid sets where each measure is drawn (traded volume, the change in open interest, absorption or liquidations): as a column right or left of the map, the left ones mirrored so both face the chart, or as a band along the top, where the same profile is laid on the time axis: one bar for each stretch, from a second to a day as the zoom allows, growing down from the top, with the busiest stretch as its point of control and the value area around it. Up to three bands stack. What has no room stays switched on and is said, in the panel and on the map. Point at a bar for its figures; click a band's header for these settings.": "설정의 격자에서 각 지표(체결 거래량, 미결제약정 변화, 흡수, 청산)를 어디에 그릴지 정합니다. 지도 오른쪽이나 왼쪽의 열(왼쪽 열은 거울처럼 뒤집혀 양쪽 모두 차트를 향합니다), 또는 위쪽의 띠입니다. 띠에서는 같은 프로필이 시간축 위에 놓이고, 구간마다 막대 하나(줌에 따라 1초에서 1일)가 위에서 아래로 자라며, 가장 활발한 구간이 포인트 오브 컨트롤, 그 주변이 밸류 에어리어입니다. 띠는 세 개까지 쌓입니다. 자리가 없는 것은 켜진 채로 남고, 패널과 지도에 그렇다고 표시됩니다. 막대 위에 올리면 수치가 보이고, 띠의 머리글을 클릭하면 이 설정이 열립니다.",
  "OI change": "OI 변화",
@@ -1468,5 +1466,8 @@
  "{measure} right of the map": "지도 오른쪽의 {measure}",
  "{measure} left of the map": "지도 왼쪽의 {measure}",
  "{measure} along the top": "위쪽의 {measure}",
- "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "공간 부족으로 프로필 {n}개 숨김: {which}. 켜진 채로 남아 있다가 자리가 나면 보입니다: 더 넓은 창, 더 높은 차트, 또는 더 적은 프로필."
+ "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "공간 부족으로 프로필 {n}개 숨김: {which}. 켜진 채로 남아 있다가 자리가 나면 보입니다: 더 넓은 창, 더 높은 차트, 또는 더 적은 프로필.",
+ "Chart window": "차트 창",
+ "Everything on the chart, as the columns add it up": "차트 위의 전체, 열이 합산하는 그대로",
+ "No lines are ticked above: these settings draw nothing until one is.": "위에서 선택한 선이 없습니다: 하나를 선택할 때까지 이 설정은 아무것도 그리지 않습니다."
 }
