@@ -1637,7 +1637,9 @@ export class HeatPane {
         ctx.stroke(); ctx.globalAlpha = 1;
         const label = t('≈ {name} · {market} {minutes}-min candles', { name, market, minutes }), top = edges[0]![0];
         ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        const lw = ctx.measureText(label).width + 8, ly = top - 9 >= 8 ? top - 9 : top + 9;
+        // Above its top row, but never under the legend or the bands along the top, where a tall profile's top row often is.
+        const clear = Math.max(this.#legendBox.bottom, ...this.#arranged.top.map(b => b.top + b.height)) + 9;
+        const lw = ctx.measureText(label).width + 8, ly = Math.max(top - 9, clear);
         ctx.globalAlpha = 0.85; ctx.fillStyle = p.panel; ctx.fillRect(x0, ly - 7, lw, 14);
         ctx.globalAlpha = 1; ctx.fillStyle = p.poc; ctx.fillText(label, x0 + 4, ly);
       }
