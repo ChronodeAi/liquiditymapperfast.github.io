@@ -3,7 +3,9 @@ import { buildLut } from '../heatmap/lut.ts';
 import { colourWindow, nextBaseline, type Baseline } from '../heatmap/window.ts';
 import { isCoarse, isPhone } from '../device.ts';
 import { dimOutside, mirrorLines, mirrorStats, paintBand, paintMirrorBox, percentText, type MirrorLine, type MirrorStats } from '../mirror.ts';
-import { TIMEFRAMES, valueAreaKey, windowProfileKey, type Hub, type RasterResult } from '../hub.ts';
+import { TIMEFRAMES, askedSpan, valueAreaKey, windowProfileKey, type Hub, type RasterResult } from '../hub.ts';
+import { ensureDeltaFlow } from '../delta/flows.ts';
+import { paintVolumeStrip, stripBars, stripHighlights, stripLevels, stripLines, type StripBar } from '../measures/volume-strip.ts';
 import { gridStepFor } from '../../shared/grid.ts';
 import { MAX_PROFILE_INSTRUMENTS, type ProfileAnswer } from '../../shared/footprint.ts';
 import type { ValueLevels } from '../../shared/profile.ts';
@@ -60,7 +62,7 @@ import { draftLabel } from '../range/stats.ts';
 import type { RangePoint, RangeTool } from '../range/tool.ts';
 import { paintDivergence, type Divergence } from '../delta/divergence.ts';
 import { TopBands, topMarks, type TopProfile } from '../measures/strip.ts';
-import { BAND_GAP } from '../measures/model.ts';
+import { BAND_GAP, flowRows, volumeBand, type TimeLevels, type TimeRows } from '../measures/model.ts';
 import { countdown, lineSide } from '../price-line.ts';
 import { candlesAt, formingCandle, pageNow, replaying, replayView } from '../replay/clock.ts';
 import { TapeGL, type DustStyle } from '../tape/gl.ts';
@@ -237,6 +239,10 @@ export class HeatPane {
   readonly #profileRows = new WeakMap<object, { row: number; rows: Map<number, [number, number]>; max: number; median: number; total: number }>();
   /** The period profiles drawn in the last frame, for the pointer: where each begins, its rows and scale, and what its box says of it. */
   #profileHits: ProfileHit[] = [];
+  /** The volume strip's recorded rows (kept while what they come from is), and what it drew last frame, for the pointer. */
+  #stripRows: { key: string; rows: TimeRows } | null = null;
+  #takerShares: { key: string; shares: Map<number, number> } | null = null;
+  #strip: { bars: StripBar[]; rows: TimeRows | null; levels: TimeLevels | null; tf: number; top: number; market: string; tfName: string } | null = null;
   /** The volume profile's tags on the price axis, placed with the key levels' and the VWAP's. */
   #valueTags: KeyTag[] = [];
   /** The names put at the lines' right ends this frame (Volume profile, key levels, VWAP). */
@@ -1062,42 +1068,50 @@ export class HeatPane {
    * the dashed line is that threshold, and a faint column behind an anomalous bar marks its time slot all the way up the chart.
    */
   #paintVolume(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, narrowing: number): void {
+    this.#strip = null;
     if (!state.show.volume || !state.candles.length) return;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, p = this.#palette;
     const slot = Math.max(1, pw * tf / (v.t1 - v.t0)), layout = footprintLayout(slot);
     const normal = candleBody(slot), body = Math.max(1, (normal + (Math.max(1, layout.body) - normal) * narrowing));
-    const { found } = this.#volumeAnalysis(state), emphasise = state.highlight.on;
-    const bandH = Math.max(34, Math.min(ph * 0.17, 150)), floor = ph - 1;
-    let max = 0;
-    for (const c of state.candles) if (c[0] + tf >= v.t0 && c[0] <= v.t1) max = Math.max(max, c[5]);
-    if (!(max > 0)) return;
-    // A soft backdrop keeps the bars readable over bright heat.
-    const [br, bg, bb] = rgb(p.bg).map(c => Math.round(c * 255)) as [number, number, number];
-    const backdrop = ctx.createLinearGradient(0, ph - bandH - 6, 0, ph);
-    backdrop.addColorStop(0, `rgba(${br},${bg},${bb},0)`); backdrop.addColorStop(1, `rgba(${br},${bg},${bb},${p.dark ? 0.55 : 0.5})`);
-    ctx.fillStyle = backdrop; ctx.fillRect(0, ph - bandH - 6, pw, bandH + 6);
-    for (let i = 0; i < state.candles.length; i++) {
-      const c = state.candles[i]!; if (c[0] + tf < v.t0 || c[0] > v.t1) continue;
-      const hot = emphasise && found.flag[i] === 1, color = c[4] >= c[1] ? p.candleUp : p.candleDown;
-      const xClassic = v.xOf(c[0] + tf / 2, pw), x = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing;
-      if (hot) { ctx.globalAlpha = 0.07; ctx.fillStyle = color; ctx.fillRect(x - Math.max(slot, body) / 2, 0, Math.max(slot, body), ph - bandH - 6); }
-      const h = Math.max(1, c[5] / max * bandH);
-      ctx.globalAlpha = !emphasise ? 0.6 : hot ? 1 : 0.4; ctx.fillStyle = color; ctx.fillRect(x - body / 2, floor - h, body, h);
-      if (hot) { ctx.globalAlpha = 0.9; ctx.fillStyle = p.dark ? '#ffffff' : '#14171c'; ctx.fillRect(x - body / 2, floor - h - 1.5, body, 1.5); }
+    // A profile by time where the recording reaches, the market's own candles before it (measures/volume-strip.ts, Karl, 2026-10-20): the
+    // venues' flow on the candles' boundaries, from a run of the Highlights' length before the screen so their baseline starts on it.
+    const now = pageNow(), ids = flowIds(state, this.hub.flow.ids), tracks = ids.flatMap(id => { const k = this.hub.flow.track(id); return k ? [k] : []; });
+    const margin = Math.max(0, state.highlight.length) * tf, asked = askedSpan(Math.floor((v.t0 - margin) / tf) * tf, Math.min(v.t1, now));
+    let rows: TimeRows | null = null;
+    if (tracks.length && asked.to > asked.from) {
+      ensureDeltaFlow(this.hub, flowLoadIds(state, this.hub.flow.ids), asked.from, Date.now());
+      const from = Math.floor(asked.from / tf) * tf, key = `${tf}|${from}|${Math.floor(asked.to / 1000)}|${ids.join(',')}|${this.hub.flow.loads}`;
+      if (this.#stripRows?.key !== key) this.#stripRows = { key, rows: flowRows(tracks, from, asked.to, tf, now) };
+      rows = this.#stripRows.rows;
     }
-    if (emphasise) { // the threshold a bar has to clear to stand out
-      ctx.globalAlpha = 0.7; ctx.strokeStyle = p.muted; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath();
-      let open = false;
-      for (let i = 0; i < state.candles.length; i++) {
-        const c = state.candles[i]!, t = found.threshold[i]!; if (c[0] + tf < v.t0 || c[0] > v.t1) continue;
-        if (!Number.isFinite(t)) { open = false; continue; }
-        const y = floor - Math.min(1, t / max) * bandH, x0 = v.xOf(c[0], pw), x1 = v.xOf(c[0] + tf, pw);
-        if (!open) { ctx.moveTo(x0, y); open = true; } else ctx.lineTo(x0, y);
-        ctx.lineTo(x1, y);
-      }
-      ctx.stroke(); ctx.setLineDash([]);
+    const since = rows?.recordedSince ?? null;
+    // Before the recording: the chart market's candles, split by their taker buys where the exchange says them (Binance's, read by the page).
+    const target = historyTarget(state.marketId, currentCoin()), venue = target?.id.slice(0, target.id.indexOf(':')) ?? '';
+    const binance = !!target && target.own && (venue === 'binance' || venue === 'binancespot'), market = venueLabel(target?.own ? target.id : state.marketId);
+    const earliest = state.candles.find(c => c[0] + tf >= v.t0)?.[0] ?? v.t0;
+    let shares: Map<number, number> | null = null;
+    if (binance && (since === null || earliest < since)) {
+      const h = this.hub.candleTaker(tf);
+      h.ensure(target, earliest, tf, () => this.invalidate());
+      const key = `${h.id}|${h.version}`;
+      if (this.#takerShares?.key !== key) { const m = new Map<number, number>(); for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] > 0) m.set(b[0], tb / b[5]); } this.#takerShares = { key, shares: m }; }
+      shares = this.#takerShares.shares;
     }
-    ctx.globalAlpha = 1;
+    const place = (start: number): { x: number; w: number } => { const xc = v.xOf(start + tf / 2, pw); return { x: xc + (v.xOf(start, pw) + layout.candleCenter - xc) * narrowing, w: body }; };
+    const bars = stripBars(state.candles, tf, rows, since, now, v.t0, v.t1, place, start => shares?.get(start), replaying());
+    const height = volumeBand(ph), top = ph - height - 6, levels = state.traded.valueArea ? stripLevels(bars, state.traded.share / 100) : null;
+    const hv = state.hover, hy = hv && hv.source === 'heat' && hv.price !== null ? v.yOf(hv.price, ph) : NaN, hx = hv ? v.xOf(hv.t, pw) : NaN;
+    const hovered = hy >= top && hy <= ph ? bars.findIndex(b => Math.abs(hx - b.x) <= Math.max(b.w, slot) / 2) : -1;
+    paintVolumeStrip(ctx, bars, { pw, ph, height, palette: p, bars: state.traded.bars, emphasis: state.traded.emphasis, highlights: state.highlight.on ? stripHighlights(bars, state.highlight) : null, levels,
+      recorded: `${t('Volume')} · ${state.timeframe}`, candles: t('≈ {market} {tf} candles', { market, tf: state.timeframe }), hovered });
+    this.#strip = { bars, rows, levels, tf, top, market, tfName: state.timeframe };
+  }
+
+  /** The volume strip's bar under the pointer, while it is over the strip (the strip owns its rectangle). */
+  #stripAt(x: number, y: number, ph: number, pw: number): number {
+    const s = this.#strip; if (!s || y < s.top || y > ph) return -1;
+    const slot = Math.max(1, pw * s.tf / (this.view.t1 - this.view.t0));
+    return s.bars.findIndex(b => Math.abs(x - b.x) <= Math.max(b.w, slot) / 2);
   }
 
   /**
@@ -2017,7 +2031,7 @@ export class HeatPane {
     ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     const axisX = this.#w - AXIS_W;
     if (ownY && y >= 0 && y <= ph) { ctx.fillStyle = p.text; ctx.fillRect(axisX + 1, y - 9, AXIS_W - 1, 18); ctx.fillStyle = p.bg; ctx.textAlign = 'left'; ctx.fillText(fmtPrice(hv.price!), axisX + 6, y); }
-    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: ReturnType<TopProfile['readout']> = null, profiled: ProfileRowHit | null = null;
+    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: ReturnType<TopProfile['readout']> = null, profiled: ProfileRowHit | null = null, stripped = -1;
     const touch = hv.touch === true;
     if (touch && ownY && inX && y >= 0 && y <= ph) { ctx.strokeStyle = p.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
     const absorbed = ownY && here ? this.#absorptionAt(x, y) : null;
@@ -2039,6 +2053,10 @@ export class HeatPane {
       ];
       // Beside a mouse pointer the box stands clear of the bubble; above a finger, so the hand does not cover it.
       paintInfoBox(ctx, lines, x, touch ? y - hit.r - 8 : y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: buy ? p.candleUp : p.candleDown, gap: hit.r + 10, placement: touch ? 'up' : 'center' });
+    } else if (ownY && here && (stripped = this.#stripAt(x, y, ph, pw)) >= 0) { // a bar of the volume strip: it owns its rectangle
+      const s = this.#strip!, bar = s.bars[stripped]!, rows = s.rows;
+      const lines = stripLines(bar, { rows, tf: s.tf, now: pageNow(), levels: s.levels, levelsIn: i => s.bars[i]!.i, market: s.market, tfName: s.tfName });
+      paintInfoBox(ctx, lines, x, s.top - 8, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'up' });
     } else if (ownY && here && (profiled = this.#periodProfileAt(x, y, ph))) { // a row of a day's, week's, month's or session's profile, painted over the rest
       const { hit, k, buy, sell } = profiled, step = hit.row;
       const lines = periodRowLines({ name: hit.name, low: k * step, high: (k + 1) * step, step, buy, sell, total: hit.total, split: hit.split, levels: hit.levels, source: hit.source });

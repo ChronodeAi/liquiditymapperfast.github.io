@@ -225,6 +225,16 @@ export class Hub {
     if (!h) { h = new KeyLevelHistory(webGet, Date.now, 60_000, PROFILE_CANDLES_BACK_MS); h.withBuy = true; this.#profileHistories.set(key, h); }
     return h;
   }
+  /**
+   * The chart market's candles of one timeframe with their taker buys (Binance's), for the volume strip's bars before the recording reaches:
+   * the share of each candle bought at market.
+   */
+  candleTaker(tfMs: number): KeyLevelHistory {
+    const key = `taker|${tfMs}`;
+    let h = this.#profileHistories.get(key);
+    if (!h) { h = new KeyLevelHistory(webGet, Date.now, 60_000, PROFILE_CANDLES_BACK_MS); h.withBuy = true; this.#profileHistories.set(key, h); }
+    return h;
+  }
   onLiquidationsChanged: () => void = () => {};
   /** 'unavailable': the source has no liquidations (a server from before them); asked again a minute later. */
   liquidationsState: 'ready' | 'unavailable' = 'ready';
