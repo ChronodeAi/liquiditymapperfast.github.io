@@ -261,16 +261,17 @@ test('from the recording only what it still holds is offered: as many days or se
   assert.equal(readTraded({}).source, 'recorded', 'a save from before the choice');
   assert.equal(readTraded({ source: 'candles' }).source, 'candles'); assert.equal(readTraded({ source: 'tea leaves' }).source, 'recorded');
   // Profiles on the chart: one kind or none; a save from when they followed the columns' period keeps them for that period.
-  assert.equal(readTraded({}).profiles, null, 'none until chosen');
+  assert.equal(readTraded({}).profiles, 'day', 'the days\', until chosen otherwise');
   assert.equal(readTraded({ profiles: 'week' }).profiles, 'week'); assert.equal(readTraded({ profiles: 'year' }).profiles, null);
   assert.deepEqual([readTraded({ period: 'day', pastProfiles: true }).lines, readTraded({ period: 'day', pastProfiles: true }).profiles], [['day'], 'day']);
   assert.equal(readTraded({ period: 'view', pastProfiles: true }).profiles, null, 'what is on the chart had no profiles of its own');
   assert.equal(readTraded({ period: 'day', pastProfiles: true, profiles: null }).profiles, null, 'a choice of none, once saved, stands');
   assert.equal(readTraded({}).tags, true, 'a save from before the tags names its lines on the axis'); assert.equal(readTraded({ tags: false }).tags, false);
   // Other periods' lines beside the columns' own: kept in their order, each once, nothing unknown; a save from before draws the columns' alone.
-  assert.deepEqual(readTraded({}).lines, []);
+  assert.deepEqual(readTraded({}).lines, ['day'], 'each day on the chart, until chosen otherwise');
+  assert.deepEqual(readTraded({ lines: [] }).lines, [], 'none, once chosen');
   assert.deepEqual(readTraded({ lines: ['month', 'day', 'month', 'year'] }).lines, ['day', 'month']);
-  assert.deepEqual(readTraded({ lines: 'day' }).lines, []);
+  assert.deepEqual(readTraded({ lines: 'day' }).lines, ['day'], 'not a list: the default');
   assert.deepEqual(chartKinds({ lines: ['day', 'week'], profiles: 'month' }), ['day', 'week', 'month'], 'the profiles\' kind is worked out even with its lines off');
   assert.deepEqual(chartKinds({ lines: ['day'], profiles: 'day' }), ['day'], 'each once');
   assert.deepEqual(chartKinds({ lines: [], profiles: null }), []);

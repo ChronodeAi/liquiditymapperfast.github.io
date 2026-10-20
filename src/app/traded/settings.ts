@@ -110,7 +110,8 @@ const preset = (i: number, id: string): SessionDef => ({ ...SESSION_PRESETS[i]!,
 
 export const TRADED_DEFAULTS: Readonly<TradedSettings> = {
   metrics: ['volume'], bars: 'split', valueArea: true, share: 70, rows: 1, poc: true, va: true, labels: true, tags: true,
-  lines: [], profiles: null, source: 'recorded', zone: 'page', count: 5, naked: true,
+  // Each day on the chart, its lines and its profile, from the first visit (Karl, 2026-10-20: what is new must show without hunting for it).
+  lines: ['day'], profiles: 'day', source: 'recorded', zone: 'page', count: 5, naked: true,
   sessions: [preset(0, 's1'), preset(1, 's2'), preset(2, 's3')],
 };
 
@@ -151,7 +152,7 @@ export function readTraded(saved: unknown): TradedSettings {
   // A save from when the columns could add up a day, week, month or sessions (`period`): that kind is drawn on the chart instead, with its
   // profiles there when they were drawn (`pastProfiles`).
   const kind = (v: unknown): LineKind | null => LINE_KINDS.includes(v as LineKind) ? v as LineKind : null;
-  const old = kind(s.period), wanted = Array.isArray(s.lines) ? s.lines as unknown[] : [];
+  const old = kind(s.period), wanted = Array.isArray(s.lines) ? s.lines as unknown[] : old ? [] : [...d.lines];
   return {
     // A save from when the column showed one measure (`metric`) reads as that one column.
     metrics: readMetrics(Array.isArray(s.metrics) ? s.metrics : [s.metric]) ?? [...d.metrics],
@@ -159,7 +160,7 @@ export function readTraded(saved: unknown): TradedSettings {
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels), tags: flag(s.tags, d.tags),
     lines: LINE_KINDS.filter(k => wanted.includes(k) || k === old),
-    profiles: s.profiles === null ? null : kind(s.profiles) ?? (s.pastProfiles === true ? old : null),
+    profiles: s.profiles === null ? null : kind(s.profiles) ?? (s.pastProfiles === true ? old : s.profiles === undefined ? d.profiles : null),
     source: oneOf(['recorded', 'candles'] as const, s.source, d.source),
     zone: zoneOk(s.zone) ? s.zone : d.zone, count, naked: flag(s.naked, d.naked), sessions,
   };

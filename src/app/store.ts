@@ -17,6 +17,7 @@ import { readVwap, type VwapSettings } from './vwap/settings.ts';
 import { readFootprint, type FootprintSettings } from './footprint/settings.ts';
 import { readDelta, type DeltaSettings } from './delta/settings.ts';
 import { readMeasureStrip, type MeasureStripSettings } from './measures/settings.ts';
+import { isPhone } from './device.ts';
 import { LS_METRICS, type LsMetric } from '../shared/long-short.ts';
 import { readCustomMarkets, type CustomMarkets } from './market-choice.ts';
 import { readPullWindow, type PullWindow } from './panes/pull-stack.ts';
@@ -233,9 +234,11 @@ export const DEFAULT_THEME = 'light';
  * The revision of the first-visit defaults. The page saves its whole settings on any change, so a default is written down whether chosen
  * or not; when a default changes, a save from before it (an older or no revision) would keep the old one for ever. Revision 1: Depth and
  * Open interest start off. A save of that kind holding both on, the old default, has them turned off once; one that holds only one of
- * them on was a choice and is left.
+ * them on was a choice and is left. Revision 2 (2026-10-20): what was new that day shows, as Karl asked ("the UI needs to show the new"):
+ * the volume profile's days are drawn on the chart, their lines and their profiles, where a save holds no period and no profile (never
+ * chosen: the choice came that day), and the measure strip along the top of the map is on (on a desktop: a phone has no room for it).
  */
-export const DEFAULTS_REV = 1;
+export const DEFAULTS_REV = 2;
 
 export function initialState(): AppState {
   const saved = readSaved();
@@ -253,7 +256,12 @@ export function initialState(): AppState {
   // Terminal was the default for a day (2026-10-17), and every save of that day wrote it down whether chosen or not: a saved Terminal that
   // was not picked from the menu goes back to the default, and the saves since carry the pick.
   state.themePicked = saved.themePicked === true;
-  if ((typeof saved.defaultsRev === 'number' ? saved.defaultsRev : 0) < 1 && state.show.depth && state.show.oi) state.show = { ...state.show, depth: false, oi: false };
+  const rev = typeof saved.defaultsRev === 'number' ? saved.defaultsRev : 0;
+  if (rev < 1 && state.show.depth && state.show.oi) state.show = { ...state.show, depth: false, oi: false };
+  if (rev < 2) {
+    if (!state.traded.lines.length && state.traded.profiles === null) state.traded = { ...state.traded, lines: ['day'], profiles: 'day' };
+    if (!isPhone()) state.measureStrip = { ...state.measureStrip, on: true };
+  }
   state.defaultsRev = DEFAULTS_REV;
   state.theme = resolveThemeId(state.theme);
   if (!state.themePicked && state.theme === 'terminal') state.theme = DEFAULT_THEME;
