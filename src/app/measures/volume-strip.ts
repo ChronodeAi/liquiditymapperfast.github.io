@@ -46,11 +46,12 @@ export function stripBars(candles: readonly CandleRow[], tf: number, rows: TimeR
   for (const c of candles) {
     const s = c[0], e = s + tf;
     if (e < t0 || s > t1 || s > now) continue;
-    const { x, w } = place(s), i = rows ? bucketAt(rows, Math.max(s, rows.from)) : -1;
-    // From the recording where it reaches and its rows hold the bar; a bar older than the rows asked for is the candle's, never dropped.
-    if (rows && since !== null && e > since && i >= 0) {
-      const gap = rows.gaps[i] ?? null;
-      out.push({ t: s, x, w, source: gap ? 'gap' : s >= since ? 'recorded' : 'partial', buy: gap ? 0 : rows.buy[i]!, sell: gap ? 0 : rows.sell[i]!, split: !gap, i, gap });
+    const { x, w } = place(s), i = rows && e > rows.from ? bucketAt(rows, Math.max(s, rows.from)) : -1;
+    // From the recording where it reaches and its rows hold the bar; a bar wholly before the rows asked for is the candle's, never another's
+    // bucket; the bar the recording begins inside is the recording's where its rows hold it, else the candle's.
+    const gap = i >= 0 ? rows!.gaps[i] ?? null : null, inside = since !== null && s < since;
+    if (rows && since !== null && e > since && i >= 0 && !(inside && gap)) {
+      out.push({ t: s, x, w, source: gap ? 'gap' : inside ? 'partial' : 'recorded', buy: gap ? 0 : rows.buy[i]!, sell: gap ? 0 : rows.sell[i]!, split: !gap, i, gap });
       continue;
     }
     if (replay && e > now) continue;
@@ -139,7 +140,7 @@ export function paintVolumeStrip(ctx: CanvasRenderingContext2D, bars: readonly S
       if (b.sell > 0) { ctx.globalAlpha = Math.min(1, second.alpha * base / 0.75) * fade; ctx.fillStyle = second.color; ctx.fillRect(x0, floor - h, b.w, h - buyH); }
     }
     // A candle is an estimate: outlined in the profile colour, as the candle-based profiles are.
-    if (b.source === 'candle' && h >= 2) { ctx.globalAlpha = 0.85; ctx.strokeStyle = p.poc; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, floor - h + 0.5, Math.max(0, b.w - 1), Math.max(0, h - 1)); }
+    if (b.source === 'candle') { ctx.globalAlpha = 0.85; if (h >= 2) { ctx.strokeStyle = p.poc; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, floor - h + 0.5, Math.max(0, b.w - 1), Math.max(0, h - 1)); } else { ctx.fillStyle = p.poc; ctx.fillRect(x0, floor - 1, b.w, 1); } }
     if (hot) { ctx.globalAlpha = 0.9; ctx.fillStyle = p.dark ? '#ffffff' : '#14171c'; ctx.fillRect(x0, floor - h - 1.5, b.w, 1.5); }
     if (d.levels && i === d.levels.poc) { ctx.globalAlpha = 1; ctx.strokeStyle = p.poc; ctx.lineWidth = 1.5; ctx.strokeRect(x0 - 0.5, floor - h - 0.5, b.w + 1, h + 1); }
     if (i === d.hovered) { ctx.globalAlpha = 1; ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(x0 - 1.5, floor - h - 1.5, b.w + 3, h + 3); }
@@ -161,10 +162,14 @@ export function paintVolumeStrip(ctx: CanvasRenderingContext2D, bars: readonly S
   }
   // The seam, and each part named at its left.
   ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  // Each named at its left, the second after the first ends; one with no room left out rather than over the other or off the map.
+  let taken = 2;
   const name = (text: string, x: number, color: string): void => {
-    const w = ctx.measureText(text).width + 8, at = Math.max(2, Math.min(d.pw - w - 2, x));
+    const w = ctx.measureText(text).width + 8, at = Math.max(taken, x);
+    if (at + w > d.pw - 2) return;
     ctx.globalAlpha = 0.85; ctx.fillStyle = p.panel; ctx.fillRect(at, top + 4, w, 14);
     ctx.globalAlpha = 1; ctx.fillStyle = color; ctx.fillText(text, at + 4, top + 11);
+    taken = at + w + 6;
   };
   const firstCandle = bars.findIndex(b => b.source === 'candle'), firstRecorded = bars.findIndex(b => b.source !== 'candle');
   if (firstCandle >= 0 && firstRecorded > firstCandle) {
@@ -177,12 +182,14 @@ export function paintVolumeStrip(ctx: CanvasRenderingContext2D, bars: readonly S
 }
 
 /** The box of the bar under the pointer: the recorded bucket's figures (`timeLines`), or the candle's, with where it comes from. */
-export function stripLines(bar: StripBar, c: { rows: TimeRows | null; tf: number; now: number; levels: TimeLevels | null; levelsIn: (i: number) => number; market: string; tfName: string }): InfoLine[] {
+export function stripLines(bar: StripBar, c: { rows: TimeRows | null; tf: number; now: number; levels: TimeLevels | null; levelsIn: (i: number) => number; market: string; tfName: string;
+  /** Whether the exchange reports taker buys (Binance): a candle without them then has them still to come, not none. */ reports: boolean;
+  /** The strip's own total on screen, the recorded bars', for the share of each. */ total: number }): InfoLine[] {
   if (bar.source !== 'candle' && c.rows && bar.i >= 0) {
     const l = c.levels, rowsLevels = l ? { poc: c.levelsIn(l.poc), lo: c.levelsIn(l.lo), hi: c.levelsIn(l.hi) } : null;
     // A bar is the recording's whole or says it is partial itself: the rows' note that the window reaches back past the recording is the
     // seam's, drawn on the strip, not this bar's.
-    const lines = timeLines({ ...c.rows, partial: false }, bar.i, { metric: 'volume', words: timeWords('volume'), spacingMs: 0, levels: rowsLevels, now: c.now });
+    const lines = timeLines({ ...c.rows, partial: false, total: c.total }, bar.i, { metric: 'volume', words: timeWords('volume'), spacingMs: 0, levels: rowsLevels, now: c.now });
     if (bar.source === 'partial') lines.push({ text: t('The recording began inside this bar: part of it only.'), color: 'muted', wrap: true });
     return lines;
   }
@@ -191,7 +198,16 @@ export function stripLines(bar: StripBar, c: { rows: TimeRows | null; tf: number
     const net = bar.buy - bar.sell;
     lines.push({ label: VOLUME_WORDS.buy, text: `$${usd(bar.buy)}`, color: 'buy' }, { label: VOLUME_WORDS.sell, text: `$${usd(bar.sell)}`, color: 'sell' },
       { label: VOLUME_WORDS.net, text: `${net > 0 ? '+' : net < 0 ? '−' : ''}$${usd(Math.abs(net))}`, ...(net > 0 ? { color: 'buy' as const } : net < 0 ? { color: 'sell' as const } : {}) });
-  } else lines.push({ label: t('Volume'), text: `$${usd(total)}` }, { text: t('{market} candles do not say who bought: the total only.', { market: c.market }), color: 'muted', wrap: true });
+  } else lines.push({ label: t('Volume'), text: `$${usd(total)}` }, { text: c.reports ? t('Who bought in this candle is not loaded yet: the total only.') : t('{market} candles do not say who bought: the total only.', { market: c.market }), color: 'muted', wrap: true });
   lines.push({ text: t('≈ {market} {tf} candle: one market, before the recording reaches; its volume at its typical price.', { market: c.market, tf: c.tfName }), color: 'muted', wrap: true });
   return lines;
+}
+
+/** Two runs of rows of one step, the second starting where the first ends, as one (the closed buckets and the one under way). */
+export function joinRows(a: TimeRows, b: TimeRows): TimeRows {
+  const n = a.buy.length + b.buy.length, buy = new Float64Array(n), sell = new Float64Array(n);
+  buy.set(a.buy); buy.set(b.buy, a.buy.length); sell.set(a.sell); sell.set(b.sell, a.buy.length);
+  let total = 0, max = 0, poc = -1;
+  for (let i = 0; i < n; i++) { const v = buy[i]! + sell[i]!; total += v; if (v > max) { max = v; poc = i; } }
+  return { ...a, to: b.to, buy, sell, gaps: [...a.gaps, ...b.gaps], buyN: null, sellN: null, total, max, poc };
 }

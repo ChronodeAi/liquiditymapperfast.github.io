@@ -1477,5 +1477,6 @@
  "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles (one-minute for sessions off the five) of the most traded market, Binance's perpetual with its spot market where the coin has one: each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "月份,以及根据 K 线计算的日、周或时段,来自成交最多的市场(币安永续合约,若该币有现货市场则一并合并)的 5 分钟 K 线(不按 5 分钟对齐的时段用 1 分钟 K 线):每根 K 线的成交量平均分布在其价格区间内,并按主动买入拆分为买入和卖出。这些分布是估算,因此带有分布颜色的轮廓和标明来源的 ≈ 标签;若某市场的 K 线不区分买方,则以灰色绘制。指向图表上任一分布的某一行即可查看其数据。",
  "≈ {market} {tf} candles": "≈ {market} {tf} K 线",
  "The recording began inside this bar: part of it only.": "记录从这根柱子中途开始:仅含部分。",
- "≈ {market} {tf} candle: one market, before the recording reaches; its volume at its typical price.": "≈ {market} {tf} K 线:记录开始前的单一市场;成交量按典型价格换算。"
+ "≈ {market} {tf} candle: one market, before the recording reaches; its volume at its typical price.": "≈ {market} {tf} K 线:记录开始前的单一市场;成交量按典型价格换算。",
+ "Who bought in this candle is not loaded yet: the total only.": "这根 K 线的买方尚未加载:仅显示总量。"
 }

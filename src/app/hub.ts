@@ -232,7 +232,7 @@ export class Hub {
   candleTaker(tfMs: number): KeyLevelHistory {
     const key = `taker|${tfMs}`;
     let h = this.#profileHistories.get(key);
-    if (!h) { h = new KeyLevelHistory(webGet, Date.now, 60_000, PROFILE_CANDLES_BACK_MS); h.withBuy = true; this.#profileHistories.set(key, h); }
+    if (!h) { h = new KeyLevelHistory(webGet, Date.now, 60_000, 3 * 365 * 86_400_000); h.withBuy = true; this.#profileHistories.set(key, h); }
     return h;
   }
   onLiquidationsChanged: () => void = () => {};

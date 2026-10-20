@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { candleUsd, stripBars, stripHighlights, stripLevels, stripLines, type StripBar } from '../src/app/measures/volume-strip.ts';
+import { candleUsd, joinRows, stripBars, stripHighlights, stripLevels, stripLines, type StripBar } from '../src/app/measures/volume-strip.ts';
 import type { TimeRows } from '../src/app/measures/model.ts';
 import type { CandleRow } from '../src/app/store.ts';
 
@@ -48,7 +48,7 @@ test('the strip\'s Highlights are worked out within each run of one source, and 
 
 test('a strip bar\'s box: the recorded bucket\'s figures, or the candle\'s with where it comes from', () => {
   const r = rows(), bars = stripBars(candles, H, r, T + 4 * H, T + 8 * H, T, T + 8 * H, place, i => (i === T ? 0.75 : undefined), false);
-  const c = { rows: r, tf: H, now: T + 8 * H, levels: null, levelsIn: (i: number) => bars[i]!.i, market: 'Binance', tfName: '1h' };
+  const c = { rows: r, tf: H, now: T + 8 * H, levels: null, levelsIn: (i: number) => bars[i]!.i, market: 'Binance', tfName: '1h', reports: false, total: 2400 };
   const candle = stripLines(bars[0]!, c);
   assert.ok(candle.some(l => l.color === 'buy' && l.text === '$750') && candle.some(l => l.color === 'sell' && l.text === '$250'), 'its taker split');
   assert.ok(candle.at(-1)!.text.includes('Binance') && candle.at(-1)!.color === 'muted', 'where it comes from, last');
@@ -57,4 +57,16 @@ test('a strip bar\'s box: the recorded bucket\'s figures, or the candle\'s with 
   assert.ok(!grey.some(l => l.color === 'buy' || l.color === 'sell'), 'no sides where the candle does not say');
   const recorded = stripLines(bars[4]!, c);
   assert.ok(recorded.some(l => l.color === 'buy') && recorded.some(l => l.color === 'sell'), 'the venues\' two sides');
+});
+
+test('the strip never borrows another bar: before the rows asked for, a bar is its candle; a bar the recording begins inside without its rows, too', () => {
+  const r = rows(), late = { ...r, from: T + 5 * H, bin0: (T + 5 * H) / H, buy: r.buy.slice(5), sell: r.sell.slice(5), gaps: r.gaps.slice(5) };
+  const bars = stripBars(candles, H, late, T + 2 * H, T + 8 * H, T, T + 8 * H, place, () => undefined, false);
+  assert.deepEqual(bars.slice(0, 5).map(b => [b.source, b.buy]), [['candle', 1000], ['candle', 1000], ['candle', 1000], ['candle', 1000], ['candle', 1000]], 'each its own candle, none reading the first bucket of the rows');
+  const gapInside = stripBars(candles, H, r, T + 3 * H + 1_800_000, T + 8 * H, T, T + 8 * H, place, () => undefined, false);
+  assert.equal(gapInside[3]!.source, 'candle', 'the recording began inside it and its rows hold nothing: the candle');
+  const joined = joinRows({ ...r, to: T + 4 * H, buy: r.buy.slice(0, 4), sell: r.sell.slice(0, 4), gaps: r.gaps.slice(0, 4) }, { ...r, from: T + 4 * H, bin0: (T + 4 * H) / H, buy: r.buy.slice(4), sell: r.sell.slice(4), gaps: r.gaps.slice(4) });
+  assert.deepEqual([joined.buy.length, joined.total, joined.to, joined.gaps[6]], [8, 2400, T + 8 * H, 'notRecorded'], 'the closed buckets and the one under way, as one');
+  const c = { rows: r, tf: H, now: T + 8 * H, levels: null, levelsIn: () => -1, market: 'Binance', tfName: '1h', reports: true, total: 2400 };
+  assert.ok(stripLines({ t: T, x: 0, w: 1, source: 'candle', buy: 1000, sell: 0, split: false, i: -1, gap: null }, c).some(l => l.text.includes('not loaded yet')), 'Binance: not loaded yet, never does not say');
 });

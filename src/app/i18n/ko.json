@@ -1477,5 +1477,6 @@
  "Months, and days, weeks or sessions worked out from candles, come from the 5-minute candles (one-minute for sessions off the five) of the most traded market, Binance's perpetual with its spot market where the coin has one: each candle's volume spread evenly over its range and split into buys and sells by its taker buys. Those profiles are an estimate, so they are outlined in the profile colour and labelled ≈ with where they come from; where a market's candles do not say who bought, they are drawn grey. Point at a row of any profile on the chart for its figures.": "월, 그리고 캔들로 계산한 일·주·세션은 가장 많이 거래되는 시장(바이낸스 무기한 선물, 현물 시장이 있으면 그 합계)의 5분 캔들(5분 단위가 아닌 세션은 1분 캔들)에서 나옵니다. 각 캔들의 거래량을 가격 범위에 고르게 나누고 테이커 매수로 매수와 매도를 나눕니다. 이 프로파일은 추정치이므로 프로파일 색 테두리와 출처를 밝힌 ≈ 라벨이 붙습니다. 시장의 캔들이 누가 샀는지 알려 주지 않으면 회색으로 그립니다. 차트의 프로파일 행을 가리키면 수치가 보입니다.",
  "≈ {market} {tf} candles": "≈ {market} {tf} 캔들",
  "The recording began inside this bar: part of it only.": "기록이 이 막대 도중에 시작되어 일부만 담겨 있습니다.",
- "≈ {market} {tf} candle: one market, before the recording reaches; its volume at its typical price.": "≈ {market} {tf} 캔들: 기록이 닿기 전의 한 시장이며, 거래량을 대표 가격으로 환산했습니다."
+ "≈ {market} {tf} candle: one market, before the recording reaches; its volume at its typical price.": "≈ {market} {tf} 캔들: 기록이 닿기 전의 한 시장이며, 거래량을 대표 가격으로 환산했습니다.",
+ "Who bought in this candle is not loaded yet: the total only.": "이 캔들의 매수 주체는 아직 불러오지 않아 합계만 표시합니다."
 }
