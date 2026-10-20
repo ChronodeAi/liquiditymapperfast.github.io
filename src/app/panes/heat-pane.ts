@@ -41,6 +41,7 @@ import { t } from '../i18n.ts';
 import { currentCoin, scaledUsd } from '../coin.ts';
 import { linesToAsk } from '../sizes.ts';
 import { chartKinds, linesCount, linesSource, resolveZone, type LineKind, type TradedSettings } from '../traded/settings.ts';
+import { answerMax, emphasisFloor, splitStyles } from '../traded/emphasis.ts';
 import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { MAX_BACK_MS, barMsFor, keyLines, neededFrom, type KeyLine } from '../keylevels/levels.ts';
 import { anyLine } from '../keylevels/settings.ts';
@@ -56,7 +57,7 @@ import { drawVenueMark } from '../venue-marks.ts';
 import { draftLabel } from '../range/stats.ts';
 import type { RangePoint, RangeTool } from '../range/tool.ts';
 import { paintDivergence, type Divergence } from '../delta/divergence.ts';
-import { MeasureStrip } from '../measures/strip.ts';
+import { TopProfile, topAbsorption } from '../measures/strip.ts';
 import { countdown, lineSide } from '../price-line.ts';
 import { candlesAt, formingCandle, pageNow, replaying, replayView } from '../replay/clock.ts';
 import { TapeGL, type DustStyle } from '../tape/gl.ts';
@@ -214,6 +215,8 @@ export class HeatPane {
   #vwapTags: KeyTag[] = [];
   /** A click on the map while an anchor is being placed (set by the page): the time clicked. */
   onAnchor: ((t: number) => void) | null = null;
+  /** A click on the header of the profile along the top (set by the page): its settings, in the Volume profile panel. */
+  onTopProfile: () => void = () => {};
   /** The tags the key levels want on the price axis this frame. */
   #keyTags: KeyTag[] = [];
   #touchSelect: { start: Pt; at: Pt } | null = null;
@@ -233,8 +236,8 @@ export class HeatPane {
   #pulseFrame = 0; #pulseDrawn = 0;
   #lod = new FootprintLod();
   #lodFrame: LodFrame = { barAlpha: 0, sellBuyAlpha: 0, needsFrame: false, heatmapOpacity: 1, narrowing: 0 };
-  /** The measure strip along the top of the map (measures/): each candle's delta or change of open interest, under the legend. */
-  readonly #measures = new MeasureStrip();
+  /** The volume profile along the top of the map (measures/): the column's measure added up by time, under the legend. */
+  readonly #measures = new TopProfile();
   #volume: VolumeAnalysis | null = null;
   /** Absorption icons drawn in the last frame (centre, size, the marks they stand for), for hover. */
   #absorptionIcons: { x: number; y: number; s: number; marks: AbsorptionMark[]; usd: number }[] = [];
@@ -555,8 +558,9 @@ export class HeatPane {
     }
     // The absorption column judges groups at the thresholds the marks use, which need the recent minutes the marks load: with the marks off,
     // those minutes alone (and none for a fixed threshold). The column's groups are added up where they are kept (`Hub.ensureMetricProfile`).
-    const column = state.show.traded && state.traded.metrics.includes('absorption');
-    if (state.absorption.on || (column && state.absorption.mode === 'auto')) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes, !state.absorption.on); }
+    // The profile along the top adds up the marks' own groups, so while it shows absorption they are loaded as for the marks.
+    const column = state.show.traded && state.traded.metrics.includes('absorption'), marked = state.absorption.on || topAbsorption(state);
+    if (marked || (column && state.absorption.mode === 'auto')) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes, !marked); }
     this.#stepFootprint(state);
     // Under a dominant footprint the heatmap is gone altogether, so there is nothing to draw.
     if (state.layer === 'liquidity' && this.#lodFrame.heatmapOpacity > 0.003) this.gl.draw(this.view, this.#style(), this.#placeholder()); else this.gl.clear();
@@ -640,8 +644,9 @@ export class HeatPane {
     this.#paintTapeStart(ctx, state, pw, ph, p);
     this.#paintLayers(ctx, state, pw, ph);
     this.#paintVolume(ctx, state, pw, ph, this.#lodFrame.narrowing);
-    // Under the candles as the volume bars are, and under the legend and the corner buttons, whose bottoms it is placed by.
-    this.#measures.paint(ctx, state, this.hub, { view: v, pw, ph, palette: p, narrowing: this.#lodFrame.narrowing, legendBottom: this.#legendBox.bottom, toolsBottom: () => { const c = this.root.querySelector<HTMLElement>('.map-tools'); return c ? c.offsetTop + c.offsetHeight + 3 : 0; } });
+    // Under the candles as the volume bars are, and under the legend and the corner buttons, whose bottoms it is placed by; over what the
+    // columns add up, with the marks' absorption thresholds; what it asked for redraws the map when it comes.
+    this.#measures.paint(ctx, state, this.hub, { view: v, pw, ph, palette: p, legendBottom: this.#legendBox.bottom, toolsBottom: () => { const c = this.root.querySelector<HTMLElement>('.map-tools'); return c ? c.offsetTop + c.offsetHeight + 3 : 0; }, window: this.#tradedWindow(), absorption: () => this.#absorptionContext(state), loaded: () => this.invalidate() });
     this.#pulseRects = [];
     if (state.show.footprint) {
       const marks = this.#footprintMarks.get(this.#footprint, state.barStatOptions), fp = state.footprint;
@@ -713,7 +718,7 @@ export class HeatPane {
     // Which clock the labels are on, under the price axis where no tick label goes (a screenshot says it too).
     ctx.textAlign = 'right'; ctx.fillText(zoneName(), w - 6, ph + TIME_H / 2); ctx.textAlign = 'center';
     this.#paintLegend(ctx, state);
-    if (this.#measures.misplaced(this.#legendBox.bottom)) this.invalidate(); // the legend changed height: place the strip under it again
+    if (this.#measures.misplaced(this.#legendBox.bottom)) this.invalidate(); // the legend changed height: place the band under it again
     if (!this.#wasLoaded && state.levels) { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(t('Collecting depth history…'), 12, 50); }
     const emptyScope = heatmapSourceOf(state) === 'aggregated' ? emptyScopeMessage(state) : null;
     if (emptyScope) { // the filter selected nothing: say so instead of drawing a blank map
@@ -1521,7 +1526,7 @@ export class HeatPane {
       }
       const { rows, max } = grouped;
       if (!(max > 0)) continue;
-      const room = (x1 - x0) * 0.6;
+      const room = (x1 - x0) * 0.6, floor = emphasisFloor(), on = state.traded.emphasis && state.traded.bars === 'split';
       for (const [k, [a, b]] of rows) {
         const y0 = v.yOf((k + 1) * row, ph), y1 = v.yOf(k * row, ph); if (y1 < 0 || y0 > ph) continue;
         const hgt = Math.max(1, y1 - y0 - 0.5), len = (a + b) / max * room;
@@ -1529,9 +1534,10 @@ export class HeatPane {
         ctx.globalAlpha = 1; ctx.fillStyle = halo; ctx.fillRect(x0, y0, len, hgt);
         ctx.globalAlpha = 0.75;
         if (fromCandles) { ctx.fillStyle = p.poc; ctx.fillRect(x0, y0, len, hgt); continue; }
-        const buyLen = len * a / (a + b);
-        if (a > 0) { ctx.fillStyle = p.bid; ctx.fillRect(x0, y0, buyLen, hgt); }
-        if (b > 0) { ctx.fillStyle = p.ask; ctx.fillRect(x0 + buyLen, y0, len - buyLen, hgt); }
+        // The stronger side brighter and the weaker dimmer, against the busiest row of the window, as in the columns.
+        const buyLen = len * a / (a + b), [first, second] = splitStyles(a, b, max, floor, p, on, 0.75);
+        if (a > 0) { ctx.globalAlpha = first.alpha; ctx.fillStyle = first.color; ctx.fillRect(x0, y0, buyLen, hgt); }
+        if (b > 0) { ctx.globalAlpha = second.alpha; ctx.fillStyle = second.color; ctx.fillRect(x0 + buyLen, y0, len - buyLen, hgt); }
       }
       ctx.globalAlpha = 1;
     }
@@ -1667,23 +1673,26 @@ export class HeatPane {
       ctx.fillStyle = p.poc; ctx.globalAlpha = 0.12; ctx.fillRect(x0 + 1, ya, W - 1, yb - ya); ctx.globalAlpha = 1;
     }
     if (rows && rows.max > 0) {
-      const width = W - 6;
-      let maxNet = 0; if (s.bars === 'delta') for (let i = 0; i < rows.buy.length; i++) maxNet = Math.max(maxNet, Math.abs(rows.buy[i]! - rows.sell[i]!));
+      // One-sidedness is judged against the busiest row of the whole answer, not of the prices on screen (traded/emphasis.ts).
+      const width = W - 6, busiest = answer ? answerMax(answer, rows.step) : rows.max, floor = emphasisFloor();
       for (let i = 0; i < rows.buy.length; i++) {
         const b = rows.buy[i]!, sl = rows.sell[i]!, total = b + sl; if (!(total > 0)) continue;
         const low = (rows.bin0 + i) * rows.step, y0 = v.yOf(low + rows.step, ph), y1 = v.yOf(low, ph);
         if (y1 < 0 || y0 > ph) continue;
         const hgt = Math.max(1, y1 - y0 - 0.5);
         ctx.globalAlpha = 0.85;
+        const len = Math.max(1, total / rows.max * width), buyLen = len * b / total;
         if (s.bars === 'delta') {
-          // The difference alone: as long as it is against the largest difference, in the colour of the side that was the bigger.
-          const net = b - sl; if (!(Math.abs(net) > 0) || !(maxNet > 0)) continue;
-          ctx.fillStyle = net > 0 ? p.bid : p.ask; ctx.fillRect(x0 + 1, y0, Math.max(1, Math.abs(net) / maxNet * width), hgt);
+          // The whole row faintly, and the difference over it on the same scale in the colour of the side that was the bigger: a busy row whose
+          // two sides were close still shows, as busy and balanced, never as a row where nothing traded (Karl, 2026-10-20).
+          const net = b - sl;
+          ctx.globalAlpha = 0.25; ctx.fillStyle = p.muted; ctx.fillRect(x0 + 1, y0, len, hgt); ctx.globalAlpha = 0.85;
+          if (Math.abs(net) > 0) { ctx.fillStyle = net > 0 ? p.bid : p.ask; ctx.fillRect(x0 + 1, y0, Math.max(1, Math.abs(net) / rows.max * width), hgt); }
           continue;
         }
-        const len = Math.max(1, total / rows.max * width), buyLen = len * b / total;
-        if (b > 0) { ctx.fillStyle = p.bid; ctx.fillRect(x0 + 1, y0, Math.max(0.5, buyLen), hgt); }
-        if (sl > 0) { ctx.fillStyle = p.ask; ctx.fillRect(x0 + 1 + buyLen, y0, Math.max(0.5, len - buyLen), hgt); }
+        const [first, second] = splitStyles(b, sl, busiest, floor, p, s.emphasis);
+        if (b > 0) { ctx.globalAlpha = first.alpha; ctx.fillStyle = first.color; ctx.fillRect(x0 + 1, y0, Math.max(0.5, buyLen), hgt); }
+        if (sl > 0) { ctx.globalAlpha = second.alpha; ctx.fillStyle = second.color; ctx.fillRect(x0 + 1 + buyLen, y0, Math.max(0.5, len - buyLen), hgt); }
       }
       ctx.globalAlpha = 1;
     }
@@ -1809,7 +1818,7 @@ export class HeatPane {
     ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     const axisX = this.#w - AXIS_W;
     if (ownY && y >= 0 && y <= ph) { ctx.fillStyle = p.text; ctx.fillRect(axisX + 1, y - 9, AXIS_W - 1, 18); ctx.fillStyle = p.bg; ctx.textAlign = 'left'; ctx.fillText(fmtPrice(hv.price!), axisX + 6, y); }
-    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: InfoLine[] | null = null;
+    let trapHit: Trap | null = null, rowHit: ReturnType<HeatPane['footprintCellUnder']> = null, measured: ReturnType<TopProfile['readout']> = null;
     const touch = hv.touch === true;
     if (touch && ownY && inX && y >= 0 && y <= ph) { ctx.strokeStyle = p.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
     const absorbed = ownY && here ? this.#absorptionAt(x, y) : null;
@@ -1835,8 +1844,8 @@ export class HeatPane {
       this.#paintTrapPopup(ctx, trapHit, x, y, pw, ph, touch);
     } else if (ownY && here && (rowHit = this.#footprintUnder(x, hv.t, hv.price!, pw))) {
       this.#paintFootprintPopup(ctx, rowHit, x, y, pw, ph, touch);
-    } else if (ownY && here && (measured = this.#measures.readout(y, hv.t, state.timeframe))) { // the measure strip's candle: its value, or why it has none
-      paintInfoBox(ctx, measured, x, touch ? y + 18 : y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'down' : 'center' });
+    } else if (ownY && here && (measured = this.#measures.readout(x, y, hv.t))) { // a bucket of the profile along the top: its box, under the band
+      paintInfoBox(ctx, measured.lines, x, measured.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'down' });
     } else if (ownY && here && state.layer === 'liquidity') {
       const cell = this.valueAt(hv.t, hv.price!);
       const side = cell && cell.ask > cell.bid ? 'ask' : 'bid', source = cell ? this.#sourceOf(hv.t, hv.price!, side) : '';
@@ -2130,6 +2139,7 @@ export class HeatPane {
       down: () => this.#stopFling(),
       tap: p => {
         if (this.store.state.vwapAnchoring && p.x <= this.plotW && p.y <= this.plotH) { this.onAnchor?.(this.view.tOf(p.x, this.plotW)); return; }
+        if (this.#measures.onHeader(p.x, p.y)) { this.onTopProfile(); return; }
         if (this.#pinActive() && Math.hypot(this.#pin!.x - p.x, this.#pin!.y - p.y) < 28) this.#unpin(); else this.#pinAt(p);
       },
       doubleTap: () => { this.#unpin(); this.fit(); },
@@ -2301,6 +2311,7 @@ export class HeatPane {
       const { x, y } = local(e);
       // Placing a VWAP anchor: the click is the anchor, nothing else.
       if (this.store.state.vwapAnchoring && e.button === 0 && x <= this.plotW && y <= this.plotH) { this.onAnchor?.(this.view.tOf(x, this.plotW)); return; }
+      if (e.button === 0 && this.#measures.onHeader(x, y)) { this.onTopProfile(); return; }
       if (this.range && selects(this.range.armed, e) && x <= this.plotW && y <= this.plotH) {
         this.#selecting = { x, y }; this.range.begin(this.#rangePoint(x, y)); el.setPointerCapture(e.pointerId); return;
       }
@@ -2337,7 +2348,7 @@ export class HeatPane {
         return;
       }
       const overColumn = this.#columnAt(x) >= 0 && y <= this.plotH;
-      el.style.cursor = this.#onScale(x, y) ? 'ns-resize' : overColumn || ((this.range?.armed || this.store.state.vwapAnchoring) && x <= this.plotW && y <= this.plotH) ? 'crosshair' : '';
+      el.style.cursor = this.#onScale(x, y) ? 'ns-resize' : this.#measures.onHeader(x, y) ? 'pointer' : overColumn || ((this.range?.armed || this.store.state.vwapAnchoring) && x <= this.plotW && y <= this.plotH) ? 'crosshair' : '';
       if (this.#zoomDrag) {
         // Drag right zooms the time axis in, drag up zooms the price axis in (left/down zoom out).
         const z = this.#zoomDrag, k = 0.006, pw = this.plotW, ph = this.plotH;
