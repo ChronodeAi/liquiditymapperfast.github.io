@@ -1,4 +1,4 @@
-import type { SharpAnswer, SharpVerdict } from '../shared/sharp/jev.ts';
+import type { VolatilityAnswer, VolatilityVerdict } from '../shared/volatility/jev.ts';
 import type { PrintSumsAnswer, SumRow } from '../shared/print-sums.ts';
 import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
@@ -65,13 +65,13 @@ export async function getLongShort(inst: string, metric: LsMetric, tf: string, f
   return parseLsSeries(await (await request(`/api/v2/long-short?inst=${encodeURIComponent(inst)}&metric=${metric}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}`, signal)).json());
 }
 /**
- * Jev's sharp-move assessments (a server from before them answers 404, which is an error here). Checked field by field: a verdict that
- * is not what `SharpVerdict` says is dropped rather than sounded.
+ * Jev's volatility assessments (a server from before them answers 404, which is an error here). Checked field by field: a verdict that
+ * is not what `VolatilityVerdict` says is dropped rather than sounded.
  */
-export async function getSharp(): Promise<SharpAnswer> {
-  const body = await (await request('/api/v2/sharp')).json() as { enabled?: unknown; reason?: unknown; lastError?: unknown; coin?: unknown; verdicts?: unknown };
+export async function getVolatility(): Promise<VolatilityAnswer> {
+  const body = await (await request('/api/v2/volatility')).json() as { enabled?: unknown; reason?: unknown; lastError?: unknown; coin?: unknown; verdicts?: unknown };
   const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-  const verdicts = (Array.isArray(body.verdicts) ? body.verdicts : []).filter((v: Partial<Record<keyof SharpVerdict, unknown>> | null): v is SharpVerdict =>
+  const verdicts = (Array.isArray(body.verdicts) ? body.verdicts : []).filter((v: Partial<Record<keyof VolatilityVerdict, unknown>> | null): v is VolatilityVerdict =>
     typeof v === 'object' && v !== null && finite(v.t) && typeof v.coin === 'string' && finite(v.price) && finite(v.score) && v.score >= 0 && v.score <= 4 && finite(v.scoreConfidence)
     && (v.direction === 'up' || v.direction === 'down') && finite(v.directionP) && typeof v.model === 'string' && typeof v.concepts === 'object' && v.concepts !== null);
   return {

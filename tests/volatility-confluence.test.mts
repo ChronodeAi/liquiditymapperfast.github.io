@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { confluence } from '../src/shared/sharp/confluence.ts';
-import { SharpWatch, subqArmsFrom } from '../src/server/v2/sharp.mts';
-import type { SharpInputs } from '../src/shared/sharp/features.ts';
-import { SUBQ_ARMS, type DecisionExtras, type SubqArm } from '../src/shared/sharp/jev.ts';
+import { confluence } from '../src/shared/volatility/confluence.ts';
+import { VolatilityWatch, subqArmsFrom } from '../src/server/v2/volatility.mts';
+import type { VolatilityInputs } from '../src/shared/volatility/features.ts';
+import { SUBQ_ARMS, type DecisionExtras, type SubqArm } from '../src/shared/volatility/jev.ts';
 
 /** Spot buying hard, asks pulled while bids held: two families say up. */
 const upFlowAndBook = { spotZ15: 2.4, whaleOpposite: false, bidChangePct: 2, askChangePct: -40, ltFlipped: false, ltNow: 0.01, imbPctile6h: 50, imb1pct: 0.02 };
@@ -40,15 +40,15 @@ test('bids pulled while asks hold vote down; both sides pulled is no vote', () =
 });
 
 test('without a key the watch still reads and logs the confluence every minute, and never asks Jev', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sharp-confluence-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'volatility-confluence-'));
   const now = Date.UTC(2026, 9, 13, 12, 0);
   const px = new Float32Array(10).fill(100_000), flow = new Float32Array(10).fill(1_000);
-  const inputs: SharpInputs = {
+  const inputs: VolatilityInputs = {
     now, coin: 'BTC', spot: [], perp: [{ id: 'p', t0: now - 10 * 60_000, buy: flow, sell: flow, px, lo: px, hi: px }],
     binanceSpotId: null, refPerpId: 'p', depth: [], liquidations: [], oi: [], whale: [],
   };
   let asked = 0;
-  const watch = new SharpWatch({ dir, read: () => inputs, clock: () => now + 15_000, ask: async () => { asked++; throw new Error('not asked'); } });
+  const watch = new VolatilityWatch({ dir, read: () => inputs, clock: () => now + 15_000, ask: async () => { asked++; throw new Error('not asked'); } });
   await watch.tick();
   const answer = watch.answer();
   assert.equal(asked, 0);
@@ -56,7 +56,7 @@ test('without a key the watch still reads and logs the confluence every minute, 
   assert.equal(answer.coin, 'BTC');
   assert.equal(answer.confluence?.length, 1);
   assert.equal(answer.confluence![0]!.t, now);
-  const rows = fs.readFileSync(path.join(dir, 'sharp-log.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l) as Record<string, unknown>);
+  const rows = fs.readFileSync(path.join(dir, 'volatility-log.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l) as Record<string, unknown>);
   assert.equal(rows.length, 1);
   assert.ok(rows[0]!.confluence && !('verdict' in rows[0]!));
   fs.rmSync(dir, { recursive: true, force: true });
@@ -69,19 +69,19 @@ test('a SubQ arm left out of SUBQ_ARMS is never asked, its history is never buil
 
   const now = Date.UTC(2026, 9, 13, 12, 0);
   const px = new Float32Array(10).fill(100_000), flow = new Float32Array(10).fill(1_000);
-  const inputs: SharpInputs = {
+  const inputs: VolatilityInputs = {
     now, coin: 'BTC', spot: [], perp: [{ id: 'p', t0: now - 10 * 60_000, buy: flow, sell: flow, px, lo: px, hi: px }],
     binanceSpotId: null, refPerpId: 'p', depth: [], liquidations: [], oi: [], whale: [],
   };
   const run = async (subqArms?: SubqArm[]) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sharp-arms-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'volatility-arms-'));
     const asked: DecisionExtras[] = [];
-    const watch = new SharpWatch({ dir, read: () => inputs, clock: () => now + 15_000, subqKey: 'key', ...(subqArms ? { subqArms } : {}), ask: async (features, _key, _signal, extras = {}) => {
+    const watch = new VolatilityWatch({ dir, read: () => inputs, clock: () => now + 15_000, subqKey: 'key', ...(subqArms ? { subqArms } : {}), ask: async (features, _key, _signal, extras = {}) => {
       asked.push(extras);
       return { t: features.t, coin: features.coin, price: features.price, concepts: {}, score: 1, scoreConfidence: 0.5, direction: 'up', directionP: 0.6, model: 'subq-snap-preview' };
     } });
     await watch.tick();
-    const row = JSON.parse(fs.readFileSync(path.join(dir, 'sharp-log.jsonl'), 'utf8')) as { arms?: Record<string, unknown> };
+    const row = JSON.parse(fs.readFileSync(path.join(dir, 'volatility-log.jsonl'), 'utf8')) as { arms?: Record<string, unknown> };
     fs.rmSync(dir, { recursive: true, force: true });
     return { asked, logged: Object.keys(row.arms ?? {}).sort(), answered: Object.keys(watch.answer().arms ?? {}) };
   };
