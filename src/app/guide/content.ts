@@ -1,6 +1,6 @@
 /**
  * The guide's text, as data. Inline markup in any string: `**bold**`, `code` between backticks, and `[[Key]]` for a keyboard key.
- * Figures are named animations drawn by `figures.ts`. The aim is a page that can be read in ten to fifteen minutes and leaves the reader
+ * Figures are named animations drawn by `figures.ts`. The aim is a page that can be read in ten to sixteen minutes and leaves the reader
  * with a working picture of what each part is for; anything deeper lives in the "?" panels, which share their text with the tooltips.
  */
 export type FigureId = 'anatomy' | 'colours' | 'recording' | 'zoom-price' | 'zoom-time' | 'pan' | 'flow' | 'mirror' | 'footprint';
@@ -155,10 +155,9 @@ export const SECTIONS: readonly Section[] = [
   {
     id: 'volume-profile', title: 'The volume profile',
     blocks: [
-      { t: 'p', text: 'The **volume profile** adds up what traded at each price. In its settings (≡ beside **Volume profile**), tick where each measure goes: a column right or left of the map adds it up by price, a band along the top adds it up by time. Traded volume, open interest change, absorption and liquidations can each go anywhere, several at once, and each covers exactly what is on the chart.' },
-      { t: 'p', text: 'Every profile marks its **point of control**, the busiest price (or stretch, along the top), and its **value area**, where 70% of it happened. In every row the side that won is drawn brighter and the other fainter: length says how much, colour says how one-sided.' },
-      { t: 'p', text: '**Traded volume by period** draws days, weeks, months or sessions on the chart over their own time: Lines for their point of control and value area, in any combination, and Bar profiles for one kind of period at a time. The Chart window row draws the lines of everything on the chart. Point at a row of a profile for its figures.' },
-      { t: 'note', text: 'Days, weeks and sessions come from the recorded trades, which say who bought and who sold. **Months** are longer than the recording keeps, so they come from the 5-minute candles of one exchange (Binance\'s perpetual and spot together, where the coin trades there): each candle\'s volume is spread over its range and split by its taker buys. They are an estimate, so they are outlined in the profile colour and labelled ≈ with their source; where the candles do not say who bought, they are drawn grey.' },
+      { t: 'p', text: 'The **volume profile** adds up what traded at each price. In its settings (≡ beside **Volume profile**), tick where each measure goes: a column right or left of the map adds it up by price, a band along the top by time, each over what is on the chart.' },
+      { t: 'p', text: '**Traded volume by period** draws days, weeks, months or sessions on the chart over their own time, as lines or bar profiles. Point at a row of a profile for its figures.' },
+      { t: 'note', text: '**Months** come from 5-minute candles (Binance\'s perpetual and spot together), split by their taker buys: an estimate, so they are outlined in the profile colour and labelled ≈ with their source. Days, weeks and sessions come from the recorded trades.' },
     ],
   },
   {
