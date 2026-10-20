@@ -3,7 +3,8 @@ import { AdapterTransportError, epochMs, finiteNumber, requireSymbol, sideLevels
 
 /** OKX public market-data descriptors and pure normalizers. */
 export const OKX_REST_URL = 'https://www.okx.com';
-export const OKX_PUBLIC_WS_URL = 'wss://ws.okx.com:8443/ws/v5/public';
+/** The public websocket, on the default wss port: OKX stops accepting port 8443 on 2026-10-31 (their announcement of 2026-09-30). */
+export const OKX_PUBLIC_WS_URL = 'wss://ws.okx.com/ws/v5/public';
 
 function instId(value: unknown) { return requireSymbol(value).toUpperCase(); }
 export function okxInstrumentId(value: unknown) { return `okx:${instId(value)}`; }
