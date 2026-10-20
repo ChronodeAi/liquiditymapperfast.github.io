@@ -13,7 +13,7 @@ import type { ProfileWindow } from '../traded/sessions.ts';
 import type { Kernels } from '../kernels.ts';
 import { PALETTES, rgb, textOn, type Palette } from '../theme.ts';
 import { View, niceStep, type Bounds } from '../view.ts';
-import { clock, price as fmtPrice, usd, zoneName } from '../format.ts';
+import { clock, price as fmtPrice, startOfDay, usd, zoneName } from '../format.ts';
 import { timeAxis } from '../time-axis.ts';
 export { timeTicks } from '../time-axis.ts';
 import type { Store, AppState, CandleRow } from '../store.ts';
@@ -1178,6 +1178,17 @@ export class HeatPane {
   #gridStep(): number { const m = this.store.state.mark.price; return gridStepFor(m > 0 ? m : Math.max(1e-9, (this.view.p0 + this.view.p1) / 2)); }
   /** The rows the point of control and the value area are read from: the grid step times the setting, never the column's rows, which follow the zoom. */
   #levelStep(): number { return this.#gridStep() * this.store.state.traded.rows; }
+  /**
+   * Where a column's numbers begin when that is after the chart's left edge (null when they cover all of it): the later of the start its
+   * source was asked from (eight days back at most, `askedSpan`) and the first minute every venue in it was recorded. Zoomed out to months,
+   * the column is the last eight days, and says so (Karl, 2026-10-20: one profile across the whole chart, from nobody knew where).
+   */
+  #columnCovers(metric: ProfileMetric): number | null {
+    const answer = this.#columnAnswer(metric); if (!answer) return null;
+    let since = answer.from;
+    for (const inst of answer.instruments) if (inst.earliest !== null && inst.earliest > since) since = inst.earliest;
+    return since > this.#tradedWindow().from + 60_000 ? since : null;
+  }
   /** The column's answer: what is on the chart keeps drawing the last answer while a new one loads. */
   #heldTraded(): Hub['traded'] { return this.hub.traded; }
   /** The point of control and the value area of what is on the chart, read from the column's answer over every price (kept until either changes). */
@@ -1549,8 +1560,9 @@ export class HeatPane {
     // Across the chart, the columns' own levels (what is on the chart), while no period is drawn on it: with days or weeks on the chart, a
     // second point of control across all of them would be one more line that belongs to none.
     if (!s.lines.length) {
-      const levels = this.#viewLevels(lines);
-      if (levels) segments.push({ x0: 0, x1: pw, levels, name: '', naked: null, live: true, key: 'view', kind: 'view' });
+      // From where the column's numbers begin: a chart wider than what it could add up gets lines over the part it did, not across all of it.
+      const levels = this.#viewLevels(lines), covers = this.#columnCovers(lines);
+      if (levels) segments.push({ x0: covers === null ? 0 : v.xOf(covers, pw), x1: pw, levels, name: '', naked: null, live: true, key: 'view', kind: 'view' });
     }
     // The days, weeks, months or sessions drawn on the chart (always traded volume's).
     {
@@ -1708,14 +1720,17 @@ export class HeatPane {
     ctx.fillStyle = p.muted; ctx.font = `${pw < NARROW_PLOT ? 9.5 : 10}px ui-sans-serif, system-ui, sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     const held = metric === 'volume' ? null : this.hub.metricProfile(metric), flags = held && answer ? held.flags : { cut: false, incomplete: false };
     const measured = metric === 'volume' ? null : metricHeader(metric, rows, flags);
-    const [head, sub] = metric === 'volume'
+    let [head, sub] = metric === 'volume'
       ? (this.hub.tradedState === 'unavailable' && !rows ? [t('TRADED'), t('not on this server')] : tradedHeader(rows))
       : this.hub.metricState(metric) === 'unavailable' && !rows ? [measured!.head, t('not on this server')]
       : [measured!.head, measured!.sub];
     ctx.fillText(head, x0 + 4, 4);
     let lineY = 16;
-    // A window that reaches back before the recording, or a measure whose record is cut, says so in the dot rows' amber.
-    const warn = metric === 'volume' ? rows?.partial === true : measured!.warn;
+    // A window that reaches back before the recording, or a measure whose record is cut, says so in the dot rows' amber; so does a chart wider
+    // than what the column could add up (a source answers eight days at most, `askedSpan`): the column then holds only its newest part.
+    const covers = this.#columnCovers(metric);
+    if (covers !== null) sub = t('since {time}', { time: clock(covers, covers < startOfDay(Date.now())) });
+    const warn = covers !== null || (metric === 'volume' ? rows?.partial === true : measured!.warn);
     if (sub) { if (warn) ctx.fillStyle = '#e6a700'; ctx.fillText(sub, x0 + 4, lineY); }
     if (rows && rows.total > 0) { const net = tradedNet(rows); ctx.fillStyle = net > 0 ? p.bid : net < 0 ? p.ask : p.muted; ctx.fillText(tradedNetLine(rows), x0 + 4, lineY + 12, W - 8); }
     ctx.restore(); ctx.textBaseline = 'middle';
