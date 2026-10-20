@@ -276,14 +276,14 @@ test('a stretch with no data is drawn as such: a dotted line where its bar would
   assert.deepEqual(dotted(oiRows(flat.parts, flat.covered, T, T + 10 * MIN, MIN, flat.first)), [[0, 52.5], [100, 52.5]], 'only the minute before the first reading');
 });
 
-test('split bars are drawn at the shared alphas, 0.85 for the stronger side and 0.35 for the weaker at full one-sidedness, in every painter', () => {
+test('split bars are drawn at the shared alphas, opaque for the stronger side and 0.35 for the weaker at full one-sidedness, in every painter', () => {
   const p = PALETTES.light!, band = { top: 50, height: 96 }, frame = { view: new View({ t0: T, t1: T + 10 * MIN, p0: 1, p1: 2 }), pw: 1000, ph: 600, palette: p };
   const rows = eventRows([{ t: T + 5 * SEC, side: 0, usd: 50e6 }, { t: T + 6 * SEC, side: 1, usd: 1e6 }], T, T + 10 * MIN, MIN, { from: -Infinity, to: Infinity });
   const { ctx, calls } = recorder();
   paintBand(ctx, rows, band, frame, { bars: 'split', emphasis: true, levels: null, head: '', sub: '', warn: false, net: null, caption: '', hovered: -1, now: T + HOUR });
   const bars = calls.filter(c => c.name === 'fillRect' && (c.args[1] as number) >= band.top + 1 && (c.args[1] as number) < band.top + band.height);
   const strong = bars.find(c => c.fill === emphasisRamps(p).bid[255]), weak = bars.find(c => c.fill === p.ask);
-  assert.ok(strong && Math.abs((strong.alpha as number) - 0.85) < 1e-9, `the stronger side at 0.85 (${strong?.alpha})`);
+  assert.ok(strong && Math.abs((strong.alpha as number) - 1) < 1e-9, `the stronger side opaque (${strong?.alpha})`);
   assert.ok(weak && Math.abs((weak.alpha as number) - 0.35) < 1e-9, `the weaker side at 0.35 (${weak?.alpha})`);
   // The map's own painters (the columns, the profiles on the chart) call the shared function with its own alpha, never one of their own.
   const source = fs.readFileSync(path.join(process.cwd(), 'src', 'app', 'panes', 'heat-pane.ts'), 'utf8'), uses = [...source.matchAll(/splitStyles\(([^()]*)\)/g)];

@@ -37,14 +37,13 @@ export interface TradedSources { browser: boolean; candles: ((barMs: number) => 
 /**
  * The Volume profile panel: its first row switches everything below on and off, keeping every choice; then what the profile looks like,
  * its bars and its value area, the same for both of its forms; the columns by price, which always add up what is on the chart, with the
- * price rows their levels are read from; the same profile by time along the top; the lines on the chart; and the periods drawn on the
- * chart, each day, week, month or session over its own time, with the profiles of one kind of them and the sessions edited where they are
- * asked for. `gridStep` is the map's grid step now, for the row sizes in dollars.
+ * price rows their levels are read from; the same profile by time along the top; the periods drawn on the chart, each day, week, month or
+ * session over its own time, as a grid of their lines and their bar profiles, with the sessions edited under it and what the periods are
+ * worked out from; and what the lines draw. `gridStep` is the map's grid step now, for the row sizes in dollars.
  */
 export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLElement, rebuild: () => void, gridStep: () => number, sources: TradedSources = { browser: false, candles: null }): void {
   const s = store.state.traded, kinds = chartKinds(s);
-  // The zone days, weeks and months start in is one for all of them: offered when any of them is drawn, named after the shortest (a day's
-  // words say the week's too).
+  // The kind whose words the zone row uses: the shortest drawn (a day's words say the week's too).
   const zoned = (['day', 'week', 'month'] as const).find(k => kinds.includes(k));
   const set = (change: Partial<TradedSettings>, again = false): void => { store.set({ traded: { ...store.state.traded, ...change } }); if (again) rebuild(); };
   // A measure's column on or off, the columns kept in their order; the last one cannot go (the switch above turns the columns off).
@@ -87,36 +86,26 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
       v => set({ top: { ...store.state.traded.top, metric: PROFILE_METRICS.find(m => m === v) ?? 'volume' } }, true)),
     note(TOP_NOTES[s.top.metric]),
     note(t('Each bar adds up a stretch of a round length, from a second to a day, about as thin as the column\'s rows at the zoom: zoom in for finer ones. Where the data is no finer (the flow before the last day, open interest), the caption says so. Point at a bar for its figures; click its header for these settings.')),
-    heading(t('Lines on the chart')),
-    ...(!s.metrics.includes('volume') ? [note(t('With no traded volume column, the lines across the chart are the first column\'s; days, weeks, months and sessions are worked out from traded volume only.'))] : []),
-    switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
-    switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
-    switchRow(t('Labels'), t('Each line\'s name and price at its right end, where there is room.'), s.labels, labels => set({ labels })),
-    switchRow(t('Tags on the price axis'), t('The name of each line that reaches the right edge, beside its price.'), s.tags, tags => set({ tags })),
-    // The periods are drawn on the chart over their own time, never in the columns, which stay with what is on the chart (Karl, 2026-10-19).
-    heading(t('Periods on the chart')),
-    ...LINE_KINDS.flatMap(k => [
-      switchRow(kindName(k), t('Its point of control and value area lines on the chart, over each one\'s own time, with its past ones.'), s.lines.includes(k),
-        on => set({ lines: LINE_KINDS.filter(x => x === k ? on : store.state.traded.lines.includes(x)) }, true)),
-      // The sessions are edited right under the switch that asks for them, not at the panel's foot where they read as something else.
-      ...(k === 'sessions' && kinds.includes('sessions') ? [sessionEditor(store, set)] : []),
-    ]),
-    selectRow(t('Profiles on the chart'), t('The traded-volume profile of each day, week, month or session, drawn on the chart from its start: one kind, so they never lie over each other.'),
-      [['', t('None')], ...LINE_KINDS.map(k => [k, kindName(k)] as [string, string])], s.profiles ?? '', v => set({ profiles: LINE_KINDS.find(k => k === v) ?? null }, true)),
-    ...(zoned
-      ? [selectRow(zoned === 'day' ? t('Days start in') : zoned === 'week' ? t('Weeks start in') : t('Months start in'), zoned === 'month' ? t('The time zone whose midnight on the 1st starts a month.') : t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone }))] : []),
+    // Which periods draw their lines (several) and which one kind draws its bar profiles, in one grid with a row a period (Karl, 2026-10-20):
+    // drawn on the chart over their own time, never in the columns, which stay with what is on the chart (Karl, 2026-10-19).
+    heading(t('Traded volume by period')),
+    note(t('Choose Lines for reference levels—the point of control and value-area boundaries—and select any combination of periods. Choose Bar profiles to inspect volume by price inside each period; select one period type or None, independently of Lines.')),
+    periodGrid(store, set),
+    // The sessions are edited right under the grid that asks for them, not at the panel's foot where they read as something else.
+    ...(kinds.includes('sessions') ? [sessionEditor(store, set)] : []),
   );
   if (kinds.length) {
     // The rows below speak for every kind drawn; where they differ, for the first that is not a month (a month is always from candles).
     const first: LineKind = kinds.find(k => k !== 'month') ?? 'month', k: KindSettings = { ...s, period: first };
     const target = profileTarget(currentCoin()), market = target ? `${venueLabel(target.id)} ${target.listing.symbol}` : '', source = linesSource(k);
-    // A month is longer than the recording keeps: it is worked out from candles only, and the panel says so rather than offer the choice.
-    if (kinds.includes('month')) body.append(note(t('A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈.')));
-    if (first !== 'month') body.append(selectRow(t('Worked out from'), t('The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market\'s, reaching back months, an estimate.'),
+    // What they are worked out from, the zone they start in and how many: one group under the grid, for every period drawn.
+    if (first !== 'month') body.append(selectRow(t('Data source'), t('The recording: the trades of every venue the flow column counts, for as long as it keeps them. Candles: one market\'s, reaching back months, an estimate.'),
       [['recorded', t('The recording')], ['candles', target ? t('{market} candles', { market }) : t('Candles')]], s.source, v => set({ source: v === 'candles' ? 'candles' : 'recorded' }, true)));
+    // The zone days, weeks and months start in is one for all of them (the Key levels' too): offered when any of them is drawn.
+    if (zoned) body.append(selectRow(t('Period time zone'), zoned === 'month' ? t('The time zone whose midnight on the 1st starts a month.') : t('The time zone whose midnight starts a day, and whose Monday a week.'), ZONES.map(z => [z.zone, z.label] as [string, string]), s.zone, zone => set({ zone })));
     // From the recording, only as many as it still holds: a count it cannot work out is not offered.
     const most = source === 'candles' ? mostCount(k) : recordedCount(first, sources.browser ? BROWSER_RETENTION_MS : RETENTION_MS);
-    if (most >= 1) body.append(numberRow(t('How many'), t('How many past ones are drawn, the one under way among them (of each session).'), { min: 1, max: most, step: 1, value: Math.min(s.count, most) }, count => set({ count: Math.max(1, Math.min(most, Math.round(count))) })));
+    if (most >= 1) body.append(numberRow(t('Periods shown, including current'), t('How many past ones are drawn, the one under way among them (of each session).'), { min: 1, max: most, step: 1, value: Math.min(s.count, most) }, count => set({ count: Math.max(1, Math.min(most, Math.round(count))) })));
     if (s.lines.length) body.append(switchRow(t('Extend untouched points of control'), t('A past point of control that price has not traded through since (a naked one) runs on, dotted, to where it was reached, or to the right edge.'), s.naked, naked => set({ naked })));
     if (source === 'recorded') {
       body.append(note(sources.browser
@@ -132,6 +121,16 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     }
     body.append(note(t('A day, week or session is drawn only when nine in ten of it is held: of the candles\' bars, or of the recording\'s trades, estimated from each venue\'s volume while it was recorded. Whether a point of control was traded through is read from the candles of the market on the chart.')));
   }
+  // What each set of lines draws: the periods' chosen in the grid, or, with none chosen, the chart window's (the columns' own levels).
+  body.append(
+    heading(t('Line contents')),
+    ...(!s.lines.length ? [note(t('No period lines selected: these settings apply to the chart window.'))] : []),
+    ...(!s.metrics.includes('volume') ? [note(t('With no traded volume column, the lines across the chart are the first column\'s; days, weeks, months and sessions are worked out from traded volume only.'))] : []),
+    switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
+    switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
+    switchRow(t('Labels'), t('Each line\'s name and price at its right end, where there is room.'), s.labels, labels => set({ labels })),
+    switchRow(t('Tags on the price axis'), t('The name of each line that reaches the right edge, beside its price.'), s.tags, tags => set({ tags })),
+  );
 }
 
 /**
@@ -147,16 +146,43 @@ function emphasisRows(store: Store, set: (change: Partial<TradedSettings>, again
   if (!applies) { row.querySelector('input')!.disabled = true; row.classList.add('off'); }
   const palette = PALETTES[resolveThemeId(store.state.theme)]!;
   const example = (b: number, label: string): HTMLElement => {
-    const [first, second] = splitStyles(b, 100 - b, 100, 0, palette, on);
+    const [first, second] = splitStyles(b, 100 - b, 0, 0, palette, on);
     const part = (share: number, style: { color: string; alpha: number }): HTMLElement => { const x = el('span'); x.style.width = `${share}%`; x.style.background = style.color; x.style.opacity = String(style.alpha); return x; };
     return el('div', { class: 'emphasis-row' }, el('span', { textContent: label }), el('span', { class: 'emphasis-bar' }, part(b, first), part(100 - b, second)));
   };
-  return [row, el('div', { class: 'emphasis-key' }, example(50, '50 / 50'), example(75, '75 / 25'), example(95, '95 / 5'),
+  return [row, el('div', { class: 'emphasis-key' }, example(50, '50 / 50'), example(55, '55 / 45'), example(60, '60 / 40'), example(70, '70 / 30'),
     el('p', { class: 'panel-note', textContent: t('Length: how much. Strength of colour: how one-sided.') }))];
 }
 
-/** What each kind of window is called where it is switched on or chosen. */
-const kindName = (k: LineKind): string => k === 'day' ? t('Each day') : k === 'week' ? t('Each week') : k === 'month' ? t('Each month') : t('Sessions');
+/** What each period's row is called. */
+const PERIOD_ROWS: Readonly<Record<LineKind, string>> = { day: t('Days'), week: t('Weeks'), month: t('Months'), sessions: t('Sessions') };
+
+/**
+ * The periods grid: a row a period, its lines in the first column (boxes, any of them) and its bar profiles in the second (round buttons, one
+ * kind or None, so profiles never lie over each other), the two independent. A month is longer than the recording keeps, so its row says it
+ * comes from candles; the sessions' row names the sessions switched on.
+ */
+function periodGrid(store: Store, set: (change: Partial<TradedSettings>, again?: boolean) => void): HTMLElement {
+  const s = store.state.traded, linesHead = t('Lines · several'), profilesHead = t('Bar profiles · one');
+  const grid = el('div', { class: 'keylevel-grid period-grid', role: 'group', ariaLabel: t('Traded volume by period') },
+    el('span', { class: 'head period-name', textContent: t('Period') }), el('span', { class: 'head', textContent: linesHead }), el('span', { class: 'head', textContent: profilesHead }));
+  const profile = (kind: LineKind | null, name: string): HTMLElement => {
+    const radio = el('input', { type: 'radio', name: 'traded-period-profiles', checked: s.profiles === kind, ariaLabel: `${name} · ${profilesHead}` });
+    radio.onchange = () => { if (radio.checked) set({ profiles: kind }, true); };
+    return el('label', { tip: `${name} · ${profilesHead}` }, radio);
+  };
+  for (const k of LINE_KINDS) {
+    const name = PERIOD_ROWS[k], on = s.sessions.filter(x => x.on).map(x => x.name).join(', ');
+    const desc = k === 'month' ? t('From candles, an estimate (≈)') : k === 'sessions' ? on : '';
+    grid.append(el('span', { class: 'what', ...(k === 'month' ? { tip: t('A month is longer than the recording keeps: its lines come from candles, an estimate marked ≈.') } : {}) },
+      el('span', { class: 'name', textContent: name }), ...(desc ? [el('span', { class: 'desc', textContent: desc })] : [])));
+    const box = el('input', { type: 'checkbox', checked: s.lines.includes(k), ariaLabel: `${name} · ${linesHead}` });
+    box.onchange = () => set({ lines: LINE_KINDS.filter(x => x === k ? box.checked : store.state.traded.lines.includes(x)) }, true);
+    grid.append(el('label', { tip: `${name} · ${linesHead}` }, box), profile(k, name));
+  }
+  grid.append(el('span', { class: 'what' }, el('span', { class: 'name', textContent: t('None') })), el('span', { class: 'none', textContent: '—' }), profile(null, t('None')));
+  return grid;
+}
 
 /** The session list: each one on or off, its name, start, end, zone and whether it skips weekends; add one from the usual ones, or remove it. */
 function sessionEditor(store: Store, set: (change: Partial<TradedSettings>, again?: boolean) => void): HTMLElement {

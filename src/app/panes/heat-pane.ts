@@ -41,7 +41,7 @@ import { t } from '../i18n.ts';
 import { currentCoin, scaledUsd } from '../coin.ts';
 import { linesToAsk } from '../sizes.ts';
 import { chartKinds, linesCount, linesSource, resolveZone, type LineKind, type TradedSettings } from '../traded/settings.ts';
-import { answerMax, emphasisFloor, splitStyles } from '../traded/emphasis.ts';
+import { answerMedian, emphasisFloor, medianRow, splitStyles } from '../traded/emphasis.ts';
 import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { MAX_BACK_MS, barMsFor, keyLines, neededFrom, type KeyLine } from '../keylevels/levels.ts';
 import { anyLine } from '../keylevels/settings.ts';
@@ -200,7 +200,7 @@ export class HeatPane {
   /** When each past point of control was first traded at again (`#touchedAfter`), by window, price and the candles read. */
   readonly #touched = new Map<string, number | null>();
   /** Each on-chart profile's rows on the display grid, by what they were grouped from (an answer, or a candle estimate), kept while it is. */
-  readonly #profileRows = new WeakMap<object, { row: number; rows: Map<number, [number, number]>; max: number }>();
+  readonly #profileRows = new WeakMap<object, { row: number; rows: Map<number, [number, number]>; max: number; median: number }>();
   /** The volume profile's tags on the price axis, placed with the key levels' and the VWAP's. */
   #valueTags: KeyTag[] = [];
   /** The names put at the lines' right ends this frame (Volume profile, key levels, VWAP). */
@@ -1522,9 +1522,9 @@ export class HeatPane {
         if (from instanceof Map) for (const [k, usd] of from) into((k + 0.5) * step, usd, 0);
         else for (const inst of from.instruments) for (const [low, buy, sell] of inst.rows) into(low + inst.step / 2, buy, sell);
         let max = 0; for (const [a, b] of rows.values()) max = Math.max(max, a + b);
-        grouped = { row, rows, max }; this.#profileRows.set(from, grouped);
+        grouped = { row, rows, max, median: medianRow([...rows.values()].map(([a, b]) => a + b)) }; this.#profileRows.set(from, grouped);
       }
-      const { rows, max } = grouped;
+      const { rows, max, median } = grouped;
       if (!(max > 0)) continue;
       const room = (x1 - x0) * 0.6, floor = emphasisFloor(), on = state.traded.emphasis && state.traded.bars === 'split';
       for (const [k, [a, b]] of rows) {
@@ -1534,8 +1534,8 @@ export class HeatPane {
         ctx.globalAlpha = 1; ctx.fillStyle = halo; ctx.fillRect(x0, y0, len, hgt);
         ctx.globalAlpha = 0.75;
         if (fromCandles) { ctx.fillStyle = p.poc; ctx.fillRect(x0, y0, len, hgt); continue; }
-        // The stronger side brighter and the weaker dimmer, against the busiest row of the window, as in the columns.
-        const buyLen = len * a / (a + b), [first, second] = splitStyles(a, b, max, floor, p, on);
+        // The stronger side brighter and the weaker dimmer, on the scale the columns use (τ from the window's median row).
+        const buyLen = len * a / (a + b), [first, second] = splitStyles(a, b, median, floor, p, on);
         if (a > 0) { ctx.globalAlpha = first.alpha; ctx.fillStyle = first.color; ctx.fillRect(x0, y0, buyLen, hgt); }
         if (b > 0) { ctx.globalAlpha = second.alpha; ctx.fillStyle = second.color; ctx.fillRect(x0 + buyLen, y0, len - buyLen, hgt); }
       }
@@ -1673,8 +1673,8 @@ export class HeatPane {
       ctx.fillStyle = p.poc; ctx.globalAlpha = 0.12; ctx.fillRect(x0 + 1, ya, W - 1, yb - ya); ctx.globalAlpha = 1;
     }
     if (rows && rows.max > 0) {
-      // One-sidedness is judged against the busiest row of the whole answer, not of the prices on screen (traded/emphasis.ts).
-      const width = W - 6, busiest = answer ? answerMax(answer, rows.step) : rows.max, floor = emphasisFloor();
+      // One-sidedness is judged on one scale, τ from the median row of the whole answer, not of the prices on screen (traded/emphasis.ts).
+      const width = W - 6, median = answer ? answerMedian(answer, rows.step) : 0, floor = emphasisFloor();
       for (let i = 0; i < rows.buy.length; i++) {
         const b = rows.buy[i]!, sl = rows.sell[i]!, total = b + sl; if (!(total > 0)) continue;
         const low = (rows.bin0 + i) * rows.step, y0 = v.yOf(low + rows.step, ph), y1 = v.yOf(low, ph);
@@ -1690,7 +1690,7 @@ export class HeatPane {
           if (Math.abs(net) > 0) { ctx.fillStyle = net > 0 ? p.bid : p.ask; ctx.fillRect(x0 + 1, y0, Math.max(1, Math.abs(net) / rows.max * width), hgt); }
           continue;
         }
-        const [first, second] = splitStyles(b, sl, busiest, floor, p, s.emphasis);
+        const [first, second] = splitStyles(b, sl, median, floor, p, s.emphasis);
         if (b > 0) { ctx.globalAlpha = first.alpha; ctx.fillStyle = first.color; ctx.fillRect(x0 + 1, y0, Math.max(0.5, buyLen), hgt); }
         if (sl > 0) { ctx.globalAlpha = second.alpha; ctx.fillStyle = second.color; ctx.fillRect(x0 + 1 + buyLen, y0, Math.max(0.5, len - buyLen), hgt); }
       }

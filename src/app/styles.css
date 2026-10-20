@@ -492,7 +492,12 @@ ol.steps { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 8px; line
 .keylevel-grid .what .desc { color: var(--muted); font-size: 11px; }
 .keylevel-grid label { display: flex; justify-content: center; align-self: stretch; align-items: center; border-top: 1px solid var(--line); cursor: pointer; }
 .keylevel-grid label:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
-.keylevel-grid input[type=checkbox] { margin: 0; width: 15px; height: 15px; accent-color: var(--ui); cursor: pointer; }
+.keylevel-grid input:is([type=checkbox], [type=radio]) { margin: 0; width: 15px; height: 15px; accent-color: var(--ui); cursor: pointer; }
+/* The Volume profile's periods, the same grid: a row a period, its lines (boxes, several) and its bar profiles (round buttons, one kind). */
+.period-grid { grid-template-columns: minmax(0, 1fr) 84px 96px; }
+.period-grid .head { line-height: 1.25; }
+.period-grid .head.period-name { text-align: left; }
+.period-grid .none { display: flex; justify-content: center; align-self: stretch; align-items: center; border-top: 1px solid var(--line); color: var(--muted); }
 .panel .field { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; align-items: center; padding: 7px 8px; margin: 0 -8px; border-radius: var(--radius); }
 .panel .field > select, .panel .field > input[type=number] { width: 150px; }
 /* A long choice ("Aggregated: every market switched on") does not fit 150 px beside the name: the select takes a line of its own under it. */
