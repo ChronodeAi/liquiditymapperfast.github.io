@@ -1452,7 +1452,6 @@
  "No profile is placed: only the lines on the chart show.": "놓인 프로필이 없습니다. 차트 위의 선만 보입니다.",
  "The map keeps at least half the width, counting the columns on both sides: when they do not all fit, the ones nearest the map stay and the outermost wait for room.": "지도는 양쪽 열을 모두 쳐서 너비의 절반 이상을 유지합니다. 모두 들어가지 않으면 지도에 가까운 열이 남고, 가장 바깥쪽 열은 자리가 날 때까지 기다립니다.",
  "Up to three bands stack along the top, each shorter the more there are and all of them a quarter of the chart's height at most; the first in the list is the lowest, nearest the chart.": "위쪽에는 띠가 세 개까지 쌓이며, 많을수록 하나하나가 낮아지고 모두 합쳐 차트 높이의 4분의 1을 넘지 않습니다. 목록의 첫 번째가 가장 아래, 차트에 가장 가깝습니다.",
- "Traded volume is not drawn by price, so the lines across the chart are {measure}'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.": "체결 거래량이 가격별로 그려지지 않으므로 차트를 가로지르는 선은 가격별로 그리는 첫 번째 지표인 {measure}의 것입니다. 날·주·월·세션은 체결 거래량만으로 계산합니다.",
  "Right": "오른쪽",
  "Left": "왼쪽",
  "Top": "위",
@@ -1469,5 +1468,6 @@
  "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "공간 부족으로 프로필 {n}개 숨김: {which}. 켜진 채로 남아 있다가 자리가 나면 보입니다: 더 넓은 창, 더 높은 차트, 또는 더 적은 프로필.",
  "Chart window": "차트 창",
  "Everything on the chart, as the columns add it up": "차트 위의 전체, 열이 합산하는 그대로",
- "No lines are ticked above: these settings draw nothing until one is.": "위에서 선택한 선이 없습니다: 하나를 선택할 때까지 이 설정은 아무것도 그리지 않습니다."
+ "No lines are ticked above: these settings draw nothing until one is.": "위에서 선택한 선이 없습니다: 하나를 선택할 때까지 이 설정은 아무것도 그리지 않습니다.",
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "체결 거래량이 가격별로 그려지지 않으므로 차트 창의 선은 가격별로 그려진 첫 번째 지표({measure})를 씁니다. 기간 선은 항상 체결 거래량을 씁니다."
 }

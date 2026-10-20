@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { TRADED_DEFAULTS, type TradedSettings } from '../src/app/traded/settings.ts';
 import assert from 'node:assert/strict';
 import { readTraded } from '../src/app/traded/settings.ts';
 import { Store, initialState, readSettings, type AppState } from '../src/app/store.ts';
@@ -137,9 +138,19 @@ test('the columns on both sides together leave the map half the pane: the neares
 
 test('a measure drawn on both sides is one question by price, and moving its column to the other side asks nothing new', async () => {
   const four = setOf(['volume', 'right'], ['absorption', 'right'], ['absorption', 'left']);
-  const state = { show: { traded: true, profile: true }, traded: { placements: four } } as unknown as AppState;
+  const plain: TradedSettings = { ...TRADED_DEFAULTS, lines: [], profiles: null };
+  const state = { show: { traded: true, profile: true }, traded: { ...plain, placements: four } } as unknown as AppState;
   try { setCompactGutters(false, 2000); assert.deepEqual(priceQuestions(state), ['volume', 'absorption']); } finally { setCompactGutters(false, 2000); }
-  assert.deepEqual(priceQuestions({ ...state, traded: { placements: setOf(['oi', 'top'], ['liquidations', 'left']) } } as unknown as AppState), ['liquidations'], 'the lines\' measure is the column\'s');
+  const other = (traded: Partial<TradedSettings>): AppState => ({ ...state, traded: { ...plain, placements: setOf(['oi', 'top'], ['liquidations', 'left']), ...traded } }) as unknown as AppState;
+  assert.deepEqual(priceQuestions(other({})), ['liquidations'], 'the lines\' measure is the column\'s');
+  assert.deepEqual(priceQuestions({ ...other({}), show: { traded: true, profile: true } } as unknown as AppState), ['liquidations']);
+  assert.deepEqual(priceQuestions(other({ windowLines: false })), ['liquidations'], 'its column asks for it anyway');
+  setCompactGutters(true, 400);
+  try {
+    assert.deepEqual(priceQuestions(other({ windowLines: false })), [], 'no column, no chart window lines, no periods: nothing');
+    assert.deepEqual(priceQuestions(other({ poc: false, va: false })), [], 'the chart window\'s lines switched off in Line contents: nothing');
+    assert.deepEqual(priceQuestions(other({ windowLines: false, lines: ['day'] })), ['volume'], 'periods drawn: traded volume says which venues the recording holds');
+  } finally { setCompactGutters(false, 2000); }
   class FakeWorker { onmessage: ((event: { data: unknown }) => void) | null = null; postMessage(): void {} }
   (globalThis as { Worker?: unknown }).Worker = FakeWorker;
   const asked: { kind: string; settle: () => void }[] = [];

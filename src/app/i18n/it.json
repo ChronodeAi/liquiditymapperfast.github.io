@@ -1510,7 +1510,6 @@
  "No profile is placed: only the lines on the chart show.": "Nessun profilo è posizionato: si vedono solo le linee sul grafico.",
  "The map keeps at least half the width, counting the columns on both sides: when they do not all fit, the ones nearest the map stay and the outermost wait for room.": "La mappa mantiene almeno metà della larghezza, contando le colonne di entrambi i lati: quando non ci stanno tutte, restano quelle più vicine alla mappa e le più esterne aspettano spazio.",
  "Up to three bands stack along the top, each shorter the more there are and all of them a quarter of the chart's height at most; the first in the list is the lowest, nearest the chart.": "Si impilano fino a tre bande lungo il bordo superiore, ognuna più bassa quante più sono e tutte insieme al massimo un quarto dell'altezza del grafico; la prima della lista è la più bassa, la più vicina al grafico.",
- "Traded volume is not drawn by price, so the lines across the chart are {measure}'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.": "Il volume scambiato non è disegnato per prezzo, quindi le linee sul grafico sono quelle di {measure}, la prima misura disegnata per prezzo; giorni, settimane, mesi e sessioni sono calcolati solo dal volume scambiato.",
  "Right": "Destra",
  "Left": "Sinistra",
  "Top": "Sopra",
@@ -1531,5 +1530,6 @@
  },
  "Chart window": "Finestra del grafico",
  "Everything on the chart, as the columns add it up": "Tutto ciò che è sul grafico, come lo sommano le colonne",
- "No lines are ticked above: these settings draw nothing until one is.": "Nessuna linea è spuntata sopra: queste impostazioni non disegnano nulla finché non ne spunti una."
+ "No lines are ticked above: these settings draw nothing until one is.": "Nessuna linea è spuntata sopra: queste impostazioni non disegnano nulla finché non ne spunti una.",
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Le linee della finestra del grafico usano {measure}, la prima misura disegnata per prezzo, perché il volume scambiato non lo è; le linee di periodo usano sempre il volume scambiato."
 }

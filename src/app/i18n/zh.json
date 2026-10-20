@@ -1452,7 +1452,6 @@
  "No profile is placed: only the lines on the chart show.": "没有放置任何分布：只显示图表上的线。",
  "The map keeps at least half the width, counting the columns on both sides: when they do not all fit, the ones nearest the map stay and the outermost wait for room.": "地图至少保留一半宽度（两侧的列都计算在内）：放不下全部时，保留离地图最近的列，最外侧的列等到有空间时再显示。",
  "Up to three bands stack along the top, each shorter the more there are and all of them a quarter of the chart's height at most; the first in the list is the lowest, nearest the chart.": "顶部最多叠放三条条带，条带越多每条越矮，合计不超过图表高度的四分之一；列表中的第一项在最下方，离图表最近。",
- "Traded volume is not drawn by price, so the lines across the chart are {measure}'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.": "成交量没有按价格绘制，因此横贯图表的线取自 {measure}，即第一个按价格绘制的指标；日、周、月和时段只按成交量计算。",
  "Right": "右",
  "Left": "左",
  "Top": "顶部",
@@ -1469,5 +1468,6 @@
  "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "{n} 个分布因空间不足而隐藏：{which}。它们保持开启，有空间时就会显示：更宽的窗口、更高的图表或更少的分布。",
  "Chart window": "图表窗口",
  "Everything on the chart, as the columns add it up": "图表上的全部内容,按列的方式汇总",
- "No lines are ticked above: these settings draw nothing until one is.": "上方未勾选任何线:勾选之前,这些设置不会绘制任何内容。"
+ "No lines are ticked above: these settings draw nothing until one is.": "上方未勾选任何线:勾选之前,这些设置不会绘制任何内容。",
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "由于成交量未按价格绘制,图表窗口的线使用按价格绘制的第一个指标({measure});周期线始终使用成交量。"
 }

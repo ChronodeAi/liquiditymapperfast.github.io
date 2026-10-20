@@ -115,7 +115,7 @@ export function buildTradedPanel(store: Store, tools: HTMLElement, body: HTMLEle
     heading(t('Line contents')),
     ...(!s.windowLines && !s.lines.length ? [note(t('No lines are ticked above: these settings draw nothing until one is.'))] : []),
     // Whose lines they are is said whenever it is not traded volume's, so moving or switching a column never changes their meaning unsaid.
-    ...(lines !== 'volume' && s.windowLines ? [note(t('Traded volume is not drawn by price, so the lines across the chart are {measure}\'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.', { measure: measureDef(lines).name() }))] : []),
+    ...(lines !== 'volume' && s.windowLines ? [note(t('The chart window\'s lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.', { measure: measureDef(lines).name() }))] : []),
     switchRow(t('Point of control'), t('The price that traded the most, as a line.'), s.poc, poc => set({ poc })),
     switchRow(t('Value area high and low'), t('The top and the bottom of the value area (VAH and VAL), as dashed lines.'), s.va, va => set({ va })),
     switchRow(t('Labels'), t('Each line\'s name and price at its right end, where there is room.'), s.labels, labels => set({ labels })),

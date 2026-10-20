@@ -158,11 +158,14 @@ export function leftGutter(state: AppState): number { return sideColumns(state).
 type Side = 'right' | 'left';
 /**
  * The measures asked by price this frame: each drawn column's measure once, whichever side it is on and however many sides, then the lines'
- * measure while the chart window's lines are drawn (asked with no room for its column too, since the lines are drawn from it).
+ * measure while the chart window's lines are drawn (asked with no room for its column too, since the lines are drawn from it), and traded
+ * volume while periods are drawn (it says which venues the recording holds).
  */
 export function priceQuestions(state: AppState): ProfileMetric[] {
-  const sides = sideColumns(state), asked = new Set([...sides.right, ...sides.left].map(p => p.metric));
-  if (state.traded.windowLines) asked.add(lineMetric(state.traded.placements));
+  const s = state.traded, sides = sideColumns(state), asked = new Set([...sides.right, ...sides.left].map(p => p.metric));
+  if (s.windowLines && (s.poc || s.va)) asked.add(lineMetric(s.placements));
+  // The periods judge which venues the recording holds by the traded-volume answer (`#recordedIds`): asked for them, columns or none.
+  if (chartKinds(s).length) asked.add('volume');
   return [...asked];
 }
 
@@ -1455,10 +1458,12 @@ export class HeatPane {
     if (recorded.length) this.hub.ensureValueAreas(this.#recordedIds(state), recorded, this.#levelStep(), s.share / 100);
     // The candles, of each size the kinds use: what the lines come from, or, from the recording, what tells whether a past point of control
     // was traded through since (`#touchedAfter`), from each window's end.
-    const from = new Map<number, number[]>();
+    const from = new Map<number, number[]>(), now = pageNow();
     for (const w of windows) {
       const fromRecording = this.#windowSource(state, w) === 'recorded';
-      if (fromRecording && !(s.naked && s.poc)) continue;
+      // From the recording only an ended window's point of control can have been traded through since (the one under way would ask for
+      // candles from tomorrow, which come never, and hold the months' back).
+      if (fromRecording && (!(s.naked && s.poc) || w.to > now)) continue;
       const { barMs } = this.#profileCandles(state, windowKind(w)), at = fromRecording ? w.to : w.from, list = from.get(barMs) ?? [];
       list.push(at); from.set(barMs, list);
     }
@@ -1565,10 +1570,10 @@ export class HeatPane {
     for (const w of this.#linesWindows(state)) {
       if (windowKind(w) !== kind || (replaying() && w.to > now)) continue;
       const drawn = this.#windowLevels(state, ids, w, step, share, now); if (!drawn) continue;
-      // A window that began left of the chart draws from the chart's left edge, over the part of it on the chart: a month zoomed in on its last
-      // days still shows its profile (Karl, 2026-10-20), where from its start it lay off the chart.
-      const x0 = Math.max(0, v.xOf(w.from, pw)), x1 = v.xOf(Math.min(w.to, now, drawn.upTo), pw);
-      if (x1 - x0 < 24 || x1 < 0 || x0 > pw) continue;
+      // Over the part of the window on the chart: one that began left of it draws from its left edge, and one that runs on past its right edge
+      // scales to it, so a month zoomed in on its last days still shows its profile (Karl, 2026-10-20) and its longest row stays on the chart.
+      const x0 = Math.max(0, v.xOf(w.from, pw)), x1 = Math.min(pw, v.xOf(Math.min(w.to, now, drawn.upTo), pw));
+      if (x1 - x0 < 24) continue;
       // Each row of the display grid: [buy, sell] (from candles all of it in the first), regrouped only when what it comes from or the rows
       // change, never per frame.
       const from = fromCandles ? this.#windowFromCandles(state, w, step, share, now)?.rows : this.hub.windowProfiles.get(windowProfileKey(ids, step, w))?.answer;

@@ -1510,7 +1510,6 @@
  "No profile is placed: only the lines on the chart show.": "No hay ningún perfil colocado: solo se muestran las líneas del gráfico.",
  "The map keeps at least half the width, counting the columns on both sides: when they do not all fit, the ones nearest the map stay and the outermost wait for room.": "El mapa conserva al menos la mitad del ancho, contando las columnas de ambos lados: cuando no caben todas, se quedan las más cercanas al mapa y las más externas esperan a que haya sitio.",
  "Up to three bands stack along the top, each shorter the more there are and all of them a quarter of the chart's height at most; the first in the list is the lowest, nearest the chart.": "Se apilan hasta tres bandas a lo largo de la parte superior, cada una más baja cuantas más haya y todas juntas como mucho un cuarto de la altura del gráfico; la primera de la lista es la de más abajo, la más cercana al gráfico.",
- "Traded volume is not drawn by price, so the lines across the chart are {measure}'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.": "El volumen negociado no se dibuja por precio, así que las líneas a lo ancho del gráfico son las de {measure}, la primera medida dibujada por precio; los días, semanas, meses y sesiones se calculan solo a partir del volumen negociado.",
  "Right": "Derecha",
  "Left": "Izquierda",
  "Top": "Arriba",
@@ -1531,5 +1530,6 @@
  },
  "Chart window": "Ventana del gráfico",
  "Everything on the chart, as the columns add it up": "Todo lo que hay en el gráfico, tal como lo suman las columnas",
- "No lines are ticked above: these settings draw nothing until one is.": "No hay ninguna línea marcada arriba: estos ajustes no dibujan nada hasta que marques una."
+ "No lines are ticked above: these settings draw nothing until one is.": "No hay ninguna línea marcada arriba: estos ajustes no dibujan nada hasta que marques una.",
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "Las líneas de la ventana del gráfico usan {measure}, la primera medida dibujada por precio, ya que el volumen negociado no lo está; las líneas de periodo usan siempre el volumen negociado."
 }

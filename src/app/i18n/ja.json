@@ -1452,7 +1452,6 @@
  "No profile is placed: only the lines on the chart show.": "プロファイルが 1 つも置かれていません。チャート上の線だけが表示されます。",
  "The map keeps at least half the width, counting the columns on both sides: when they do not all fit, the ones nearest the map stay and the outermost wait for room.": "マップは両側の列を含めて幅の半分以上を保ちます。すべてが収まらないときは、マップに近い列が残り、最も外側の列は余地ができるまで待ちます。",
  "Up to three bands stack along the top, each shorter the more there are and all of them a quarter of the chart's height at most; the first in the list is the lowest, nearest the chart.": "上端には帯を 3 本まで重ねられます。本数が多いほど 1 本は低くなり、合計でもチャートの高さの 4 分の 1 までです。リストの最初のものが一番下、チャートに最も近い位置です。",
- "Traded volume is not drawn by price, so the lines across the chart are {measure}'s, the first measure drawn by price; days, weeks, months and sessions are worked out from traded volume only.": "約定出来高が価格別に描かれていないため、チャートを横切る線は価格別に描く最初の指標である {measure} のものです。日・週・月・セッションは約定出来高だけから計算します。",
  "Right": "右",
  "Left": "左",
  "Top": "上",
@@ -1469,5 +1468,6 @@
  "{n} profiles hidden for space: {which}. They stay switched on and show when there is room: a wider window, a taller chart, or fewer profiles.": "{n} 件のプロファイルを余地不足で非表示：{which}。オンのままで、余地ができれば表示されます（ウィンドウを広くする、チャートを高くする、プロファイルを減らす）。",
  "Chart window": "チャートの表示範囲",
  "Everything on the chart, as the columns add it up": "チャート上のすべて(列と同じ集計)",
- "No lines are ticked above: these settings draw nothing until one is.": "上で線が1つも選ばれていません:選ぶまで、これらの設定は何も描きません。"
+ "No lines are ticked above: these settings draw nothing until one is.": "上で線が1つも選ばれていません:選ぶまで、これらの設定は何も描きません。",
+ "The chart window's lines use {measure}, the first measure drawn by price, since traded volume is not; period lines always use traded volume.": "約定出来高が価格別に描かれていないため、チャート表示範囲の線は価格別に描かれた最初の指標({measure})を使います。期間の線は常に約定出来高を使います。"
 }
