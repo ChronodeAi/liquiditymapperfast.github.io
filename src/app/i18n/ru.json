@@ -1521,5 +1521,6 @@
  "Period time zone": "Часовой пояс периодов",
  "Periods shown, including current": "Показано периодов, включая текущий",
  "Line contents": "Содержимое линий",
- "No period lines selected: these settings apply to the chart window.": "Линии периодов не выбраны: эти настройки относятся к окну графика."
+ "No period lines selected: these settings apply to the chart window.": "Линии периодов не выбраны: эти настройки относятся к окну графика.",
+ "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "Отмеченные линии периодов заменяют собственные линии окна графика; снимите все отметки, чтобы вернуть их."
 }

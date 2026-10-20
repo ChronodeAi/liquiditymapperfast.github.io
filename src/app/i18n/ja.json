@@ -1453,5 +1453,6 @@
  "Period time zone": "期間のタイムゾーン",
  "Periods shown, including current": "表示する期間数(進行中を含む)",
  "Line contents": "線の内容",
- "No period lines selected: these settings apply to the chart window.": "期間の線が選ばれていません:これらの設定はチャートの表示範囲に適用されます。"
+ "No period lines selected: these settings apply to the chart window.": "期間の線が選ばれていません:これらの設定はチャートの表示範囲に適用されます。",
+ "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "チェックした期間の線は、チャート表示範囲そのものの線に置き換わります。すべて外すと元に戻ります。"
 }

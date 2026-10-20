@@ -1493,5 +1493,6 @@
  "Period time zone": "Dönem saat dilimi",
  "Periods shown, including current": "Gösterilen dönemler, güncel dahil",
  "Line contents": "Çizgi içeriği",
- "No period lines selected: these settings apply to the chart window.": "Dönem çizgisi seçilmedi: bu ayarlar grafik penceresine uygulanır."
+ "No period lines selected: these settings apply to the chart window.": "Dönem çizgisi seçilmedi: bu ayarlar grafik penceresine uygulanır.",
+ "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "İşaretli dönem çizgileri grafik penceresinin kendi çizgilerinin yerini alır; geri getirmek için hepsinin işaretini kaldırın."
 }

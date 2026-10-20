@@ -1453,5 +1453,6 @@
  "Period time zone": "周期时区",
  "Periods shown, including current": "显示的周期数(含当前)",
  "Line contents": "线的内容",
- "No period lines selected: these settings apply to the chart window.": "未选择周期线:这些设置作用于图表窗口。"
+ "No period lines selected: these settings apply to the chart window.": "未选择周期线:这些设置作用于图表窗口。",
+ "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "勾选的周期线会取代图表窗口自身的线;全部取消即可恢复。"
 }

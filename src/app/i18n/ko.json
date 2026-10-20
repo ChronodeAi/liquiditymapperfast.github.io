@@ -1453,5 +1453,6 @@
  "Period time zone": "기간 시간대",
  "Periods shown, including current": "표시할 기간 수(진행 중 포함)",
  "Line contents": "선 내용",
- "No period lines selected: these settings apply to the chart window.": "선택한 기간 선이 없습니다: 이 설정은 차트 창에 적용됩니다."
+ "No period lines selected: these settings apply to the chart window.": "선택한 기간 선이 없습니다: 이 설정은 차트 창에 적용됩니다.",
+ "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "선택한 기간 선은 차트 창 자체의 선을 대신합니다. 모두 해제하면 다시 나타납니다."
 }

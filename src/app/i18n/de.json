@@ -1493,5 +1493,6 @@
  "Period time zone": "Zeitzone der Zeiträume",
  "Periods shown, including current": "Angezeigte Zeiträume, inklusive aktuellem",
  "Line contents": "Linieninhalt",
- "No period lines selected: these settings apply to the chart window.": "Keine Zeitraumlinien gewählt: Diese Einstellungen gelten für das Chartfenster."
+ "No period lines selected: these settings apply to the chart window.": "Keine Zeitraumlinien gewählt: Diese Einstellungen gelten für das Chartfenster.",
+ "Ticked period lines replace the chart window's own lines; untick them all to bring those back.": "Angehakte Zeitraumlinien ersetzen die eigenen Linien des Chartfensters; alle abwählen, um diese zurückzuholen."
 }
