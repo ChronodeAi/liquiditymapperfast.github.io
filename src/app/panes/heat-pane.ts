@@ -1084,7 +1084,9 @@ export class HeatPane {
       if (this.#stripRows?.key !== key) this.#stripRows = { key, rows: flowRows(tracks, from, asked.to, tf, now) };
       rows = this.#stripRows.rows;
     }
-    const since = rows?.recordedSince ?? null;
+    // The seam is where the recording kept begins (`recordedSince`, as the status bar says it), not where the flow loaded so far reaches: a
+    // stretch still loading is a gap that fills in, never a candle that flashes over recorded history.
+    const since = this.hub.recordedSince > 0 ? this.hub.recordedSince : rows?.recordedSince ?? null;
     // Before the recording: the chart market's candles, split by their taker buys where the exchange says them (Binance's, read by the page).
     const target = historyTarget(state.marketId, currentCoin()), venue = target?.id.slice(0, target.id.indexOf(':')) ?? '';
     const binance = !!target && target.own && (venue === 'binance' || venue === 'binancespot'), market = venueLabel(target?.own ? target.id : state.marketId);

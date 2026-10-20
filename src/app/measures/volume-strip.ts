@@ -46,10 +46,9 @@ export function stripBars(candles: readonly CandleRow[], tf: number, rows: TimeR
   for (const c of candles) {
     const s = c[0], e = s + tf;
     if (e < t0 || s > t1 || s > now) continue;
-    const { x, w } = place(s);
-    if (rows && since !== null && e > since) {
-      const i = bucketAt(rows, Math.max(s, rows.from));
-      if (i < 0) continue;
+    const { x, w } = place(s), i = rows ? bucketAt(rows, Math.max(s, rows.from)) : -1;
+    // From the recording where it reaches and its rows hold the bar; a bar older than the rows asked for is the candle's, never dropped.
+    if (rows && since !== null && e > since && i >= 0) {
       const gap = rows.gaps[i] ?? null;
       out.push({ t: s, x, w, source: gap ? 'gap' : s >= since ? 'recorded' : 'partial', buy: gap ? 0 : rows.buy[i]!, sell: gap ? 0 : rows.sell[i]!, split: !gap, i, gap });
       continue;
@@ -181,7 +180,9 @@ export function paintVolumeStrip(ctx: CanvasRenderingContext2D, bars: readonly S
 export function stripLines(bar: StripBar, c: { rows: TimeRows | null; tf: number; now: number; levels: TimeLevels | null; levelsIn: (i: number) => number; market: string; tfName: string }): InfoLine[] {
   if (bar.source !== 'candle' && c.rows && bar.i >= 0) {
     const l = c.levels, rowsLevels = l ? { poc: c.levelsIn(l.poc), lo: c.levelsIn(l.lo), hi: c.levelsIn(l.hi) } : null;
-    const lines = timeLines(c.rows, bar.i, { metric: 'volume', words: timeWords('volume'), spacingMs: 0, levels: rowsLevels, now: c.now });
+    // A bar is the recording's whole or says it is partial itself: the rows' note that the window reaches back past the recording is the
+    // seam's, drawn on the strip, not this bar's.
+    const lines = timeLines({ ...c.rows, partial: false }, bar.i, { metric: 'volume', words: timeWords('volume'), spacingMs: 0, levels: rowsLevels, now: c.now });
     if (bar.source === 'partial') lines.push({ text: t('The recording began inside this bar: part of it only.'), color: 'muted', wrap: true });
     return lines;
   }
