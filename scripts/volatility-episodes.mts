@@ -19,6 +19,8 @@ import { SUBQ_ARMS } from '../src/shared/volatility/jev.ts';
 import { BROWSER_VENUES } from '../src/shared/venues.ts';
 import { columnOf } from '../src/server/v2/store.mts';
 import { toRow } from '../src/server/v2/flow.mts';
+import { autoThreshold, markedPart, parseGroup, type AbsorptionGroup } from '../src/shared/absorption.ts';
+import { ABSORPTION_DEFAULTS } from '../src/app/absorption.ts';
 
 const MINUTE = 60_000, DAY = 86_400_000;
 /** Each book's resting USD is kept in these bands from its middle (bp, upper edges). */
@@ -50,6 +52,11 @@ export interface Minute {
   grid?: { from: number; perpBid: number[]; perpAsk: number[]; spotBid: number[]; spotAsk: number[] };
   /** Per perpetual: open interest at the minute's end in coins, and in USD where the venue says. */
   oi: Record<string, [number, number | null]>;
+  /**
+   * Per market: absorption as the page marks it by default (`absorptionOf`): buy-aggressor groups and their marked USD, then sell-aggressor
+   * groups and theirs. Every market whose minute of window sums was recorded; the days kept before this field (up to 2026-10-19) have none.
+   */
+  absorption?: Record<string, [number, number, number, number]>;
   /** The volatility reading made as this minute closed (its `features.t` is `t` + 1 minute): the `volatility-log.jsonl` row as logged. */
   reading?: Row;
 }
@@ -59,6 +66,26 @@ const KINDS = new Map(BROWSER_VENUES.map(v => [v.id, v.kind]));
 function kindOf(inst: string, coin: string): 'perp' | 'spot' | null {
   const colon = inst.indexOf(':');
   return colon > 0 && inst.startsWith(coin, colon + 1) ? KINDS.get(inst.slice(0, colon)) ?? null : null;
+}
+
+/**
+ * One market's absorption in minute `t` as the page marks it by default (`ABSORPTION_DEFAULTS`, `thresholds` in app/absorption.ts): the
+ * threshold is mean + k standard deviations of the window sums in the market's minutes of the last `sdMinutes` up to and including `t` (the
+ * page's complete minutes just after `t` closed), and each group starting in `t` whose largest credit reaches it adds its marked part.
+ * [buy groups, buy USD, sell groups, sell USD] by aggressor side; null when those minutes hold no window sums (nothing can be marked).
+ */
+export function absorptionOf(groups: readonly AbsorptionGroup[], minutes: readonly { t: number; n: number; mean: number; m2: number }[], t: number): [number, number, number, number] | null {
+  const { k, sdMinutes } = ABSORPTION_DEFAULTS;
+  const threshold = autoThreshold(minutes.filter(m => m.t > t - sdMinutes * MINUTE && m.t <= t), k);
+  if (threshold === null) return null;
+  const out: [number, number, number, number] = [0, 0, 0, 0];
+  for (const g of groups) {
+    const part = markedPart(g, threshold);
+    if (!part) continue;
+    const at = g.side === 'buy' ? 0 : 2;
+    out[at]++; out[at + 1] += part.usd;
+  }
+  return [out[0], Math.round(out[1]), out[2], Math.round(out[3])];
 }
 
 interface Sources { history: DatabaseSync; depth: DatabaseSync; log: Map<number, Row>; ref: string; coin: string }
@@ -106,6 +133,37 @@ function readMinutes(src: Sources, from: number, to: number): Minute[] {
     m.depth[r.inst] = bands.map(Math.round);
   }
   for (const [t, g] of grids) minute(t).grid = { from: g.from, perpBid: g.perpBid.map(Math.round), perpAsk: g.perpAsk.map(Math.round), spotBid: g.spotBid.map(Math.round), spotAsk: g.spotAsk.map(Math.round) };
+  // Absorption: each market's minutes of window sums (from `sdMinutes` before `from`, so the first minutes have their threshold) and its
+  // groups by the minute of their first fill.
+  const reach = ABSORPTION_DEFAULTS.sdMinutes * MINUTE, sums = new Map<string, { t: number; n: number; mean: number; m2: number }[]>();
+  for (const r of src.depth.prepare('SELECT inst, t, n, mean, m2 FROM absorption_minutes WHERE t >= ? AND t < ? ORDER BY t').all(from - reach, to) as { inst: string; t: number; n: number; mean: number; m2: number }[]) {
+    if (!kindOf(r.inst, src.coin)) continue;
+    let list = sums.get(r.inst);
+    if (!list) sums.set(r.inst, list = []);
+    list.push(r);
+  }
+  const groupsAt = new Map<string, AbsorptionGroup[]>();
+  for (const r of src.depth.prepare('SELECT inst, t0, side, price, steps FROM absorption_groups WHERE t0 >= ? AND t0 < ?').all(from, to) as { inst: string; t0: number; side: string; price: number; steps: string }[]) {
+    if (!kindOf(r.inst, src.coin)) continue;
+    let steps: unknown;
+    try { steps = JSON.parse(r.steps); } catch { continue; }
+    const g = parseGroup({ id: r.inst, side: r.side, price: r.price, t0: r.t0, steps });
+    if (!g) continue;
+    const key = `${r.inst} ${Math.floor(r.t0 / MINUTE) * MINUTE}`;
+    let list = groupsAt.get(key);
+    if (!list) groupsAt.set(key, list = []);
+    list.push(g);
+  }
+  for (const [inst, list] of sums) {
+    let first = 0;
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i]!.t;
+      if (t < from) continue;
+      while (list[first]!.t <= t - reach) first++;
+      const a = absorptionOf(groupsAt.get(`${inst} ${t}`) ?? [], list.slice(first, i + 1), t);
+      if (a) (minute(t).absorption ??= {})[inst] = a;
+    }
+  }
   for (const m of at.values()) { const row = src.log.get(m.t + MINUTE); if (row) m.reading = row; }
   return [...at.values()].sort((a, b) => a.t - b.t);
 }
