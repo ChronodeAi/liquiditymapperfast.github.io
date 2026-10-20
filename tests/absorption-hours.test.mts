@@ -362,14 +362,20 @@ test('warming packs the stored hours newest first, within half the room, and a q
 });
 
 test('packing ahead waits while a question reads', async () => {
-  const ids = ['a:BTC', 'b:BTC', 'c:BTC'], day = dayOf(10, 6_000, ids, T0, 30 * HOUR), now = T0 + 30 * HOUR;
-  const store = new MemoryStore(day.groups, day.minutes), recorder = new AbsorptionRecorder(store, () => now);
-  const warming = recorder.warm(), before = store.hourly.length;
-  const answer = await recorder.profile(['a:BTC'], [FLOOR], T0, now, 10);
-  assert.ok(store.hourly.slice(before).every(([id]) => id === 'a:BTC'), 'nothing packed ahead meanwhile');
-  assert.ok(store.hourly.length - before > 0 && answer.instruments.length === 1);
-  await warming;
-  assert.ok(store.hourly.some(([id]) => id === 'c:BTC'), 'and it went on after');
+  const ids = ['a:BTC', 'b:BTC', 'c:BTC'], day = dayOf(10, 6_000, ids, T0, 30 * HOUR), now = T0 + 30 * HOUR, clock = { t: 0 };
+  const store = new MemoryStore(day.groups, day.minutes, true, clock), recorder = new AbsorptionRecorder(store, () => now);
+  // Each hour read moves the clock `performance.now` reads by 3 ms, so packing ahead stops after its first three before the question starts.
+  store.readCost = 3;
+  Object.defineProperty(performance, 'now', { value: () => clock.t, configurable: true, writable: true });
+  try {
+    const warming = recorder.warm(), before = store.hourly.length;
+    assert.equal(before, 3);
+    const answer = await recorder.profile(['a:BTC'], [FLOOR], T0, now, 10), asked = store.hourly.length;
+    assert.ok(store.hourly.slice(before).every(([id]) => id === 'a:BTC'), 'nothing packed ahead meanwhile');
+    assert.ok(asked - before >= 20 && answer.instruments.length === 1);
+    await warming;
+    assert.ok(store.hourly.slice(asked).some(([id]) => id === 'c:BTC'), 'and it went on after');
+  } finally { delete (performance as { now?: unknown }).now; }
 });
 
 test('packing and answering let the event loop go every few milliseconds', async () => {
