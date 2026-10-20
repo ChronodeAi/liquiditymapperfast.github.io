@@ -34,8 +34,9 @@ import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
 import { sendVerdict, type FrameKind } from './backpressure.mts';
 import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
-import { SharpWatch } from './sharp.mts';
+import { SharpWatch, subqArmsFrom } from './sharp.mts';
 import { HEAT_MINUTES, HEAT_ROWS, HEAT_ROW_BP, SHARP_HISTORY_MS, type SharpInputs } from '../../shared/sharp/features.ts';
+import { SUBQ_ARMS } from '../../shared/sharp/jev.ts';
 import { ltIndex } from '../../shared/lt-sample.ts';
 
 type App = ReturnType<typeof createLocalServer>;
@@ -674,11 +675,11 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
         if (column.lt && lt >= 0) { row.ltBid += column.lt[lt]!; row.ltAsk += column.lt[lt + 1]!; }
       }
     }
-    // The image arm's heatmap: the last two hours of minute columns around the price, summed over the coin's books.
+    // The image arm's heatmap (when that arm is asked): the last two hours of minute columns around the price, summed over the coin's books.
     let heat: SharpInputs['heat'];
     const refSeries = perp.find(s => s.id === refPerpId) ?? perp[0] ?? spot[0];
     const p0 = refSeries ? [...refSeries.px].reverse().find(p => p > 0) ?? 0 : 0;
-    if (subqKey && p0 > 0) {
+    if (subqKey && subqArms.arms.includes('subqImage') && p0 > 0) {
       const from = now - HEAT_MINUTES * 60_000, cells = HEAT_MINUTES * HEAT_ROWS;
       heat = { bid: new Float64Array(cells), ask: new Float64Array(cells), price: new Float64Array(HEAT_MINUTES) };
       for (const id of ids) {
@@ -708,8 +709,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       ...(heat ? { heat } : {}),
     };
   };
-  const subqKey = process.env.SUBQ_API_KEY || undefined;
-  const sharp = new SharpWatch({ dir: persist ? dataDir : null, read: sharpRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey });
+  const subqKey = process.env.SUBQ_API_KEY || undefined, subqArms = subqArmsFrom(process.env.SUBQ_ARMS);
+  if (subqArms.unknown.length) console.warn(`sharp: SUBQ_ARMS names no arm ${subqArms.unknown.join(', ')} (the arms: ${SUBQ_ARMS.join(', ')})`);
+  const sharp = new SharpWatch({ dir: persist ? dataDir : null, read: sharpRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
   sharp.start();
   const sharpRoute = (res: ServerResponse) => sendJson(res, sharp.answer());
 

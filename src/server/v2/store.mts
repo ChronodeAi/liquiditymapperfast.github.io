@@ -6,7 +6,7 @@ import { LT_LENGTH } from '../../shared/lt-sample.ts';
  * A stored row as a column, as `load` reads it: the blob is bins | bid | ask (one that is not whole is left out), and a tracker of another
  * length (another layout) or with no samples is left out.
  */
-function columnOf(t: number, n: number, bytes: Uint8Array, tracker: { n: number; data: Uint8Array } | null): Column | null {
+export function columnOf(t: number, n: number, bytes: Uint8Array, tracker: { n: number; data: Uint8Array } | null): Column | null {
   const count = bytes.byteLength / 12;
   if (!Number.isInteger(count)) return null;
   const copy = bytes.slice().buffer;

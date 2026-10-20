@@ -20,8 +20,10 @@ export interface SharpWatchOptions {
   read(now: number): SharpInputs | null;
   /** The Jev key; absent: the confluence is still read and logged every minute, Jev is not asked. */
   apiKey?: string;
-  /** The SubQ key; present: the SubQ arms (`SUBQ_ARMS`) are asked beside Jev every minute, in shadow. */
+  /** The SubQ key; present: the SubQ arms (`subqArms`) are asked beside Jev every minute, in shadow. */
   subqKey?: string;
+  /** The SubQ arms asked (`subqArmsFrom`, the `SUBQ_ARMS` environment variable); absent: all of `SUBQ_ARMS`. An arm left out is paused. */
+  subqArms?: readonly SubqArm[];
   ask?: typeof askDecision;
   clock?: () => number;
 }
@@ -128,19 +130,23 @@ export class SharpWatch {
     }
   }
 
-  /** The SubQ arms that are not backing off, in parallel: plain, with the raw history, with the heatmap image. */
+  /**
+   * The SubQ arms asked that are not backing off, in parallel: plain, with the raw history, with the heatmap image. A paused arm is not
+   * asked and its extra input is not built.
+   */
   async #askArms(features: SharpFeatures, inputs: SharpInputs): Promise<Partial<Record<SubqArm, SharpVerdict>>> {
     const key = this.#options.subqKey;
     if (!key) return {};
-    const series = sharpSeries(inputs) ?? undefined;
-    const png = inputs.heat ? heatPng(inputs.heat, HEAT_ROW_BP) : null;
+    const asked = this.#options.subqArms ?? SUBQ_ARMS;
+    const series = asked.includes('subqHistory') ? sharpSeries(inputs) ?? undefined : undefined;
+    const png = asked.includes('subqImage') && inputs.heat ? heatPng(inputs.heat, HEAT_ROW_BP) : null;
     const extrasOf: Record<SubqArm, DecisionExtras | null> = {
       subq: { provider: 'subq' },
       subqHistory: series ? { provider: 'subq', series } : null,
       subqImage: png ? { provider: 'subq', images: [{ mediaType: 'image/png', base64: png.toString('base64') }] } : null,
     };
     const out: Partial<Record<SubqArm, SharpVerdict>> = {};
-    await Promise.all(SUBQ_ARMS.map(async id => {
+    await Promise.all(asked.map(async id => {
       const arm = this.#arms.get(id) ?? { verdict: null, backoffUntil: 0 };
       this.#arms.set(id, arm);
       const extras = extrasOf[id];
@@ -177,4 +183,14 @@ export class SharpWatch {
       fs.appendFileSync(this.#logPath(), line); this.#logBytes += Buffer.byteLength(line);
     } catch (error) { this.#warn(`log write failed: ${(error as Error).message}`); }
   }
+}
+
+/**
+ * The SubQ arms named in `text`, a comma-separated list (the `SUBQ_ARMS` environment variable), and the names in it that are no arm.
+ * Absent: every arm; empty: none.
+ */
+export function subqArmsFrom(text: string | undefined): { arms: SubqArm[]; unknown: string[] } {
+  if (text === undefined) return { arms: [...SUBQ_ARMS], unknown: [] };
+  const names = text.split(',').map(name => name.trim()).filter(Boolean);
+  return { arms: SUBQ_ARMS.filter(id => names.includes(id)), unknown: names.filter(name => !SUBQ_ARMS.some(id => id === name)) };
 }
