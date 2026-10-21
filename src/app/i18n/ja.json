@@ -1021,7 +1021,7 @@
  "What taker buys outweighed sells by in each candle, over the exchanges the flow column adds up.": "フロー列が合算する取引所について、各ローソク足でテイカーの買いが売りをどれだけ上回ったか。",
  "Each candle's delta is what was bought at market minus what was sold, in dollars, over the same markets as the flow column's ALL VENUES lines (the exchanges switched on, inside Spot / Perp). As bars it is each candle on its own; as CVD candles it adds up from the left edge of the chart, or starts again each day or week, and a dotted line marks where it starts again.": "ローソク足のデルタは、成行で買われた額から売られた額を引いたドル建ての値で、フロー列の ALL VENUES 線と同じ市場（スポット／パーペチュアルの範囲内で有効な取引所）が対象です。バーでは各足が独立し、CVD ローソク足ではチャートの左端から、または毎日・毎週リセットして累積し、リセット位置を点線で示します。",
  "A CVD candle opens and closes where the running delta was at the candle's start and end. Its high and low are sampled sixteen times through the candle, since the extremes of a sum over several exchanges are not kept, so a wick can be a little short.": "CVD ローソク足の始値と終値は、足の開始時と終了時の累積デルタです。高値と安値は足の中で 16 回サンプリングしたものです。複数の取引所の合計の極値は保持されないため、ヒゲが少し短いことがあります。",
- "It comes from the flow the page holds: a day a second at a time, and older minutes where the server keeps them. Candles before that have none, and the CVD starts again after a stretch with nothing recorded.": "ページが保持するフローから求めます。1 日分は秒単位、それより古い分はサーバーが保持する分単位です。それ以前の足にはなく、記録のない区間の後で CVD は 0 から始まります。",
+ "It comes from the flow the page holds: a day a second at a time, and older minutes where the server keeps them. Candles before that have none. After a stretch with nothing recorded the CVD carries on from where it stopped, past a dotted line: what traded in the stretch is not counted.": "ページが保持するフローから求めます。1 日分は秒単位、それより古い分はサーバーが保持する分単位です。それ以前の足にはありません。記録のない区間の後、CVD は点線の先で止まった所から続きます。その区間の売買は数えません。",
  "CVD at the close": "終値時の CVD",
  "CVD high and low": "CVD の高値と安値",
  "Each candle's delta as a bar, the cumulative delta as candles, or NL/NS: the change of open interest given to the side that traded at market.": "各足のデルタをバーで、累積デルタをローソク足で、または NL/NS：建玉の変化を成行で取引した側に割り当てたもの。",
@@ -1521,5 +1521,8 @@
  "Export CSV": "CSVを書き出す",
  "Save the candles in view as a CSV file: one line per candle, a column per statistic shown.": "表示中のローソク足をCSVファイルに保存：1本につき1行、表示中の統計ごとに1列。",
  "The View column, right of the table under the price axis, gives each row over the candles in view: a sum, the newest value of a running sum, or a figure worked out from those candles added together. Point at it to see which.": "表の右、価格軸の下にある「表示中」列は、各行を表示中のローソク足全体で示します：合計、累計の最新値、またはそれらの足を合算して求めた数値。どれかはポインターを当てると分かります。",
- "Rows read from the candles and open interest (range, close in range, vol / bp, oi chg, candle delta) fill the candles before the recording too. Rows read from executions are drawn faint where the recording holds only part of a candle (rec % says how much). Order flow picks the rows an order-flow reading starts from; Export CSV saves the candles in view.": "ローソク足と建玉から読む行（range、終値の位置、出来高 / bp、建玉変化、足デルタ）は記録前のローソク足も埋めます。約定から読む行は、記録が足の一部しか含まない所で薄く描きます（記録 %がその割合）。「オーダーフロー」はオーダーフローの読み取りの出発点となる行を選び、「CSVを書き出す」は表示中のローソク足を保存します。"
+ "Rows read from the candles and open interest (range, close in range, vol / bp, oi chg, candle delta) fill the candles before the recording too. Rows read from executions are drawn faint where the recording holds only part of a candle (rec % says how much). Order flow picks the rows an order-flow reading starts from; Export CSV saves the candles in view.": "ローソク足と建玉から読む行（range、終値の位置、出来高 / bp、建玉変化、足デルタ）は記録前のローソク足も埋めます。約定から読む行は、記録が足の一部しか含まない所で薄く描きます（記録 %がその割合）。「オーダーフロー」はオーダーフローの読み取りの出発点となる行を選び、「CSVを書き出す」は表示中のローソク足を保存します。",
+ "Click to take Delta": "クリックしてデルタを撮影",
+ "Click to take Long/Short": "クリックしてロング/ショートを撮影",
+ "Click to take this pane": "クリックしてこのペインを撮影"
 }

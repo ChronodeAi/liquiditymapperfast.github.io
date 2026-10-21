@@ -1021,7 +1021,7 @@
  "What taker buys outweighed sells by in each candle, over the exchanges the flow column adds up.": "在资金流列汇总的交易所中，每根 K 线主动买入超出卖出的量。",
  "Each candle's delta is what was bought at market minus what was sold, in dollars, over the same markets as the flow column's ALL VENUES lines (the exchanges switched on, inside Spot / Perp). As bars it is each candle on its own; as CVD candles it adds up from the left edge of the chart, or starts again each day or week, and a dotted line marks where it starts again.": "K 线的 delta 是以市价买入减去卖出的美元额，范围与资金流列的 ALL VENUES 线相同（现货/永续筛选内已开启的交易所）。以柱状显示时每根 K 线各自独立；以 CVD K 线显示时从图表左边缘起累计，或每日、每周重新开始，并以虚线标出重新开始的位置。",
  "A CVD candle opens and closes where the running delta was at the candle's start and end. Its high and low are sampled sixteen times through the candle, since the extremes of a sum over several exchanges are not kept, so a wick can be a little short.": "CVD K 线的开盘与收盘是该 K 线开始与结束时的累计 delta。其最高与最低在 K 线内取样十六次，因为多个交易所总和的极值不会保存，所以影线可能略短。",
- "It comes from the flow the page holds: a day a second at a time, and older minutes where the server keeps them. Candles before that have none, and the CVD starts again after a stretch with nothing recorded.": "来自页面保存的资金流：一天内按秒，更早的按服务器保存的分钟。在此之前的 K 线没有数据，无记录的区间之后 CVD 重新开始。",
+ "It comes from the flow the page holds: a day a second at a time, and older minutes where the server keeps them. Candles before that have none. After a stretch with nothing recorded the CVD carries on from where it stopped, past a dotted line: what traded in the stretch is not counted.": "来自页面保存的资金流：一天内按秒，更早的按服务器保存的分钟。在此之前的 K 线没有数据。无记录的区间之后，CVD 在一条虚线之后从停下的地方继续：该区间内的成交不计入。",
  "CVD at the close": "收盘时的 CVD",
  "CVD high and low": "CVD 最高与最低",
  "Each candle's delta as a bar, the cumulative delta as candles, or NL/NS: the change of open interest given to the side that traded at market.": "每根 K 线的 delta 显示为柱，累计 delta 显示为 K 线，或 NL/NS：把未平仓量的变化归给以市价成交的一方。",
@@ -1521,5 +1521,8 @@
  "Export CSV": "导出 CSV",
  "Save the candles in view as a CSV file: one line per candle, a column per statistic shown.": "将可见 K 线保存为 CSV 文件：每根 K 线一行，每项显示的统计一列。",
  "The View column, right of the table under the price axis, gives each row over the candles in view: a sum, the newest value of a running sum, or a figure worked out from those candles added together. Point at it to see which.": "表格右侧、价格轴下方的“可见”列，按可见 K 线给出每一行：总和、累计值的最新值，或由这些 K 线合计算出的数字。指向它即可看到是哪一种。",
- "Rows read from the candles and open interest (range, close in range, vol / bp, oi chg, candle delta) fill the candles before the recording too. Rows read from executions are drawn faint where the recording holds only part of a candle (rec % says how much). Order flow picks the rows an order-flow reading starts from; Export CSV saves the candles in view.": "来自 K 线和持仓量的行（range、收盘区间位置、量 / bp、持仓变化、K 线 delta）在记录之前的 K 线上也会填满。来自成交的行在记录只覆盖 K 线一部分的地方会变淡（记录 % 显示多少）。“订单流”选出订单流分析起步的各行；“导出 CSV”保存可见 K 线。"
+ "Rows read from the candles and open interest (range, close in range, vol / bp, oi chg, candle delta) fill the candles before the recording too. Rows read from executions are drawn faint where the recording holds only part of a candle (rec % says how much). Order flow picks the rows an order-flow reading starts from; Export CSV saves the candles in view.": "来自 K 线和持仓量的行（range、收盘区间位置、量 / bp、持仓变化、K 线 delta）在记录之前的 K 线上也会填满。来自成交的行在记录只覆盖 K 线一部分的地方会变淡（记录 % 显示多少）。“订单流”选出订单流分析起步的各行；“导出 CSV”保存可见 K 线。",
+ "Click to take Delta": "点击以截取 Delta",
+ "Click to take Long/Short": "点击以截取多/空",
+ "Click to take this pane": "点击以截取此窗格"
 }
