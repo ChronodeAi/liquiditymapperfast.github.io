@@ -143,6 +143,8 @@ export interface MeasureDef<Id extends string = string> {
  */
 export class Asked<T> {
   held: T | null = null;
+  /** The window `held` answers: what the band may count as read (a window grown since is not, until its own answer comes). */
+  answered: { from: number; to: number } | null = null;
   /** Bumped with each answer, so what was worked out from the last one is known to be stale. */
   version = 0;
   failed = false;
@@ -154,11 +156,12 @@ export class Asked<T> {
     if (this.#loading || now < this.#retryAt) return;
     const same = a !== null && a.base === base && a.from === from && a.to === to;
     const slid = live && a !== null && a.base === base && from >= a.from && to >= a.to && from - a.from <= spacing && to - a.to <= spacing;
-    const crept = a !== null && a.base === base && a.from === from && to > a.to;
+    // Crept: by about the clock's run since (not a window widened by a zoom or a jump, which is asked at once).
+    const crept = a !== null && a.base === base && a.from === from && to > a.to && to - a.to <= spacing;
     if ((same || slid || crept) && !((live || crept) && now - a!.at >= spacing)) return;
     this.#loading = true; this.#asked = { base, from, to, at: now };
     const started = performance.now();
-    load().then(value => { this.#ms = performance.now() - started; this.held = value; this.failed = false; this.version++; loaded(); },
+    load().then(value => { this.#ms = performance.now() - started; this.held = value; this.answered = { from, to }; this.failed = false; this.version++; loaded(); },
       () => { this.failed = true; this.#asked = null; this.#retryAt = Date.now() + 60_000; this.version++; loaded(); })
       .finally(() => { this.#loading = false; });
   }
