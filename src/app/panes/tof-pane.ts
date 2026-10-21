@@ -17,32 +17,40 @@ import { readingText } from '../tof/lines.ts';
 import type { TofBook, TofModel, TofRow } from '../tof/book.ts';
 import type { TofSettings } from '../tof/settings.ts';
 
-/** One colour per venue, apart from the buy and sell colours: Binance's yellow, Bybit's purple. */
-const LINE_COLORS: Readonly<Record<string, string>> = { binance: '#d4a106', bybit: '#a855f7' };
+/** One colour per venue, apart from the buy and sell colours and from each other; the venue's mark ends its line. */
+const LINE_COLORS: Readonly<Record<string, string>> = { binance: '#d4a106', bybit: '#a855f7', okx: '#64748b', bitget: '#06b6d4', hyperliquid: '#10b981', deribit: '#3b82f6' };
 /** The candles whose total is a burst are shaded amber, the elevated ones lighter: amber is neither side's colour. */
 const BAND_FILL: Partial<Record<TofBand, string>> = { toxic: 'rgba(245,165,36,0.30)', elevated: 'rgba(245,165,36,0.12)' };
+/** At most this many venues in the popup, the most unusual first. */
+const CARD_VENUES = 6;
 
-/** The popup of one candle: each venue's reading, how it stands against the venue's own last candles, and which side took more. */
-export function tofCardLines(row: TofRow, ids: readonly string[], tf: string): InfoLine[] {
+/**
+ * The popup of one candle: each venue's reading, how it stands against the venue's own last candles, and which side took more; with
+ * `ranked`, the venues most unusual first (the one that stood out most leads) and at most `CARD_VENUES` of them; then the markets together.
+ */
+export function tofCardLines(row: TofRow, ids: readonly string[], tf: string, ranked = false): InfoLine[] {
   const lines: InfoLine[] = [{ text: `${t('Toxic flow')} · ${tf}`, bold: true }, { label: t('Candle'), text: clock(row.candle.t, true) }];
-  ids.forEach((id, i) => {
-    const cell = row.cells[i] ?? null;
+  let order = ids.map((id, i) => ({ id, cell: row.cells[i] ?? null }));
+  if (ranked) order = order.filter(o => o.cell?.tof !== null && o.cell?.tof !== undefined).sort((a, b) => (b.cell!.z ?? -Infinity) - (a.cell!.z ?? -Infinity)).slice(0, CARD_VENUES);
+  order.forEach(({ id, cell }, i) => {
     lines.push({ label: venueLabel(id), text: cell ? readingText(cell.tof, cell.usual, cell.z) : t('nothing recorded'), mark: id, rule: i === 0 });
     if (cell && cell.buy + cell.sell > 0) {
       const buyers = cell.buy / (cell.buy + cell.sell);
       lines.push({ label: t('Taker buys'), text: `${Math.round(buyers * 100)} %`, color: buyers > 0.55 ? 'buy' : buyers < 0.45 ? 'sell' : 'text' });
     }
   });
+  if (ranked && ids.length > order.length) lines.push({ text: t('and {n} more', { n: String(ids.length - order.length) }), color: 'muted' });
   if (ids.length > 1) lines.push({ label: t('Together'), text: readingText(row.total, row.usual, row.z), rule: true });
   lines.push({ text: t('Each venue\'s taker volume in the candle, weighted by how far price went in it, against its own last {n} candles. Above z 2 is a toxic burst: it says how hard the market was hit, not which way it goes next.', { n: String(TOF_WINDOW) }), color: 'muted', wrap: true, rule: true });
   return lines;
 }
 
 /**
- * The TOF pane: for each candle of the chart's timeframe, each venue's toxic flow (tof/model.ts) as a line, Binance's and Bybit's perpetuals
- * of the coin where the page records them, and the candles whose total is a toxic burst (z above 2) shaded, the elevated ones (z from 1)
- * lighter; a venue's own burst is a dot on its line. Its header sets what it draws on the map: the levels the candles leave and the
- * untapped ones' reading by price (tof/settings.ts). Needs the chart's own candles: their range weighs the volume.
+ * The TOF pane: for each candle of the chart's timeframe, toxic flow (tof/model.ts) as lines: Binance's and Bybit's perpetuals of the coin, or
+ * every perpetual the flow column adds up, a line each with a venue's own bursts as dots; or every market it adds up together, as one line.
+ * The candles whose total is a toxic burst (z above 2) are shaded, the elevated ones (z from 1) lighter. Its header sets the markets and what
+ * it draws on the map: the levels the candles leave and the untapped ones' reading by price (tof/settings.ts). Needs the chart's own candles:
+ * their range weighs the volume.
  */
 export class TofPane extends TimePane {
   #card = new HoverCard();
@@ -57,6 +65,13 @@ export class TofPane extends TimePane {
     const s = (): TofSettings => this.store.state.tof;
     const patch = (change: Partial<TofSettings>): void => this.store.set({ tof: { ...s(), ...change } });
     const group = document.createElement('span'); group.className = 'ctl ctl-group'; this.head.append(group);
+    const venues = document.createElement('label'); venues.className = 'ctl'; venues.append(t('Venues'));
+    setTip(venues, t('Binance\'s and Bybit\'s perpetuals, a line each; every perpetual the flow column adds up, a line each (the popup puts the one that stood out most first); or every market it adds up, spot and perpetual, together as one line.'));
+    const venueSelect = document.createElement('select');
+    for (const [value, text] of [['pair', t('Binance and Bybit')], ['perps', t('Every perpetual')], ['all', t('All markets together')]] as const) venueSelect.append(new Option(text, value));
+    venueSelect.value = s().venues; venueSelect.onchange = () => patch({ venues: venueSelect.value === 'perps' || venueSelect.value === 'all' ? venueSelect.value : 'pair' });
+    venues.append(venueSelect); group.append(venues);
+    this.#sync.push(() => { if (venueSelect.value !== s().venues) venueSelect.value = s().venues; });
     const box = (label: string, title: string, get: () => boolean, set: (on: boolean) => void): void => {
       const wrap = document.createElement('label'); wrap.className = 'ctl'; setTip(wrap, title);
       const check = document.createElement('input'); check.type = 'checkbox'; check.checked = get(); check.onchange = () => set(check.checked);
@@ -90,14 +105,18 @@ export class TofPane extends TimePane {
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, readout = this.head.querySelector('.readout');
     const model: TofModel | null = this.book.model(state, this.hub, v.t0, v.t1, now);
     const say = (text: string): void => { ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(text, 12, ph / 2); setHtml(readout, ''); };
-    if (!model) { say(state.seriesInstrument !== state.marketId ? t('Needs the chart\'s own candles: their range weighs the volume.') : t('No Binance or Bybit perpetual of this coin is listed.')); return; }
+    if (!model) { say(state.seriesInstrument !== state.marketId ? t('Needs the chart\'s own candles: their range weighs the volume.') : t('None of the chosen markets of this coin is listed.')); return; }
     const rows = model.rows.filter(r => r.candle.t + tf >= v.t0 && r.candle.t <= v.t1);
     if (!rows.some(r => r.cells.some(c => c?.tof !== null && c?.tof !== undefined))) {
       say(model.earliest === null ? t('No flow recorded for these candles yet.') : t('Flow is recorded from {time}: the candles before it have none.', { time: clock(model.earliest, true) }));
       return;
     }
+    // The lines: a venue each, or the markets together as one.
+    const together = state.tof.venues === 'all';
+    const series = together ? [{ id: '', color: p.text, at: (r: TofRow) => ({ tof: r.total, z: r.z }) }]
+      : model.ids.map((id, i) => ({ id, color: LINE_COLORS[id.split(':')[0]!] ?? p.text, at: (r: TofRow) => ({ tof: r.cells[i]?.tof ?? null, z: r.cells[i]?.z ?? null }) }));
     let max = 0;
-    for (const r of rows) for (const c of r.cells) if (c?.tof && c.tof > max) max = c.tof;
+    for (const r of rows) for (const s of series) { const v1 = s.at(r).tof; if (v1 !== null && v1 > max) max = v1; }
     const top = 8, bottom = ph - 6, y = (value: number): number => bottom - value / (max * 1.08 || 1) * (bottom - top);
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
     // The candles whose total is a burst, shaded across the pane.
@@ -107,22 +126,21 @@ export class TofPane extends TimePane {
       ctx.fillStyle = fill; ctx.fillRect(Math.floor(x0), 0, Math.max(1, Math.ceil(x1 - x0)), ph);
     }
     const ends: { id: string; x: number; y: number }[] = [];
-    model.ids.forEach((id, i) => {
-      const color = LINE_COLORS[id.split(':')[0]!] ?? p.text;
-      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (const s of series) {
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.beginPath();
       let drawing = false, last: { x: number; y: number } | null = null;
       for (const r of rows) {
-        const c = r.cells[i]; if (!c || c.tof === null) { drawing = false; continue; }
+        const c = s.at(r); if (c.tof === null) { drawing = false; continue; }
         const x = v.xOf(r.candle.t + tf / 2, pw), yy = y(c.tof);
         if (drawing) ctx.lineTo(x, yy); else ctx.moveTo(x, yy);
         drawing = true; last = { x, y: yy };
       }
       ctx.stroke(); ctx.lineWidth = 1;
-      // A venue's own bursts: a dot on its line.
-      ctx.fillStyle = color;
-      for (const r of rows) { const c = r.cells[i]; if (c && c.tof !== null && c.z !== null && c.z > TOF_TOXIC) { ctx.beginPath(); ctx.arc(v.xOf(r.candle.t + tf / 2, pw), y(c.tof), 3, 0, Math.PI * 2); ctx.fill(); } }
-      if (last) ends.push({ id, ...last });
-    });
+      // A line's own bursts: a dot on it.
+      ctx.fillStyle = s.color;
+      for (const r of rows) { const c = s.at(r); if (c.tof !== null && c.z !== null && c.z > TOF_TOXIC) { ctx.beginPath(); ctx.arc(v.xOf(r.candle.t + tf / 2, pw), y(c.tof), 3, 0, Math.PI * 2); ctx.fill(); } }
+      if (last && s.id) ends.push({ id: s.id, ...last });
+    }
     ends.sort((a, b) => a.y - b.y);
     for (let i = 1; i < ends.length; i++) if (ends[i]!.y - ends[i - 1]!.y < 14 && Math.abs(ends[i]!.x - ends[i - 1]!.x) < 14) ends[i]!.y = ends[i - 1]!.y + 14;
     for (const e of ends) drawVenueMark(ctx, e.id, Math.min(pw - 8, e.x + 8), Math.max(top + 6, Math.min(bottom - 6, e.y)), 12);
@@ -133,11 +151,13 @@ export class TofPane extends TimePane {
     const time = state.hover ? state.hover.t : Math.min(now, v.t1), newest = rows[rows.length - 1]!;
     const row = [...rows].reverse().find(r => r.candle.t <= time) ?? newest;
     if (state.hover && this.pointer && time >= newest.candle.t + tf) this.cursorT = newest.candle.t + tf / 2;
-    if (state.hover && this.pointer) this.#lines = tofCardLines(row, model.ids, state.timeframe);
-    const parts = model.ids.map((id, i) => {
-      const c = row.cells[i], band = bandOf(c?.z ?? null);
-      return c && c.tof !== null ? `${venueLabel(id)} <b class="${band === 'toxic' ? 'warn' : ''}">$${usd(c.tof)}${c.z !== null ? ` z ${c.z.toFixed(1)}` : ''}</b>` : `<span class="muted">${venueLabel(id)} –</span>`;
-    });
-    setHtml(readout, parts.join(' '));
+    const ranked = state.tof.venues !== 'pair';
+    if (state.hover && this.pointer) this.#lines = tofCardLines(row, model.ids, state.timeframe, ranked);
+    const reading = (label: string, tof: number | null, z: number | null): string => tof !== null ? `${label} <b class="${bandOf(z) === 'toxic' ? 'warn' : ''}">$${usd(tof)}${z !== null ? ` z ${z.toFixed(1)}` : ''}</b>` : `<span class="muted">${label} –</span>`;
+    // Ranked: the markets together, and the venue that stands out most in the candle.
+    const lead = ranked ? model.ids.map((id, i) => ({ id, c: row.cells[i] })).filter(o => o.c?.z !== null && o.c?.z !== undefined).sort((a, b) => b.c!.z! - a.c!.z!)[0] : undefined;
+    setHtml(readout, ranked
+      ? `${reading(t('Together'), row.total, row.z)}${lead ? ` ${t('most unusual:')} ${reading(venueLabel(lead.id), lead.c!.tof, lead.c!.z)}` : ''}`
+      : model.ids.map((id, i) => reading(venueLabel(id), row.cells[i]?.tof ?? null, row.cells[i]?.z ?? null)).join(' '));
   }
 }

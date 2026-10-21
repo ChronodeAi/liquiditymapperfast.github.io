@@ -1713,7 +1713,6 @@
  "By price": "By price",
  "Along the right edge of the map: the untapped levels' reading added up by price.": "Along the right edge of the map: the untapped levels' reading added up by price.",
  "Needs the chart's own candles: their range weighs the volume.": "Needs the chart's own candles: their range weighs the volume.",
- "No Binance or Bybit perpetual of this coin is listed.": "No Binance or Bybit perpetual of this coin is listed.",
  "toxic": "toxic",
  "elevated": "elevated",
  "normal": "normal",
@@ -1724,5 +1723,13 @@
  "Reading": "Reading",
  "Untapped: price has not traded back to it.": "Untapped: price has not traded back to it.",
  "Taken at {time}: price traded back through it.": "Taken at {time}: price traded back through it.",
- "A candle's open stays a level until price comes back to it, so those still shown are where moves went on; the ones whose move failed were taken.": "A candle's open stays a level until price comes back to it, so those still shown are where moves went on; the ones whose move failed were taken."
+ "A candle's open stays a level until price comes back to it, so those still shown are where moves went on; the ones whose move failed were taken.": "A candle's open stays a level until price comes back to it, so those still shown are where moves went on; the ones whose move failed were taken.",
+ "Venues chooses the markets: Binance and Bybit (as the widely used toxic-flow readings show them); Every perpetual the flow column adds up, a line each, with the popup putting the venue that stood out most first, so a burst led by OKX or Bitget shows as theirs; or All markets together, spot and perpetual, as one line. The shading and the levels on the map come from the markets chosen, together. Each venue is judged against its own history, so a small venue's burst counts as much as a large one's; together, the large ones weigh most.": "Venues chooses the markets: Binance and Bybit (as the widely used toxic-flow readings show them); Every perpetual the flow column adds up, a line each, with the popup putting the venue that stood out most first, so a burst led by OKX or Bitget shows as theirs; or All markets together, spot and perpetual, as one line. The shading and the levels on the map come from the markets chosen, together. Each venue is judged against its own history, so a small venue's burst counts as much as a large one's; together, the large ones weigh most.",
+ "and {n} more": "and {n} more",
+ "Binance's and Bybit's perpetuals, a line each; every perpetual the flow column adds up, a line each (the popup puts the one that stood out most first); or every market it adds up, spot and perpetual, together as one line.": "Binance's and Bybit's perpetuals, a line each; every perpetual the flow column adds up, a line each (the popup puts the one that stood out most first); or every market it adds up, spot and perpetual, together as one line.",
+ "Binance and Bybit": "Binance and Bybit",
+ "Every perpetual": "Every perpetual",
+ "All markets together": "All markets together",
+ "None of the chosen markets of this coin is listed.": "None of the chosen markets of this coin is listed.",
+ "most unusual:": "most unusual:"
 }

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TofBook, tofIds } from '../src/app/tof/book.ts';
+import { TofBook, tofIds, tofMarkets } from '../src/app/tof/book.ts';
+import { FlowBook } from '../src/app/flow-book.ts';
 import { readTof, TOF_DEFAULTS } from '../src/app/tof/settings.ts';
 import { tofLevelLines } from '../src/app/tof/lines.ts';
 import { tofCardLines } from '../src/app/panes/tof-pane.ts';
@@ -16,17 +17,32 @@ const markets: AppState['markets'] = [
   { instrumentId: 'bybit:ETHUSDT', venue: 'bybit', base: 'ETH', marketType: 'perpetual' },
 ];
 
-test('settings: levels and the by-price histogram on, every candle leaving a level, taken ones off; junk gets the defaults', () => {
-  assert.deepEqual(TOF_DEFAULTS, { levels: true, from: 'all', taken: false, histogram: true });
+test('settings: Binance and Bybit, levels and the by-price histogram on, every candle leaving a level, taken ones off; junk gets the defaults', () => {
+  assert.deepEqual(TOF_DEFAULTS, { venues: 'pair', levels: true, from: 'all', taken: false, histogram: true });
   assert.deepEqual(readTof(undefined), TOF_DEFAULTS);
-  assert.deepEqual(readTof({ levels: false, from: 'toxic', taken: true, histogram: 0 }), { levels: false, from: 'toxic', taken: true, histogram: true });
-  assert.equal(readTof({ from: 'some' }).from, 'all');
+  assert.deepEqual(readTof({ venues: 'all', levels: false, from: 'toxic', taken: true, histogram: 0 }), { venues: 'all', levels: false, from: 'toxic', taken: true, histogram: true });
+  assert.equal(readTof({ from: 'some', venues: 'okx' }).from, 'all');
+  assert.equal(readTof({ venues: 'okx' }).venues, 'pair');
 });
 
 test('the venues read are the chart coin\'s Binance and Bybit perpetuals, in that order', () => {
   assert.deepEqual(tofIds({ markets, marketId: 'okx:BTC-USDT-SWAP' }), ['binance:BTCUSDT', 'bybit:BTCUSDT']);
   assert.deepEqual(tofIds({ markets, marketId: 'bybit:ETHUSDT' }), ['bybit:ETHUSDT'], 'ETH has no Binance perpetual in the list');
   assert.deepEqual(tofIds({ markets, marketId: 'nowhere' }), []);
+});
+
+test('the venue choice: Binance and Bybit, every perpetual the flow column adds up, or every market it adds up', () => {
+  const flow = new FlowBook();
+  // Binance spot comes over two feeds; the flow column counts it once.
+  for (const id of ['binance:BTCUSDT', 'bybit:BTCUSDT', 'okx:BTC-USDT-SWAP', 'binancespot:BTCUSDT', 'binance:BTCUSDT:spot']) flow.apply([[id, T, 1_000, 500, 100_000]]);
+  const withSpot: AppState['markets'] = [...markets, { instrumentId: 'binance:BTCUSDT:spot', venue: 'binance', base: 'BTC', marketType: 'spot' }];
+  const state = (venues: 'pair' | 'perps' | 'all', disabledVenues: string[] = []): AppState => ({ ...initialState(), markets: withSpot, marketId: 'binance:BTCUSDT', disabledVenues, tof: { ...TOF_DEFAULTS, venues } });
+  assert.deepEqual(tofMarkets(state('pair'), flow), ['binance:BTCUSDT', 'bybit:BTCUSDT']);
+  assert.deepEqual(tofMarkets(state('perps'), flow).sort(), ['binance:BTCUSDT', 'bybit:BTCUSDT', 'okx:BTC-USDT-SWAP']);
+  const all = tofMarkets(state('all'), flow);
+  assert.equal(all.filter(id => id.includes('spot')).length, 1, `Binance spot once: ${all.join(', ')}`);
+  assert.equal(all.length, 4);
+  assert.ok(!tofMarkets(state('perps', ['okx']), flow).includes('okx:BTC-USDT-SWAP'), 'a venue switched off is not read');
 });
 
 /** A venue whose taker volume is `perMinute(m)` USD in minute m (from T), a third of it bought. */
@@ -74,4 +90,14 @@ test('the model weighs each venue\'s volume by its candle\'s range, judges it ag
   assert.equal(level.find(l => l.label === 'Price')!.text, '100,000.0');
   assert.ok(level.some(l => l.text === 'Untapped: price has not traded back to it.'));
   assert.ok(tofLevelLines({ ...burstLevel, taken: T }).some(l => /^Taken at /.test(l.text)));
+});
+
+test('ranked, the popup puts the venue that stood out most first and keeps to six', () => {
+  const ids = ['binance:BTCUSDT', 'bybit:BTCUSDT', 'okx:BTC-USDT-SWAP', 'bitget:BTCUSDT', 'hyperliquid:BTC-PERP', 'deribit:BTC-PERPETUAL', 'coinbase:BTC-USD', 'bybitspot:BTCUSDT'];
+  const z = [1.2, 0.4, 3.1, 2.2, -0.5, null, 1.0, 0.1];
+  const row = { candle: { t: T, o: 100, h: 101, l: 99 }, total: 9e6, z: 2.1, usual: 3e6, cells: ids.map((_, i) => ({ tof: 1e6 * (i + 1), z: z[i]!, usual: 1e6, buy: 1, sell: 1 })) };
+  const venues = (lines: ReturnType<typeof tofCardLines>): string[] => lines.filter(l => l.mark).map(l => l.label!);
+  assert.deepEqual(venues(tofCardLines(row, ids, '5m', true)), ['OKX', 'Bitget', 'Binance', 'Coinbase', 'Bybit', 'Bybit spot'], 'by z, the most unusual first');
+  assert.ok(tofCardLines(row, ids, '5m', true).some(l => l.text === 'and 2 more'), 'Hyperliquid (z -0.5) and Deribit (not judged yet) are left out');
+  assert.deepEqual(venues(tofCardLines(row, ids.slice(0, 2), '5m')), ['Binance', 'Bybit'], 'unranked: in order');
 });

@@ -1,7 +1,8 @@
 import { TIMEFRAMES } from '../hub.ts';
 import type { AppState, Market } from '../store.ts';
 import { FlowCache } from '../delta/candles.ts';
-import { deltaFlows, ensureDeltaFlow, type FlowLoader } from '../delta/flows.ts';
+import { deltaFlows, deltaIds, ensureDeltaFlow, type FlowLoader } from '../delta/flows.ts';
+import { kindOf } from '../scope.ts';
 import { minZOf } from './settings.ts';
 import { TOF_WINDOW, tofLevels, tofOf, tofScores, type TofCandle, type TofLevel } from './model.ts';
 
@@ -28,17 +29,28 @@ export function tofIds(state: Pick<AppState, 'markets' | 'marketId'>): string[] 
   return TOF_VENUES.flatMap(venue => { const m = state.markets.find(x => x.venue === venue && x.marketType === 'perpetual' && coinOf(x) === coin && idOf(x)); return m ? [idOf(m)] : []; });
 }
 
+/**
+ * The markets read for the pane's choice (`TofSettings.venues`): Binance's and Bybit's perpetuals; or the markets the flow column's ALL VENUES
+ * lines add up (`deltaIds`: the venues switched on, inside the Spot / Perp filter, a market on two feeds counted once), the perpetuals of them
+ * or all of them.
+ */
+export function tofMarkets(state: AppState, flow: FlowLoader['flow']): string[] {
+  if (state.tof.venues === 'pair') return tofIds(state);
+  const ids = deltaIds(state, flow);
+  return state.tof.venues === 'perps' ? ids.filter(id => kindOf(state.markets, id) === 'perp') : ids;
+}
+
 /** Works the model out once per change of what it depends on; the pane and the map both ask for it each frame. */
 export class TofBook {
   #caches = new Map<string, FlowCache>();
   #last: { key: string; model: TofModel | null } | null = null;
 
   model(state: AppState, hub: FlowLoader, t0: number, t1: number, now: number): TofModel | null {
-    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, ids = tofIds(state), flow = hub.flow;
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, flow = hub.flow, ids = tofMarkets(state, flow);
     const own = state.seriesInstrument === state.marketId ? state.candles : [];
     if (!ids.length || !own.length) return null;
     const from = Math.floor(t0 / tf) * tf - TOF_WINDOW * tf, to = Math.min(t1, now);
-    const last = own[own.length - 1]!, key = `${ids.join(',')}|${tf}|${own.length}|${own[0]![0]}|${last[0]}|${last[2]}|${last[3]}|${last[4]}|${flow.version}|${from}|${Math.floor(to / 1000)}|${state.tof.from}`;
+    const last = own[own.length - 1]!, key = `${ids.join(',')}|${tf}|${own.length}|${own[0]![0]}|${last[0]}|${last[2]}|${last[3]}|${last[4]}|${flow.version}|${from}|${Math.floor(to / 1000)}|${state.tof.from}|${state.tof.venues}`;
     if (this.#last?.key === key) return this.#last.model;
     ensureDeltaFlow(hub, ids, from, Date.now());
     const candles: TofCandle[] = own.filter(c => c[0] >= from && c[0] <= to).map(c => ({ t: c[0], o: c[1], h: c[2], l: c[3] }));
@@ -51,8 +63,9 @@ export class TofBook {
       const tof = raw.map((f, i) => f ? tofOf(f.gross, candles[i]!) : null), { z, usual } = tofScores(tof);
       return raw.map((f, i): TofCell | null => f ? { tof: tof[i]!, z: z[i]!, usual: usual[i]!, buy: (f.gross + f.delta) / 2, sell: (f.gross - f.delta) / 2 } : null);
     });
-    // The total counts a candle only when every venue has it, so a venue starting to record does not read as a burst.
-    const totals = candles.map((_, i) => perVenue.every(v => v[i]?.tof !== null && v[i]?.tof !== undefined) ? perVenue.reduce((a, v) => a + v[i]!.tof!, 0) : null);
+    // The total counts a candle only when every market was recorded in it (one with no trade in it adds nothing), so a market starting to
+    // record does not read as a burst.
+    const totals = candles.map((_, i) => perVenue.every(v => v[i]) ? perVenue.reduce((a, v) => a + (v[i]!.tof ?? 0), 0) || null : null);
     const scored = tofScores(totals);
     const rows = candles.map((candle, i): TofRow => ({ candle, cells: perVenue.map(v => v[i] ?? null), total: totals[i]!, z: scored.z[i]!, usual: scored.usual[i]! }));
     const model: TofModel = { ids, tf, rows, levels: tofLevels(candles, totals, scored.z, minZOf(state.tof.from)), earliest };
