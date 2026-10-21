@@ -645,7 +645,7 @@ export class Hub {
     this.#signalsLoading = true;
     const connection = this.#connection;
     source.signals(t0, t1).then(answer => {
-      this.signals.add(answer.signals, { from: t0, to: t1 }); this.signalsState = 'ready';
+      this.signals.add(answer.signals, { from: t0, to: t1 }); this.signals.addAhead(answer.ahead); this.signalsState = 'ready';
       if (connection === this.#connection) this.#signalsWindow = { t0, t1, live, at: Date.now() };
       this.onSignalsChanged();
     }, () => { this.signalsState = 'unavailable'; this.#signalsRetryAt = Date.now() + 15_000; this.onSignalsChanged(); }).finally(() => { this.#signalsLoading = false; });

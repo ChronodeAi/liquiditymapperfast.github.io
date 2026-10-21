@@ -3,6 +3,7 @@
  * kept as candidates so the page filters them by its own settings, each with what price did after it. Experimental: none of them has shown
  * an edge yet (Research_Findings.md); they are drawn to be looked at and measured.
  */
+import type { AheadWarning } from './ahead.ts';
 import type { Confluence } from './confluence.ts';
 import { MOVE_SIGMA } from './features.ts';
 import { WARN_MIN_CONFIDENCE } from './jev.ts';
@@ -35,8 +36,11 @@ export interface Signal {
   after: SignalAfter;
 }
 
-/** What `/api/v2/signals` answers: the coin the watch reads and its signals in the window asked, oldest first. */
-export interface SignalAnswer { coin: string | null; signals: Signal[] }
+/**
+ * What `/api/v2/signals` answers: the coin the watch reads, its signals in the window asked, oldest first, and the volatility-ahead warnings
+ * that ended in it (`ahead.ts`), oldest first.
+ */
+export interface SignalAnswer { coin: string | null; signals: Signal[]; ahead: AheadWarning[] }
 
 /** One minute of the volatility log (`server/v2/volatility.mts`), as far as signals read it. */
 export interface SignalSource {

@@ -183,7 +183,8 @@ async function main(): Promise<void> {
   hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   hub.onSignalsChanged = () => heat.invalidate();
-  toolbar.signalsInfo = () => ({ available: !!source.signals && hub.signalsState !== 'unavailable', inView: hub.signals.visible(heat.view.t0, heat.view.t1, store.state.signals) });
+  toolbar.signalsInfo = () => ({ available: !!source.signals && hub.signalsState !== 'unavailable', inView: hub.signals.visible(heat.view.t0, heat.view.t1, store.state.signals),
+    aheadInView: hub.signals.aheadVisible(heat.view.t0, heat.view.t1, store.state.signals) });
   toolbar.keyHistory = hub.keyHistory;
   toolbar.profileHistory = barMs => hub.profileHistory(barMs);
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });

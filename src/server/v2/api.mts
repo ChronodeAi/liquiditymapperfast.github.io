@@ -633,11 +633,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       markets: [...(s.markets ?? []), ...extra.markets()], layers: s.layers, layerMeta: s.layerMeta, statuses, steps: Object.fromEntries(recorder.steps), recorded: recorder.coverage(), columnMs: COLUMN_MS, timeframes: Object.keys(TIMEFRAMES) });
   };
 
-  /**
-   * What the volatility watch reads (shared/volatility/features.ts, docs/volatility-watch.md): the coin of the chart's own market, and every spot and
-   * perpetual market of it the server records, as the recordings hold them for the minute that ends at `now`.
-   */
-  const volatilityRead = (now: number): VolatilityInputs | null => {
+  /** The coin of the chart's own market and every spot and perpetual market of it the server lists, with the reference perpetual (Binance's, else the first). */
+  const coinMarkets = () => {
     type Row = { instrumentId?: unknown; id?: unknown; venue?: unknown; base?: unknown; baseNormalized?: unknown; marketType?: unknown; symbol?: unknown };
     const all = [...(app.state.markets ?? []), ...extra.markets()] as Row[];
     const idOf = (m: Row): string => String(m.instrumentId ?? m.id ?? '');
@@ -649,13 +646,20 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (!coin) return null;
     const mine = all.filter(m => coinOf(m) === coin && idOf(m));
     const spotIds = mine.filter(m => m.marketType === 'spot').map(idOf), perpIds = mine.filter(m => m.marketType === 'perpetual').map(idOf);
-    const ids = [...spotIds, ...perpIds];
     const binancePerp = mine.find(m => m.marketType === 'perpetual' && m.venue === 'binance');
-    const refPerpId = binancePerp ? idOf(binancePerp) : perpIds[0] ?? null;
+    return { coin, spotIds, perpIds, refPerpId: binancePerp ? idOf(binancePerp) : perpIds[0] ?? null, venues: mine.map(m => ({ id: idOf(m), venue: m.venue, marketType: m.marketType })) };
+  };
 
+  /**
+   * What the volatility watch reads (shared/volatility/features.ts, docs/volatility-watch.md): the coin of the chart's own market, and every spot and
+   * perpetual market of it the server records, as the recordings hold them for the minute that ends at `now`.
+   */
+  const volatilityRead = (now: number): VolatilityInputs | null => {
+    const markets = coinMarkets(); if (!markets) return null;
+    const { coin, spotIds, perpIds, refPerpId } = markets, ids = [...spotIds, ...perpIds];
     const frame = flow.minutes(ids, now - VOLATILITY_HISTORY_MS, now);
     const spot = frame.instruments.filter(s => spotIds.includes(s.id)), perp = frame.instruments.filter(s => perpIds.includes(s.id));
-    const binanceSpotId = binanceSpotIdOf(mine.map(m => ({ id: idOf(m), venue: m.venue, marketType: m.marketType })), new Set(spot.map(s => s.id)));
+    const binanceSpotId = binanceSpotIdOf(markets.venues, new Set(spot.map(s => s.id)));
 
     // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours, with the
     // books summed (in `ids` order, so the same books give the same key).
@@ -712,7 +716,12 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   };
   const subqKey = process.env.SUBQ_API_KEY || undefined, subqArms = subqArmsFrom(process.env.SUBQ_ARMS);
   if (subqArms.unknown.length) console.warn(`volatility: SUBQ_ARMS names no arm ${subqArms.unknown.join(', ')} (the arms: ${SUBQ_ARMS.join(', ')})`);
-  const volatility = new VolatilityWatch({ dir: persist ? dataDir : null, read: volatilityRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
+  /** The reference perpetual's minutes for the volatility-ahead warnings (shared/volatility/ahead.ts): the volume it was measured on. */
+  const aheadMinutes = (from: number, to: number) => {
+    const ref = coinMarkets()?.refPerpId;
+    return ref ? flow.minutes([ref], from, to).instruments.find(s => s.id === ref) ?? null : null;
+  };
+  const volatility = new VolatilityWatch({ dir: persist ? dataDir : null, read: volatilityRead, minutes: aheadMinutes, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
   volatility.start();
   const volatilityRoute = (res: ServerResponse) => sendJson(res, volatility.answer());
   /** The chart's entry signals in [from, to) (shared/volatility/signals.ts), from the watch's minutes, read back from its log at start. */

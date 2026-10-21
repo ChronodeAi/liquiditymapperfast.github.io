@@ -5,6 +5,8 @@ import { volatilityFeatures, volatilitySeries, HEAT_ROW_BP, type VolatilityFeatu
 import { confluence, type ConfluenceReading } from '../../shared/volatility/confluence.ts';
 import { askDecision, DecisionHttpError, SUBQ_ARMS, type DecisionExtras, type SubqArm, type VolatilityAnswer, type VolatilityVerdict } from '../../shared/volatility/jev.ts';
 import { afterOf, movedOf, signalsOf, type Signal, type SignalAnswer, type SignalSource } from '../../shared/volatility/signals.ts';
+import { AHEAD_TFS, aheadWarnings, type AheadMinutes, type AheadWarning } from '../../shared/volatility/ahead.ts';
+import { FLOW_STORE_MS } from '../../shared/flow.ts';
 import { heatPng } from './volatility-image.mts';
 
 /** Once a minute, at this many ms past it: the flow recorder has closed the minute by then. */
@@ -24,6 +26,8 @@ export interface VolatilityWatchOptions {
   dir: string | null;
   /** Gathers the inputs for the minute that ends at `now`, or null when the server has nothing for the coin yet. */
   read(now: number): VolatilityInputs | null;
+  /** The reference perpetual's minutes in [from, to) for the volatility-ahead warnings (`shared/volatility/ahead.ts`); absent or null: none. */
+  minutes?(from: number, to: number): AheadMinutes | null;
   /** The Jev key; absent: the confluence is still read and logged every minute, Jev is not asked. */
   apiKey?: string;
   /** The SubQ key; present: the SubQ arms (`subqArms`) are asked beside Jev every minute, in shadow. */
@@ -60,6 +64,8 @@ export class VolatilityWatch {
   /** For the chart's signals: each logged minute's last price by its end, and the signals by kind and minute. */
   readonly #prices = new Map<number, number>();
   readonly #signals = new Map<string, Omit<Signal, 'after'>>();
+  /** The volatility-ahead warnings over what the flow store keeps, worked out again at most once a minute, when asked. */
+  #ahead: { at: number; list: AheadWarning[] } | null = null;
   /** The log read back at start (resolved when done; a failure only warns). */
   history: Promise<void> = Promise.resolve();
 
@@ -71,11 +77,28 @@ export class VolatilityWatch {
     }
   }
 
-  /** The signals in [from, to), oldest first (the newest `SIGNALS_PER_ANSWER` at most), each with what price has done after it so far. */
+  /**
+   * The signals in [from, to), oldest first (the newest `SIGNALS_PER_ANSWER` at most), each with what price has done after it so far, and the
+   * volatility-ahead warnings that ended in it.
+   */
   signals(from: number, to: number): SignalAnswer {
     const priceAt = (t: number): number | undefined => this.#prices.get(t);
     const inside = [...this.#signals.values()].filter(s => s.t >= from && s.t < to).sort((a, b) => a.t - b.t || a.kind.localeCompare(b.kind));
-    return { coin: this.#coin, signals: inside.slice(-SIGNALS_PER_ANSWER).map(s => ({ ...s, after: afterOf(s, priceAt) })) };
+    const ahead = this.#aheadList().filter(w => w.t >= from && w.t < to);
+    return { coin: this.#coin, signals: inside.slice(-SIGNALS_PER_ANSWER).map(s => ({ ...s, after: afterOf(s, priceAt) })), ahead };
+  }
+
+  /** Every timeframe's warnings over the minutes the flow store keeps, by the minute that has ended (one reading of them a minute). */
+  #aheadList(): AheadWarning[] {
+    const now = Math.floor(this.#now() / MINUTE) * MINUTE;
+    if (this.#ahead?.at === now) return this.#ahead.list;
+    let list: AheadWarning[] = [];
+    try {
+      const minutes = this.#options.minutes?.(now - FLOW_STORE_MS, now) ?? null;
+      if (minutes) list = AHEAD_TFS.flatMap(tf => aheadWarnings(minutes, tf, now)).sort((a, b) => a.t - b.t || a.tf - b.tf);
+    } catch (error) { this.#warn(`volatility ahead not worked out: ${(error as Error).message}`); }
+    this.#ahead = { at: now, list };
+    return list;
   }
 
   /** One minute's price and the signals it holds. */

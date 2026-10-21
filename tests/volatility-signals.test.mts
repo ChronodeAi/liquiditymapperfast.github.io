@@ -67,3 +67,17 @@ test('the watch reads its signals back from the log, fills in whether price was 
   assert.equal(signals[1]!.after.r15, null, 'the minutes after the short are not in yet');
   assert.deepEqual(watch.signals(T + 21 * MINUTE, T + 31 * MINUTE).signals, [], 'the window is [from, to)');
 });
+
+test('the watch answers the volatility-ahead warnings that ended in the window, worked out from the reference perpetual once a minute', () => {
+  // 1,500 minutes of a wavy price, flat over bars 197 to 200, and bar 200 trading twelve times as much.
+  const n = 1_500, buy = new Float64Array(n), sell = new Float64Array(n), px = new Float64Array(n);
+  for (let i = 0; i < n; i++) { buy[i] = 4e5 * (1 + 0.3 * Math.sin(i * 0.37)); sell[i] = 4e5 * (1 + 0.3 * Math.cos(i * 0.53)); px[i] = 100_000 * (1 + 0.001 * Math.sin(i * 0.21)); }
+  for (let i = 985; i < 1_005; i++) px[i] = px[985]!;
+  for (let i = 1_000; i < 1_005; i++) { buy[i]! *= 12; sell[i]! *= 12; }
+  const asked: [number, number][] = [];
+  const watch = new VolatilityWatch({ dir: null, read: () => null, clock: () => T + n * MINUTE + 30_000, minutes: (from, to) => { asked.push([from, to]); return { t0: T, buy, sell, px }; } });
+  assert.deepEqual(watch.signals(T, T + n * MINUTE).ahead.map(w => [w.tf, (w.t - T) / MINUTE]), [[5, 1_005]]);
+  assert.deepEqual(watch.signals(T + 1_005 * MINUTE + 1, T + n * MINUTE).ahead, [], 'the window is [from, to)');
+  assert.deepEqual(asked, [[T + n * MINUTE - 7 * 24 * 60 * MINUTE, T + n * MINUTE]], 'the week the flow store keeps, read once in the minute');
+  assert.deepEqual(new VolatilityWatch({ dir: null, read: () => null }).signals(0, Infinity).ahead, [], 'none without the minutes');
+});

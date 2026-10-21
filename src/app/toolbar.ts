@@ -25,8 +25,9 @@ import { ABSORPTION_LIMITS, type AbsorptionSettings } from './absorption.ts';
 import { BUBBLE_LIMITS, BUBBLE_MINIMUMS, type BubbleSettings } from './prints.ts';
 import { LIQUIDATION_LIMITS, LIQUIDATION_MINIMUMS, coverageLines, type LiquidationSettings } from './liquidations.ts';
 import { buildKeyLevelPanel } from './keylevels/panel.ts';
-import { SIGNAL_SCORE, summaryOf, type SignalSettings } from './signals.ts';
+import { SIGNAL_SCORE, aheadSummaryOf, summaryOf, type SignalSettings } from './signals.ts';
 import type { Signal } from '../shared/volatility/signals.ts';
+import type { AheadWarning } from '../shared/volatility/ahead.ts';
 import { buildVwapPanel, type WhaleInfo } from './vwap/panel.ts';
 import { buildFootprintPanel } from './footprint/panel.ts';
 import type { FlowBook } from './flow-book.ts';
@@ -143,11 +144,11 @@ export class Toolbar {
   /** Liquidations on the map (liquidations.ts), set in its panel. */
   #liquidations = el('button', { class: 'led-btn', textContent: t('Liquidations'), tip: HELP.liquidations.tip });
   #liquidationPanel: Panel | null = null;
-  /** The volatility watch's entry signals on the map (signals.ts), set in its panel. */
-  #signals = el('button', { class: 'led-btn', textContent: t('Signals'), tip: t('Experimental: long and short markers where the local server\'s volatility watch named a side. Hover one for why and what price did after.') });
+  /** The volatility watch's marks on the map (signals.ts), set in its panel. */
+  #signals = el('button', { class: 'led-btn', textContent: t('Signals'), tip: t('Marks where a big move may come soon: amber rings (a move is likely, no side) and, if switched on, triangles that pick a side. Hover a mark for why and what price did next.') });
   #signalPanel: Panel | null = null;
   /** Whether the source makes signals and the ones drawn in view now (set by the page), for the Signals panel. */
-  signalsInfo: () => { available: boolean; inView: Signal[] } = () => ({ available: false, inView: [] });
+  signalsInfo: () => { available: boolean; inView: Signal[]; aheadInView: AheadWarning[] } = () => ({ available: false, inView: [], aheadInView: [] });
   /** The previous day's, week's and month's levels (keylevels/), set in its panel. */
   #keyLevels = el('button', { class: 'led-btn', textContent: t('Key levels'), tip: HELP.keyLevels.tip });
   #keyLevelPanel: Panel | null = null;
@@ -767,24 +768,33 @@ export class Toolbar {
     if (this.sourceKind !== 'server') body.append(note(t('This page reads the exchanges itself and keeps liquidations only while it is open.')));
   }
 
-  /** The signals' settings: whether they show, which kinds, the lowest Jev score, and what the ones in view did after them. */
+  /** The signals' settings: whether they show, the volatility-ahead rings, which side-picking triangles, the lowest Jev score, and what the ones in view did after them. */
   #buildSignals(body: HTMLElement, rebuild: () => void): void {
     const s = this.store.state.signals, info = this.signalsInfo();
     const set = (change: Partial<SignalSettings>, again = false): void => { this.store.set({ signals: { ...this.store.state.signals, ...change } }); if (again) rebuild(); };
     if (!info.available) body.append(note(t('Not available without a local server')));
     body.append(
-      switchRow(t('Show signals'), t('Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.'), s.on, on => set({ on }, true)),
-      switchRow(t('Jev warnings'), t('Filled triangles: Jev expected a volatile move and gave it a side.'), s.jev, jev => set({ jev }, true)),
-      switchRow(t('Confluence calls'), t('Outlined triangles: enough families of measures agreed on a side.'), s.confluence, confluence => set({ confluence }, true)),
-      numberRow(t('Minimum Jev score'), t('Jev warnings under this score of 4 are not drawn.'), { min: SIGNAL_SCORE.min, max: SIGNAL_SCORE.max, step: SIGNAL_SCORE.step, value: s.minScore },
+      note(t('Marks on the main chart where a big price move may come soon. Hover a mark to see why it is there and what price did next.')),
+      switchRow(t('Show signals'), t('Turns every mark below on or off.'), s.on, on => set({ on }, true)),
+      switchRow(t('Volatility ahead'), t('Amber ring, labelled 5m, 15m or 1h: that bar traded far more than usual while price barely moved. In tests on 2024 to 2026, a big move (2σ) followed within the next 6 bars about 6 times in 10, against about 2 in 10 otherwise. It does not say up or down. Dashed lines 1σ above and below: where a breakout starts. Dotted lines 2σ away: the size of the move it expects.'), s.ahead, ahead => set({ ahead }, true)),
+      note(t('σ (sigma) is how far price usually moves in 3 bars, measured over the bars before. Hover a ring for its σ in percent and dollars.')),
+      switchRow(t('Jev warnings'), t('Filled triangles: the Jev model expected a big move and picked a side, up (long) or down (short). Tested so far, its side is right about half the time.'), s.jev, jev => set({ jev }, true)),
+      switchRow(t('Confluence calls'), t('Outlined triangles: several groups of indicators agreed on a side. Tested so far, no better than chance.'), s.confluence, confluence => set({ confluence }, true)),
+      numberRow(t('Minimum Jev score'), t('Only Jev warnings scoring at least this, out of 4, are drawn. Higher means fewer.'), { min: SIGNAL_SCORE.min, max: SIGNAL_SCORE.max, step: SIGNAL_SCORE.step, value: s.minScore },
         v => set({ minScore: Math.round(v / SIGNAL_SCORE.step) * SIGNAL_SCORE.step }, true)),
-      switchRow(t('Also while price is already moving'), t('Jev warnings made when price had already moved are hidden unless this is on.'), s.duringMoves, duringMoves => set({ duringMoves }, true)),
+      switchRow(t('Also while price is already moving'), t('Off: Jev warnings made after price had already moved a lot are hidden, as they come late. On: they are drawn too.'), s.duringMoves, duringMoves => set({ duringMoves }, true)),
+      note(t('Triangles of one kind and side less than 5 minutes apart are one episode, drawn once at its first.')),
     );
-    const sum = summaryOf(info.inView);
-    body.append(note(sum.meanR15 === null || sum.positive === null
-      ? t('Signals in view: {n}; none has a 15-minute result yet.', { n: String(sum.count) })
-      : t('Signals in view: {n}. After 15 min ({known} known): mean {mean} bp their way, {share}% went their way.', { n: String(sum.count), known: String(sum.known), mean: `${sum.meanR15 > 0 ? '+' : ''}${sum.meanR15.toFixed(1)}`, share: String(Math.round(sum.positive * 100)) })));
-    body.append(note(t('Experimental: these signals have shown no edge yet. Each one shows what price did after it, so they can be judged.')));
+    if (s.ahead) {
+      const a = aheadSummaryOf(info.aheadInView);
+      body.append(note(t('Rings in view: {n}. A 2σ move followed {moved} of the {done} whose 6 bars are over.', { n: String(a.count), moved: String(a.moved), done: String(a.done) })));
+    }
+    if (s.jev || s.confluence) {
+      const sum = summaryOf(info.inView);
+      body.append(note(sum.meanR15 === null || sum.positive === null
+        ? t('Triangles in view: {n}; none has a 15-minute result yet.', { n: String(sum.count) })
+        : t('Triangles in view: {n}. After 15 min ({known} known): mean {mean} bp their way, {share}% went their way.', { n: String(sum.count), known: String(sum.known), mean: `${sum.meanR15 > 0 ? '+' : ''}${sum.meanR15.toFixed(1)}`, share: String(Math.round(sum.positive * 100)) })));
+    }
   }
 
   /** The absorption settings: whether the marks show, how the threshold is set, and the threshold each venue is judged at now. */

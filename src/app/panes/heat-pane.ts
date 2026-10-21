@@ -32,7 +32,8 @@ import { aggregateIds } from '../cvd/model.ts';
 import { resolvePicks } from '../market-choice.ts';
 import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from '../absorption.ts';
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
-import { signalLines, type ShownSignal } from '../signals.ts';
+import { aheadLines, signalLines, tfLabel, type ShownSignal } from '../signals.ts';
+import { AHEAD, type AheadWarning } from '../../shared/volatility/ahead.ts';
 import { venueLabel } from '../venues.ts';
 import { describeSources } from '../cell-sources.ts';
 import { anomalies, type Anomalies } from '../../shared/anomaly.ts';
@@ -301,6 +302,8 @@ export class HeatPane {
   #diamonds: { x: number; y: number; r: number; liq: Liquidation }[] = [];
   /** The signal markers drawn this frame (`y` the triangle's centre, `r` its half-size), for the pointer. */
   #signalMarks: { x: number; y: number; r: number; signal: ShownSignal }[] = [];
+  /** The volatility-ahead rings drawn this frame, for the pointer. */
+  #aheadMarks: { x: number; y: number; r: number; warning: AheadWarning }[] = [];
   #grid: { data: Float32Array; w: number; h: number; bounds: Bounds } | null = null;
   /** Where the liquidity under the pointer comes from: asked of the worker once per map cell and kept while the pointer stays in it. */
   #sources: { key: string; text: string } | null = null;
@@ -2074,9 +2077,10 @@ export class HeatPane {
     if (touch && ownY && inX && y >= 0 && y <= ph) { ctx.strokeStyle = p.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
     stripped = ownY && here ? this.#stripAt(x, y, ph, pw) : -1;
     const signaled = ownY && here && stripped < 0 ? this.#signalAt(x, y) : null;
-    const absorbed = ownY && here && stripped < 0 && !signaled ? this.#absorptionAt(x, y) : null;
-    const forced = ownY && here && stripped < 0 && !signaled && !absorbed ? this.#diamondAt(x, y) : null;
-    const hit = ownY && here && stripped < 0 && !signaled && !absorbed && !forced ? this.#bubbleAt(x, y) : null;
+    const warned = ownY && here && stripped < 0 && !signaled ? this.#aheadAt(x, y) : null;
+    const absorbed = ownY && here && stripped < 0 && !signaled && !warned ? this.#absorptionAt(x, y) : null;
+    const forced = ownY && here && stripped < 0 && !signaled && !warned && !absorbed ? this.#diamondAt(x, y) : null;
+    const hit = ownY && here && stripped < 0 && !signaled && !warned && !absorbed && !forced ? this.#bubbleAt(x, y) : null;
     if (stripped >= 0) { // a bar of the volume strip: it owns its rectangle, over whatever is drawn there
       const s = this.#strip!, bar = s.bars[stripped]!;
       const lines = stripLines(bar, { rows: s.rows, tf: s.tf, now: pageNow(), levels: s.levels, levelsIn: i => s.bars[i]!.i, market: s.market, tfName: s.tfName, reports: s.reports, total: s.total });
@@ -2084,6 +2088,8 @@ export class HeatPane {
     } else if (signaled) { // a signal under the pointer: why it was made and what price did after it
       const long = signaled.signal.side === 'long';
       paintInfoBox(ctx, signalLines(signaled.signal), x, touch ? signaled.y - signaled.r - 8 : signaled.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: long ? p.candleUp : p.candleDown, gap: signaled.r + 10, placement: touch ? 'up' : 'center' });
+    } else if (warned) { // a volatility-ahead warning under the pointer: the bar, where a break and a full move would be, what came after
+      paintInfoBox(ctx, aheadLines(warned.warning), x, touch ? warned.y - warned.r - 8 : warned.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: TRAP_COLOR, gap: warned.r + 10, placement: touch ? 'up' : 'center' });
     } else if (forced) { // a liquidation under the pointer: which positions were closed, where, and what the exchange reported
       const long = forced.liq.side === 'long';
       paintInfoBox(ctx, liquidationLines(forced.liq), x, touch ? forced.y - forced.r - 8 : forced.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: long ? p.candleDown : p.candleUp, gap: forced.r + 10, placement: touch ? 'up' : 'center' });
@@ -2331,17 +2337,39 @@ export class HeatPane {
   }
 
   /**
-   * The volatility watch's signals in view (see signals.ts): a long an upward triangle just under its minute's price, a short a downward one
-   * just over it, in the buy and sell colours; Jev's filled, the confluence's outlined. Replay hides those after its moment.
+   * The volatility watch's signals in view (see signals.ts). A volatility-ahead warning is an amber ring at its bar's close, larger for a longer
+   * bar and named by it, with dashed lines a break (1σ) away either side and dotted ones a 2σ move away, over the 6 bars it watches. A long is
+   * an upward triangle just under its minute's price, a short a downward one just over it, in the buy and sell colours; Jev's filled, the
+   * confluence's outlined. Replay hides those after its moment.
    */
   #paintSignals(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
-    this.#signalMarks = [];
+    this.#signalMarks = []; this.#aheadMarks = [];
     const s = state.signals; if (!s.on) return;
     const v = this.view, p = this.#palette, now = replaying() ? pageNow() + 1 : Infinity;
+    // From the longest watch before the view, so lines that reach into it are drawn.
+    const warnings = this.hub.signals.aheadVisible(v.t0 - AHEAD.bars * 60 * 60_000, Math.min(v.t1, now), s, now);
     const visible = this.hub.signals.visible(v.t0, Math.min(v.t1, now), s, now);
-    if (!visible.length) return;
+    if (!visible.length && !warnings.length) return;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
+    for (const w of warnings) {
+      const x = v.xOf(w.t, pw), x1 = v.xOf(Math.min(w.t + AHEAD.bars * w.tf * 60_000, now), pw), py = v.yOf(w.price, ph), r = w.tf === 5 ? 5 : w.tf === 15 ? 7 : 9;
+      if (x1 < 0 || x > pw + r) continue;
+      ctx.strokeStyle = TRAP_COLOR; ctx.lineWidth = 1; ctx.globalAlpha = 0.85;
+      for (const [k, dash] of [[1, [5, 4]], [-1, [5, 4]], [AHEAD.move, [1.5, 3]], [-AHEAD.move, [1.5, 3]]] as const) {
+        const y = Math.round(v.yOf(w.price * (1 + k * w.sigma), ph)) + 0.5;
+        ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x1, y); ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      if (x < -r || py < -r || py > ph + r) continue;
+      ctx.beginPath(); ctx.arc(x, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = p.bg; ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.lineWidth = 2; ctx.strokeStyle = TRAP_COLOR; ctx.stroke();
+      ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = TRAP_COLOR;
+      ctx.fillText(tfLabel(w.tf), x, py - r - 2);
+      this.#aheadMarks.push({ x, y: py, r, warning: w });
+    }
     const R = 6, GAP = 3;
-    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+    ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
     for (const signal of visible) {
       const x = v.xOf(signal.t, pw), py = v.yOf(signal.price, ph);
       if (x < -R || x > pw + R || py < -R || py > ph + R) continue;
@@ -2354,6 +2382,13 @@ export class HeatPane {
       this.#signalMarks.push({ x, y, r: R, signal });
     }
     ctx.restore();
+  }
+
+  /** The volatility-ahead ring nearest the pointer, if the pointer is on it (a few pixels of slack). */
+  #aheadAt(x: number, y: number): { r: number; y: number; warning: AheadWarning } | null {
+    let best: { r: number; y: number; warning: AheadWarning } | null = null, bestD = Infinity;
+    for (const m of this.#aheadMarks) { const d = Math.hypot(m.x - x, m.y - y); if (d <= m.r + 3 && d < bestD) { best = m; bestD = d; } }
+    return best;
   }
 
   /** The signal marker nearest the pointer, if the pointer is on it (a few pixels of slack). */
@@ -2383,7 +2418,7 @@ export class HeatPane {
   #bubbleFocus(state: AppState, pw: number, ph: number): string | null {
     const hv = state.hover; if (!hv || hv.source !== 'heat' || hv.price === null || (replaying() && hv.t > pageNow())) return null;
     const x = this.view.xOf(hv.t, pw), y = this.view.yOf(hv.price, ph);
-    if (x < 0 || x > pw || y < 0 || y > ph || this.#signalAt(x, y) || this.#absorptionAt(x, y) || this.#diamondAt(x, y)) return null;
+    if (x < 0 || x > pw || y < 0 || y > ph || this.#signalAt(x, y) || this.#aheadAt(x, y) || this.#absorptionAt(x, y) || this.#diamondAt(x, y)) return null;
     const hit = this.#bubbleAt(x, y);
     return hit ? hit.print.id.slice(0, hit.print.id.indexOf(':')) : null;
   }

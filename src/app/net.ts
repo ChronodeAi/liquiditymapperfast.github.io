@@ -1,5 +1,6 @@
 import type { VolatilityAnswer, VolatilityVerdict } from '../shared/volatility/jev.ts';
 import { SIGNAL_KINDS, type Signal, type SignalAfter, type SignalAnswer } from '../shared/volatility/signals.ts';
+import { AHEAD_TFS, type AheadWarning } from '../shared/volatility/ahead.ts';
 import type { PrintSumsAnswer, SumRow } from '../shared/print-sums.ts';
 import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
@@ -91,9 +92,27 @@ export async function getVolatility(): Promise<VolatilityAnswer> {
 export async function getSignals(from: number, to: number): Promise<SignalAnswer> {
   const response = await fetch(`/api/v2/signals?from=${Math.floor(from)}&to=${Math.ceil(to)}`, { cache: 'no-store' });
   if (!response.ok) throw Object.assign(new Error(`signals failed: ${response.status}`), { status: response.status });
-  const body = await response.json().catch(() => null) as { coin?: unknown; signals?: unknown } | null;
+  const body = await response.json().catch(() => null) as { coin?: unknown; signals?: unknown; ahead?: unknown } | null;
   if (!body || typeof body !== 'object') throw new Error('signals answered with something else');
-  return { coin: typeof body.coin === 'string' ? body.coin : null, signals: (Array.isArray(body.signals) ? body.signals : []).flatMap((row: unknown) => { const s = readSignal(row); return s ? [s] : []; }) };
+  const rows = (v: unknown): unknown[] => Array.isArray(v) ? v : [];
+  return {
+    coin: typeof body.coin === 'string' ? body.coin : null,
+    signals: rows(body.signals).flatMap(row => { const s = readSignal(row); return s ? [s] : []; }),
+    // An older server answers no warnings.
+    ahead: rows(body.ahead).flatMap(row => { const w = readAhead(row); return w ? [w] : []; }),
+  };
+}
+/** One volatility-ahead warning as `AheadWarning` says it is, or null. */
+function readAhead(row: unknown): AheadWarning | null {
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const orNull = (v: unknown): number | null | undefined => v === null ? null : finite(v) ? v : undefined;
+  if (typeof row !== 'object' || row === null) return null;
+  const w = row as Record<string, unknown>, a = w.after as Record<string, unknown> | null | undefined;
+  if (!(AHEAD_TFS as readonly unknown[]).includes(w.tf) || !finite(w.t) || !(finite(w.price) && w.price > 0) || !finite(w.z) || !finite(w.times) || !(finite(w.sigma) && w.sigma > 0)) return null;
+  if (typeof a !== 'object' || a === null || (a.moved !== 'up' && a.moved !== 'down' && a.moved !== null) || typeof a.done !== 'boolean') return null;
+  const at = orNull(a.at), up = orNull(a.up), down = orNull(a.down);
+  if (at === undefined || up === undefined || down === undefined) return null;
+  return { tf: w.tf as AheadWarning['tf'], t: w.t, price: w.price, z: w.z, times: w.times, sigma: w.sigma, after: { moved: a.moved, at, up, down, done: a.done } };
 }
 /** One signal as `Signal` says it is, or null. */
 function readSignal(row: unknown): Signal | null {
