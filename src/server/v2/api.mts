@@ -715,6 +715,11 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   const volatility = new VolatilityWatch({ dir: persist ? dataDir : null, read: volatilityRead, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
   volatility.start();
   const volatilityRoute = (res: ServerResponse) => sendJson(res, volatility.answer());
+  /** The chart's entry signals in [from, to) (shared/volatility/signals.ts), from the watch's minutes, read back from its log at start. */
+  const signalsRoute = (url: URL, res: ServerResponse) => {
+    const span = windowOf(url, Date.now() + 60_000, 24 * 3_600_000); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
+    sendJson(res, volatility.signals(span.from, span.to));
+  };
 
   /**
    * The footprint's lists of large orders for the minutes recorded before they were kept (see `FootprintRecorder.fillLists`), filled from the
@@ -755,6 +760,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/oi': oi(url, res); return true;
           case '/api/v2/long-short': longShortRoute(url, res); return true;
           case '/api/v2/volatility': volatilityRoute(res); return true;
+          case '/api/v2/signals': signalsRoute(url, res); return true;
           case '/api/v2/footprint': footprintRoute(url, res); return true;
           case '/api/v2/prints': printsRoute(url, res); return true;
           case '/api/v2/print-sums': printSumsRoute(url, res); return true;

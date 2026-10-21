@@ -25,6 +25,8 @@ import { ABSORPTION_LIMITS, type AbsorptionSettings } from './absorption.ts';
 import { BUBBLE_LIMITS, BUBBLE_MINIMUMS, type BubbleSettings } from './prints.ts';
 import { LIQUIDATION_LIMITS, LIQUIDATION_MINIMUMS, coverageLines, type LiquidationSettings } from './liquidations.ts';
 import { buildKeyLevelPanel } from './keylevels/panel.ts';
+import { SIGNAL_SCORE, summaryOf, type SignalSettings } from './signals.ts';
+import type { Signal } from '../shared/volatility/signals.ts';
 import { buildVwapPanel, type WhaleInfo } from './vwap/panel.ts';
 import { buildFootprintPanel } from './footprint/panel.ts';
 import type { FlowBook } from './flow-book.ts';
@@ -130,6 +132,7 @@ export class Toolbar {
   #settingsKeys: Record<Exclude<Feature, 'highlights'>, HTMLButtonElement> = {
     trades: settingsKey(t('Trades')), footprint: settingsKey(t('Footprint')), vwap: settingsKey(t('VWAP')), keyLevels: settingsKey(t('Key levels')),
     liquidations: settingsKey(t('Liquidations')), traded: settingsKey(t('Volume profile')), absorption: settingsKey(t('Absorption')),
+    signals: settingsKey(t('Signals')),
   };
   /** The Alerts deck's settings keys: Highlights and Sound are switched and set the same way. */
   #alertKeys = { highlights: settingsKey(t('Highlights')), sound: settingsKey(t('Sound')) };
@@ -140,6 +143,11 @@ export class Toolbar {
   /** Liquidations on the map (liquidations.ts), set in its panel. */
   #liquidations = el('button', { class: 'led-btn', textContent: t('Liquidations'), tip: HELP.liquidations.tip });
   #liquidationPanel: Panel | null = null;
+  /** The volatility watch's entry signals on the map (signals.ts), set in its panel. */
+  #signals = el('button', { class: 'led-btn', textContent: t('Signals'), tip: t('Experimental: long and short markers where the local server\'s volatility watch named a side. Hover one for why and what price did after.') });
+  #signalPanel: Panel | null = null;
+  /** Whether the source makes signals and the ones drawn in view now (set by the page), for the Signals panel. */
+  signalsInfo: () => { available: boolean; inView: Signal[] } = () => ({ available: false, inView: [] });
   /** The previous day's, week's and month's levels (keylevels/), set in its panel. */
   #keyLevels = el('button', { class: 'led-btn', textContent: t('Key levels'), tip: HELP.keyLevels.tip });
   #keyLevelPanel: Panel | null = null;
@@ -289,12 +297,17 @@ export class Toolbar {
       this.#liquidationPanel = this.#track(togglePanel(this.#settingsKeys.liquidations, { title: t('Liquidations'), width: 400, align: 'left', onClose: () => { this.#liquidationPanel = null; } }, build), build);
     };
     this.#liquidations.onclick = () => this.store.set(togglePatch(this.store.state, 'liquidations'));
+    this.#settingsKeys.signals.onclick = () => {
+      const build = (tools: HTMLElement, body: HTMLElement): void => this.#buildSignals(body, () => this.#signalPanel?.render(build));
+      this.#signalPanel = this.#track(togglePanel(this.#settingsKeys.signals, { title: t('Signals'), width: 400, align: 'left', onClose: () => { this.#signalPanel = null; } }, build), build);
+    };
+    this.#signals.onclick = () => this.store.set(togglePatch(this.store.state, 'signals'));
     this.#alertSplits = { highlights: splitButton(this.#highlights, this.#alertKeys.highlights), sound: splitButton(this.#soundButton, this.#alertKeys.sound) };
     const k = this.#settingsKeys;
     this.#splits = {
       trades: splitButton(this.#trades, k.trades), footprint: splitButton(this.#footprint, k.footprint), vwap: splitButton(this.#vwap, k.vwap),
       keyLevels: splitButton(this.#keyLevels, k.keyLevels), liquidations: splitButton(this.#liquidations, k.liquidations),
-      traded: splitButton(this.#traded, k.traded), absorption: splitButton(this.#absorption, k.absorption),
+      traded: splitButton(this.#traded, k.traded), absorption: splitButton(this.#absorption, k.absorption), signals: splitButton(this.#signals, k.signals),
     };
     for (const [value, label] of SCOPE_OPTIONS) this.#scope.append(el('button', { textContent: label, onclick: () => this.store.set({ scope: value }) }));
     this.#alertKeys.sound.onclick = () => {
@@ -483,7 +496,7 @@ export class Toolbar {
         deck('time', t('Time'), [this.#timeframes], inCorner ? [] : [this.#recenter]),
         deck('heat', t('Heatmap'), [this.#source, this.#layer, this.#heat.style], [this.#heatScale, this.#heat.auto, this.#heat.smooth]),
         deck('panels', t('Panels'), [this.#toggles]),
-        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, this.#range]),
+        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, sp.signals, this.#range]),
         deck('alerts', t('Alerts'), [this.#alertSplits!.highlights], [this.#alertSplits!.sound]),
         deck('tools', 'LiquidityMapperFast', [this.#guide, this.#shot], [this.#author, this.#install.root, ...(host ? [] : [this.#zone, this.#language, this.#theme, this.#glass, this.#status])]),
         this.#notice.root, this.#coinNotice);
@@ -514,7 +527,7 @@ export class Toolbar {
       body.append(
         section(t('Tools'), [el('div', { class: 'sheet-tiles' }, this.#range, this.#guide, this.#shot, this.#author, this.#install.root)]),
         section(t('Panels'), [this.#toggles, el('p', { class: 'sheet-note', textContent: t('Depth, OI, Delta, L/S, LT and Stats each add a tab to the bar under the map.') })]),
-        section(t('Chart'), [el('div', { class: 'sheet-tiles' }, ...(['footprint', 'trades', 'liquidations', 'absorption', 'traded', 'keyLevels', 'vwap'] as const).map(f => this.#splits![f]))]),
+        section(t('Chart'), [el('div', { class: 'sheet-tiles' }, ...(['footprint', 'trades', 'liquidations', 'absorption', 'traded', 'keyLevels', 'vwap', 'signals'] as const).map(f => this.#splits![f]))]),
         // Only a phone has the Tape tab; a touch tablet keeps the desktop's panes and gets this sheet without it.
         ...(this.tapeFields && isPhone() ? [section(t('Tape'), this.tapeFields().map(([label, control]) => field(label, control)), helpButton('candlePane'))] : []),
         section(t('Heatmap'), [
@@ -550,7 +563,7 @@ export class Toolbar {
     [...this.#timeframes.children].forEach(b => b.classList.toggle('on', b.textContent === state.timeframe));
     setValue(this.#layer, state.layer);
     this.#toggleButtons.forEach((b, i) => b.classList.toggle('on', state.show[PANE_TOGGLES[i]![0]]));
-    lamp(this.#heat.auto, state.heat.auto); lamp(this.#trades, state.show.bubbles); lamp(this.#liquidations, state.liquidations.on); lamp(this.#absorption, state.absorption.on); lamp(this.#highlights, state.highlight.on); lamp(this.#traded, state.show.traded); lamp(this.#keyLevels, state.keyLevels.on); lamp(this.#vwap, state.vwap.on); lamp(this.#footprint, state.show.footprint); lamp(this.#range, state.rangeTool || state.range !== null); lamp(this.#rangeCorner, state.rangeTool || state.range !== null);
+    lamp(this.#heat.auto, state.heat.auto); lamp(this.#trades, state.show.bubbles); lamp(this.#liquidations, state.liquidations.on); lamp(this.#signals, state.signals.on); lamp(this.#absorption, state.absorption.on); lamp(this.#highlights, state.highlight.on); lamp(this.#traded, state.show.traded); lamp(this.#keyLevels, state.keyLevels.on); lamp(this.#vwap, state.vwap.on); lamp(this.#footprint, state.show.footprint); lamp(this.#range, state.rangeTool || state.range !== null); lamp(this.#rangeCorner, state.rangeTool || state.range !== null);
     if (this.#awake.checked !== state.keepAwake) this.#awake.checked = state.keepAwake;
     lamp(this.#glass, state.material === 'glass');
     if (this.#glassSwitch.checked !== (state.material === 'glass')) this.#glassSwitch.checked = state.material === 'glass';
@@ -752,6 +765,26 @@ export class Toolbar {
     const state = this.store.state, markets = activeIds(state).map(id => ({ venue: id.slice(0, id.indexOf(':')), spot: kindOf(state.markets, id) === 'spot' }));
     for (const line of coverageLines(markets)) body.append(note(line.text));
     if (this.sourceKind !== 'server') body.append(note(t('This page reads the exchanges itself and keeps liquidations only while it is open.')));
+  }
+
+  /** The signals' settings: whether they show, which kinds, the lowest Jev score, and what the ones in view did after them. */
+  #buildSignals(body: HTMLElement, rebuild: () => void): void {
+    const s = this.store.state.signals, info = this.signalsInfo();
+    const set = (change: Partial<SignalSettings>, again = false): void => { this.store.set({ signals: { ...this.store.state.signals, ...change } }); if (again) rebuild(); };
+    if (!info.available) body.append(note(t('Not available without a local server')));
+    body.append(
+      switchRow(t('Show signals'), t('Long and short markers at the minute and price where the volatility watch named a side.'), s.on, on => set({ on }, true)),
+      switchRow(t('Jev warnings'), t('Filled triangles: Jev expected a volatile move and gave it a side.'), s.jev, jev => set({ jev }, true)),
+      switchRow(t('Confluence calls'), t('Outlined triangles: enough families of measures agreed on a side.'), s.confluence, confluence => set({ confluence }, true)),
+      numberRow(t('Minimum Jev score'), t('Jev warnings under this score of 4 are not drawn.'), { min: SIGNAL_SCORE.min, max: SIGNAL_SCORE.max, step: SIGNAL_SCORE.step, value: s.minScore },
+        v => set({ minScore: Math.round(v / SIGNAL_SCORE.step) * SIGNAL_SCORE.step }, true)),
+      switchRow(t('Also while price is already moving'), t('Jev warnings made when price had already moved are hidden unless this is on.'), s.duringMoves, duringMoves => set({ duringMoves }, true)),
+    );
+    const sum = summaryOf(info.inView);
+    body.append(note(sum.meanR15 === null || sum.positive === null
+      ? t('Signals in view: {n}; none has a 15-minute result yet.', { n: String(sum.count) })
+      : t('Signals in view: {n}. After 15 min ({known} known): mean {mean} bp their way, {share}% went their way.', { n: String(sum.count), known: String(sum.known), mean: `${sum.meanR15 > 0 ? '+' : ''}${sum.meanR15.toFixed(1)}`, share: String(Math.round(sum.positive * 100)) })));
+    body.append(note(t('Experimental: these signals have shown no edge yet. Each one shows what price did after it, so they can be judged.')));
   }
 
   /** The absorption settings: whether the marks show, how the threshold is set, and the threshold each venue is judged at now. */

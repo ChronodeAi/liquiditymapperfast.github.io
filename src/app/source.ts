@@ -4,6 +4,7 @@ import type { LsMetric, LsSeries } from '../shared/long-short.ts';
 import type { Liquidation } from '../shared/liquidations.ts';
 import type { PrintSumsAnswer } from '../shared/print-sums.ts';
 import type { VolatilityAnswer } from '../shared/volatility/jev.ts';
+import type { SignalAnswer } from '../shared/volatility/signals.ts';
 import type { FlowFrame, FlowMinutesFrame, FlowUpdate } from '../shared/flow.ts';
 import type { ProfileAnswer, RangeAnswer, SizesAnswer, ValueAreaAnswer } from '../shared/footprint.ts';
 import type { OiProfileAnswer } from '../shared/oi-profile.ts';
@@ -111,6 +112,8 @@ export interface DataSource {
   printSums?(ids: string[], from: number, to: number, minUsd: number, stepMs: number): Promise<PrintSumsAnswer>;
   /** Jev's volatility assessments, which only a local server with a TypeSafe key makes (the browser has none). */
   volatility?(): Promise<VolatilityAnswer>;
+  /** The volatility watch's entry signals in [from, to), oldest first, which only a local server makes (the browser has none). */
+  signals?(from: number, to: number): Promise<SignalAnswer>;
   columns(ids: string[], from: number, to: number, stepMs: number): Promise<ColumnsFrame>;
   /** Taker buys and sells per second for each instrument over [from, to), from its first recorded minute in that range. */
   flow(ids: string[], from: number, to: number): Promise<FlowFrame>;

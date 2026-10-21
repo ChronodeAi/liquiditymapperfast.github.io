@@ -1,4 +1,5 @@
 import type { VolatilityAnswer, VolatilityVerdict } from '../shared/volatility/jev.ts';
+import { SIGNAL_KINDS, type Signal, type SignalAfter, type SignalAnswer } from '../shared/volatility/signals.ts';
 import type { PrintSumsAnswer, SumRow } from '../shared/print-sums.ts';
 import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
@@ -82,6 +83,41 @@ export async function getVolatility(): Promise<VolatilityAnswer> {
     coin: typeof body.coin === 'string' ? body.coin : null,
     verdicts,
   };
+}
+/**
+ * The volatility watch's entry signals in [from, to) (a server from before them answers 404, which is an error here). Checked field by
+ * field: a signal that is not what `Signal` says is dropped rather than drawn.
+ */
+export async function getSignals(from: number, to: number): Promise<SignalAnswer> {
+  const response = await fetch(`/api/v2/signals?from=${Math.floor(from)}&to=${Math.ceil(to)}`, { cache: 'no-store' });
+  if (!response.ok) throw Object.assign(new Error(`signals failed: ${response.status}`), { status: response.status });
+  const body = await response.json().catch(() => null) as { coin?: unknown; signals?: unknown } | null;
+  if (!body || typeof body !== 'object') throw new Error('signals answered with something else');
+  return { coin: typeof body.coin === 'string' ? body.coin : null, signals: (Array.isArray(body.signals) ? body.signals : []).flatMap((row: unknown) => { const s = readSignal(row); return s ? [s] : []; }) };
+}
+/** One signal as `Signal` says it is, or null. */
+function readSignal(row: unknown): Signal | null {
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const orNull = (v: unknown): number | null | undefined => v === null ? null : finite(v) ? v : undefined;
+  if (typeof row !== 'object' || row === null) return null;
+  const s = row as Record<string, unknown>;
+  if (!(SIGNAL_KINDS as readonly unknown[]).includes(s.kind) || !finite(s.t) || !finite(s.price) || (s.side !== 'long' && s.side !== 'short')) return null;
+  const a = s.after as Record<string, unknown> | null | undefined;
+  if (typeof a !== 'object' || a === null) return null;
+  const after = { r5: orNull(a.r5), r15: orNull(a.r15), r30: orNull(a.r30), best15: orNull(a.best15), worst15: orNull(a.worst15) };
+  if (Object.values(after).some(v => v === undefined)) return null;
+  const out: Signal = { kind: s.kind as Signal['kind'], t: s.t, price: s.price, side: s.side, after: after as SignalAfter };
+  if (s.jev !== undefined) {
+    const j = s.jev as Record<string, unknown> | null;
+    if (typeof j !== 'object' || j === null || !finite(j.score) || !finite(j.confidence) || !finite(j.p) || (typeof j.underway !== 'boolean' && j.underway !== null)) return null;
+    out.jev = { score: j.score, confidence: j.confidence, p: j.p, underway: j.underway };
+  }
+  if (s.confluence !== undefined) {
+    const c = s.confluence as Record<string, unknown> | null;
+    if (typeof c !== 'object' || c === null || !finite(c.score) || !finite(c.agree) || !finite(c.against) || !Array.isArray(c.triggers) || !c.triggers.every(x => typeof x === 'string')) return null;
+    out.confluence = { score: c.score, agree: c.agree, against: c.against, triggers: [...c.triggers as string[]] };
+  }
+  return out;
 }
 /** Taker flow per second for the instruments, as the server records it. */
 export async function getFlow(ids: string[], from: number, to: number): Promise<FlowFrame> {

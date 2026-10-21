@@ -32,6 +32,8 @@ import { aggregateIds } from '../cvd/model.ts';
 import { resolvePicks } from '../market-choice.ts';
 import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from '../absorption.ts';
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
+import { signalLines } from '../signals.ts';
+import type { Signal } from '../../shared/volatility/signals.ts';
 import { venueLabel } from '../venues.ts';
 import { describeSources } from '../cell-sources.ts';
 import { anomalies, type Anomalies } from '../../shared/anomaly.ts';
@@ -298,6 +300,8 @@ export class HeatPane {
   #bubbles: { x: number; y: number; r: number; print: Print }[] = [];
   /** The liquidations drawn this frame (half-diagonal `r`), for the pointer. */
   #diamonds: { x: number; y: number; r: number; liq: Liquidation }[] = [];
+  /** The signal markers drawn this frame (`y` the triangle's centre, `r` its half-size), for the pointer. */
+  #signalMarks: { x: number; y: number; r: number; signal: Signal }[] = [];
   #grid: { data: Float32Array; w: number; h: number; bounds: Bounds } | null = null;
   /** Where the liquidity under the pointer comes from: asked of the worker once per map cell and kept while the pointer stays in it. */
   #sources: { key: string; text: string } | null = null;
@@ -602,6 +606,7 @@ export class HeatPane {
     this.#manageRaster();
     if (state.show.bubbles) this.hub.ensurePrints(this.view, scaledUsd(state.tradeBubbles.minUsd));
     if (state.liquidations.on) this.hub.ensureLiquidations(this.view, scaledUsd(state.liquidations.minUsd));
+    if (state.signals.on) this.hub.ensureSignals(this.view.t0, this.view.t1);
     if (state.keyLevels.on && anyLine(state.keyLevels)) this.#ensureKeyLevels(state);
     if (state.vwap.on) this.#ensureVwap(state);
     if (state.show.traded) {
@@ -760,6 +765,7 @@ export class HeatPane {
     this.#paintBubbles(ctx, state, pw, ph); // above the candles, so a large trade is never hidden behind one
     this.#paintLiquidations(ctx, state, pw, ph); // above the bubbles: a forced order is one of the market orders, marked as forced
     this.#paintAbsorption(ctx, state, pw, ph);
+    this.#paintSignals(ctx, state, pw, ph); // over absorption: few, and each one a point in time and price
     // The Volume profile's, the key levels' and the VWAP's names at the lines' right ends share one board, so none is printed over another.
     this.#valueTags = this.#paintValueLines(ctx, state, pw, ph);
     this.#keyTags = state.keyLevels.on ? paintKeyLevels(ctx, this.#keyLevelLines(state), v, pw, ph, p, state.keyLevels, pageNow(), this.#keyLevelContext(state).zone, this.#labels) : [];
@@ -2068,13 +2074,17 @@ export class HeatPane {
     const touch = hv.touch === true;
     if (touch && ownY && inX && y >= 0 && y <= ph) { ctx.strokeStyle = p.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; }
     stripped = ownY && here ? this.#stripAt(x, y, ph, pw) : -1;
-    const absorbed = ownY && here && stripped < 0 ? this.#absorptionAt(x, y) : null;
-    const forced = ownY && here && stripped < 0 && !absorbed ? this.#diamondAt(x, y) : null;
-    const hit = ownY && here && stripped < 0 && !absorbed && !forced ? this.#bubbleAt(x, y) : null;
+    const signaled = ownY && here && stripped < 0 ? this.#signalAt(x, y) : null;
+    const absorbed = ownY && here && stripped < 0 && !signaled ? this.#absorptionAt(x, y) : null;
+    const forced = ownY && here && stripped < 0 && !signaled && !absorbed ? this.#diamondAt(x, y) : null;
+    const hit = ownY && here && stripped < 0 && !signaled && !absorbed && !forced ? this.#bubbleAt(x, y) : null;
     if (stripped >= 0) { // a bar of the volume strip: it owns its rectangle, over whatever is drawn there
       const s = this.#strip!, bar = s.bars[stripped]!;
       const lines = stripLines(bar, { rows: s.rows, tf: s.tf, now: pageNow(), levels: s.levels, levelsIn: i => s.bars[i]!.i, market: s.market, tfName: s.tfName, reports: s.reports, total: s.total });
       paintInfoBox(ctx, lines, x, s.top - 8, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'up' });
+    } else if (signaled) { // a signal under the pointer: why it was made and what price did after it
+      const long = signaled.signal.side === 'long';
+      paintInfoBox(ctx, signalLines(signaled.signal), x, touch ? signaled.y - signaled.r - 8 : signaled.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: long ? p.candleUp : p.candleDown, gap: signaled.r + 10, placement: touch ? 'up' : 'center' });
     } else if (forced) { // a liquidation under the pointer: which positions were closed, where, and what the exchange reported
       const long = forced.liq.side === 'long';
       paintInfoBox(ctx, liquidationLines(forced.liq), x, touch ? forced.y - forced.r - 8 : forced.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: long ? p.candleDown : p.candleUp, gap: forced.r + 10, placement: touch ? 'up' : 'center' });
@@ -2321,6 +2331,39 @@ export class HeatPane {
     ctx.restore();
   }
 
+  /**
+   * The volatility watch's signals in view (see signals.ts): a long an upward triangle just under its minute's price, a short a downward one
+   * just over it, in the buy and sell colours; Jev's filled, the confluence's outlined. Replay hides those after its moment.
+   */
+  #paintSignals(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
+    this.#signalMarks = [];
+    const s = state.signals; if (!s.on) return;
+    const v = this.view, p = this.#palette, to = replaying() ? Math.min(v.t1, pageNow() + 1) : v.t1;
+    const visible = this.hub.signals.visible(v.t0, to, s);
+    if (!visible.length) return;
+    const R = 6, GAP = 3;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+    for (const signal of visible) {
+      const x = v.xOf(signal.t, pw), py = v.yOf(signal.price, ph);
+      if (x < -R || x > pw + R || py < -R || py > ph + R) continue;
+      const long = signal.side === 'long', y = long ? py + GAP + R : py - GAP - R, color = long ? p.candleUp : p.candleDown;
+      // The tip points at the price: up for a long (the triangle under it), down for a short (over it).
+      const tip = long ? y - R : y + R, base = long ? y + R : y - R;
+      ctx.beginPath(); ctx.moveTo(x, tip); ctx.lineTo(x + R, base); ctx.lineTo(x - R, base); ctx.closePath();
+      if (signal.kind === 'jev') { ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = p.bg; ctx.lineWidth = 1; ctx.stroke(); ctx.lineWidth = 1.6; }
+      else { ctx.fillStyle = p.bg; ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1; ctx.strokeStyle = color; ctx.stroke(); }
+      this.#signalMarks.push({ x, y, r: R, signal });
+    }
+    ctx.restore();
+  }
+
+  /** The signal marker nearest the pointer, if the pointer is on it (a few pixels of slack). */
+  #signalAt(x: number, y: number): { r: number; y: number; signal: Signal } | null {
+    let best: { r: number; y: number; signal: Signal } | null = null, bestD = Infinity;
+    for (const m of this.#signalMarks) { const d = Math.hypot(m.x - x, m.y - y); if (d <= m.r + 3 && d < bestD) { best = m; bestD = d; } }
+    return best;
+  }
+
   /** The drawn liquidation the pointer is on (inside its diamond, with a few pixels of slack), the nearest if several. */
   #diamondAt(x: number, y: number): { r: number; liq: Liquidation; y: number } | null {
     let best: { r: number; liq: Liquidation; y: number } | null = null, bestD = Infinity;
@@ -2341,7 +2384,7 @@ export class HeatPane {
   #bubbleFocus(state: AppState, pw: number, ph: number): string | null {
     const hv = state.hover; if (!hv || hv.source !== 'heat' || hv.price === null || (replaying() && hv.t > pageNow())) return null;
     const x = this.view.xOf(hv.t, pw), y = this.view.yOf(hv.price, ph);
-    if (x < 0 || x > pw || y < 0 || y > ph || this.#absorptionAt(x, y) || this.#diamondAt(x, y)) return null;
+    if (x < 0 || x > pw || y < 0 || y > ph || this.#signalAt(x, y) || this.#absorptionAt(x, y) || this.#diamondAt(x, y)) return null;
     const hit = this.#bubbleAt(x, y);
     return hit ? hit.print.id.slice(0, hit.print.id.indexOf(':')) : null;
   }

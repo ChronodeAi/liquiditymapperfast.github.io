@@ -8,7 +8,7 @@ import type { AppState } from './store.ts';
  */
 
 /** The features a letter switches on or off, each one the switch of its lamp button. */
-export type Feature = 'footprint' | 'trades' | 'liquidations' | 'absorption' | 'traded' | 'keyLevels' | 'vwap' | 'highlights';
+export type Feature = 'footprint' | 'trades' | 'liquidations' | 'absorption' | 'traded' | 'keyLevels' | 'vwap' | 'signals' | 'highlights';
 export type ShortcutAction =
   | { kind: 'timeframe'; tf: string }
   | { kind: 'recenter' }
@@ -49,6 +49,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   toggle('P', t('Volume profile'), 'traded'),
   toggle('K', t('Key levels'), 'keyLevels'),
   toggle('V', t('VWAP'), 'vwap'),
+  toggle('E', t('Signals'), 'signals'),
   toggle('H', t('Highlights'), 'highlights'),
   { group: 'tools', caps: ['G'], label: t('Go to a date and time'), keys: ['g'], action: { kind: 'goto' } },
   { group: 'tools', caps: ['X'], label: t('Range: the next drag selects (Esc cancels)'), keys: ['x'], action: { kind: 'range' } },
@@ -87,6 +88,7 @@ export function togglePatch(state: AppState, feature: Feature): Partial<AppState
     case 'absorption': return { absorption: { ...state.absorption, on: !state.absorption.on } };
     case 'keyLevels': return { keyLevels: { ...state.keyLevels, on: !state.keyLevels.on } };
     case 'vwap': return { vwap: { ...state.vwap, on: !state.vwap.on } };
+    case 'signals': return { signals: { ...state.signals, on: !state.signals.on } };
     case 'highlights': return { highlight: { ...state.highlight, on: !state.highlight.on } };
   }
 }

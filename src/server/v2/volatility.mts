@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
 import { volatilityFeatures, volatilitySeries, HEAT_ROW_BP, type VolatilityFeatures, type VolatilityInputs } from '../../shared/volatility/features.ts';
 import { confluence, type ConfluenceReading } from '../../shared/volatility/confluence.ts';
 import { askDecision, DecisionHttpError, SUBQ_ARMS, type DecisionExtras, type SubqArm, type VolatilityAnswer, type VolatilityVerdict } from '../../shared/volatility/jev.ts';
+import { afterOf, movedOf, signalsOf, type Signal, type SignalAnswer, type SignalSource } from '../../shared/volatility/signals.ts';
 import { heatPng } from './volatility-image.mts';
 
 /** Once a minute, at this many ms past it: the flow recorder has closed the minute by then. */
@@ -12,6 +14,10 @@ const KEEP = 120;
 const LOG_MAX_BYTES = 50 * 1024 * 1024;
 const WARN_EVERY_MS = 3_600_000;
 const BACKOFF_MS = 5 * MINUTE;
+/** How far back the chart's signals reach: the minutes and signals older than this are let go. */
+const SIGNAL_DAYS_MS = 14 * 24 * 60 * MINUTE;
+/** The most signals one answer holds (the newest). */
+const SIGNALS_PER_ANSWER = 10_000;
 
 export interface VolatilityWatchOptions {
   /** Where `volatility-log.jsonl` goes; null keeps nothing on disk. */
@@ -31,7 +37,8 @@ export interface VolatilityWatchOptions {
 /**
  * Once a minute reads the model-free confluence (shared/volatility/confluence.ts) and, with keys, asks Jev and the SubQ arms whether a volatile move is
  * coming (docs/volatility-watch.md). Every minute is kept (the last 120 in memory, all of them in `volatility-log.jsonl` beside the recording, not in
- * the history store, which has a hard size budget) with the readings behind it.
+ * the history store, which has a hard size budget) with the readings behind it. The minutes' prices and the signals they hold are also kept for
+ * the chart (`signals`), read back from the log at start.
  */
 export class VolatilityWatch {
   readonly #options: VolatilityWatchOptions;
@@ -50,12 +57,58 @@ export class VolatilityWatch {
   #stopped = false;
   /** Per SubQ arm: its newest verdict, last error and back-off. */
   readonly #arms = new Map<SubqArm, { verdict: VolatilityVerdict | null; lastError?: string; backoffUntil: number }>();
+  /** For the chart's signals: each logged minute's last price by its end, and the signals by kind and minute. */
+  readonly #prices = new Map<number, number>();
+  readonly #signals = new Map<string, Omit<Signal, 'after'>>();
+  /** The log read back at start (resolved when done; a failure only warns). */
+  history: Promise<void> = Promise.resolve();
 
   constructor(options: VolatilityWatchOptions) {
     this.#options = options; this.#ask = options.ask ?? askDecision; this.#now = options.clock ?? Date.now;
     if (options.dir) {
       try { fs.mkdirSync(options.dir, { recursive: true }); this.#logBytes = fs.existsSync(this.#logPath()) ? fs.statSync(this.#logPath()).size : 0; } catch (error) { this.#warn(`log unavailable: ${(error as Error).message}`); }
+      this.history = this.#readHistory().catch(error => this.#warn(`log not read back: ${(error as Error).message}`));
     }
+  }
+
+  /** The signals in [from, to), oldest first (the newest `SIGNALS_PER_ANSWER` at most), each with what price has done after it so far. */
+  signals(from: number, to: number): SignalAnswer {
+    const priceAt = (t: number): number | undefined => this.#prices.get(t);
+    const inside = [...this.#signals.values()].filter(s => s.t >= from && s.t < to).sort((a, b) => a.t - b.t || a.kind.localeCompare(b.kind));
+    return { coin: this.#coin, signals: inside.slice(-SIGNALS_PER_ANSWER).map(s => ({ ...s, after: afterOf(s, priceAt) })) };
+  }
+
+  /** One minute's price and the signals it holds. */
+  #remember(row: SignalSource): void {
+    const { t, price } = row.features;
+    if (!(price > 0)) return;
+    this.#prices.set(t, price);
+    for (const s of signalsOf(row)) this.#signals.set(`${s.kind} ${s.t}`, s);
+  }
+
+  /** Lets go of the minutes and signals older than `SIGNAL_DAYS_MS`. */
+  #prune(): void {
+    const cutoff = this.#now() - SIGNAL_DAYS_MS;
+    for (const t of this.#prices.keys()) if (t < cutoff) this.#prices.delete(t);
+    for (const [key, s] of this.#signals) if (s.t < cutoff) this.#signals.delete(key);
+  }
+
+  /** The rotated log and then the current one, a line at a time, so a long log does not hold the server up. */
+  async #readHistory(): Promise<void> {
+    for (const file of [path.join(this.#options.dir!, 'volatility-log.1.jsonl'), this.#logPath()]) {
+      if (!fs.existsSync(file)) continue;
+      for await (const line of readline.createInterface({ input: fs.createReadStream(file, 'utf8'), crlfDelay: Infinity })) {
+        if (this.#stopped) return;
+        if (!line) continue;
+        let row: SignalSource;
+        try { row = JSON.parse(line) as SignalSource; } catch { continue; } // a torn line
+        if (typeof row?.features?.t === 'number') this.#remember(row);
+      }
+    }
+    // Minutes logged before the watch measured whether price was already moving get it from the prices.
+    const priceAt = (t: number): number | undefined => this.#prices.get(t);
+    for (const s of this.#signals.values()) if (s.jev && s.jev.underway === null) s.jev.underway = movedOf(s.t, priceAt);
+    this.#prune();
   }
 
   #logPath(): string { return path.join(this.#options.dir!, 'volatility-log.jsonl'); }
@@ -109,7 +162,9 @@ export class VolatilityWatch {
       const jev = this.enabled && this.#now() >= this.#backoffUntil ? this.#askJev(features) : Promise.resolve(undefined);
       const [verdict, arms] = await Promise.all([jev, this.#askArms(features, inputs)]);
       if (this.#stopped) return;
-      this.#append({ features, confluence: reading, ...(verdict ? { verdict } : {}), ...(Object.keys(arms).length ? { arms } : {}) });
+      const row = { features, confluence: reading, ...(verdict ? { verdict } : {}), ...(Object.keys(arms).length ? { arms } : {}) };
+      this.#append(row);
+      this.#remember(row); this.#prune();
     } catch (error) {
       if (this.#stopped) return;
       this.#fail((error as Error).message || String(error));
