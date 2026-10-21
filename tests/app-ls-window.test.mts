@@ -76,3 +76,14 @@ test('a view shorter than a month asks a window under 30 days, so the venues are
   const month = { t0: NOW - 40 * DAY, t1: NOW + HOUR }, ask = lsWindow(null, false, 'k', month, TF, NOW)!;
   assert.ok(ask.from <= month.t0 && ask.to >= NOW, 'a month-long view is read whole (in daily readings)');
 });
+
+test('up to 29 days in view, at any timeframe finer than daily, the window and its rounding stay under 30 days', () => {
+  const DAY = 24 * HOUR;
+  for (const tf of [MIN, 5 * MIN, 15 * MIN, 30 * MIN, HOUR, 4 * HOUR]) for (const days of [1, 7, 19, 20, 21, 28, 29]) {
+    const live = { t0: NOW - days * DAY, t1: NOW + tf }, back = { t0: NOW - 40 * DAY - days * DAY, t1: NOW - 40 * DAY };
+    for (const v of [live, back]) {
+      const ask = lsWindow(null, false, 'k', v, tf, NOW)!;
+      assert.ok(ask.to - ask.from < 30 * DAY && ask.from <= v.t0, `${days} days on ${tf / MIN}-minute candles: ${(ask.to - ask.from) / HOUR} hours`);
+    }
+  }
+});

@@ -15,8 +15,10 @@ export interface LsHeld { ident: string; from: number; to: number; at: number }
 const MINUTE = 60_000, HOUR = 3_600_000, DAY = 86_400_000;
 /**
  * The longest window the venues are read in readings as fine as the candles: from 30 days on the long/short cache takes daily readings, for
- * month-scale context (shared/long-short.ts). A view shorter than a month asks less around it so the window stays under that: asking a view
- * and a half before a 12-day view had every venue's lines turn to steps a day wide once the chart showed a little more history (2026-10-21).
+ * month-scale context (shared/long-short.ts). A view shorter than that asks less around it so the window stays under it: asking a view and a
+ * half before a 12-day view had every venue's lines turn to steps a day wide once the chart showed a little more history (2026-10-21). Up to
+ * 29 days in view the window, its tail of a candle (four hours at most where the readings are finer than daily) and its rounding to the hour
+ * fit; a view longer than that is month-scale and may be read daily.
  */
 const FINE_SPAN_MS = 30 * DAY - 2 * HOUR;
 /**

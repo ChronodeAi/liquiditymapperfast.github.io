@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LongShortCache, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsReading, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
+import { LongShortCache, LsNoMarket, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsPopulationOf, lsReading, lsWindowPeriod, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
 import { lsAt, lsCardLines, lsRange, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
@@ -405,4 +405,41 @@ test('the popup explains a ratio by who it counts: accounts, or the top traders\
   assert.match(positions, /position size/); assert.doesNotMatch(positions, /long accounts for each short one/);
   const accounts = text([{ id: 'bybit:BTCUSDT', population: 'accounts', periodMs: 5 * M, points: point, status: 'ok' }]);
   assert.match(accounts, /long accounts for each short one/); assert.doesNotMatch(accounts, /position size/);
+});
+
+test('OKX reads its top traders by accounts and by positions from their own endpoints, the shares from its ratio', async () => {
+  const get = fake({ 'https://www.okx.com/api/v5/rubik/stat/contracts/': url => ({ code: '0', data: [[String(NOW - 5 * M), url.pathname.includes('position') ? '0.99' : '1.0574561403508772']] }) });
+  const positions = await fetchLongShort('okx', 'BTC-USDT-SWAP', 'topPositions', 5 * M, NOW - H, NOW, get, NOW);
+  assert.ok(get.asked.at(-1)!.includes('/long-short-position-ratio-contract-top-trader?'));
+  assert.ok(Math.abs(positions.points[0]!.long - 0.99 / 1.99) < 1e-9);
+  await fetchLongShort('okx', 'BTC-USDT-SWAP', 'topAccounts', 5 * M, NOW - H, NOW, get, NOW);
+  assert.ok(get.asked.at(-1)!.includes('/long-short-account-ratio-contract-top-trader?'));
+  assert.equal(lsPopulationOf('okx', 'topPositions'), 'topPositions', 'OKX follows the series chosen');
+  assert.equal(lsPopulationOf('bybit', 'topPositions'), 'accounts', 'Bybit publishes one');
+});
+
+test('Gate: every series from one answer, its counts or sizes checked against its ratio, paged forward; a coin it does not list publishes none', async () => {
+  // Gate's own answer for BTC_USDT (2026-10-21), the fields read.
+  const row = (t: number) => ({ time: t / 1000, lsr_account: 1.0164918488563124, long_users: 16087, short_users: 15826, top_lsr_account: 0.6266666666666667, top_long_account: 47, top_short_account: 75, top_lsr_size: 1.221354101019112, top_long_size: 32945851, top_short_size: 26974856 });
+  const get = fake({ 'https://api.gateio.ws/api/v4/futures/usdt/contract_stats': url => { const from = Number(url.searchParams.get('from')) * 1000; return [row(from), row(from + 5 * M)].filter(r => r.time * 1000 < NOW); } });
+  const all = await fetchLongShort('gateio', 'BTC_USDT', 'accounts', 5 * M, NOW - 10 * M, NOW, get, NOW);
+  assert.ok(Math.abs(all.points[0]!.long - 16087 / (16087 + 15826)) < 1e-9, 'users holding long against short');
+  assert.ok(get.asked[0]!.includes('contract=BTC_USDT') && get.asked[0]!.includes('interval=5m') && get.asked[0]!.includes(`from=${(NOW - 15 * M) / 1000}`), 'from the period before the window, in seconds');
+  const top = await fetchLongShort('gateio', 'BTC_USDT', 'topAccounts', 5 * M, NOW - 10 * M, NOW, get, NOW);
+  assert.ok(Math.abs(top.points[0]!.long - 47 / 122) < 1e-9, 'large holders by account: mostly short');
+  const size = await fetchLongShort('gateio', 'BTC_USDT', 'topPositions', 5 * M, NOW - 10 * M, NOW, get, NOW);
+  assert.ok(Math.abs(size.points[0]!.long - 32945851 / (32945851 + 26974856)) < 1e-9);
+  const missing = fake({ 'https://api.gateio.ws/': () => ({ label: 'CONTRACT_NOT_FOUND' }) });
+  await assert.rejects(fetchLongShort('gateio', 'NOPE_USDT', 'accounts', 5 * M, NOW - H, NOW, missing, NOW), LsNoMarket);
+  const cache = new LongShortCache(missing, false, () => NOW);
+  assert.equal((await cache.series('gateio:NOPE_USDT', 'accounts', 5 * M, NOW - H, NOW)).status, 'unsupported', 'not a failure to read');
+});
+
+test('the period of a window is what the cache reads it in: the chart\'s own, coarser for a long window, daily from 30 days', () => {
+  const D = 24 * H;
+  assert.equal(lsWindowPeriod('binance', H, NOW - 20 * D, NOW), H);
+  assert.equal(lsWindowPeriod('binance', H, NOW - 30 * D, NOW), D);
+  assert.equal(lsWindowPeriod('gateio', 15 * M, NOW - 20 * D, NOW), 15 * M, 'Gate keeps 2,000 readings a window like Binance: 20 days fit fifteen-minutely');
+  assert.equal(lsWindowPeriod('bitget', 15 * M, NOW - 20 * D, NOW), 2 * H, 'Bitget, with 288 a window, takes two-hourly readings');
+  assert.equal(lsWindowPeriod('hyperliquid', H, NOW - D, NOW), 0);
 });

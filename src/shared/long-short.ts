@@ -11,14 +11,20 @@ import type { Fetcher } from './history.ts';
  *   `shortAccount`, `longShortRatio`; 500 a page back from `endTime`, the last 30 days only (an older `endTime` is an error); CORS.
  * - Bybit `v5/market/account-ratio`: `buyRatio`, `sellRatio`, newest first, 500 a page back from `endTime`, years of it; CORS.
  * - OKX `rubik/stat/contracts/long-short-account-ratio-contract`: `[ts, ratio]` newest first, 100 a page back from `end` (five-minute
- *   periods for about a day, hourly for weeks); no CORS header, so a page cannot read it.
+ *   periods for about a day, hourly for weeks); no CORS header, so a page cannot read it. Its top traders (2026-10-21):
+ *   `long-short-account-ratio-contract-top-trader` (by accounts) and `long-short-position-ratio-contract-top-trader` (by positions), the
+ *   same shape and paging, hourly for about 30 days.
+ * - Gate `futures/usdt/contract_stats` (2026-10-21): every series in one answer, oldest first, 500 a page forward from `from` (seconds),
+ *   90 days and more; CORS. Users holding long and short positions (`long_users`, `short_users`, `lsr_account`) and its top traders, "large
+ *   holders" in Gate's words, by accounts (`top_long_account`, `top_short_account`, `top_lsr_account`) and by position size (`top_long_size`,
+ *   `top_short_size`, `top_lsr_size`); a coin it does not list answers `CONTRACT_NOT_FOUND`.
  * - Bitget `v2/mix/market/account-long-short` ("active" long/short accounts in Bitget's documentation): `longAccountRatio`,
  *   `shortAccountRatio`, `longShortAccountRatio`; the newest 30 periods only, no paging; CORS; one request a second.
  */
 
-/** Which population a series counts: every account, Binance's top traders' accounts or their positions, or Bitget's active accounts. */
+/** Which population a series counts: every account, top traders' accounts or their positions (Binance, OKX, Gate), or Bitget's active accounts. */
 export type LsPopulation = 'accounts' | 'topAccounts' | 'topPositions' | 'activeAccounts';
-/** The Binance series a person can choose; the other venues publish one each. */
+/** The series a person can choose: Binance, OKX and Gate publish each of them; Bybit and Bitget one each. */
 export type LsMetric = 'accounts' | 'topAccounts' | 'topPositions';
 export const LS_METRICS: readonly LsMetric[] = ['accounts', 'topAccounts', 'topPositions'];
 /** One reading: the period's start (ms) and the share net long (0..1). */
@@ -31,7 +37,11 @@ export interface LsPoint { t: number; long: number }
 export type LsStatus = 'ok' | 'empty' | 'unsupported' | 'serverOnly' | 'failed' | 'stale';
 export interface LsSeries { id: string; population: LsPopulation | null; periodMs: number; points: LsPoint[]; status: LsStatus }
 
-export const LS_VENUES: readonly string[] = ['binance', 'bybit', 'okx', 'bitget'];
+export const LS_VENUES: readonly string[] = ['binance', 'bybit', 'okx', 'bitget', 'gateio'];
+/** The venues whose series follows the one chosen (the others publish one each). */
+export const LS_CHOSEN_VENUES: readonly string[] = ['binance', 'okx', 'gateio'];
+/** A venue that does not list the market (Gate's `CONTRACT_NOT_FOUND`): it publishes no series for it, which is not a failure to read one. */
+export class LsNoMarket extends Error {}
 const MINUTE = 60_000, HOUR = 3_600_000, DAY = 86_400_000;
 /** Each venue's periods (ms) to its name for them. */
 const PERIODS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
@@ -39,13 +49,18 @@ const PERIODS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   bybit: { [5 * MINUTE]: '5min', [15 * MINUTE]: '15min', [30 * MINUTE]: '30min', [HOUR]: '1h', [4 * HOUR]: '4h', [DAY]: '1d' },
   okx: { [5 * MINUTE]: '5m', [HOUR]: '1H', [DAY]: '1D' },
   bitget: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [2 * HOUR]: '2h', [4 * HOUR]: '4h', [6 * HOUR]: '6h', [12 * HOUR]: '12h', [DAY]: '1d' },
+  gateio: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [4 * HOUR]: '4h', [DAY]: '1d' },
 };
 const BINANCE_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'globalLongShortAccountRatio', topAccounts: 'topLongShortAccountRatio', topPositions: 'topLongShortPositionRatio' };
+/** OKX's endpoint for each series (its top traders, ranked as OKX ranks them). */
+const OKX_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'long-short-account-ratio-contract', topAccounts: 'long-short-account-ratio-contract-top-trader', topPositions: 'long-short-position-ratio-contract-top-trader' };
+/** Gate's fields for each series: the long side, the short side and their ratio. */
+const GATE_FIELDS: Readonly<Record<LsMetric, readonly [string, string, string]>> = { accounts: ['long_users', 'short_users', 'lsr_account'], topAccounts: ['top_long_account', 'top_short_account', 'top_lsr_account'], topPositions: ['top_long_size', 'top_short_size', 'top_lsr_size'] };
 /** Binance answers only for the last 30 days. */
 const BINANCE_SPAN_MS = 30 * DAY;
 const PAGES = 12;
 /** Readings a page, per venue (Bitget has one page of 30). */
-const PAGE_ROWS: Readonly<Record<string, number>> = { binance: 500, bybit: 500, okx: 100, bitget: 30 };
+const PAGE_ROWS: Readonly<Record<string, number>> = { binance: 500, bybit: 500, okx: 100, bitget: 30, gateio: 500 };
 /** The most readings one window takes from a venue: well inside what one question's pages reach, and far below what a series keeps. */
 const windowReadings = (venue: string): number => Math.min(2_000, Math.floor(PAGES * (PAGE_ROWS[venue] ?? 30) * 0.8));
 /**
@@ -75,9 +90,19 @@ export function lsPeriodAtLeast(venue: string, ms: number): number | null {
   return all.find(p => p >= ms) ?? all[all.length - 1]!;
 }
 
-/** The population a venue's series counts, given the Binance series chosen; null for a venue that publishes none. */
+/**
+ * The period a venue's readings of a window [from, to) are taken in: the chart's own where that fits the window, else the shortest that does
+ * (a window keeps to `windowReadings`; from 30 days on, daily readings for month-scale context). 0 for a venue that publishes none. The pane
+ * reads it to know which of the cache's series a window lands on.
+ */
+export function lsWindowPeriod(venue: string, tfMs: number, from: number, to: number): number {
+  const span = to - from, need = Math.max(span / windowReadings(venue), span >= 30 * DAY ? DAY : 0), fine = LS_VENUES.includes(venue) ? lsPeriodOf(venue, tfMs) : null;
+  return fine === null ? 0 : fine >= need ? fine : lsPeriodAtLeast(venue, need) ?? 0;
+}
+
+/** The population a venue's series counts, given the series chosen; null for a venue that publishes none. */
 export function lsPopulationOf(venue: string, metric: LsMetric): LsPopulation | null {
-  return venue === 'binance' ? metric : venue === 'bitget' ? 'activeAccounts' : venue === 'bybit' || venue === 'okx' ? 'accounts' : null;
+  return LS_CHOSEN_VENUES.includes(venue) ? metric : venue === 'bitget' ? 'activeAccounts' : venue === 'bybit' ? 'accounts' : null;
 }
 
 const num = (value: unknown): number => typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
@@ -122,7 +147,7 @@ export const shareOfRatio = (ratio: number): number => ratio / (1 + ratio);
  */
 export async function fetchLongShort(venue: string, symbol: string, metric: LsMetric, periodMs: number, from: number, to: number, get: Fetcher, now = Date.now()): Promise<{ points: LsPoint[]; from: number }> {
   const name = PERIODS[venue]?.[periodMs];
-  if (!name || lsPopulationOf(venue, metric) === null || (venue !== 'binance' && metric !== 'accounts')) throw new Error(`${venue} publishes no such series`);
+  if (!name || lsPopulationOf(venue, metric) === null || (!LS_CHOSEN_VENUES.includes(venue) && metric !== 'accounts')) throw new Error(`${venue} publishes no such series`);
   const out = new Map<number, LsPoint>(), take = (p: LsPoint | null): void => { if (p && p.t >= from - periodMs && p.t < to) out.set(p.t, p); };
   const s = encodeURIComponent(symbol);
   let end = to, page = 0;
@@ -157,7 +182,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
   } else if (venue === 'okx') {
     for (; page < PAGES && end >= from; page++) {
       const limit = limitFor(from);
-      const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio-contract?instId=${s}&period=${name}&limit=${limit}&end=${Math.floor(end)}`);
+      const answer = await get(`https://www.okx.com/api/v5/rubik/stat/contracts/${OKX_PATHS[metric]}?instId=${s}&period=${name}&limit=${limit}&end=${Math.floor(end)}`);
       if (String(at(answer, 'code')) !== '0') throw new Error(`okx: ${String(at(answer, 'msg'))}`);
       const got = rows(at(answer, 'data'), 'okx', 0, 1);
       let oldest = Infinity;
@@ -165,6 +190,27 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
       if (got.length < limit) break;
       end = nextEnd('okx', oldest);
     }
+  } else if (venue === 'gateio') {
+    // USDT-settled perpetuals only (BTC_USDT); read forward from where the window starts, or from where `PAGES` pages back from its end reach.
+    const settle = /_USDT$/.test(symbol) ? 'usdt' : null; if (!settle) throw new LsNoMarket(`gateio: ${symbol}`);
+    const [longKey, shortKey, ratioKey] = GATE_FIELDS[metric], rowsMax = PAGE_ROWS.gateio!;
+    let start = Math.max(from - periodMs, to - PAGES * rowsMax * periodMs);
+    const reached = start > from - periodMs ? start : from;
+    for (; page < PAGES && start < to; page++) {
+      const answer = await get(`https://api.gateio.ws/api/v4/futures/${settle}/contract_stats?contract=${s}&interval=${name}&from=${Math.floor(start / 1000)}&limit=${rowsMax}`);
+      if (!Array.isArray(answer) && at(answer, 'label') === 'CONTRACT_NOT_FOUND') throw new LsNoMarket(`gateio: ${symbol}`);
+      const got = rows(answer, 'gateio', 'time', longKey, shortKey, ratioKey);
+      let newest = -Infinity;
+      for (const r of got) {
+        const t = num(at(r, 'time')) * 1000, long = num(at(r, longKey)), short = num(at(r, shortKey));
+        // Counts (or sizes) of each side, checked against Gate's own ratio.
+        take(long > 0 && short > 0 ? lsReading(t, long / (long + short), short / (long + short), num(at(r, ratioKey))) : null);
+        if (t > newest) newest = t;
+      }
+      if (got.length < rowsMax || !Number.isFinite(newest)) break;
+      start = newest + periodMs;
+    }
+    return { points: [...out.values()].sort((a, b) => a.t - b.t), from: reached };
   } else if (venue === 'bitget') {
     const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
     if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
@@ -184,7 +230,7 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
  * grows only while it is asked for.
  */
 export class LongShortCache {
-  #series = new Map<string, { points: Map<number, LsPoint>; from: number; to: number; checked: number; failed: number; busy: Promise<void> | null }>();
+  #series = new Map<string, { points: Map<number, LsPoint>; from: number; to: number; checked: number; failed: number; busy: Promise<void> | null; noMarket?: boolean }>();
   constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000, private pageDeadlineMs = LS_PAGE_DEADLINE_MS) {}
 
   async series(id: string, metric: LsMetric, tfMs: number, from: number, to: number): Promise<LsSeries> {
@@ -193,8 +239,7 @@ export class LongShortCache {
     // across it and the series never holds more than it keeps. Month-scale context uses daily readings, independent of the candle setting.
     const population = colon > 0 && LS_VENUES.includes(venue) ? lsPopulationOf(venue, metric) : null;
     // The chart's own period where that fits the window, else the shortest that does (OKX steps from five minutes straight to an hour).
-    const span = to - from, need = Math.max(span / windowReadings(venue), span >= 30 * DAY ? DAY : 0), fine = population ? lsPeriodOf(venue, tfMs) : null;
-    const periodMs = fine === null ? 0 : fine >= need ? fine : lsPeriodAtLeast(venue, need) ?? 0;
+    const periodMs = population ? lsWindowPeriod(venue, tfMs, from, to) : 0;
     const answer = (points: LsPoint[], status: LsStatus): LsSeries => ({ id, population, periodMs, points, status });
     if (!population || !periodMs) return answer([], 'unsupported');
     if (this.browser && venue === 'okx') return answer([], 'serverOnly');
@@ -227,7 +272,7 @@ export class LongShortCache {
       // Too far from what is held for one question to join them without a hole: the series starts again at this window.
       if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
-      h.busy = fetchLongShort(venue, symbol, venue === 'binance' ? metric : 'accounts', periodMs, start, end, get, now).then(({ points, from: reached }) => {
+      h.busy = fetchLongShort(venue, symbol, LS_CHOSEN_VENUES.includes(venue) ? metric : 'accounts', periodMs, start, end, get, now).then(({ points, from: reached }) => {
         h.failed = 0;
         for (const p of points) h.points.set(p.t, p);
         // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
@@ -250,11 +295,13 @@ export class LongShortCache {
           h.points = new Map(keep.map(t => [t, h.points.get(t)!]));
           h.from = Math.max(h.from, keep[0]!); h.to = Math.min(h.to, keep[keep.length - 1]! + periodMs);
         }
-      }, () => {
+      }, error => {
         // When it failed, not when it began: a slow request of many pages would otherwise leave no minute's pause behind it.
         h.failed = this.now();
+        if (error instanceof LsNoMarket) h.noMarket = true;
       }).finally(() => { h.busy = null; });
     }
+    if (held.noMarket) return answer([], 'unsupported');
     const points = [...held.points.values()].filter(p => p.t >= from - periodMs && p.t < to).sort((a, b) => a.t - b.t);
     // The last request failing after the last success says so, with what is held from before; so does a window not read in its turns.
     const failing = !covered || (held.failed > 0 && held.failed >= held.checked);
