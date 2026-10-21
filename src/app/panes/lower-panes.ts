@@ -15,6 +15,7 @@ import { BAR_STATS, GROUP_SHORT, GROUP_TITLES, HEAD_H, PRESETS, coverageOf, csvC
 import { resolveZone } from '../traded/settings.ts';
 import { resetKeys } from '../delta/candles.ts';
 import { LIQUIDATIONS_PER_ANSWER, LIQUIDATION_RETENTION_MS } from '../../shared/liquidations.ts';
+import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
 import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { barAt, columnAt, depthCardLines, depthColumns, depthKey, ltCardLines, oiCardLines, oiTail, readAt, slotAt } from './pane-cards.ts';
@@ -656,7 +657,8 @@ export class BarStatsPane extends TimePane {
   #liqIds = '';
   #liqLoading = new Set<number>();
   #liqVersion = 0;
-  #liqRetryAt = 0;
+  /** A day whose question failed is asked again after its own pause, the others meanwhile. */
+  #liqRetry = new Map<number, number>();
   #liqBuckets: { key: string; value: StatInput['liquidations'] } | null = null;
   #button = document.createElement('button');
   #panel: Panel | null = null;
@@ -773,20 +775,27 @@ export class BarStatsPane extends TimePane {
     this.invalidate();
   }
 
-  /** Ask for the UTC days of [from, to) not held, and the day under way when what is held of it is more than half a minute old. */
+  /**
+   * Ask for the UTC days of [from, to) not held, and again a day not answered to its end (the day under way, or one asked before its midnight)
+   * once what is held of it is half a minute old.
+   */
   #ensureLiquidations(ids: string, from: number, to: number): void {
     const source = this.hub.source; if (!source.liquidations) return;
     // Other markets counted: what is held is not theirs, and an answer still out for the old ones is dropped when it comes.
-    if (ids !== this.#liqIds) { this.#liqIds = ids; this.#liqDays = new Map(); this.#liqVersion++; }
-    const now = Date.now(); if (now < this.#liqRetryAt) return;
+    if (ids !== this.#liqIds) { this.#liqIds = ids; this.#liqDays = new Map(); this.#liqRetry = new Map(); this.#liqVersion++; }
+    const now = Date.now();
     for (let day = Math.floor((to - 1) / DAY_MS) * DAY_MS; day >= Math.floor(from / DAY_MS) * DAY_MS && this.#liqLoading.size < 2; day -= DAY_MS) {
-      const held = this.#liqDays.get(day), open = day + DAY_MS > now - 60_000;
-      if (this.#liqLoading.has(day) || (held && (!open || now - held.at < 30_000))) continue;
+      const held = this.#liqDays.get(day);
+      if (this.#liqLoading.has(day) || now < (this.#liqRetry.get(day) ?? 0) || (held && (held.to >= day + DAY_MS || now - held.at < 30_000))) continue;
       this.#liqLoading.add(day);
+      const asked = Date.now();
       source.liquidations(day, day + DAY_MS).then(rows => {
         if (ids !== this.#liqIds) return;
-        this.#liqDays.set(day, { rows, cut: rows.length >= LIQUIDATIONS_PER_ANSWER, at: Date.now() }); this.#liqVersion++; this.invalidate();
-      }, () => { this.#liqRetryAt = Date.now() + 15_000; this.invalidate(); }).finally(() => { this.#liqLoading.delete(day); });
+        this.#liqRetry.delete(day);
+        this.#liqDays.set(day, { rows, cut: rows.length >= LIQUIDATIONS_PER_ANSWER, to: Math.min(day + DAY_MS, asked), at: Date.now() }); this.#liqVersion++;
+      }, () => { if (ids === this.#liqIds) this.#liqRetry.set(day, Date.now() + 15_000); })
+        // Drawn again whatever came back: the slot it held is free for the next day, an answer dropped for other markets included.
+        .finally(() => { this.#liqLoading.delete(day); this.invalidate(); });
     }
     // Only the days around the window are kept.
     for (const day of [...this.#liqDays.keys()]) if (day + DAY_MS < from - DAY_MS || day > to + DAY_MS) this.#liqDays.delete(day);
@@ -795,9 +804,10 @@ export class BarStatsPane extends TimePane {
   /** The liquidations by candle over the table's candles, from the days answered (kept while neither they nor the candles change). */
   #liquidationsFor(ids: readonly string[], times: readonly number[], tfMs: number, coverFrom: number): StatInput['liquidations'] {
     if (ids.join(',') !== this.#liqIds) return undefined;
-    const key = `${this.#liqVersion}|${this.#liqIds}|${times[0]}|${times.length}|${times[times.length - 1]}|${tfMs}|${coverFrom}`;
+    // By the minute too: the candle under way counts once the minute it starts in has been asked about.
+    const key = `${this.#liqVersion}|${this.#liqIds}|${times[0]}|${times.length}|${times[times.length - 1]}|${tfMs}|${coverFrom}|${Math.floor(Date.now() / 60_000)}`;
     if (this.#liqBuckets?.key === key) return this.#liqBuckets.value;
-    const value = liquidationBuckets(this.#liqDays, ids, times, tfMs, coverFrom);
+    const value = liquidationBuckets(this.#liqDays, ids, times, tfMs, coverFrom, Date.now());
     this.#liqBuckets = { key, value };
     return value;
   }
@@ -829,10 +839,11 @@ export class BarStatsPane extends TimePane {
     if (!times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); this.#table = null; return null; }
     const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(now / tfMs) * tfMs : Infinity);
     const taker = defs.some(def => def.id === 'takerDelta') ? this.heat.takerRows(state, tfMs, times[0]!) : null;
-    // Liquidations of the markets counted, a UTC day per answer, over the table's candles to the view's end (steady through a replay, whose
-    // candles after its moment are not slots). A candle before the record reaches (kept a week, and only since the recording started) is not
-    // known: the minute is enough for that edge, and keeps what is worked out from it from changing on every frame.
-    const liqTo = Math.ceil((v.t1 + tfMs) / tfMs) * tfMs, liqCover = Math.max(Math.floor((Date.now() - LIQUIDATION_RETENTION_MS) / 60_000) * 60_000, this.hub.recordedSince > 0 ? this.hub.recordedSince : 0);
+    // Liquidations of the markets counted, a UTC day per answer, over the days of the table's candles (none after now). A candle before the
+    // record reaches is not known: the source keeps a week (a page's own engine a day), and only since the recording started. The edge is
+    // taken to the next whole minute (a candle half expired is not known either), which also keeps it from changing on every frame.
+    const retention = this.hub.source.kind === 'browser' ? BROWSER_RETENTION_MS : LIQUIDATION_RETENTION_MS;
+    const liqTo = Math.min(times[times.length - 1]! + tfMs, Date.now()), liqCover = Math.max(Math.ceil((Date.now() - retention) / 60_000) * 60_000, this.hub.recordedSince > 0 ? this.hub.recordedSince : 0);
     let liquidations: StatInput['liquidations'];
     if (this.hub.source.liquidations && defs.some(def => def.id === 'liq' || def.id === 'liqNet') && markets.length) {
       this.#ensureLiquidations(markets.join(','), Math.max(times[0]!, liqCover), liqTo);
