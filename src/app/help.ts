@@ -131,7 +131,7 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
   },
   volume: {
     title: t('Volume'), guide: 'chart',
-    tip: t("Volume bars along the bottom of the chart. Where the recording reaches, each is what the exchanges switched on inside the Spot / Perp filter traded in that candle; before it, the chart's own candle, outlined and named ≈ with its market (split by taker buys on Binance, grey elsewhere). They follow the volume profile's Bars and value area settings. Unusually large ones are drawn stronger (see Highlights)."),
+    tip: t("Volume bars along the bottom of the chart, split into what was bought and sold at market. Where the recording reaches, each is what the exchanges switched on inside the Spot / Perp filter traded in that candle; before it, the chart's own candle, outlined with its market: Binance's quote volume and trades as reported, another exchange's volume at its typical price, named ≈ (grey where it does not say who bought). Hover a bar for its volume, its sides and delta with their shares, and for a recorded candle its market orders: how many, the average buy, sell and overall order, the whale share and the largest venues. They follow the volume profile's Bars setting. Unusually large ones are drawn stronger (see Highlights)."),
     body: [],
   },
   bubbles: {
