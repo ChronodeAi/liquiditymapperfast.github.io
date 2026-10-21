@@ -136,3 +136,83 @@ test('bar statistics options from storage or a file: each within what the settin
   assert.deepEqual([readStatOptions({ retailMax: 7, whaleMin: 0 }).retailUsd, readStatOptions({ retailMax: 7, whaleMin: 0 }).whaleUsd], [100_000, 500_000], 'box numbers with no such edge are the defaults');
   assert.equal(readStatOptions({ stackedN: 1 }).stackedN, 3);
 });
+
+test('a candle without executions is a slot: the rows read from candles still show there, those read from executions do not', () => {
+  const withGap = new Map(candles); withGap.set(MIN, [MIN, 105, 106, 104, 105.5, 10, 1]);
+  const slots: StatInput = { bars: [bars[0]!, null, bars[2]!], times: [0, MIN, 2 * MIN], step: 5, candles: withGap, oi, options: { ...DEFAULT_STAT_OPTIONS } };
+  assert.deepEqual(statDef('vol')!.compute(slots), [65, null, 92]);
+  assert.deepEqual(statDef('cvd')!.compute(slots), [5, null, 13], 'the running sum carries over a slot without a bar');
+  assert.deepEqual(statDef('range')!.compute(slots), [13, 2, 10], 'the candle without executions still has its range');
+});
+
+test('the candle rows: where it closed in its range, and the effort per basis point of it', () => {
+  const close = compute('closePos'), effort = compute('effort');
+  assert.ok(Math.abs(close[0]! - 6 / 13 * 100) < 1e-9);
+  assert.equal(close[1], null, 'no candle there');
+  assert.equal(close[2], 80);
+  assert.ok(Math.abs(effort[0]! - 55 * (112 + 99 + 105) / 3 / 1300) < 1e-9, 'its dollars at the typical price over 1300 bp');
+  assert.ok(Math.abs(effort[2]! - 92 * 114 / (10 / 110 * 10_000)) < 1e-9);
+});
+
+test('the footprint rows: the point of control in the candle and how far it moved', () => {
+  const pos = compute('pocPos');
+  assert.ok(Math.abs(pos[0]! - 3.5 / 13 * 100) < 1e-9, 'row 100 (its middle 102.5) in 99 to 112');
+  assert.ok(Math.abs(pos[2]! - 45) < 1e-9);
+  assert.deepEqual(compute('pocMove'), [null, 0, 10], 'none for the first; 102.5 to 102.5, then to 112.5');
+});
+
+test('delta against the candle marks buying into a fall and selling into a rise, from 5 % of the volume', () => {
+  assert.deepEqual(compute('divergence'), [0, null, 0], 'both bars bought into a rising candle');
+  const falling = new Map(candles); falling.set(0, [0, 112, 112, 99, 100, 55, 1]);
+  assert.deepEqual(statDef('divergence')!.compute({ ...input(), candles: falling }), [1, null, 0], 'net buying while the candle fell: ▲');
+  assert.equal(statDef('divergence')!.format(1), '▲');
+  assert.equal(statDef('divergence')!.format(0), '', 'nothing to mark');
+  const thin = bar(0, [[100, 51, 49]]);
+  assert.deepEqual(statDef('divergence')!.compute({ ...input(), bars: [thin], candles: falling }), [0], 'a delta of 2 % is not marked');
+});
+
+test('open interest against delta: the quadrant of the two signs', () => {
+  assert.deepEqual(compute('oiQuad'), [null, null, 3], 'the last bar bought while open interest fell: −▲');
+  assert.equal(statDef('oiQuad')!.format(3), '−▲');
+  assert.equal(statDef('oiQuad')!.tone!(3), 'buy');
+  assert.equal(statDef('oiQuad')!.tone!(2), 'sell');
+});
+
+test('whale share and the size skew of market buys against sells', () => {
+  const share = compute('whaleShare');
+  assert.ok(Math.abs(share[0]! - 5_000_000 / 5_060_100 * 100) < 1e-9);
+  assert.equal(share[1], null);
+  assert.ok(Math.abs(share[2]! - 80_000 / 105_000 * 100) < 1e-9);
+  const skew = compute('sizeSkew');
+  assert.ok(Math.abs(skew[0]! - Math.log2((5_000_100 / 2) / 60_000)) < 1e-9);
+  assert.ok(Math.abs(skew[2]! - Math.log2(80_000 / 25_000)) < 1e-9);
+  assert.equal(statDef('sizeSkew')!.format(Math.log2(3.2)), '×3.2');
+});
+
+test('coverage is the minutes recorded over the candle, or over what of it has passed while it runs', () => {
+  const hour = 3_600_000, closed = { ...bar(0, [[100, 1, 1]]), minutes: 30 }, live = { ...bar(hour, [[100, 1, 1]]), minutes: 10 };
+  const values = statDef('cover')!.compute({ ...input(), bars: [closed, live], tfMs: hour, now: hour + 20 * MIN });
+  assert.deepEqual(values, [50, 50]);
+  assert.equal(statDef('cover')!.format(100), '', 'a whole candle is not marked');
+  assert.equal(statDef('cover')!.format(50), '50%');
+  assert.deepEqual(statDef('cover')!.compute({ ...input(), bars: [bar(0, [[100, 1, 1]])], tfMs: hour, now: hour }), [null], 'a source that does not say');
+});
+
+test('the candle delta reads the exchange\'s taker buys, and is empty without them', () => {
+  const values = statDef('takerDelta')!.compute({ ...input(), taker: new Map([[0, 0.6]]) });
+  assert.ok(Math.abs(values[0]! - 0.2 * 55 * (112 + 99 + 105) / 3) < 1e-9, 'bought 60 %: delta is a fifth of its dollars');
+  assert.deepEqual(values.slice(1), [null, null]);
+  assert.deepEqual(statDef('takerDelta')!.compute(input()), [null, null, null], 'a market that does not report them');
+});
+
+test('the View column: each statistic over the candles in view, taken as it should be', () => {
+  const slots: StatInput = { bars: [bars[0]!, null, bars[2]!], times: [0, MIN, 2 * MIN], step: 5, candles, oi, options: { ...DEFAULT_STAT_OPTIONS } };
+  const view = (id: string) => { const def = statDef(id)!; return def.view!(slots, [0, 1, 2], def.compute(slots)); };
+  assert.equal(view('vol')!.value, statDef('vol')!.format(157), 'a sum');
+  assert.equal(view('cvd')!.value, statDef('cvd')!.format(13), 'a running sum shows its newest');
+  assert.equal(view('deltaPct')!.value, statDef('deltaPct')!.format(13 / 157 * 100), 'the shares of the sums, not a sum of shares');
+  assert.equal(view('range')!.value, statDef('range')!.format(118 - 99), 'the highest high less the lowest low');
+  assert.equal(view('poc')!.value, statDef('poc')!.format(112.5), 'the busiest row of the rows added together');
+  assert.equal(view('divergence'), null, 'nothing marked, nothing to say');
+  for (const def of BAR_STATS) assert.ok(def.view, `${def.id} has a View figure`);
+});

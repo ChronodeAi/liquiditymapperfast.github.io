@@ -11,7 +11,7 @@ import { ASKS, BIDS, DepthBars, fitsBars, neededBars, pixelFlags, sideFlags } fr
 import type { View } from '../view.ts';
 import { clock, price as fmtPrice, usd } from '../format.ts';
 import { gutter, leftGutter, timeTicks, AXIS_W, type HeatPane } from './heat-pane.ts';
-import { BAR_STATS, GROUP_TITLES, PRESETS, enabledStats, rowScale, statCellLines, statDef, strength, type StatCell, type StatGroup } from './bar-stats.ts';
+import { BAR_STATS, GROUP_TITLES, PRESETS, coverageOf, csvCell, enabledStats, rowScale, statCellLines, statDef, strength, viewCellLines, type StatCell, type StatDef, type StatGroup, type StatInput, type StatTone } from './bar-stats.ts';
 import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { barAt, columnAt, depthCardLines, depthColumns, depthKey, ltCardLines, oiCardLines, oiTail, readAt, slotAt } from './pane-cards.ts';
@@ -628,6 +628,8 @@ export class BarStatsPane extends TimePane {
   /** The strip is too short for a popup drawn on it, so the cell's popup is a page element. */
   #card = new HoverCard();
   #cell: StatCell | null = null;
+  /** The popup of the View column's cell under the pointer, when it is there. */
+  #viewLines: InfoLine[] | null = null;
   #button = document.createElement('button');
   #panel: Panel | null = null;
   /** The open interest's change in USD, worked out once per set of bars, parts and candles (the pane paints on every pointer move), and only in USD. */
@@ -657,7 +659,8 @@ export class BarStatsPane extends TimePane {
     const setStats = (ids: string[]) => this.store.set({ barStats: ids });
     const setOptions = (change: Partial<StatOptions>) => this.store.set({ barStatOptions: { ...this.store.state.barStatOptions, ...change } });
 
-    for (const [label, ids] of [[t('Default'), PRESETS.default], [t('All'), PRESETS.all], [t('None'), PRESETS.none]] as const) tools.append(button(label, () => setStats([...ids])));
+    for (const [label, ids] of [[t('Default'), PRESETS.default], [t('Order flow'), PRESETS.flow], [t('All'), PRESETS.all], [t('None'), PRESETS.none]] as const) tools.append(button(label, () => setStats([...ids])));
+    const exportButton = button(t('Export CSV'), () => this.#export()); setTip(exportButton, t('Save the candles in view as a CSV file: one line per candle, a column per statistic shown.')); tools.append(exportButton);
     tools.append(el('span', { class: 'muted', textContent: t('{shown} of {total} shown', { shown: chosen.length, total: BAR_STATS.length }) }));
 
     body.append(heading(t('Sound')), panelSwitchRow(this.store, 'bars'));
@@ -700,65 +703,102 @@ export class BarStatsPane extends TimePane {
   }
 
   protected draw(): void {
-    this.#cell = null;
+    this.#cell = null; this.#viewLines = null;
     this.#strip();
-    const at = this.pointer;
-    if (this.#cell && at) this.#card.show(statCellLines(this.#cell), at.x, at.y); else this.#card.hide();
+    const at = this.pointer, lines = this.#cell ? statCellLines(this.#cell) : this.#viewLines;
+    if (lines && at) this.#card.show(lines, at.x, at.y); else this.#card.hide();
   }
 
-  protected override undrawn(): void { this.#cell = null; this.#card.hide(); }
+  protected override undrawn(): void { this.#cell = null; this.#viewLines = null; this.#card.hide(); }
+
+  /** What the table worked out last, kept while nothing it was worked out from changes (a pointer move only redraws), and what Export CSV writes. */
+  #table: { key: unknown[]; times: number[]; defs: StatDef[]; values: (number | null)[][]; input: StatInput } | null = null;
 
   #strip(): void {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state = this.store.state;
     const tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000, defs = enabledStats(state.barStats), options = state.barStatOptions;
-    const readout = this.head.querySelector('.readout');
+    const readout = this.head.querySelector('.readout'), data = this.heat.footprintData;
     // Aggregated, the rows count every market the footprint adds together; open interest stays the OI pane's one market (as its row's tip says).
     const markets = this.heat.footprintMarkets(state).length, stats = tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view');
     // The size of the rows the footprint rows of the table (poc, imbalances) are read on: the footprint's at this zoom, whether it shows or not.
-    const rows = this.heat.footprintData.step > 0 ? ` · ${t('rows of {step}', { step: `$${fmtPrice(this.heat.footprintData.step, this.heat.footprintData.step)}` })}` : '';
-    setText(readout, (markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats) + rows);
+    const rowSize = data.step > 0 ? ` · ${t('rows of {step}', { step: `$${fmtPrice(data.step, data.step)}` })}` : '';
+    setText(readout, (markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats) + rowSize);
     if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); return; }
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
-    // The bars of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
+    // The candles of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
     // view, whatever was looked at before.
-    const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity;
-    const all = [...data.bars.values()].filter(b => b.t + tfMs <= until && b.t + 2 * tfMs > v.t0 && b.t < v.t1 + tfMs).sort((a, b) => a.t - b.t);
-    if (!all.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); return; }
-    const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(pageNow() / tfMs) * tfMs : Infinity), candles = new Map(state.candles.map(c => [c[0], c] as const));
-    const input = { bars: all, step: data.step, options, cuts: data.cuts, candles, oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
+    const now = pageNow(), until = replaying() ? now : Infinity, near = (start: number): boolean => start + tfMs <= until && start + 2 * tfMs > v.t0 && start < v.t1 + tfMs;
+    // One slot per candle: the chart's candles, and a bar the footprint holds where a candle is missing. A candle without executions (before the
+    // recording, a gap) is a slot without a bar: the rows read from the candles and open interest still show there.
+    const starts = new Set<number>();
+    for (const c of state.candles) if (near(c[0])) starts.add(c[0]);
+    for (const b of data.bars.values()) if (near(b.t)) starts.add(b.t);
+    const times = [...starts].sort((a, b) => a - b);
+    if (!times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); this.#table = null; return; }
+    const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(now / tfMs) * tfMs : Infinity);
+    const taker = defs.some(def => def.id === 'takerDelta') ? this.heat.takerShares(state, tfMs, times[0]!) : null;
+    // Worked out again only when what it is worked out from changes: a pointer move redraws from what is held. The clock counts by the minute
+    // (the coverage of the candle under way).
+    const key = [data.version, data.step, state.candles, state.oi, parts, state.oiPrice, state.barStats, options, data.cuts, taker, times[0], times[times.length - 1], times.length, tfMs, Math.floor(now / 60_000)];
+    let table = this.#table;
+    if (!table || table.key.length !== key.length || table.key.some((k, i) => k !== key[i])) {
+      const candles = new Map(state.candles.map(c => [c[0], c] as const));
+      const input: StatInput = { bars: times.map(start => data.bars.get(start) ?? null), times, tfMs, now, ...(taker ? { taker } : {}), step: data.step, options, cuts: data.cuts, candles,
+        oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
+      table = this.#table = { key, times, defs, values: defs.map(def => def.compute(input)), input };
+    }
+    const { input, values: rowsValues } = table, all = input.bars;
     // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.
     const labelOf = new Map(defs.map(def => [def.id, def.approx?.(input) ? `≈${def.label}` : def.label]));
     const slot = pw * tfMs / (v.t1 - v.t0), top = 3, rowH = Math.max(15, (ph - 6) / defs.length), filled = options.cells === 'filled';
-    const visible = all.map((bar, i) => i).filter(i => all[i]!.t + tfMs >= v.t0 && all[i]!.t <= v.t1);
+    const visible = times.map((_, i) => i).filter(i => times[i]! + tfMs >= v.t0 && times[i]! <= v.t1);
     if (!visible.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No executions recorded for the candles in view.'), 12, ph / 2); return; }
-    // Under the pointer: the candle (any pane's pointer says which, the time axis being shared) and, from this pane's own pointer, the row.
-    const hv = state.hover, under = hv ? all.findIndex(bar => hv.t >= bar.t && hv.t < bar.t + tfMs) : -1;
-    // Past the newest bar this pane's own pointer reads the newest (readAt); another pane's pointer there marks nothing here.
-    const hoverIdx = hv && this.pointer ? readAt(under, hv.t, all.length - 1, all[all.length - 1]!.t) : under;
-    if (hoverIdx >= 0 && hoverIdx !== under) this.cursorT = all[hoverIdx]!.t + tfMs / 2;
+    // A candle the recording holds only in part: the rows read from executions are drawn faint there (rec % says how much).
+    const partial = all.map((bar, i) => { const share = bar ? coverageOf(bar, times[i]!, tfMs, now) : null; return share !== null && share < 0.95; });
+    // Under the pointer: the candle (any pane's pointer says which, the time axis being shared) and, from this pane's own pointer, the row; or,
+    // right of the plot, the row's View figure.
+    const hv = state.hover, local = this.pointer ? this.pointer.x - this.canvas.getBoundingClientRect().left - leftGutter(state) : -1, overView = local > pw;
+    const under = hv && !overView ? times.findIndex(start => hv.t >= start && hv.t < start + tfMs) : -1;
+    // Past the newest candle this pane's own pointer reads the newest (readAt); another pane's pointer there marks nothing here.
+    const hoverIdx = overView ? -1 : hv && this.pointer ? readAt(under, hv.t, times.length - 1, times[times.length - 1]!) : under;
+    if (hoverIdx >= 0 && hoverIdx !== under) this.cursorT = times[hoverIdx]! + tfMs / 2;
     const hoverRow = hv && hv.source === 'bars' ? Math.floor((hv.y - top) / rowH) : -1;
-    let hoverCell: StatCell | null = null;
+    let hoverCell: StatCell | null = null, viewHover: InfoLine[] | null = null;
+    const toneColor = (tone: StatTone | null): string => tone === 'buy' ? p.candleUp : tone === 'sell' ? p.candleDown : p.muted;
     ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
     defs.forEach((def, rowIndex) => {
-      const values = def.compute(input), scale = rowScale(def, visible.map(i => values[i]));
-      const found = state.highlight.on && def.scale !== 'plain' ? anomalies(Float64Array.from(values, value => value === null || value === undefined ? NaN : Math.abs(value)), state.highlight) : null, unusual = found?.flag ?? null;
+      const values = rowsValues[rowIndex]!, ranked = def.scale !== 'plain' && def.scale !== 'category', scale = ranked ? rowScale(def, visible.map(i => values[i])) : null;
+      const found = state.highlight.on && ranked ? anomalies(Float64Array.from(values, value => value === null || value === undefined ? NaN : Math.abs(value)), state.highlight) : null, unusual = found?.flag ?? null;
       const mine = hoverIdx >= 0 && rowIndex === hoverRow ? values[hoverIdx] : undefined;
       if (hoverIdx >= 0 && rowIndex === hoverRow && mine !== null && mine !== undefined) {
-        const before = all[hoverIdx - 1], previous = before && before.t === all[hoverIdx]!.t - tfMs ? values[hoverIdx - 1] : null;
-        const seen = visible.map(i => values[i]).filter((x): x is number => x !== null && x !== undefined), rank = (x: number) => def.scale === 'diverging' ? Math.abs(x) : x;
+        const previous = hoverIdx > 0 && times[hoverIdx - 1] === times[hoverIdx]! - tfMs ? values[hoverIdx - 1] : null;
+        const seenValues = visible.map(i => values[i]).filter((x): x is number => x !== null && x !== undefined), rank = (x: number) => def.scale === 'diverging' ? Math.abs(x - (def.center ?? 0)) : x;
+        const tone: StatTone = def.scale === 'category' ? def.tone?.(mine) ?? 'text' : def.scale === 'diverging' ? (mine - (def.center ?? 0) >= 0 ? 'buy' : 'sell') : 'text';
+        const share = all[hoverIdx] ? coverageOf(all[hoverIdx]!, times[hoverIdx]!, tfMs, now) : null;
         hoverCell = {
-          label: labelOf.get(def.id)!, title: def.approx?.(input) ? `${def.title} ${t('≈ About: for some of these minutes only the size boxes are known (an older server, or minutes it has not filled in yet), so this line is drawn at the nearest box edge.')}` : def.title, value: def.format(mine), tone: def.scale === 'diverging' ? (mine - (def.center ?? 0) >= 0 ? 'buy' : 'sell') : 'text', time: clock(all[hoverIdx]!.t, true),
-          previous: previous === null || previous === undefined ? null : def.format(previous), rank: 1 + seen.filter(x => rank(x) > rank(mine)).length, of: seen.length,
+          label: labelOf.get(def.id)!, title: def.approx?.(input) ? `${def.title} ${t('≈ About: for some of these minutes only the size boxes are known (an older server, or minutes it has not filled in yet), so this line is drawn at the nearest box edge.')}` : def.title,
+          value: def.format(mine) || (def.id === 'cover' ? '100%' : '—'), tone, time: clock(times[hoverIdx]!, true),
+          previous: previous === null || previous === undefined ? null : def.format(previous) || (def.id === 'cover' ? '100%' : '—'), rank: ranked ? 1 + seenValues.filter(x => rank(x) > rank(mine)).length : null, of: seenValues.length,
           sigma: unusual?.[hoverIdx] && found ? found.sigma[hoverIdx] ?? null : null,
+          partial: def.source === 'executions' && share !== null && share < 0.95 ? Math.round(share * 100) : null,
         };
       }
       const y = top + rowIndex * rowH;
       if (!filled) { ctx.globalAlpha = 0.5; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, Math.round(y + rowH - 1) + 0.5); ctx.lineTo(pw, Math.round(y + rowH - 1) + 0.5); ctx.stroke(); ctx.globalAlpha = 1; }
       for (const i of visible) {
-        const x = v.xOf(all[i]!.t, pw), w = Math.max(1, slot - 1), value = values[i];
+        const x = v.xOf(times[i]!, pw), w = Math.max(1, slot - 1), value = values[i], fade = def.source === 'executions' && partial[i] ? 0.45 : 1;
         if (value === null || value === undefined) {
           if (filled) { ctx.globalAlpha = 0.5; ctx.fillStyle = p.line; ctx.fillRect(x, y, w, rowH - 1); ctx.globalAlpha = 1; }
           if (slot >= 48) { ctx.fillStyle = p.muted; ctx.fillText('–', x + w / 2, y + (rowH - 1) / 2); }
+          continue;
+        }
+        if (def.scale === 'category') {
+          // A mark per candle: tinted by the side it stands for, empty where there is nothing to mark.
+          const mark = def.format(value), tone = mark ? def.tone?.(value) ?? null : null, fill = tone ? mixHex(p.panel, toneColor(tone), 0.32) : p.panel;
+          ctx.globalAlpha = fade;
+          if (filled) { ctx.fillStyle = fill; ctx.fillRect(x, y, w, rowH - 1); }
+          if (mark && ctx.measureText(mark).width <= w - 2) { ctx.fillStyle = filled && tone ? textOn(fill, 1, p) : toneColor(tone); ctx.fillText(mark, x + w / 2, y + (rowH - 1) / 2); }
+          ctx.globalAlpha = 1;
           continue;
         }
         const t = strength(def, value, scale), tone = (value - (def.center ?? 0)) >= 0 ? p.candleUp : p.candleDown;
@@ -766,21 +806,22 @@ export class BarStatsPane extends TimePane {
         // from textOn: a fixed light ramp made a row of pale bars on every dark theme.
         const fill = def.scale === 'sequential' ? mixHex(p.panel, p.ui, 0.12 + 0.76 * t) : def.scale === 'diverging' ? mixHex(mixHex(p.panel, tone, 0.18), tone, t) : p.panel;
         if (filled) {
-          ctx.fillStyle = fill;
+          ctx.globalAlpha = fade; ctx.fillStyle = fill;
           ctx.fillRect(x, y, w, rowH - 1);
           if (def.scale === 'plain') { ctx.strokeStyle = p.line; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, rowH - 2); }
+          ctx.globalAlpha = 1;
         }
-        if (unusual?.[i]) { ctx.save(); ctx.lineWidth = 1.6; ctx.strokeStyle = p.text; ctx.globalAlpha = 0.95; ctx.strokeRect(x + 0.8, y + 0.8, Math.max(1, w - 1.6), rowH - 2.6); ctx.restore(); }
+        if (unusual?.[i]) { ctx.save(); ctx.lineWidth = 1.6; ctx.strokeStyle = p.text; ctx.globalAlpha = 0.95 * fade; ctx.strokeRect(x + 0.8, y + 0.8, Math.max(1, w - 1.6), rowH - 2.6); ctx.restore(); }
         if (slot >= 48) {
           ctx.fillStyle = filled ? (def.scale === 'plain' ? p.text : textOn(fill, 1, p)) : def.scale === 'diverging' ? tone : p.text;
-          ctx.globalAlpha = filled ? 1 : 0.6 + 0.4 * t;
+          ctx.globalAlpha = (filled ? 1 : 0.6 + 0.4 * t) * fade;
           ctx.fillText(def.format(value), x + w / 2, y + (rowH - 1) / 2); ctx.globalAlpha = 1;
         }
       }
     });
     // The cell under the pointer: its column and row tinted, the cell itself boxed, and a popup beside the pointer.
     if (hoverIdx >= 0) {
-      const x = v.xOf(all[hoverIdx]!.t, pw), w = Math.max(1, slot - 1), gridH = defs.length * rowH;
+      const x = v.xOf(times[hoverIdx]!, pw), w = Math.max(1, slot - 1), gridH = defs.length * rowH;
       ctx.save(); ctx.fillStyle = p.text; ctx.globalAlpha = p.dark ? 0.12 : 0.08; ctx.fillRect(x, top, w, gridH);
       if (hoverRow >= 0 && hoverRow < defs.length) {
         const y = top + hoverRow * rowH;
@@ -790,7 +831,44 @@ export class BarStatsPane extends TimePane {
       ctx.restore();
       this.#cell = hoverCell;
     }
+    // The View column, right of the plot under the price axis and the columns: each row over the candles in view (its tip says how).
+    const vx = pw + 3, vw = Math.min(this.w - pw - 6, 120);
+    if (vw >= 24) {
+      ctx.save();
+      ctx.globalAlpha = 0.6; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(Math.round(pw) + 0.5, top); ctx.lineTo(Math.round(pw) + 0.5, top + defs.length * rowH); ctx.stroke(); ctx.globalAlpha = 1;
+      defs.forEach((def, rowIndex) => {
+        const cell = def.view?.(input, visible, rowsValues[rowIndex]!) ?? null, y = top + rowIndex * rowH;
+        const fill = cell && cell.tone !== 'text' ? mixHex(p.panel, toneColor(cell.tone), 0.22) : mixHex(p.panel, p.ui, 0.08);
+        ctx.fillStyle = fill; ctx.fillRect(vx, y, vw, rowH - 1);
+        if (cell) {
+          let size = 11; ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+          while (size > 8 && ctx.measureText(cell.value).width > vw - 4) { size--; ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`; }
+          if (ctx.measureText(cell.value).width <= vw - 2) { ctx.fillStyle = textOn(fill, 1, p); ctx.fillText(cell.value, vx + vw / 2, y + (rowH - 1) / 2); }
+        }
+        if (overView && rowIndex === hoverRow) {
+          ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(vx) + 0.5, Math.round(y) + 0.5, Math.round(vw) - 1, Math.round(rowH) - 2);
+          viewHover = viewCellLines(labelOf.get(def.id)!, cell, def.title, visible.length);
+        }
+      });
+      ctx.restore();
+    }
+    if (viewHover) this.#viewLines = viewHover;
     ctx.textAlign = 'left'; ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
     defs.forEach((def, i) => { const y = top + i * rowH, label = labelOf.get(def.id)!, w = ctx.measureText(label).width + 10; ctx.globalAlpha = 0.88; ctx.fillStyle = p.panel; ctx.fillRect(2, y + 2, w, rowH - 5); ctx.globalAlpha = 1; ctx.fillStyle = p.muted; ctx.fillText(label, 6, y + (rowH - 1) / 2); });
+  }
+
+  /** Export CSV: the table's candles in view, one line each, every statistic shown as its number or its mark (empty where it has none). */
+  #export(): void {
+    const table = this.#table; if (!table) return;
+    const v = this.view, tfMs = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
+    const at = table.times.map((_, i) => i).filter(i => table.times[i]! + tfMs >= v.t0 && table.times[i]! <= v.t1);
+    if (!at.length) return;
+    const lines = [['candle_start_utc', ...table.defs.map(def => def.csv?.head ?? def.id)].join(',')];
+    for (const i of at) lines.push([new Date(table.times[i]!).toISOString(), ...table.values.map((row, r) => csvCell(table.defs[r]!, row[i]))].join(','));
+    const name = `bar-stats-${this.store.state.marketId.replace(/[^A-Za-z0-9]+/g, '-')}-${this.store.state.timeframe}-${new Date(table.times[at[at.length - 1]!]!).toISOString().slice(0, 16).replace(/[-:]/g, '')}Z.csv`;
+    // With a byte-order mark, so a spreadsheet reads the marks (▲, −) as UTF-8.
+    const url = URL.createObjectURL(new Blob([`\ufeff${lines.join('\n')}\n`], { type: 'text/csv' })), link = el('a', { href: url, download: name });
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 }

@@ -679,6 +679,21 @@ export class HeatPane {
     if (this.#lodFrame.needsFrame) this.invalidate();
   }
 
+  /**
+   * Each candle's share of its volume bought by takers, by start, from `from` on: from the exchange's own candles of the series the chart reads,
+   * where the exchange says them (Binance); null for a market that does not. Loaded on demand; the chart is drawn again when it lands. The
+   * volume strip splits its candles by it and the Bar stats table's candle delta reads it.
+   */
+  takerShares(state: AppState, tf: number, from: number): Map<number, number> | null {
+    const series = state.seriesInstrument || state.marketId, target = historyTarget(series, currentCoin()), venue = target?.id.slice(0, target.id.indexOf(':')) ?? '';
+    if (!target || !target.own || (venue !== 'binance' && venue !== 'binancespot')) return null;
+    const h = this.hub.candleTaker(tf);
+    h.ensure(target, from, tf, () => this.invalidate());
+    const key = `${tf}|${h.id}|${h.version}`;
+    if (this.#takerShares?.key !== key) { const m = new Map<number, number>(); for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] > 0) m.set(b[0], tb / b[5]); } this.#takerShares = { key, shares: m }; }
+    return this.#takerShares.shares;
+  }
+
   /** The Delta pane's divergences on the price: the two swings joined above the highs (sellers', ask colour) or below the lows (buyers', bid colour). */
   #paintDivergences(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     const list = this.divergences();
@@ -1101,13 +1116,7 @@ export class HeatPane {
     const binance = !!target && target.own && (venue === 'binance' || venue === 'binancespot'), market = venueLabel(target?.own ? target.id : series);
     const earliest = state.candles.find(c => c[0] + tf >= v.t0 - margin)?.[0] ?? v.t0;
     let shares: Map<number, number> | null = null;
-    if (binance && (since === null || earliest < since)) {
-      const h = this.hub.candleTaker(tf);
-      h.ensure(target, earliest, tf, () => this.invalidate());
-      const key = `${tf}|${h.id}|${h.version}`;
-      if (this.#takerShares?.key !== key) { const m = new Map<number, number>(); for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] > 0) m.set(b[0], tb / b[5]); } this.#takerShares = { key, shares: m }; }
-      shares = this.#takerShares.shares;
-    }
+    if (binance && (since === null || earliest < since)) shares = this.takerShares(state, tf, earliest);
     const place = (start: number): { x: number; w: number } => { const xc = v.xOf(start + tf / 2, pw); return { x: xc + (v.xOf(start, pw) + layout.candleCenter - xc) * narrowing, w: body }; };
     const all = stripBars(state.candles, tf, rows, since, now, v.t0 - margin, v.t1, place, start => shares?.get(start), replaying());
     const first = all.findIndex(b => b.t + tf >= v.t0), cut = first < 0 ? all.length : first, bars = all.slice(cut);
