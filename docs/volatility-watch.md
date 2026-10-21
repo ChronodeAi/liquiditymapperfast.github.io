@@ -44,6 +44,8 @@ A **z-score** compares a window with the same-length, non-overlapping windows of
 | `whaleVsRetail` | `whaleNet60`: net USD of orders in the third size band (about $1M on BTC) over 60 minutes; `whaleOpposite` when its sign differs from all taker flow's |
 | `slicer` | `slicerShare`: of the last 30 minutes of Binance spot net delta, the share within 0.5 to 1.5 times the median (and so of its sign) |
 
+The book rows sum the coin's books that recorded the minute, and compare a minute only with minutes that summed the same books: a book dropping out for a few minutes would otherwise read as its share of the resting liquidity pulled, and its return as liquidity stacked. Until the books in the baseline match again, those values are empty.
+
 Alongside the numbers each concept gets one English sentence (`words`), e.g. "Spot taker flow over the last 15 minutes is +2.3σ (buying) while perpetual flow is -1.6σ (selling)." A concept with no data yet has no sentence, and is not asked.
 
 ## Questions (`src/shared/volatility/jev.ts`)

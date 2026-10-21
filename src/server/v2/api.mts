@@ -657,8 +657,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const spot = frame.instruments.filter(s => spotIds.includes(s.id)), perp = frame.instruments.filter(s => perpIds.includes(s.id));
     const binanceSpotId = binanceSpotIdOf(mine.map(m => ({ id: idOf(m), venue: m.venue, marketType: m.marketType })), new Set(spot.map(s => s.id)));
 
-    // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours.
-    const lt = ltIndex(25), depthByMinute = new Map<number, { t: number; bidUsd: number; askUsd: number; ltBid: number; ltAsk: number }>();
+    // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours, with the
+    // books summed (in `ids` order, so the same books give the same key).
+    const lt = ltIndex(25), depthByMinute = new Map<number, VolatilityInputs['depth'][number]>();
     for (const id of ids) {
       const step = recorder.steps.get(id); if (!step) continue;
       for (const column of recorder.query(id, now - 6 * 3_600_000, now)) {
@@ -666,7 +667,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
         for (let i = 0; i < column.bins.length; i++) { const bin = column.bins[i]!; if (column.bid[i]! > 0 && bin > bestBid) bestBid = bin; if (column.ask[i]! > 0 && bin < bestAsk) bestAsk = bin; }
         if (!Number.isFinite(bestBid) && !Number.isFinite(bestAsk)) continue;
         const middle = ((Number.isFinite(bestBid) ? bestBid : bestAsk) + (Number.isFinite(bestAsk) ? bestAsk : bestBid) + 1) / 2 * step;
-        let row = depthByMinute.get(column.t); if (!row) { row = { t: column.t, bidUsd: 0, askUsd: 0, ltBid: 0, ltAsk: 0 }; depthByMinute.set(column.t, row); }
+        let row = depthByMinute.get(column.t); if (!row) { row = { t: column.t, books: '', bidUsd: 0, askUsd: 0, ltBid: 0, ltAsk: 0 }; depthByMinute.set(column.t, row); }
+        row.books = row.books ? `${row.books},${id}` : id;
         for (let i = 0; i < column.bins.length; i++) {
           if (Math.abs((column.bins[i]! + 0.5) * step - middle) > middle * 0.01) continue;
           row.bidUsd += column.bid[i]!; row.askUsd += column.ask[i]!;

@@ -25,8 +25,12 @@ export interface VolatilityInputs {
   binanceSpotId: string | null;
   /** Price and open-interest reference. */
   refPerpId: string | null;
-  /** Per minute over the last 6 h, summed over the coin's instruments: resting USD within 1 % of price and the Liquidity Tracker's weighted USD. */
-  depth: { t: number; bidUsd: number; askUsd: number; ltBid: number; ltAsk: number }[];
+  /**
+   * Per minute over the last 6 h, summed over the coin's books: resting USD within 1 % of price and the Liquidity Tracker's weighted USD.
+   * `books` names the books in the sum, in a fixed order; a minute is compared only with minutes of the same books, so a book dropping out
+   * or coming back does not read as liquidity pulled or stacked.
+   */
+  depth: { t: number; books: string; bidUsd: number; askUsd: number; ltBid: number; ltAsk: number }[];
   /** Last 25 h. */
   liquidations: { t: number; side: 'long' | 'short'; usd: number }[];
   /** The reference perpetual's open interest, one-minute bars, last 2 h. */
@@ -152,12 +156,12 @@ export function volatilityFeatures(input: VolatilityInputs): VolatilityFeatures 
   const binanceSpotZ60 = binance ? zOfGroup(binance, 60) : null;
   const finite = (x: number): number | null => Number.isFinite(x) ? x : null;
 
-  // Depth.
-  const depth = input.depth;
-  const latest = nearest(depth, now, 2 * MINUTE);
+  // Depth, compared only with minutes that summed the same books as the latest one.
+  const latest = nearest(input.depth, now, 2 * MINUTE);
   let bidChangePct: number | null = null, askChangePct: number | null = null;
   let ltNow: number | null = null, lt30: number | null = null, ltFlipped: boolean | null = null, imb1pct: number | null = null, imbPctile6h: number | null = null;
   if (latest) {
+    const depth = input.depth.filter(d => d.books === latest.books);
     const before = depth.filter(d => d.t >= latest.t - 10 * MINUTE && d.t <= latest.t - 5 * MINUTE);
     if (before.length) {
       const b = mean(before.map(d => d.bidUsd)), a = mean(before.map(d => d.askUsd));
@@ -256,7 +260,8 @@ export function volatilityFeatures(input: VolatilityInputs): VolatilityFeatures 
 /**
  * The raw minute history behind the readings, as compact CSV for a long-context decision model: one row per minute over the last
  * `SERIES_MINUTES` (oldest first) with price, spot and perpetual net taker flow and gross volume ($K), resting USD within 1 % ($K, the last
- * 6 h only) and liquidations ($K). Empty fields are minutes with nothing recorded. Null when there is no price.
+ * 6 h only, and only minutes that summed the same books as the latest) and liquidations ($K). Empty fields are minutes with nothing
+ * recorded. Null when there is no price.
  */
 export function volatilitySeries(input: VolatilityInputs): string | null {
   const { now } = input;
@@ -264,7 +269,8 @@ export function volatilitySeries(input: VolatilityInputs): string | null {
   const refPerp = input.perp.find(s => s.id === input.refPerpId);
   const price = priceOf([...(refPerp ? [refPerp] : []), ...input.perp, ...input.spot], now);
   if (!(price[N - 1]! > 0)) return null;
-  const depth = new Map(input.depth.map(d => [d.t, d]));
+  const books = nearest(input.depth, now, 2 * MINUTE)?.books;
+  const depth = new Map(input.depth.filter(d => d.books === books).map(d => [d.t, d]));
   const liq = new Map<number, { long: number; short: number }>();
   for (const l of input.liquidations) {
     const t = Math.floor(l.t / MINUTE) * MINUTE, row = liq.get(t) ?? { long: 0, short: 0 };

@@ -47,7 +47,7 @@ test('no price, or nothing recorded, gives no features', () => {
 });
 
 test('bids within 1 % dropping by 60 % in the last minute read as -60 %, the asks untouched', () => {
-  const depth = Array.from({ length: 360 }, (_, i) => ({ t: NOW - (360 - i) * MINUTE, bidUsd: 100 * M, askUsd: 100 * M, ltBid: 1, ltAsk: 1 }));
+  const depth = Array.from({ length: 360 }, (_, i) => ({ t: NOW - (360 - i) * MINUTE, books: 'a', bidUsd: 100 * M, askUsd: 100 * M, ltBid: 1, ltAsk: 1 }));
   depth[359]!.bidUsd = 40 * M;
   const f = volatilityFeatures(inputs({ perp: [series('perp', 120, () => [1 * M, 1 * M])], depth }))!;
   assert.ok(Math.abs((f.values.bidChangePct as number) + 60) < 0.01, `bidChangePct ${f.values.bidChangePct}`);
@@ -56,10 +56,27 @@ test('bids within 1 % dropping by 60 % in the last minute read as -60 %, the ask
 });
 
 test('the tracker flipping from bids to asks over half an hour is flagged', () => {
-  const depth = Array.from({ length: 60 }, (_, i) => ({ t: NOW - (60 - i) * MINUTE, bidUsd: 1, askUsd: 1, ltBid: i < 30 ? 3 : 1, ltAsk: i < 30 ? 1 : 3 }));
+  const depth = Array.from({ length: 60 }, (_, i) => ({ t: NOW - (60 - i) * MINUTE, books: 'a', bidUsd: 1, askUsd: 1, ltBid: i < 30 ? 3 : 1, ltAsk: i < 30 ? 1 : 3 }));
   const f = volatilityFeatures(inputs({ perp: [series('perp', 120, () => [1 * M, 1 * M])], depth }))!;
   assert.equal(f.values.ltFlipped, true);
   assert.ok((f.values.ltNow as number) < 0 && (f.values.lt30 as number) > 0);
+});
+
+test('a book dropping out of the sum is not read as liquidity pulled or as a tracker flip', () => {
+  const perp = [series('perp', 120, () => [1 * M, 1 * M])];
+  // Book b holds 30 % of the resting USD and leans the tracker to the bids; without it the sum is smaller and leans to the asks.
+  const minute = (i: number, books: string) => books === 'a,b'
+    ? { t: NOW - (360 - i) * MINUTE, books, bidUsd: 100 * M, askUsd: 100 * M, ltBid: 3, ltAsk: 1 }
+    : { t: NOW - (360 - i) * MINUTE, books, bidUsd: 70 * M, askUsd: 70 * M, ltBid: 1, ltAsk: 3 };
+  const left = volatilityFeatures(inputs({ perp, depth: Array.from({ length: 360 }, (_, i) => minute(i, i < 359 ? 'a,b' : 'a')) }))!;
+  assert.equal(left.values.bidChangePct, null);
+  assert.equal(left.values.askChangePct, null);
+  assert.equal(left.values.ltFlipped, null);
+  assert.equal(left.words.liquidityPulled, undefined);
+  // Ten minutes on, the minutes without b compare with each other.
+  const later = volatilityFeatures(inputs({ perp, depth: Array.from({ length: 360 }, (_, i) => minute(i, i < 350 ? 'a,b' : 'a')) }))!;
+  assert.equal(later.values.bidChangePct, 0);
+  assert.equal(later.values.askChangePct, 0);
 });
 
 test('liquidations and whale net flow are summed by side and window', () => {
