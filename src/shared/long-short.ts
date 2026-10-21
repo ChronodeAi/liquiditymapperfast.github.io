@@ -18,13 +18,16 @@ import type { Fetcher } from './history.ts';
  *   90 days and more; CORS. Users holding long and short positions (`long_users`, `short_users`, `lsr_account`) and its top traders, "large
  *   holders" in Gate's words, by accounts (`top_long_account`, `top_short_account`, `top_lsr_account`) and by position size (`top_long_size`,
  *   `top_short_size`, `top_lsr_size`); a coin it does not list answers `CONTRACT_NOT_FOUND`.
- * - Bitget `v2/mix/market/account-long-short` ("active" long/short accounts in Bitget's documentation): `longAccountRatio`,
- *   `shortAccountRatio`, `longShortAccountRatio`; the newest 30 periods only, no paging; CORS; one request a second.
+ * - Bitget (2026-10-21) `v2/mix/market/long-short` (all users: `longRatio`, `shortRatio`, `longShortRatio`), `account-long-short` (its big
+ *   traders by accounts: `longAccountRatio`, `shortAccountRatio`, `longShortAccountRatio`) and `position-long-short` (by position:
+ *   `longPositionRatio`, `shortPositionRatio`, `longShortPositionRatio`); the English documentation calls the last two "active", the Chinese
+ *   大户 (big traders). The newest 30 periods only (24 for `12h`), no paging (`startTime` and `endTime` are ignored); a day is `1Dutc` (`1d` is
+ *   refused); CORS; one request a second (`VENUE_GAP_MS`).
  */
 
-/** Which population a series counts: every account, top traders' accounts or their positions (Binance, OKX, Gate), or Bitget's active accounts. */
+/** Which population a series counts: every account, top traders' accounts or their positions; `activeAccounts` only from a server built before Bitget published all three (2026-10-21). */
 export type LsPopulation = 'accounts' | 'topAccounts' | 'topPositions' | 'activeAccounts';
-/** The series a person can choose: Binance, OKX and Gate publish each of them; Bybit and Bitget one each. */
+/** The series a person can choose: Binance, OKX, Bitget and Gate publish each of them; Bybit one. */
 export type LsMetric = 'accounts' | 'topAccounts' | 'topPositions';
 export const LS_METRICS: readonly LsMetric[] = ['accounts', 'topAccounts', 'topPositions'];
 /** One reading: the period's start (ms) and the share net long (0..1). */
@@ -39,7 +42,7 @@ export interface LsSeries { id: string; population: LsPopulation | null; periodM
 
 export const LS_VENUES: readonly string[] = ['binance', 'bybit', 'okx', 'bitget', 'gateio'];
 /** The venues whose series follows the one chosen (the others publish one each). */
-export const LS_CHOSEN_VENUES: readonly string[] = ['binance', 'okx', 'gateio'];
+export const LS_CHOSEN_VENUES: readonly string[] = ['binance', 'okx', 'bitget', 'gateio'];
 /** A venue that does not list the market (Gate's `CONTRACT_NOT_FOUND`): it publishes no series for it, which is not a failure to read one. */
 export class LsNoMarket extends Error {}
 const MINUTE = 60_000, HOUR = 3_600_000, DAY = 86_400_000;
@@ -48,7 +51,7 @@ const PERIODS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
   binance: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [2 * HOUR]: '2h', [4 * HOUR]: '4h', [6 * HOUR]: '6h', [12 * HOUR]: '12h', [DAY]: '1d' },
   bybit: { [5 * MINUTE]: '5min', [15 * MINUTE]: '15min', [30 * MINUTE]: '30min', [HOUR]: '1h', [4 * HOUR]: '4h', [DAY]: '1d' },
   okx: { [5 * MINUTE]: '5m', [HOUR]: '1H', [DAY]: '1D' },
-  bitget: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [2 * HOUR]: '2h', [4 * HOUR]: '4h', [6 * HOUR]: '6h', [12 * HOUR]: '12h', [DAY]: '1d' },
+  bitget: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [2 * HOUR]: '2h', [4 * HOUR]: '4h', [6 * HOUR]: '6h', [12 * HOUR]: '12h', [DAY]: '1Dutc' },
   gateio: { [5 * MINUTE]: '5m', [15 * MINUTE]: '15m', [30 * MINUTE]: '30m', [HOUR]: '1h', [4 * HOUR]: '4h', [DAY]: '1d' },
 };
 const BINANCE_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'globalLongShortAccountRatio', topAccounts: 'topLongShortAccountRatio', topPositions: 'topLongShortPositionRatio' };
@@ -56,6 +59,17 @@ const BINANCE_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'globalLon
 const OKX_PATHS: Readonly<Record<LsMetric, string>> = { accounts: 'long-short-account-ratio-contract', topAccounts: 'long-short-account-ratio-contract-top-trader', topPositions: 'long-short-position-ratio-contract-top-trader' };
 /** Gate's fields for each series: the long side, the short side and their ratio. */
 const GATE_FIELDS: Readonly<Record<LsMetric, readonly [string, string, string]>> = { accounts: ['long_users', 'short_users', 'lsr_account'], topAccounts: ['top_long_account', 'top_short_account', 'top_lsr_account'], topPositions: ['top_long_size', 'top_short_size', 'top_lsr_size'] };
+/** Bitget's endpoint for each series, and its fields: the long share, the short share and their ratio. */
+const BITGET_SERIES: Readonly<Record<LsMetric, readonly [string, string, string, string]>> = {
+  accounts: ['long-short', 'longRatio', 'shortRatio', 'longShortRatio'],
+  topAccounts: ['account-long-short', 'longAccountRatio', 'shortAccountRatio', 'longShortAccountRatio'],
+  topPositions: ['position-long-short', 'longPositionRatio', 'shortPositionRatio', 'longShortPositionRatio'],
+};
+/**
+ * The least time between two requests to a venue, the cache's whole (ms): Bitget allows one a second, and a round reads the series shown and
+ * then the other two at once (the pane's warming), which it once answered "Too Many Requests" (2026-10-21).
+ */
+export const VENUE_GAP_MS: Readonly<Record<string, number>> = { bitget: 1_100 };
 /** Binance answers only for the last 30 days. */
 const BINANCE_SPAN_MS = 30 * DAY;
 const PAGES = 12;
@@ -102,7 +116,7 @@ export function lsWindowPeriod(venue: string, tfMs: number, from: number, to: nu
 
 /** The population a venue's series counts, given the series chosen; null for a venue that publishes none. */
 export function lsPopulationOf(venue: string, metric: LsMetric): LsPopulation | null {
-  return LS_CHOSEN_VENUES.includes(venue) ? metric : venue === 'bitget' ? 'activeAccounts' : venue === 'bybit' ? 'accounts' : null;
+  return LS_CHOSEN_VENUES.includes(venue) ? metric : venue === 'bybit' ? 'accounts' : null;
 }
 
 const num = (value: unknown): number => typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
@@ -221,9 +235,10 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     if (start < to && page >= PAGES) throw new Error('gateio: the pages ran out before the window\'s end');
     return { points: [...out.values()].sort((a, b) => a.t - b.t), from: reached };
   } else if (venue === 'bitget') {
-    const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
+    const [path, longKey, shortKey, ratioKey] = BITGET_SERIES[metric];
+    const answer = await get(`https://api.bitget.com/api/v2/mix/market/${path}?symbol=${s}&period=${name}`);
     if (String(at(answer, 'code')) !== '00000') throw new Error(`bitget: ${String(at(answer, 'msg'))}`);
-    for (const r of rows(at(answer, 'data'), 'bitget', 'ts', 'longAccountRatio', 'shortAccountRatio', 'longShortAccountRatio')) take(lsReading(num(at(r, 'ts')), num(at(r, 'longAccountRatio')), num(at(r, 'shortAccountRatio')), num(at(r, 'longShortAccountRatio'))));
+    for (const r of rows(at(answer, 'data'), 'bitget', 'ts', longKey, shortKey, ratioKey)) take(lsReading(num(at(r, 'ts')), num(at(r, longKey)), num(at(r, shortKey)), num(at(r, ratioKey))));
   }
   // Every page full: the venue may hold more before where the last one ended.
   return { points: [...out.values()].sort((a, b) => a.t - b.t), from: page >= PAGES && end > from ? end : from };
@@ -240,7 +255,20 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
  */
 export class LongShortCache {
   #series = new Map<string, { points: Map<number, LsPoint>; from: number; to: number; checked: number; failed: number; busy: Promise<void> | null; noMarket?: boolean }>();
-  constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000, private pageDeadlineMs = LS_PAGE_DEADLINE_MS) {}
+  /** When each paced venue may be asked next (wall-clock ms): every series of the venue shares it. */
+  #nextAsk = new Map<string, number>();
+  constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000, private pageDeadlineMs = LS_PAGE_DEADLINE_MS,
+    private gapMs: Readonly<Record<string, number>> = VENUE_GAP_MS) {}
+
+  /** `ask`, once the venue's least time since the cache's last request to it has passed (requests to it go out in the order asked). */
+  async #paced<T>(venue: string, ask: () => Promise<T>): Promise<T> {
+    const gap = this.gapMs[venue];
+    if (!gap) return ask();
+    const now = Date.now(), at = Math.max(now, this.#nextAsk.get(venue) ?? 0);
+    this.#nextAsk.set(venue, at + gap);
+    if (at > now) await new Promise<void>(resolve => setTimeout(resolve, at - now));
+    return ask();
+  }
 
   async series(id: string, metric: LsMetric, tfMs: number, from: number, to: number): Promise<LsSeries> {
     const colon = id.indexOf(':'), venue = id.slice(0, colon), symbol = id.slice(colon + 1);
@@ -259,7 +287,8 @@ export class LongShortCache {
     this.#series.set(key, held);
     while (this.#series.size > this.maxSeries) this.#series.delete(this.#series.keys().next().value!);
     const reach = PAGES * PAGE_ROWS[venue]! * periodMs * 0.9;
-    const get: Fetcher = (url, init) => withDeadline(this.get(url, init), this.pageDeadlineMs);
+    // The page's deadline counts from when the request goes out, not from a wait for the venue's turn.
+    const get: Fetcher = (url, init) => this.#paced(venue, () => withDeadline(this.get(url, init), this.pageDeadlineMs));
     // At most four requests of its own; waiting for a request (another question's or its own) is not one of them, or five questions at once for
     // different windows left the last answered from what the others read, empty, without its window ever read. Waiting is bounded too (each
     // request is at most `PAGES` pages, each page at most `pageDeadlineMs`); a question that runs out of either before its window is read says

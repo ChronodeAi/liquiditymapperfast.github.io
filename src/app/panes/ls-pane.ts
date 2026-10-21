@@ -70,10 +70,12 @@ export function lsCardLines(series: readonly LsSeries[], time: number, tf: strin
   const lines: InfoLine[] = [{ text: `${clock(time, true)} · ${tf}`, bold: true }];
   for (const s of series) {
     const label = venueLabel(s.id);
-    if (s.status === 'serverOnly') { lines.push({ label, text: t('read by the server only'), color: 'muted', mark: s.id }); continue; }
+    if (s.status === 'serverOnly') { lines.push({ label, text: t('not readable by a web page'), color: 'muted', mark: s.id }); continue; }
     if (s.status === 'failed') { lines.push({ label, text: t('could not be read'), color: 'muted', mark: s.id }); continue; }
     const p = lsAt(s.points, time, s.periodMs);
-    lines.push(p ? { label, text: shareText(p.long), color: p.long > 0.5 ? 'buy' : p.long < 0.5 ? 'sell' : 'text', mark: s.id } : { label, text: t('no reading'), color: 'muted', mark: s.id });
+    // Bitget publishes only its newest 30 readings: before them its line has none to give, which is not a reading missing.
+    const before = !p && s.id.startsWith('bitget:') && s.points.length > 0 && time < s.points[0]!.t;
+    lines.push(p ? { label, text: shareText(p.long), color: p.long > 0.5 ? 'buy' : p.long < 0.5 ? 'sell' : 'text', mark: s.id } : { label, text: before ? t('before the newest 30 readings it publishes') : t('no reading'), color: 'muted', mark: s.id });
     if (s.status === 'stale') lines.push({ text: t('{venue}: the last update could not be read; these are its earlier readings.', { venue: venueLabel(s.id) }), color: 'muted', wrap: true });
   }
   // Who each line counts, the venues of one population together: "Binance: top traders, by positions · Bybit, OKX: all accounts".
@@ -114,7 +116,7 @@ export class LsPane extends TimePane {
     setTip(this.head.querySelector('strong')!, t('The share of each exchange\'s accounts that is net long, as the exchange publishes it.'));
     const group = document.createElement('span'); group.className = 'ctl ctl-group'; this.head.append(group);
     const wrap = document.createElement('label'); wrap.className = 'ctl'; wrap.append(t('Series'));
-    setTip(wrap, t('Which series Binance, OKX and Gate show: every account, their top traders counted by account, or their top traders counted by the size of their positions. Bybit and Bitget publish one each.'));
+    setTip(wrap, t('Which series Binance, OKX, Bitget and Gate show: every account, their top traders counted by account, or their top traders counted by the size of their positions. Bybit publishes one.'));
     const control = document.createElement('select');
     for (const [value, text] of [['accounts', t('All accounts')], ['topAccounts', t('Top traders, accounts')], ['topPositions', t('Top traders, positions')]] as const) control.append(new Option(text, value));
     control.value = store.state.lsMetric;
@@ -140,8 +142,8 @@ export class LsPane extends TimePane {
     // Another round (other markets, series or timeframe) cancels what the last one still waits for, its background warming included.
     this.#round?.abort(); this.#warming?.abort();
     const round = this.#round = new AbortController(), answers = new Map<string, LsSeries>();
-    // Another series: Bybit and Bitget publish one population each, so their lines stay drawn while the others are read (every line used to
-    // blank, the pane looking slow to switch); another timeframe is other readings for all of them.
+    // Another series: Bybit publishes one population, so its line stays drawn while the others are read (every line used to blank, the pane
+    // looking slow to switch); another timeframe is other readings for all of them.
     if (this.#seriesOf !== of) {
       const sameTimeframe = this.#seriesOf.endsWith(`|${state.timeframe}`);
       this.#series = sameTimeframe ? this.#series.filter(s => s.population === lsPopulationOf(s.id.slice(0, s.id.indexOf(':')), state.lsMetric)) : [];

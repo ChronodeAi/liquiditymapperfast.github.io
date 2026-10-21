@@ -55,13 +55,33 @@ test("the venues' answers as they come (measured 2026-10-13): Binance pages back
   assert.deepEqual((await fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.5945, 0.594]);
   const { points: okx } = await fetchLongShort('okx', 'BTC-USDT-SWAP', 'accounts', 5 * M, NOW - H, NOW, get, NOW);
   assert.equal(okx.length, 1, 'a ratio that is not a number is left out'); assert.ok(Math.abs(okx[0]!.long - 0.5494) < 1e-3);
-  assert.deepEqual((await fetchLongShort('bitget', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.6174]);
+  assert.deepEqual((await fetchLongShort('bitget', 'BTCUSDT', 'topAccounts', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.6174]);
   await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'topPositions', 5 * M, NOW - H, NOW, get, NOW), /no such series/, "only Binance publishes its top traders'");
   // Binance keeps 30 days: nothing older is asked for.
   const old = fake({ 'https://fapi.binance.com/': () => [] });
   await fetchLongShort('binance', 'BTCUSDT', 'topAccounts', H, NOW - 60 * 24 * H, NOW - 40 * 24 * H, old, NOW);
   assert.equal(old.asked.length, 0);
   await assert.rejects(fetchLongShort('bybit', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, fake({ 'https://api.bybit.com/': () => ({ retCode: 10001, retMsg: 'bad' }) }), NOW), /bybit/, 'a changed API fails, not empty');
+});
+
+test('Bitget: each series its own endpoint and fields (2026-10-21), a day is 1Dutc, and the cache asks it at most once a second', async () => {
+  const get = fake({
+    'https://api.bitget.com/api/v2/mix/market/long-short': () => ({ code: '00000', data: [{ longRatio: '0.6965', shortRatio: '0.3035', longShortRatio: '2.2948', ts: String(NOW - 10 * M) }] }),
+    'https://api.bitget.com/api/v2/mix/market/account-long-short': () => ({ code: '00000', data: [{ longAccountRatio: '0.6906', shortAccountRatio: '0.3094', longShortAccountRatio: '2.232', ts: String(NOW - 10 * M) }] }),
+    'https://api.bitget.com/api/v2/mix/market/position-long-short': () => ({ code: '00000', data: [{ longPositionRatio: '0.4922', shortPositionRatio: '0.5078', longShortPositionRatio: '0.9692', ts: String(NOW - 10 * M) }] }),
+  });
+  assert.deepEqual((await fetchLongShort('bitget', 'BTCUSDT', 'accounts', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.6965], 'all users');
+  assert.deepEqual((await fetchLongShort('bitget', 'BTCUSDT', 'topPositions', 5 * M, NOW - H, NOW, get, NOW)).points.map(p => p.long), [0.4922], 'its big traders by position');
+  assert.equal(lsPopulationOf('bitget', 'topPositions'), 'topPositions', 'Bitget follows the series chosen');
+  await fetchLongShort('bitget', 'BTCUSDT', 'topAccounts', 24 * H, NOW - 40 * 24 * H, NOW, get, NOW);
+  assert.ok(get.asked.at(-1)!.endsWith('period=1Dutc'), 'Bitget refuses 1d');
+  // Three series asked at once (a round and its warming): one request a second, never two within the venue's gap.
+  const times: number[] = [];
+  const timed = fake({ 'https://api.bitget.com/': url => { times.push(Date.now()); const path = url.pathname.split('/').pop(); return { code: '00000', data: path === 'long-short' ? [{ longRatio: '0.6', shortRatio: '0.4', longShortRatio: '1.5', ts: String(NOW - 10 * M) }] : path === 'account-long-short' ? [{ longAccountRatio: '0.6', shortAccountRatio: '0.4', longShortAccountRatio: '1.5', ts: String(NOW - 10 * M) }] : [{ longPositionRatio: '0.6', shortPositionRatio: '0.4', longShortPositionRatio: '1.5', ts: String(NOW - 10 * M) }] }; } });
+  const cache = new LongShortCache(timed, true, () => NOW, 48, 10_000, 20_000, { bitget: 150 });
+  const answers = await Promise.all((['accounts', 'topAccounts', 'topPositions'] as const).map(m => cache.series('bitget:BTCUSDT', m, 5 * M, NOW - H, NOW)));
+  assert.deepEqual(answers.map(a => a.status), ['ok', 'ok', 'ok']);
+  assert.ok(times.length === 3 && times[1]! - times[0]! >= 140 && times[2]! - times[1]! >= 140, `spaced: ${times.map(t => t - times[0]!).join(', ')}`);
 });
 
 test('the cache: one request per series at a time, the newest stretch again at most once a period, OKX server only in a page, failures reported', async () => {
