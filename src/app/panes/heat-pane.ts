@@ -34,6 +34,10 @@ import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
 import { aheadLines, signalLines, tfLabel, type ShownSignal } from '../signals.ts';
 import { AHEAD, type AheadWarning } from '../../shared/volatility/ahead.ts';
+import { tofByPrice, type TofLevel } from '../tof/model.ts';
+import type { TofBook } from '../tof/book.ts';
+import type { FlowLoader } from '../delta/flows.ts';
+import { tofLevelLines } from '../tof/lines.ts';
 import { venueLabel } from '../venues.ts';
 import { describeSources } from '../cell-sources.ts';
 import { anomalies, type Anomalies } from '../../shared/anomaly.ts';
@@ -201,6 +205,8 @@ export class HeatPane {
   onFrame: () => void = () => {};
   /** The Delta pane's price/CVD divergences in view (set in main; none while that pane is not drawn). */
   divergences: () => readonly Divergence[] = () => [];
+  /** The TOF pane's model (set by the page), for the levels its candles leave and their reading by price. */
+  tof: { book: TofBook; hub: FlowLoader } | null = null;
   #glCanvas = document.createElement('canvas');
   #ctx: CanvasRenderingContext2D;
   /** The pane's whole width; the plot and everything right of it start after the columns left of the map (`#left`). */
@@ -304,6 +310,8 @@ export class HeatPane {
   #signalMarks: { x: number; y: number; r: number; signal: ShownSignal }[] = [];
   /** The volatility-ahead rings drawn this frame, for the pointer. */
   #aheadMarks: { x: number; y: number; r: number; warning: AheadWarning }[] = [];
+  /** The TOF levels drawn this frame, for the pointer. */
+  #tofMarks: { x: number; y: number; r: number; level: TofLevel }[] = [];
   #grid: { data: Float32Array; w: number; h: number; bounds: Bounds } | null = null;
   /** Where the liquidity under the pointer comes from: asked of the worker once per map cell and kept while the pointer stays in it. */
   #sources: { key: string; text: string } | null = null;
@@ -767,6 +775,7 @@ export class HeatPane {
     this.#paintBubbles(ctx, state, pw, ph); // above the candles, so a large trade is never hidden behind one
     this.#paintLiquidations(ctx, state, pw, ph); // above the bubbles: a forced order is one of the market orders, marked as forced
     this.#paintAbsorption(ctx, state, pw, ph);
+    this.#paintTof(ctx, state, pw, ph); // under the signals: many, each a level and not a call
     this.#paintSignals(ctx, state, pw, ph); // over absorption: few, and each one a point in time and price
     // The Volume profile's, the key levels' and the VWAP's names at the lines' right ends share one board, so none is printed over another.
     this.#valueTags = this.#paintValueLines(ctx, state, pw, ph);
@@ -2078,9 +2087,10 @@ export class HeatPane {
     stripped = ownY && here ? this.#stripAt(x, y, ph, pw) : -1;
     const signaled = ownY && here && stripped < 0 ? this.#signalAt(x, y) : null;
     const warned = ownY && here && stripped < 0 && !signaled ? this.#aheadAt(x, y) : null;
-    const absorbed = ownY && here && stripped < 0 && !signaled && !warned ? this.#absorptionAt(x, y) : null;
-    const forced = ownY && here && stripped < 0 && !signaled && !warned && !absorbed ? this.#diamondAt(x, y) : null;
-    const hit = ownY && here && stripped < 0 && !signaled && !warned && !absorbed && !forced ? this.#bubbleAt(x, y) : null;
+    const leveled = ownY && here && stripped < 0 && !signaled && !warned ? this.#tofAt(x, y) : null;
+    const absorbed = ownY && here && stripped < 0 && !signaled && !warned && !leveled ? this.#absorptionAt(x, y) : null;
+    const forced = ownY && here && stripped < 0 && !signaled && !warned && !leveled && !absorbed ? this.#diamondAt(x, y) : null;
+    const hit = ownY && here && stripped < 0 && !signaled && !warned && !leveled && !absorbed && !forced ? this.#bubbleAt(x, y) : null;
     if (stripped >= 0) { // a bar of the volume strip: it owns its rectangle, over whatever is drawn there
       const s = this.#strip!, bar = s.bars[stripped]!;
       const lines = stripLines(bar, { rows: s.rows, tf: s.tf, now: pageNow(), levels: s.levels, levelsIn: i => s.bars[i]!.i, market: s.market, tfName: s.tfName, reports: s.reports, total: s.total });
@@ -2088,6 +2098,8 @@ export class HeatPane {
     } else if (signaled) { // a signal under the pointer: why it was made and what price did after it
       const long = signaled.signal.side === 'long';
       paintInfoBox(ctx, signalLines(signaled.signal), x, touch ? signaled.y - signaled.r - 8 : signaled.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: long ? p.candleUp : p.candleDown, gap: signaled.r + 10, placement: touch ? 'up' : 'center' });
+    } else if (leveled) { // a TOF level under the pointer: the candle that left it, its reading, and whether price has come back to it
+      paintInfoBox(ctx, tofLevelLines(leveled.level), x, touch ? leveled.y - leveled.r - 8 : leveled.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { gap: leveled.r + 10, placement: touch ? 'up' : 'center' });
     } else if (warned) { // a volatility-ahead warning under the pointer: the bar, where a break and a full move would be, what came after
       paintInfoBox(ctx, aheadLines(warned.warning), x, touch ? warned.y - warned.r - 8 : warned.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { edge: TRAP_COLOR, gap: warned.r + 10, placement: touch ? 'up' : 'center' });
     } else if (forced) { // a liquidation under the pointer: which positions were closed, where, and what the exchange reported
@@ -2337,6 +2349,52 @@ export class HeatPane {
   }
 
   /**
+   * The TOF pane's levels (tof/model.ts), while the pane is shown: a dot at the open of each candle that leaves one, sized by its reading
+   * against the largest in view, until a later candle trades through that price; the taken ones faint and hollow when asked for. And, along
+   * the right edge, the untapped levels' reading added up on rows of 0.1 % of the price. Replay shows them as they stood at its moment.
+   */
+  #paintTof(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
+    this.#tofMarks = [];
+    const s = state.tof; if (!state.show.tof || !this.tof || (!s.levels && !s.histogram)) return;
+    const v = this.view, now = pageNow(), model = this.tof.book.model(state, this.tof.hub, v.t0, v.t1, now);
+    if (!model) return;
+    // As of the page's moment: a level taken later is still untapped then.
+    const levels = model.levels.map(l => l.taken !== null && l.taken > now ? { ...l, taken: null } : l).filter(l => l.t <= now);
+    const inView = levels.filter(l => l.t <= v.t1 && (l.taken === null ? true : l.taken >= v.t0));
+    const max = Math.max(0, ...inView.map(l => l.tof)) || 1;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
+    const DOT = '#ffffff', EDGE = 'rgba(17,17,17,0.85)';
+    if (s.levels) for (const l of inView) {
+      const untapped = l.taken === null;
+      if (!untapped && !s.taken) continue;
+      const x = v.xOf(l.t, pw), y = v.yOf(l.price, ph), r = 2.5 + 6.5 * Math.sqrt(l.tof / max);
+      if (x < -r || x > pw + r || y < -r || y > ph + r) continue;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      if (untapped) { ctx.fillStyle = DOT; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = EDGE; ctx.stroke(); }
+      else { ctx.globalAlpha = 0.4; ctx.lineWidth = 1.2; ctx.strokeStyle = DOT; ctx.stroke(); ctx.strokeStyle = EDGE; ctx.lineWidth = 0.6; ctx.stroke(); ctx.globalAlpha = 1; }
+      this.#tofMarks.push({ x, y, r, level: l });
+    }
+    if (s.histogram) {
+      const last = state.candles[state.candles.length - 1], step = (last ? last[4] : (v.p0 + v.p1) / 2) * 0.001;
+      const rows = tofByPrice(levels, step), top = Math.max(0, ...rows.map(r => r.tof)) || 1, width = Math.min(120, pw * 0.15);
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.strokeStyle = EDGE; ctx.lineWidth = 1;
+      for (const r of rows) {
+        const y0 = v.yOf(r.price + step, ph), y1 = v.yOf(r.price, ph), h = Math.max(2, y1 - y0 - 1), len = Math.max(2, r.tof / top * width);
+        if (y1 < 0 || y0 > ph) continue;
+        ctx.fillRect(pw - len, y0, len, h); ctx.strokeRect(pw - len + 0.5, y0 + 0.5, len - 1, h - 1);
+      }
+    }
+    ctx.restore();
+  }
+
+  /** The TOF level nearest the pointer, if the pointer is on it (a few pixels of slack). */
+  #tofAt(x: number, y: number): { r: number; y: number; level: TofLevel } | null {
+    let best: { r: number; y: number; level: TofLevel } | null = null, bestD = Infinity;
+    for (const m of this.#tofMarks) { const d = Math.hypot(m.x - x, m.y - y); if (d <= m.r + 3 && d < bestD) { best = m; bestD = d; } }
+    return best;
+  }
+
+  /**
    * The volatility watch's signals in view (see signals.ts). A volatility-ahead warning is an amber ring at its bar's close, larger for a longer
    * bar and named by it, with dashed lines a break (1σ) away either side and dotted ones a 2σ move away, over the 6 bars it watches. A long is
    * an upward triangle just under its minute's price, a short a downward one just over it, in the buy and sell colours; Jev's filled, the
@@ -2352,7 +2410,7 @@ export class HeatPane {
     if (!visible.length && !warnings.length) return;
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
     // Amber over a dark halo: the heatmap's own colours run through amber, so amber alone vanishes on it.
-    const HALO = 'rgba(0, 0, 0, 0.7)';
+    const HALO = 'rgba(0,0,0,0.7)';
     for (const w of warnings) {
       const x = v.xOf(w.t, pw), x1 = v.xOf(Math.min(w.t + AHEAD.bars * w.tf * 60_000, now), pw), py = v.yOf(w.price, ph), r = w.tf === 5 ? 6 : w.tf === 15 ? 8 : 10;
       if (x1 < 0 || x > pw + r) continue;
@@ -2424,7 +2482,7 @@ export class HeatPane {
   #bubbleFocus(state: AppState, pw: number, ph: number): string | null {
     const hv = state.hover; if (!hv || hv.source !== 'heat' || hv.price === null || (replaying() && hv.t > pageNow())) return null;
     const x = this.view.xOf(hv.t, pw), y = this.view.yOf(hv.price, ph);
-    if (x < 0 || x > pw || y < 0 || y > ph || this.#signalAt(x, y) || this.#aheadAt(x, y) || this.#absorptionAt(x, y) || this.#diamondAt(x, y)) return null;
+    if (x < 0 || x > pw || y < 0 || y > ph || this.#signalAt(x, y) || this.#aheadAt(x, y) || this.#tofAt(x, y) || this.#absorptionAt(x, y) || this.#diamondAt(x, y)) return null;
     const hit = this.#bubbleAt(x, y);
     return hit ? hit.print.id.slice(0, hit.print.id.indexOf(':')) : null;
   }

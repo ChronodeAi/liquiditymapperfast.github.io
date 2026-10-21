@@ -11,7 +11,7 @@ import { t } from './i18n.ts';
  * button opens (Trades, Absorption, Highlights, Sounds) has it in its panel's tool strip; a settings window opened from a pane's header
  * shares that pane's. Windows that only do a job (About, Install, the venue menu, the venue and coin pickers) explain themselves and have none.
  */
-export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
+export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'tof' | 'tofPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
 
 export interface HelpTopic {
   title: string;
@@ -76,6 +76,20 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
       t('With the OI pane\'s Venues on All perpetuals (the default), each venue\'s change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue\'s buyers say nothing about who opened positions on another.'),
       t('A market\'s change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.'),
       t('As (with NL/NS shown): Net is one series, longs less shorts, as bars with their running sum. Longs and shorts draws two lines instead: the running sum of the longs (new longs less longs closed) and of the shorts (new shorts less shorts closed). A rising line is that side adding positions, a falling one that side closing them.')],
+  },
+  tof: {
+    title: 'TOF', guide: 'lower-panes',
+    tip: t('A pane under the map: toxic flow, how hard takers hit each exchange in each candle against its own recent candles, and the levels those candles leave on the map.'),
+    body: [],
+  },
+  tofPane: {
+    title: t('Toxic flow (TOF)'), guide: 'lower-panes',
+    tip: t('Toxic flow: how hard takers hit each exchange in each candle, against its own recent candles.'),
+    body: [t('Each exchange\'s reading is the volume taken at market on its perpetual in the candle, weighted by how far price went in it (the square root of the candle\'s high-to-low range over its open), so a burst that moved price weighs more than the same volume that did not. One line per exchange: Binance\'s in yellow, Bybit\'s in purple, where the page records them.'),
+      t('Each reading is judged against the same exchange\'s last 288 candles as a z score: above 2 is a toxic burst (a dot on the line, and the candle shaded amber when the exchanges together are one), from 1 elevated (shaded lighter), within 1 either side normal, under -1 quiet. Raw dollars are not comparable across coins or timeframes; the z is. Hovering a candle gives each exchange\'s reading, its multiple of the usual, its z, and the share of its volume bought at market.'),
+      t('A burst says how hard the market was hit, not which way it goes next. Measured on Binance BTCUSDT from 2024 to 2026, a burst while price was quiet was followed by a 2σ move within 6 candles 55 to 67 % of the time against about 22 % for other quiet candles (the Signals panel\'s amber rings), and the buying or selling in it said nothing about the side.'),
+      t('On the map, with Levels on, each candle leaves a dot at its open, sized by its reading, until a later candle trades through that price; From chooses which candles leave one. The dots still there are where moves went on and price has not come back. That is why they sit so neatly at the starts of moves: the ones whose move failed were taken. Taken shows those too, faint. By price adds up the untapped levels\' reading by price along the right edge of the map.'),
+      t('It needs the chart\'s own candles (their range weighs the volume) and the flow the page holds: a day a second at a time, and older minutes where the server keeps them (a week).')],
   },
   ls: {
     title: t('Long/Short'), guide: 'lower-panes',
