@@ -241,7 +241,7 @@ export class HeatPane {
   #profileHits: ProfileHit[] = [];
   /** The volume strip's recorded rows (kept while what they come from is), and what it drew last frame, for the pointer. */
   #stripRows: { key: string; rows: TimeRows } | null = null;
-  #takerShares: { key: string; shares: Map<number, number> } | null = null;
+  #takerShares: { key: string; shares: Map<number, number>; rows: Map<number, CandleRow> } | null = null;
   #strip: { bars: StripBar[]; rows: TimeRows | null; levels: TimeLevels | null; tf: number; top: number; market: string; tfName: string; reports: boolean; total: number } | null = null;
   /** The volume profile's tags on the price axis, placed with the key levels' and the VWAP's. */
   #valueTags: KeyTag[] = [];
@@ -682,16 +682,23 @@ export class HeatPane {
   /**
    * Each candle's share of its volume bought by takers, by start, from `from` on: from the exchange's own candles of the series the chart reads,
    * where the exchange says them (Binance); null for a market that does not. Loaded on demand; the chart is drawn again when it lands. The
-   * volume strip splits its candles by it and the Bar stats table's candle delta reads it.
+   * volume strip splits its candles by it.
    */
-  takerShares(state: AppState, tf: number, from: number): Map<number, number> | null {
+  takerShares(state: AppState, tf: number, from: number): Map<number, number> | null { return this.#taker(state, tf, from)?.shares ?? null; }
+  /** The same candles themselves, by start, with their taker buys (index 7): the Bar stats table's candle delta reads buys, volume and price of one snapshot. */
+  takerRows(state: AppState, tf: number, from: number): Map<number, CandleRow> | null { return this.#taker(state, tf, from)?.rows ?? null; }
+  #taker(state: AppState, tf: number, from: number): { shares: Map<number, number>; rows: Map<number, CandleRow> } | null {
     const series = state.seriesInstrument || state.marketId, target = historyTarget(series, currentCoin()), venue = target?.id.slice(0, target.id.indexOf(':')) ?? '';
     if (!target || !target.own || (venue !== 'binance' && venue !== 'binancespot')) return null;
     const h = this.hub.candleTaker(tf);
     h.ensure(target, from, tf, () => this.invalidate());
     const key = `${tf}|${h.id}|${h.version}`;
-    if (this.#takerShares?.key !== key) { const m = new Map<number, number>(); for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] > 0) m.set(b[0], tb / b[5]); } this.#takerShares = { key, shares: m }; }
-    return this.#takerShares.shares;
+    if (this.#takerShares?.key !== key) {
+      const shares = new Map<number, number>(), rows = new Map<number, CandleRow>();
+      for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] > 0) { shares.set(b[0], tb / b[5]); rows.set(b[0], b); } }
+      this.#takerShares = { key, shares, rows };
+    }
+    return this.#takerShares;
   }
 
   /** The Delta pane's divergences on the price: the two swings joined above the highs (sellers', ask colour) or below the lows (buyers', bid colour). */

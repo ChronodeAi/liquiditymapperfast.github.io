@@ -11,7 +11,7 @@ import { ASKS, BIDS, DepthBars, fitsBars, neededBars, pixelFlags, sideFlags } fr
 import type { View } from '../view.ts';
 import { clock, price as fmtPrice, usd } from '../format.ts';
 import { gutter, leftGutter, timeTicks, AXIS_W, type HeatPane } from './heat-pane.ts';
-import { BAR_STATS, GROUP_TITLES, PRESETS, coverageOf, csvCell, enabledStats, rowScale, statCellLines, statDef, strength, viewCellLines, type StatCell, type StatDef, type StatGroup, type StatInput, type StatTone } from './bar-stats.ts';
+import { BAR_STATS, GROUP_TITLES, PRESETS, coverageOf, csvCell, deviation, enabledStats, rowScale, statCellLines, statDef, strength, viewCellLines, type StatCell, type StatDef, type StatGroup, type StatInput, type StatTone, type ViewCell } from './bar-stats.ts';
 import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { barAt, columnAt, depthCardLines, depthColumns, depthKey, ltCardLines, oiCardLines, oiTail, readAt, slotAt } from './pane-cards.ts';
@@ -92,6 +92,8 @@ export abstract class TimePane {
       if (this.#selecting) this.#range?.move({ t: this.#timeAt(x), p: null });
       this.canvas.style.cursor = this.#range?.armed && x <= this.plotW ? 'crosshair' : '';
       if (x < 0) { this.store.set({ hover: null }); return; }
+      // Where the pane answers the pointer itself (Bar stats' View column), the time the panes share is left alone, and only it is drawn again.
+      if (this.ownsPoint(x)) { if (this.store.state.hover) this.store.set({ hover: null }); this.invalidate(); return; }
       // Over the price axis the pointer reads the right edge of the plot, so a pane past its newest point keeps showing that (readAt).
       this.store.set({ hover: { t: this.view.tOf(Math.min(x, this.plotW), this.plotW), price: null, y, source } });
     });
@@ -143,6 +145,8 @@ export abstract class TimePane {
     this.#pinned = null;
     if (this.store.state.hover?.touch) this.store.set({ hover: null });
   }
+  /** Whether the pane answers the pointer at `x` (plot coordinates) itself, rather than as a time on the axis the panes share. */
+  protected ownsPoint(_x: number): boolean { return false; }
   /** Header element, the grip target for drag-reordering. */
   get header(): HTMLElement { return this.head; }
   get plotW(): number { return Math.max(1, this.w - gutter(this.store.state)); }
@@ -712,7 +716,10 @@ export class BarStatsPane extends TimePane {
   protected override undrawn(): void { this.#cell = null; this.#viewLines = null; this.#card.hide(); }
 
   /** What the table worked out last, kept while nothing it was worked out from changes (a pointer move only redraws), and what Export CSV writes. */
-  #table: { key: unknown[]; times: number[]; defs: StatDef[]; values: (number | null)[][]; input: StatInput } | null = null;
+  #table: { key: unknown[]; times: number[]; defs: StatDef[]; values: (number | null)[][]; input: StatInput; view: { at: string; cells: (ViewCell | null)[] } | null } | null = null;
+  /** Where the View column is (plot coordinates), while it is drawn: the pointer there reads it, not a candle. */
+  #viewSpan: [number, number] | null = null;
+  protected override ownsPoint(x: number): boolean { return !!this.#viewSpan && x >= this.#viewSpan[0] && x <= this.#viewSpan[1]; }
 
   #strip(): void {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state = this.store.state;
@@ -723,7 +730,8 @@ export class BarStatsPane extends TimePane {
     // The size of the rows the footprint rows of the table (poc, imbalances) are read on: the footprint's at this zoom, whether it shows or not.
     const rowSize = data.step > 0 ? ` · ${t('rows of {step}', { step: `$${fmtPrice(data.step, data.step)}` })}` : '';
     setText(readout, (markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats) + rowSize);
-    if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); return; }
+    this.#viewSpan = null;
+    if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); this.#table = null; return; }
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
     // The candles of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
     // view, whatever was looked at before.
@@ -736,7 +744,7 @@ export class BarStatsPane extends TimePane {
     const times = [...starts].sort((a, b) => a - b);
     if (!times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); this.#table = null; return; }
     const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(now / tfMs) * tfMs : Infinity);
-    const taker = defs.some(def => def.id === 'takerDelta') ? this.heat.takerShares(state, tfMs, times[0]!) : null;
+    const taker = defs.some(def => def.id === 'takerDelta') ? this.heat.takerRows(state, tfMs, times[0]!) : null;
     // Worked out again only when what it is worked out from changes: a pointer move redraws from what is held. The clock counts by the minute
     // (the coverage of the candle under way).
     const key = [data.version, data.step, state.candles, state.oi, parts, state.oiPrice, state.barStats, options, data.cuts, taker, times[0], times[times.length - 1], times.length, tfMs, Math.floor(now / 60_000)];
@@ -745,19 +753,23 @@ export class BarStatsPane extends TimePane {
       const candles = new Map(state.candles.map(c => [c[0], c] as const));
       const input: StatInput = { bars: times.map(start => data.bars.get(start) ?? null), times, tfMs, now, ...(taker ? { taker } : {}), step: data.step, options, cuts: data.cuts, candles,
         oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
-      table = this.#table = { key, times, defs, values: defs.map(def => def.compute(input)), input };
+      table = this.#table = { key, times, defs, values: defs.map(def => def.compute(input)), input, view: null };
     }
     const { input, values: rowsValues } = table, all = input.bars;
     // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.
     const labelOf = new Map(defs.map(def => [def.id, def.approx?.(input) ? `≈${def.label}` : def.label]));
     const slot = pw * tfMs / (v.t1 - v.t0), top = 3, rowH = Math.max(15, (ph - 6) / defs.length), filled = options.cells === 'filled';
-    const visible = times.map((_, i) => i).filter(i => times[i]! + tfMs >= v.t0 && times[i]! <= v.t1);
+    // The candles in view are those with some of their time on screen: one only touching an edge is not in the View column's figures or the file.
+    const visible = times.map((_, i) => i).filter(i => times[i]! + tfMs > v.t0 && times[i]! < v.t1);
     if (!visible.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No executions recorded for the candles in view.'), 12, ph / 2); return; }
     // A candle the recording holds only in part: the rows read from executions are drawn faint there (rec % says how much).
     const partial = all.map((bar, i) => { const share = bar ? coverageOf(bar, times[i]!, tfMs, now) : null; return share !== null && share < 0.95; });
     // Under the pointer: the candle (any pane's pointer says which, the time axis being shared) and, from this pane's own pointer, the row; or,
     // right of the plot, the row's View figure.
-    const hv = state.hover, local = this.pointer ? this.pointer.x - this.canvas.getBoundingClientRect().left - leftGutter(state) : -1, overView = local > pw;
+    const vx = pw + 3, vw = Math.min(this.w - pw - 6, 120);
+    this.#viewSpan = vw >= 24 ? [vx, vx + vw] : null;
+    const box = this.pointer ? this.canvas.getBoundingClientRect() : null, local = box ? this.pointer!.x - box.left - leftGutter(state) : -1, overView = this.ownsPoint(local);
+    const hv = state.hover, viewRow = overView && box ? Math.floor((this.pointer!.y - box.top - top) / rowH) : -1;
     const under = hv && !overView ? times.findIndex(start => hv.t >= start && hv.t < start + tfMs) : -1;
     // Past the newest candle this pane's own pointer reads the newest (readAt); another pane's pointer there marks nothing here.
     const hoverIdx = overView ? -1 : hv && this.pointer ? readAt(under, hv.t, times.length - 1, times[times.length - 1]!) : under;
@@ -768,7 +780,7 @@ export class BarStatsPane extends TimePane {
     ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
     defs.forEach((def, rowIndex) => {
       const values = rowsValues[rowIndex]!, ranked = def.scale !== 'plain' && def.scale !== 'category', scale = ranked ? rowScale(def, visible.map(i => values[i])) : null;
-      const found = state.highlight.on && ranked ? anomalies(Float64Array.from(values, value => value === null || value === undefined ? NaN : Math.abs(value)), state.highlight) : null, unusual = found?.flag ?? null;
+      const found = state.highlight.on && ranked ? anomalies(Float64Array.from(values, value => value === null || value === undefined ? NaN : deviation(def, value)), state.highlight) : null, unusual = found?.flag ?? null;
       const mine = hoverIdx >= 0 && rowIndex === hoverRow ? values[hoverIdx] : undefined;
       if (hoverIdx >= 0 && rowIndex === hoverRow && mine !== null && mine !== undefined) {
         const previous = hoverIdx > 0 && times[hoverIdx - 1] === times[hoverIdx]! - tfMs ? values[hoverIdx - 1] : null;
@@ -832,12 +844,15 @@ export class BarStatsPane extends TimePane {
       this.#cell = hoverCell;
     }
     // The View column, right of the plot under the price axis and the columns: each row over the candles in view (its tip says how).
-    const vx = pw + 3, vw = Math.min(this.w - pw - 6, 120);
-    if (vw >= 24) {
+    if (this.#viewSpan) {
+      // Worked out again only for other candles in view or other figures (a pointer move redraws from what is held).
+      const at = `${visible[0]}|${visible[visible.length - 1]}|${visible.length}`;
+      if (table.view?.at !== at) table.view = { at, cells: defs.map((def, r) => def.view?.(input, visible, rowsValues[r]!) ?? null) };
+      const cells = table.view.cells;
       ctx.save();
       ctx.globalAlpha = 0.6; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(Math.round(pw) + 0.5, top); ctx.lineTo(Math.round(pw) + 0.5, top + defs.length * rowH); ctx.stroke(); ctx.globalAlpha = 1;
       defs.forEach((def, rowIndex) => {
-        const cell = def.view?.(input, visible, rowsValues[rowIndex]!) ?? null, y = top + rowIndex * rowH;
+        const cell = cells[rowIndex] ?? null, y = top + rowIndex * rowH;
         const fill = cell && cell.tone !== 'text' ? mixHex(p.panel, toneColor(cell.tone), 0.22) : mixHex(p.panel, p.ui, 0.08);
         ctx.fillStyle = fill; ctx.fillRect(vx, y, vw, rowH - 1);
         if (cell) {
@@ -845,7 +860,7 @@ export class BarStatsPane extends TimePane {
           while (size > 8 && ctx.measureText(cell.value).width > vw - 4) { size--; ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`; }
           if (ctx.measureText(cell.value).width <= vw - 2) { ctx.fillStyle = textOn(fill, 1, p); ctx.fillText(cell.value, vx + vw / 2, y + (rowH - 1) / 2); }
         }
-        if (overView && rowIndex === hoverRow) {
+        if (rowIndex === viewRow) {
           ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(vx) + 0.5, Math.round(y) + 0.5, Math.round(vw) - 1, Math.round(rowH) - 2);
           viewHover = viewCellLines(labelOf.get(def.id)!, cell, def.title, visible.length);
         }
@@ -859,9 +874,11 @@ export class BarStatsPane extends TimePane {
 
   /** Export CSV: the table's candles in view, one line each, every statistic shown as its number or its mark (empty where it has none). */
   #export(): void {
-    const table = this.#table; if (!table) return;
+    const table = this.#table, shown = enabledStats(this.store.state.barStats);
+    // Only a table of the statistics now chosen (one held from before a change is not written).
+    if (!table || table.defs.length !== shown.length || table.defs.some((def, i) => def !== shown[i])) return;
     const v = this.view, tfMs = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
-    const at = table.times.map((_, i) => i).filter(i => table.times[i]! + tfMs >= v.t0 && table.times[i]! <= v.t1);
+    const at = table.times.map((_, i) => i).filter(i => table.times[i]! + tfMs > v.t0 && table.times[i]! < v.t1);
     if (!at.length) return;
     const lines = [['candle_start_utc', ...table.defs.map(def => def.csv?.head ?? def.id)].join(',')];
     for (const i of at) lines.push([new Date(table.times[i]!).toISOString(), ...table.values.map((row, r) => csvCell(table.defs[r]!, row[i]))].join(','));

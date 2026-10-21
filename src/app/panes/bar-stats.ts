@@ -34,8 +34,8 @@ export interface StatInput {
   /** The candle length and the page's clock (a candle under way is measured against what of it has passed); coverage needs both. */
   tfMs?: number;
   now?: number;
-  /** Each candle's share of its volume bought by takers, by start, from the exchange's own candles (Binance reports it); absent elsewhere. */
-  taker?: ReadonlyMap<number, number>;
+  /** The exchange's own candles with their taker buys (index 7), by start (Binance reports them); absent elsewhere. */
+  taker?: ReadonlyMap<number, CandleRow>;
   /** Price step of the loaded rows. */
   step: number;
   candles: ReadonlyMap<number, CandleRow>;
@@ -267,7 +267,11 @@ export const BAR_STATS: readonly StatDef[] = [
   { id: 'sellVol', label: t('sell vol'), group: 'volume', source: 'executions', title: t('Volume sold at the bid (market sells, USD)'), scale: 'sequential', format: volText, compute: input => perBar(input, bar => bar.sellUsd), view: sumView(volText, false) },
   { id: 'takerDelta', label: t('candle delta'), group: 'volume', source: 'market', scale: 'diverging', format: signedVol,
     title: t('Delta from the exchange\'s own candles: taker buys minus the rest of the candle\'s volume, in USD at its typical price. Binance reports taker buys, so the row fills for a Binance chart market, before the recording too, and stays empty for others. One market, where delta counts the markets chosen.'),
-    compute: input => perCandle(input, (c, i) => { const share = input.taker?.get(slotTime(input, i)), usd = candleUsd(c); return share === undefined || !(usd > 0) ? null : (2 * Math.min(1, Math.max(0, share)) - 1) * usd; }),
+    // Buys, volume and price of one snapshot, the exchange's own candle: the chart's candle under way moves on between the minutes it is read.
+    compute: input => input.bars.map((_, i) => {
+      const c = input.taker?.get(slotTime(input, i)), bought = c?.[7], usd = c ? candleUsd(c) : 0;
+      return c && bought !== undefined && c[5] > 0 && usd > 0 ? (2 * Math.min(1, Math.max(0, bought / c[5])) - 1) * usd : null;
+    }),
     view: sumView(signedVol, true) },
   { id: 'cover', label: t('rec %'), group: 'volume', source: 'executions', scale: 'category', format: v => v >= 99.5 ? '' : pctText(v), tone: v => v < 95 ? 'sell' : null,
     title: t('How much of the candle the recording holds: its minutes with trades recorded on any of the markets counted, against its length (against what has passed, for the candle under way). Rows read from executions are drawn faint where it is under 95 %; at 100 % the cell is empty.'),
@@ -287,7 +291,8 @@ export const BAR_STATS: readonly StatDef[] = [
     view: sumView(signedPrice, true) },
   { id: 'pocPos', label: t('poc in range'), group: 'footprint', source: 'executions', title: t('Where the point of control sits in the candle: 0 % at its low, 100 % at its high'), scale: 'diverging', center: 50, format: pctText,
     compute: input => perBar(input, (bar, i) => { const c = input.candles.get(slotTime(input, i)), poc = pocOf(bar.rows, input.step); return c && poc !== null && c[2] > c[3] ? clampPct((poc - c[3]) / (c[2] - c[3]) * 100) : null; }),
-    view: (input, at) => { const c = viewCandle(input, at), poc = viewPoc(input, at); return c && poc !== null && c.high > c.low ? { value: pctText(clampPct((poc - c.low) / (c.high - c.low) * 100)), tone: (poc - c.low) / (c.high - c.low) >= 0.5 ? 'buy' : 'sell', how: t('The busiest row of the candles in view added together, in their whole range.') } : null; } },
+    // The candles and the rows of the same candles: one without the other would set a busiest row in a range it was not traded in.
+    view: (input, at) => { const both = at.filter(i => input.bars[i] && input.candles.has(slotTime(input, i))), c = viewCandle(input, both), poc = viewPoc(input, both); return c && poc !== null && c.high > c.low ? { value: pctText(clampPct((poc - c.low) / (c.high - c.low) * 100)), tone: (poc - c.low) / (c.high - c.low) >= 0.5 ? 'buy' : 'sell', how: t('The busiest row of the candles in view added together, in their whole range.') } : null; } },
   { id: 'imbalances', label: t('imb #'), group: 'footprint', source: 'executions', title: t('Diagonal imbalances: levels where sells (or buys) are at least the configured ratio times the opposite volume one row away'), scale: 'sequential', format: count,
     compute: input => perBar(input, bar => diagonalImbalances(bar.rows, input.step, input.options).length), view: sumView(count, false) },
   { id: 'stacked', label: 'stacked', group: 'footprint', source: 'executions', title: t('Stacked imbalances: runs of the configured number of adjacent imbalanced rows on one side'), scale: 'sequential', format: count,
@@ -371,6 +376,9 @@ export function rowScale(def: StatDef, values: readonly (number | null | undefin
   const hi = at(0.99), lo = Math.max(at(0.02), hi / 4096);
   return { lo, hi };
 }
+
+/** How far a value stands out on its row, for the Highlights and the rank: its size, or its distance from the centre of a share around one. */
+export const deviation = (def: StatDef, value: number): number => Math.abs(value - (def.center ?? 0));
 
 /** Strength 0..1 of a value on its row's scale: 0 at or below the 2nd percentile, 1 at or above the 99th. */
 export function strength(def: StatDef, value: number, scale: { lo: number; hi: number } | null): number {

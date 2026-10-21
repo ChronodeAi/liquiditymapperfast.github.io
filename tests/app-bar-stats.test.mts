@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BAR_STATS, DEFAULT_STAT_OPTIONS, PRESETS, diagonalImbalances, enabledStats, rowScale, stackedRuns, stackedZones, statDef, strength, type StatInput, type StatOptions } from '../src/app/panes/bar-stats.ts';
+import { BAR_STATS, DEFAULT_STAT_OPTIONS, PRESETS, deviation, diagonalImbalances, enabledStats, rowScale, stackedRuns, stackedZones, statDef, strength, type StatInput, type StatOptions } from '../src/app/panes/bar-stats.ts';
 import type { Bar } from '../src/app/panes/footprint.ts';
 import { readStatOptions } from '../src/app/stat-options.ts';
 import type { CandleRow, OiBar } from '../src/app/store.ts';
@@ -199,7 +199,8 @@ test('coverage is the minutes recorded over the candle, or over what of it has p
 });
 
 test('the candle delta reads the exchange\'s taker buys, and is empty without them', () => {
-  const values = statDef('takerDelta')!.compute({ ...input(), taker: new Map([[0, 0.6]]) });
+  // The exchange's own candle, 33 of its 55 coins bought by takers: its buys, volume and price are one snapshot, whatever the chart's candle says.
+  const values = statDef('takerDelta')!.compute({ ...input(), taker: new Map<number, CandleRow>([[0, [0, 100, 112, 99, 105, 55, 1, 33]]]) });
   assert.ok(Math.abs(values[0]! - 0.2 * 55 * (112 + 99 + 105) / 3) < 1e-9, 'bought 60 %: delta is a fifth of its dollars');
   assert.deepEqual(values.slice(1), [null, null]);
   assert.deepEqual(statDef('takerDelta')!.compute(input()), [null, null, null], 'a market that does not report them');
@@ -215,4 +216,18 @@ test('the View column: each statistic over the candles in view, taken as it shou
   assert.equal(view('poc')!.value, statDef('poc')!.format(112.5), 'the busiest row of the rows added together');
   assert.equal(view('divergence'), null, 'nothing marked, nothing to say');
   for (const def of BAR_STATS) assert.ok(def.view, `${def.id} has a View figure`);
+});
+
+test('the View position of the point of control pairs the candles and the rows of the same candles', () => {
+  const onlyCandle = new Map<number, CandleRow>([[0, [0, 100, 200, 100, 150, 10, 1]]]);
+  const apart: StatInput = { bars: [null, bar(MIN, [[300, 5, 5]])], times: [0, MIN], step: 5, candles: onlyCandle, oi, options: { ...DEFAULT_STAT_OPTIONS } };
+  const def = statDef('pocPos')!;
+  assert.deepEqual(def.compute(apart), [null, null], 'neither slot has both');
+  assert.equal(def.view!(apart, [0, 1], def.compute(apart)), null, 'a row from one candle is not set in the range of another');
+});
+
+test('Highlights read a share around 50 % by its distance from 50, both ways alike', () => {
+  const def = statDef('closePos')!;
+  assert.equal(deviation(def, 0), deviation(def, 100));
+  assert.equal(deviation(statDef('delta')!, -7), 7);
 });
