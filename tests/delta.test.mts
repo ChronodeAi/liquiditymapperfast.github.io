@@ -91,6 +91,20 @@ test('the candle under way keeps the highest and lowest it was seen at, and a re
   assert.equal(cache.get('k', [spike], [T], HOUR, T + 100_000)[0]!.high, 0, 'a replay moved back before the spike was seen');
 });
 
+test('a candle closes with the wick seen while it was open, read at its close or not, and a replay moved back drops later sightings everywhere', () => {
+  const s0 = T / 1000, spike = track(s0 - 100, sec => sec === s0 + 19 ? 1_000 : 0), after = T + HOUR + 10_000;
+  assert.equal(candleFlow([spike], T, HOUR, after)!.high, 0, 'its samples at the close miss the spike');
+  const read = new FlowCache(); read.get('k', [spike], [T], HOUR, T + 160_000);
+  assert.equal(read.get('k', [spike], [T], HOUR, after)[0]!.high, 1_000, 'read at its close');
+  const away = new FlowCache(); away.get('k', [spike], [T], HOUR, T + 160_000); away.get('k', [spike], [], HOUR, after);
+  assert.equal(away.get('k', [spike], [T], HOUR, after + 1_000)[0]!.high, 1_000, 'panned out of view until it closed');
+  const replay = new FlowCache(); replay.get('k', [spike], [T], HOUR, after);
+  replay.get('k', [spike], [T], HOUR, T + 160_000);
+  assert.equal(replay.get('k', [spike], [T], HOUR, after)[0]!.high, 1_000, 'held closed before a replay saw the spike');
+  const back = new FlowCache(); back.get('k', [spike], [T], HOUR, T + 160_000); back.get('k', [spike], [T - 2 * HOUR], HOUR, T - HOUR);
+  assert.equal(back.get('k', [spike], [T], HOUR, T + 168_000)[0]!.high, 0, 'a seek back before it, to other candles, forgot it');
+});
+
 test('settings, and the popup of a candle', () => {
   assert.deepEqual(readDelta(undefined), DELTA_DEFAULTS);
   assert.deepEqual([DELTA_DEFAULTS.style, DELTA_DEFAULTS.reset, DELTA_DEFAULTS.divergence, DELTA_DEFAULTS.pivot], ['candles', 'none', true, 3]);

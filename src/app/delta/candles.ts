@@ -131,17 +131,18 @@ export class FlowCache {
   #open = new Map<number, { flow: CandleFlow; at: number }>();
   get(key: string, tracks: readonly DeltaTrack[], starts: readonly number[], tfMs: number, now: number, liveMs = 5_000): (CandleFlow | null)[] {
     if (key !== this.#key) { this.#key = key; this.#closed = new Map(); this.#open = new Map(); }
+    // A replay moved back: what was seen after its moment is not known yet, wherever it was.
+    for (const [t, seen] of this.#open) if (seen.at > now) this.#open.delete(t);
+    const merge = (f: CandleFlow | null, t: number): CandleFlow | null => { const seen = this.#open.get(t); return f && seen ? { ...f, low: Math.min(f.low, seen.flow.low), high: Math.max(f.high, seen.flow.high) } : f; };
+    // A candle closes with what was seen of it while it was open, whether it is read then or not (panned out of view).
+    const close = (t: number, f: CandleFlow | null): CandleFlow | null => { const final = merge(f, t); this.#closed.set(t, final); this.#open.delete(t); return final; };
     const out = starts.map(t => {
-      const closed = t + tfMs <= now - liveMs;
-      if (closed && this.#closed.has(t)) return this.#closed.get(t)!;
-      let f = candleFlow(tracks, t, tfMs, now);
-      const seen = this.#open.get(t);
-      if (f && seen && seen.at <= now) f = { ...f, low: Math.min(f.low, seen.flow.low), high: Math.max(f.high, seen.flow.high) };
-      if (closed) { this.#closed.set(t, f); this.#open.delete(t); } else if (f) this.#open.set(t, { flow: f, at: now });
+      if (t + tfMs <= now - liveMs) return close(t, this.#closed.has(t) ? this.#closed.get(t)! : candleFlow(tracks, t, tfMs, now));
+      const f = merge(candleFlow(tracks, t, tfMs, now), t);
+      if (f) this.#open.set(t, { flow: f, at: now });
       return f;
     });
-    // Only candles still open are kept so (one panned out of view closes without being read again).
-    for (const t of this.#open.keys()) if (t + tfMs <= now - liveMs) this.#open.delete(t);
+    for (const t of [...this.#open.keys()]) if (t + tfMs <= now - liveMs) close(t, this.#closed.get(t) ?? candleFlow(tracks, t, tfMs, now));
     return out;
   }
 }
