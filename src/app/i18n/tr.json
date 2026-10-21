@@ -1619,7 +1619,7 @@
  "Jev warnings": "Jev uyarıları",
  "Jev warnings made when price had already moved are hidden unless this is on.": "Fiyat zaten hareket etmişken verilen Jev uyarıları, bu açık olmadıkça gizlenir.",
  "Jev warnings under this score of 4 are not drawn.": "Bu puanın (4 üzerinden) altındaki Jev uyarıları çizilmez.",
- "Long and short markers at the minute and price where the volatility watch named a side.": "Volatilite gözcüsünün bir yön söylediği dakika ve fiyatta long ve short işaretleri.",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "Volatilite gözcüsünün bir yön söylediği dakika ve fiyatta long ve short işaretleri. Aynı tür ve yönde, aralarında en fazla beş dakika olan sinyaller tek bir bölümdür; yalnızca ilk sinyalinde işaretlenir.",
  "Long: Jev warning": "Long: Jev uyarısı",
  "Long: confluence call": "Long: konfluens çağrısı",
  "Minimum Jev score": "En düşük Jev puanı",
@@ -1635,5 +1635,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "Görünümdeki sinyaller: {n}; henüz hiçbirinin 15 dakikalık sonucu yok.",
  "Too recent": "Çok yeni",
  "Triggers": "Tetikleyiciler",
- "Worst within 15 min": "15 dk içinde en kötü"
+ "Worst within 15 min": "15 dk içinde en kötü",
+ "Calls in this episode": "Bu bölümdeki sinyaller"
 }

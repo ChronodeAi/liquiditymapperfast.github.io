@@ -773,7 +773,7 @@ export class Toolbar {
     const set = (change: Partial<SignalSettings>, again = false): void => { this.store.set({ signals: { ...this.store.state.signals, ...change } }); if (again) rebuild(); };
     if (!info.available) body.append(note(t('Not available without a local server')));
     body.append(
-      switchRow(t('Show signals'), t('Long and short markers at the minute and price where the volatility watch named a side.'), s.on, on => set({ on }, true)),
+      switchRow(t('Show signals'), t('Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.'), s.on, on => set({ on }, true)),
       switchRow(t('Jev warnings'), t('Filled triangles: Jev expected a volatile move and gave it a side.'), s.jev, jev => set({ jev }, true)),
       switchRow(t('Confluence calls'), t('Outlined triangles: enough families of measures agreed on a side.'), s.confluence, confluence => set({ confluence }, true)),
       numberRow(t('Minimum Jev score'), t('Jev warnings under this score of 4 are not drawn.'), { min: SIGNAL_SCORE.min, max: SIGNAL_SCORE.max, step: SIGNAL_SCORE.step, value: s.minScore },

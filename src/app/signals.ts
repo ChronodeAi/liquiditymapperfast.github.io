@@ -30,6 +30,14 @@ export function signalShown(s: Signal, settings: SignalSettings): boolean {
   return settings.duringMoves || s.jev.underway === false;
 }
 
+/** Calls of one kind and side at most this far apart are one episode, and the chart marks only its first. */
+export const EPISODE_GAP_MS = 5 * 60_000;
+/** How far before a window episodes are followed back, so one that began before it is not marked again part of the way through. */
+const EPISODE_LOOKBACK_MS = 6 * 3_600_000;
+
+/** A signal as the chart draws it: the first call of its episode, with how many calls the episode held and the time of its last. */
+export type ShownSignal = Signal & { episode: { count: number; last: number } };
+
 /**
  * The signals held for the chart, one per kind and minute, in time order. An answer again for a minute replaces what was held (its results
  * fill in as the minutes after it are known). At most `max` are kept, the oldest outside the window last asked for going first.
@@ -63,13 +71,28 @@ export class SignalBook {
 
   clear(): void { if (!this.items.length) return; this.items = []; this.#byKey.clear(); this.version++; }
 
-  /** The signals in [from, to) the settings draw, oldest first. */
-  visible(from: number, to: number, settings: SignalSettings): Signal[] {
+  /**
+   * The episodes the settings draw that begin in [from, to), oldest first, each as its first call. Calls are grouped by kind and side once
+   * the settings have filtered them; an episode that began before `from` is not drawn, and one still going at `to` keeps counting calls up
+   * to `until` (replay passes its moment, so nothing after it is counted).
+   */
+  visible(from: number, to: number, settings: SignalSettings, until = Infinity): ShownSignal[] {
     const items = this.items;
-    let lo = 0, hi = items.length;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (items[mid]!.t < from) lo = mid + 1; else hi = mid; }
-    const out: Signal[] = [];
-    for (let i = lo; i < items.length && items[i]!.t < to; i++) if (signalShown(items[i]!, settings)) out.push(items[i]!);
+    let i = 0, hi = items.length;
+    while (i < hi) { const mid = (i + hi) >> 1; if (items[mid]!.t < from - EPISODE_LOOKBACK_MS) i = mid + 1; else hi = mid; }
+    const open = new Map<string, ShownSignal>(), out: ShownSignal[] = [];
+    for (; i < items.length; i++) {
+      const s = items[i]!;
+      if (s.t >= until) break;
+      if (s.t >= to && ![...open.values()].some(e => e.t >= from && s.t - e.episode.last <= EPISODE_GAP_MS)) break;
+      if (!signalShown(s, settings)) continue;
+      const key = `${s.kind}:${s.side}`, head = open.get(key);
+      if (head && s.t - head.episode.last <= EPISODE_GAP_MS) { head.episode.count++; head.episode.last = s.t; continue; }
+      if (s.t >= to) continue;
+      const shown: ShownSignal = { ...s, episode: { count: 1, last: s.t } };
+      open.set(key, shown);
+      if (s.t >= from) out.push(shown);
+    }
     return out;
   }
 }
@@ -78,8 +101,8 @@ export class SignalBook {
 const bpText = (v: number | null): string => v === null ? t('Too recent') : `${v > 0 ? '+' : ''}${v.toFixed(1)} bp`;
 const bpColor = (v: number | null): InfoLine['color'] => v === null ? 'muted' : v > 0 ? 'buy' : v < 0 ? 'sell' : 'text';
 
-/** The box for a signal under the pointer. */
-export function signalLines(s: Signal): InfoLine[] {
+/** The box for a signal under the pointer; for the first call of an episode of several, how many calls it held and over how long. */
+export function signalLines(s: Signal & { episode?: ShownSignal['episode'] }): InfoLine[] {
   const long = s.side === 'long';
   const title = s.kind === 'jev' ? (long ? t('Long: Jev warning') : t('Short: Jev warning')) : (long ? t('Long: confluence call') : t('Short: confluence call'));
   const lines: InfoLine[] = [
@@ -87,6 +110,7 @@ export function signalLines(s: Signal): InfoLine[] {
     { label: t('Time'), text: clock(s.t, true) },
     { label: t('Price'), text: fmtPrice(s.price) },
   ];
+  if (s.episode && s.episode.count > 1) lines.push({ label: t('Calls in this episode'), text: `${s.episode.count} · ${t('{n} min', { n: String(Math.round((s.episode.last - s.t) / 60_000)) })}` });
   if (s.jev) {
     lines.push({ label: t('Jev score'), text: `${s.jev.score.toFixed(1)} / 4`, rule: true });
     lines.push({ label: t('Confidence'), text: `${Math.round(s.jev.confidence * 100)}%` });

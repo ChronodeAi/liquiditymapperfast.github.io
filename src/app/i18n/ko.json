@@ -1570,7 +1570,7 @@
  "Jev warnings": "Jev 경고",
  "Jev warnings made when price had already moved are hidden unless this is on.": "가격이 이미 움직인 뒤에 나온 Jev 경고는 이 항목을 켜지 않으면 숨겨집니다.",
  "Jev warnings under this score of 4 are not drawn.": "이 점수(4점 만점) 미만의 Jev 경고는 그리지 않습니다.",
- "Long and short markers at the minute and price where the volatility watch named a side.": "변동성 감시가 방향을 짚은 분과 가격에 롱·숏 표시.",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "변동성 감시가 방향을 짚은 분과 가격에 롱·숏 표시. 같은 종류·같은 방향으로 5분 이내 간격의 신호는 하나의 에피소드로 묶어 첫 신호에만 표시합니다.",
  "Long: Jev warning": "롱: Jev 경고",
  "Long: confluence call": "롱: 컨플루언스 신호",
  "Minimum Jev score": "최소 Jev 점수",
@@ -1586,5 +1586,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "화면의 신호: {n}. 아직 15분 결과가 있는 신호가 없습니다.",
  "Too recent": "너무 최근",
  "Triggers": "트리거",
- "Worst within 15 min": "15분 내 최저"
+ "Worst within 15 min": "15분 내 최저",
+ "Calls in this episode": "이 에피소드의 신호 수"
 }

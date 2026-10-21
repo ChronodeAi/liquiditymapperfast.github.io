@@ -1636,7 +1636,7 @@
  "Jev warnings": "Avvisi di Jev",
  "Jev warnings made when price had already moved are hidden unless this is on.": "Gli avvisi di Jev dati quando il prezzo si era già mosso sono nascosti, a meno che questo sia attivo.",
  "Jev warnings under this score of 4 are not drawn.": "Gli avvisi di Jev sotto questo punteggio (su 4) non vengono disegnati.",
- "Long and short markers at the minute and price where the volatility watch named a side.": "Segni long e short al minuto e al prezzo in cui la sorveglianza della volatilità ha indicato un lato.",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "Segni long e short al minuto e al prezzo in cui la sorveglianza della volatilità ha indicato un lato. Le segnalazioni dello stesso tipo e lato distanti al massimo cinque minuti formano un episodio, segnato una volta sola, alla prima.",
  "Long: Jev warning": "Long: avviso di Jev",
  "Long: confluence call": "Long: chiamata di confluenza",
  "Minimum Jev score": "Punteggio minimo di Jev",
@@ -1652,5 +1652,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "Segnali in vista: {n}; nessuno ha ancora un risultato a 15 minuti.",
  "Too recent": "Troppo recente",
  "Triggers": "Inneschi",
- "Worst within 15 min": "Peggiore entro 15 min"
+ "Worst within 15 min": "Peggiore entro 15 min",
+ "Calls in this episode": "Segnalazioni in questo episodio"
 }

@@ -44,13 +44,33 @@ test('the book merges by kind and minute, keeps time order, and an answer again 
 
 test('visible: kinds by their switches, the minimum score, moves already under way', () => {
   const book = new SignalBook();
-  book.add([jev(MIN, 2, false), jev(2 * MIN, 3, true), jev(3 * MIN, 3, null), jev(4 * MIN, 3, false), call(5 * MIN), jev(9 * MIN, 4, false)]);
-  const at = (s: SignalSettings): string[] => book.visible(0, 8 * MIN, s).map(x => `${x.kind}:${x.t / MIN}`);
-  assert.deepEqual(at(all), ['jev:1', 'jev:2', 'jev:3', 'jev:4', 'confluence:5'], 'the window is [from, to)');
-  assert.deepEqual(at({ ...all, minScore: 2.5 }), ['jev:2', 'jev:3', 'jev:4', 'confluence:5']);
-  assert.deepEqual(at({ ...all, duringMoves: false }), ['jev:1', 'jev:4', 'confluence:5'], 'under way or unknown is hidden');
-  assert.deepEqual(at({ ...all, jev: false }), ['confluence:5']);
+  // Ten minutes apart, so each is an episode of its own.
+  book.add([jev(10 * MIN, 2, false), jev(20 * MIN, 3, true), jev(30 * MIN, 3, null), jev(40 * MIN, 3, false), call(50 * MIN), jev(90 * MIN, 4, false)]);
+  const at = (s: SignalSettings): string[] => book.visible(0, 80 * MIN, s).map(x => `${x.kind}:${x.t / MIN}`);
+  assert.deepEqual(at(all), ['jev:10', 'jev:20', 'jev:30', 'jev:40', 'confluence:50'], 'the window is [from, to)');
+  assert.deepEqual(at({ ...all, minScore: 2.5 }), ['jev:20', 'jev:30', 'jev:40', 'confluence:50']);
+  assert.deepEqual(at({ ...all, duringMoves: false }), ['jev:10', 'jev:40', 'confluence:50'], 'under way or unknown is hidden');
+  assert.deepEqual(at({ ...all, jev: false }), ['confluence:50']);
   assert.deepEqual(at({ ...all, confluence: false, minScore: 4 }), []);
+});
+
+test('visible: calls of one kind and side at most five minutes apart are one episode, marked at its first call', () => {
+  const book = new SignalBook();
+  const short = (t: number): Signal => ({ ...jev(t, 3, false), side: 'short' });
+  book.add([jev(0, 3, false), jev(2 * MIN, 3, false), jev(7 * MIN, 3, false), short(3 * MIN), call(MIN), call(4 * MIN), jev(13 * MIN, 3, false)]);
+  const shown = book.visible(0, 60 * MIN, all);
+  assert.deepEqual(shown.map(x => `${x.kind}:${x.side}:${x.t / MIN}:${x.episode.count}:${x.episode.last / MIN}`),
+    ['jev:long:0:3:7', 'confluence:short:1:2:4', 'jev:short:3:1:3', 'jev:long:13:1:13'], 'a gap of 6 minutes starts a new episode; sides and kinds are apart');
+  // The settings filter before grouping: a call they hide does not join or split an episode.
+  assert.deepEqual(book.visible(0, 60 * MIN, { ...all, minScore: 4 }).map(x => x.kind), ['confluence']);
+  // An episode that began before the window is not drawn again inside it; one going on past the window's end keeps counting.
+  assert.deepEqual(book.visible(MIN, 60 * MIN, all).map(x => `${x.kind}:${x.t / MIN}`), ['confluence:1', 'jev:3', 'jev:13'], 'the long Jev episode began at 0');
+  assert.equal(book.visible(0, MIN, all)[0]!.episode.count, 3);
+  // Replay passes its moment: nothing after it is counted.
+  assert.deepEqual(book.visible(0, 60 * MIN, all, 3 * MIN).map(x => `${x.t / MIN}:${x.episode.count}`), ['0:2', '1:1']);
+  const lines = signalLines(shown[0]!);
+  assert.equal(lines.find(l => l.label === 'Calls in this episode')?.text, '3 · 7 min');
+  assert.ok(!signalLines(shown[2]!).some(l => l.label === 'Calls in this episode'), 'a single call says nothing about episodes');
 });
 
 test('signalLines: a Jev warning, a confluence call, and results not known yet', () => {

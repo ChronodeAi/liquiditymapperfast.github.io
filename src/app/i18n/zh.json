@@ -1570,7 +1570,7 @@
  "Jev warnings": "Jev 预警",
  "Jev warnings made when price had already moved are hidden unless this is on.": "价格已在移动时发出的 Jev 预警会被隐藏，除非打开此项。",
  "Jev warnings under this score of 4 are not drawn.": "低于此得分（满分 4）的 Jev 预警不绘制。",
- "Long and short markers at the minute and price where the volatility watch named a side.": "在波动监测给出方向的那一分钟和价格处显示做多和做空标记。",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "在波动监测给出方向的那一分钟和价格处显示做多和做空标记。同一类型、同一方向且间隔不超过五分钟的信号算作一个片段，只在其第一个信号处标记一次。",
  "Long: Jev warning": "做多：Jev 预警",
  "Long: confluence call": "做多：共振信号",
  "Minimum Jev score": "Jev 最低得分",
@@ -1586,5 +1586,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "视图中的信号：{n}；尚无 15 分钟结果。",
  "Too recent": "太新",
  "Triggers": "触发因素",
- "Worst within 15 min": "15 分钟内最差"
+ "Worst within 15 min": "15 分钟内最差",
+ "Calls in this episode": "本片段中的信号数"
 }

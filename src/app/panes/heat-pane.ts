@@ -32,8 +32,7 @@ import { aggregateIds } from '../cvd/model.ts';
 import { resolvePicks } from '../market-choice.ts';
 import { iconsOf, markLines, markSize, type AbsorptionMark, type MarkIcon } from '../absorption.ts';
 import { diamondRadius, liquidationHidden, liquidationLines, type Liquidation } from '../liquidations.ts';
-import { signalLines } from '../signals.ts';
-import type { Signal } from '../../shared/volatility/signals.ts';
+import { signalLines, type ShownSignal } from '../signals.ts';
 import { venueLabel } from '../venues.ts';
 import { describeSources } from '../cell-sources.ts';
 import { anomalies, type Anomalies } from '../../shared/anomaly.ts';
@@ -301,7 +300,7 @@ export class HeatPane {
   /** The liquidations drawn this frame (half-diagonal `r`), for the pointer. */
   #diamonds: { x: number; y: number; r: number; liq: Liquidation }[] = [];
   /** The signal markers drawn this frame (`y` the triangle's centre, `r` its half-size), for the pointer. */
-  #signalMarks: { x: number; y: number; r: number; signal: Signal }[] = [];
+  #signalMarks: { x: number; y: number; r: number; signal: ShownSignal }[] = [];
   #grid: { data: Float32Array; w: number; h: number; bounds: Bounds } | null = null;
   /** Where the liquidity under the pointer comes from: asked of the worker once per map cell and kept while the pointer stays in it. */
   #sources: { key: string; text: string } | null = null;
@@ -2338,8 +2337,8 @@ export class HeatPane {
   #paintSignals(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     this.#signalMarks = [];
     const s = state.signals; if (!s.on) return;
-    const v = this.view, p = this.#palette, to = replaying() ? Math.min(v.t1, pageNow() + 1) : v.t1;
-    const visible = this.hub.signals.visible(v.t0, to, s);
+    const v = this.view, p = this.#palette, now = replaying() ? pageNow() + 1 : Infinity;
+    const visible = this.hub.signals.visible(v.t0, Math.min(v.t1, now), s, now);
     if (!visible.length) return;
     const R = 6, GAP = 3;
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
@@ -2358,8 +2357,8 @@ export class HeatPane {
   }
 
   /** The signal marker nearest the pointer, if the pointer is on it (a few pixels of slack). */
-  #signalAt(x: number, y: number): { r: number; y: number; signal: Signal } | null {
-    let best: { r: number; y: number; signal: Signal } | null = null, bestD = Infinity;
+  #signalAt(x: number, y: number): { r: number; y: number; signal: ShownSignal } | null {
+    let best: { r: number; y: number; signal: ShownSignal } | null = null, bestD = Infinity;
     for (const m of this.#signalMarks) { const d = Math.hypot(m.x - x, m.y - y); if (d <= m.r + 3 && d < bestD) { best = m; bestD = d; } }
     return best;
   }

@@ -1653,7 +1653,7 @@
  "Jev warnings": "Предупреждения Jev",
  "Jev warnings made when price had already moved are hidden unless this is on.": "Предупреждения Jev, сделанные, когда цена уже двигалась, скрыты, если это не включено.",
  "Jev warnings under this score of 4 are not drawn.": "Предупреждения Jev ниже этой оценки (из 4) не рисуются.",
- "Long and short markers at the minute and price where the volatility watch named a side.": "Метки лонг и шорт на минуте и цене, где монитор волатильности назвал сторону.",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "Метки лонг и шорт на минуте и цене, где монитор волатильности назвал сторону. Сигналы одного типа и направления с интервалом не больше пяти минут — один эпизод; он отмечается один раз, на первом сигнале.",
  "Long: Jev warning": "Лонг: предупреждение Jev",
  "Long: confluence call": "Лонг: сигнал конфлюэнса",
  "Minimum Jev score": "Минимальная оценка Jev",
@@ -1669,5 +1669,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "Сигналов на экране: {n}; ни у одного пока нет результата за 15 минут.",
  "Too recent": "Слишком свежий",
  "Triggers": "Триггеры",
- "Worst within 15 min": "Худшее за 15 мин"
+ "Worst within 15 min": "Худшее за 15 мин",
+ "Calls in this episode": "Сигналов в эпизоде"
 }

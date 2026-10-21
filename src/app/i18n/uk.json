@@ -1658,7 +1658,7 @@
  "Jev warnings": "Попередження Jev",
  "Jev warnings made when price had already moved are hidden unless this is on.": "Попередження Jev, зроблені, коли ціна вже рухалася, приховано, якщо це не ввімкнено.",
  "Jev warnings under this score of 4 are not drawn.": "Попередження Jev нижче цієї оцінки (з 4) не малюються.",
- "Long and short markers at the minute and price where the volatility watch named a side.": "Позначки лонг і шорт на хвилині й ціні, де монітор волатильності назвав сторону.",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "Позначки лонг і шорт на хвилині й ціні, де монітор волатильності назвав сторону. Сигнали одного типу й напрямку з інтервалом не більше п’яти хвилин — один епізод; він позначається один раз, на першому сигналі.",
  "Long: Jev warning": "Лонг: попередження Jev",
  "Long: confluence call": "Лонг: сигнал конфлюенсу",
  "Minimum Jev score": "Мінімальна оцінка Jev",
@@ -1674,5 +1674,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "Сигналів на екрані: {n}; жоден ще не має результату за 15 хвилин.",
  "Too recent": "Надто свіжий",
  "Triggers": "Тригери",
- "Worst within 15 min": "Найгірше за 15 хв"
+ "Worst within 15 min": "Найгірше за 15 хв",
+ "Calls in this episode": "Сигналів в епізоді"
 }

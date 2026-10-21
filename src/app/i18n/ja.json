@@ -1570,7 +1570,7 @@
  "Jev warnings": "Jev の警告",
  "Jev warnings made when price had already moved are hidden unless this is on.": "価格がすでに動いていたときの Jev の警告は、これをオンにしない限り隠されます。",
  "Jev warnings under this score of 4 are not drawn.": "このスコア（4 点満点）未満の Jev の警告は描画されません。",
- "Long and short markers at the minute and price where the volatility watch named a side.": "ボラティリティ監視が方向を示した分と価格に付けるロング・ショートの印。",
+ "Long and short markers at the minute and price where the volatility watch named a side. Calls of one kind and side at most five minutes apart are one episode, marked once, at its first call.": "ボラティリティ監視が方向を示した分と価格に付けるロング・ショートの印。同じ種類・同じ方向で間隔が5分以内のシグナルは1つのエピソードとみなし、最初のシグナルにだけ印を付けます。",
  "Long: Jev warning": "ロング：Jev の警告",
  "Long: confluence call": "ロング：コンフルエンスのコール",
  "Minimum Jev score": "Jev の最低スコア",
@@ -1586,5 +1586,6 @@
  "Signals in view: {n}; none has a 15-minute result yet.": "表示中のシグナル：{n}。15分後の結果はまだありません。",
  "Too recent": "新しすぎ",
  "Triggers": "トリガー",
- "Worst within 15 min": "15分以内の最悪"
+ "Worst within 15 min": "15分以内の最悪",
+ "Calls in this episode": "このエピソードのシグナル数"
 }
