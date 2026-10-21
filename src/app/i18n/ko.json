@@ -62,7 +62,7 @@
  "Mirror": "미러",
  "Hover comparison. With it on, pointing at the profile column or the order book compares the liquidity between the price and your pointer with the equal stretch on the other side, and says which side has more. Nothing changes until you hover; that is how it works.": "호버 비교. 켜 두면 프로파일 열이나 호가창을 가리킬 때 가격과 포인터 사이의 유동성을 반대편의 같은 길이 구간과 비교하여 어느 쪽이 더 많은지 알려 줍니다. 마우스를 올리기 전에는 아무것도 바뀌지 않습니다. 그렇게 동작합니다.",
  "Volume": "거래량",
- "Volume bars along the bottom of the chart. Unusually large ones are drawn stronger (see Highlights).": "차트 아래쪽의 거래량 막대. 유난히 큰 것은 더 진하게 그려집니다('하이라이트' 참조).",
+ "Volume bars along the bottom of the chart. Where the recording reaches, each is what the exchanges switched on inside the Spot / Perp filter traded in that candle; before it, the chart's own candle, outlined and named ≈ with its market (split by taker buys on Binance, grey elsewhere). They follow the volume profile's Bars and value area settings. Unusually large ones are drawn stronger (see Highlights).": "차트 아래쪽의 거래량 막대. 기록이 닿는 구간에서는 각 막대가 그 캔들 동안 현물/무기한 필터 안에서 켜진 거래소에서 체결된 양이고, 그 이전은 차트 자체의 캔들로 테두리와 시장 이름이 붙은 ≈가 표시됩니다(바이낸스는 테이커 매수로 나누고, 그 외는 회색). 막대 표시와 밸류 에어리어는 거래량 프로파일 설정을 따릅니다. 유난히 큰 것은 더 진하게 그려집니다('하이라이트' 참조).",
  "Trades": "체결",
  "Large market orders as bubbles (the fills of one order added together): green for buys, red for sells, the area in proportion to the size, the largest in view the biggest. Hover one for its venue, size and price.": "큰 시장가 주문을 버블로 표시합니다(한 주문의 체결을 합산). 초록색은 매수, 빨간색은 매도이며, 면적은 크기에 비례하고 화면에서 가장 큰 주문이 가장 큰 버블입니다. 버블에 마우스를 올리면 거래소, 크기, 가격을 볼 수 있습니다.",
  "The heatmap": "히트맵",

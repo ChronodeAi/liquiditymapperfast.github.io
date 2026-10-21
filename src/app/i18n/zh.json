@@ -62,7 +62,7 @@
  "Mirror": "镜像",
  "Hover comparison. With it on, pointing at the profile column or the order book compares the liquidity between the price and your pointer with the equal stretch on the other side, and says which side has more. Nothing changes until you hover; that is how it works.": "悬停对比。开启后，指向分布列或订单簿时，会把价格与你的指针之间的流动性，与另一侧相同长度的区间相比，并告诉你哪一侧更多。悬停之前不会有任何变化；它就是这样工作的。",
  "Volume": "成交量",
- "Volume bars along the bottom of the chart. Unusually large ones are drawn stronger (see Highlights).": "图表底部的成交量柱。异常大的会画得更醒目（见“高亮”）。",
+ "Volume bars along the bottom of the chart. Where the recording reaches, each is what the exchanges switched on inside the Spot / Perp filter traded in that candle; before it, the chart's own candle, outlined and named ≈ with its market (split by taker buys on Binance, grey elsewhere). They follow the volume profile's Bars and value area settings. Unusually large ones are drawn stronger (see Highlights).": "图表底部的成交量柱。在记录覆盖的范围内，每根柱是该 K 线期间现货/永续筛选内已开启的交易所的成交量；记录之前是图表自身的 K 线，带轮廓并以 ≈ 加市场名标注（币安按主动买入拆分，其他为灰色）。柱条样式和价值区域沿用成交量分布的设置。异常大的会画得更醒目（见“高亮”）。",
  "Trades": "成交",
  "Large market orders as bubbles (the fills of one order added together): green for buys, red for sells, the area in proportion to the size, the largest in view the biggest. Hover one for its venue, size and price.": "大额市价单以气泡显示（同一订单的各笔成交合计）：绿色为买入，红色为卖出，面积与金额成正比，视图中最大的订单气泡最大。悬停可查看交易所、数量和价格。",
  "The heatmap": "热力图",

@@ -62,7 +62,7 @@
  "Mirror": "ミラー",
  "Hover comparison. With it on, pointing at the profile column or the order book compares the liquidity between the price and your pointer with the equal stretch on the other side, and says which side has more. Nothing changes until you hover; that is how it works.": "ホバー比較。オンのとき、プロファイル列やオーダーブックにカーソルを合わせると、価格とカーソルの間の流動性を反対側の同じ幅の区間と比べ、どちら側が多いかを表示します。ホバーするまで何も変わりません。そういう仕組みです。",
  "Volume": "出来高",
- "Volume bars along the bottom of the chart. Unusually large ones are drawn stronger (see Highlights).": "チャート下部の出来高バー。異常に大きいものは強めに描かれます（「ハイライト」を参照）。",
+ "Volume bars along the bottom of the chart. Where the recording reaches, each is what the exchanges switched on inside the Spot / Perp filter traded in that candle; before it, the chart's own candle, outlined and named ≈ with its market (split by taker buys on Binance, grey elsewhere). They follow the volume profile's Bars and value area settings. Unusually large ones are drawn stronger (see Highlights).": "チャート下部の出来高バー。記録がある範囲では、各バーはその足の間に現物/無期限フィルター内でオンになっている取引所で約定した量です。記録より前はチャート自身のローソク足で、枠と市場名付きの≈が付きます（Binanceではテイカー買いで分割、その他は灰色）。バーとバリューエリアは出来高プロファイルの設定に従います。異常に大きいものは強めに描かれます（「ハイライト」を参照）。",
  "Trades": "約定",
  "Large market orders as bubbles (the fills of one order added together): green for buys, red for sells, the area in proportion to the size, the largest in view the biggest. Hover one for its venue, size and price.": "大きな成行注文をバブルで表示します（1つの注文の約定を合算）。緑は買い、赤は売りで、面積は注文の大きさに比例し、表示中で最大の注文が最も大きなバブルになります。バブルにカーソルを合わせると、取引所、サイズ、価格が分かります。",
  "The heatmap": "ヒートマップ",
