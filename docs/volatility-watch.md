@@ -113,6 +113,6 @@ A directional reading of the same values without a model, made every minute whet
 
 A family whose vote is under 0.25 does not vote. `direction` is the sign of the sum, `score` its mean over the three families. A **call** needs at least two families with `direction`, none against it, and a trigger this minute: a highlighted bar (`volSigma` or `deltaSigma` ≥ 2), a liquidation burst, `spotPerpOpposite` or `priceCvdOpposite`. Agreement without a trigger is a drift, not a call.
 
-The Liquidity Tracker does not vote: measured against what price did next, the side its flip pointed to was not the side price went (Research_Findings.md). `trackerFlip` stays a concept Jev reads, and its values stay in the log.
+The Liquidity Tracker does not vote: over the first days of the log its flip showed no skill at naming the side price went next (Research_Findings.md). `trackerFlip` stays a concept Jev reads, and its values stay in the log.
 
 The rules come from Karl's posts (Concepts above) and are hypotheses until `volatility:eval` says otherwise. The minute grid is the recorder's: this is a one-minute reading over a 15-minute horizon, not a sub-second signal.

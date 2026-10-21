@@ -66,8 +66,8 @@ function flowVote(v: Record<string, VolatilityValue>): number | null {
 
 /**
  * Resting liquidity. A side pulled while the other holds leaves no cushion that way (market makers stop replenishing bids: price falls
- * through); an imbalance at the edge of the last 6 h votes with the heavy side. The Liquidity Tracker does not vote: measured against what
- * price did next, the side its flip pointed to was not the side price went (docs/volatility-watch.md, "Confluence").
+ * through); an imbalance at the edge of the last 6 h votes with the heavy side. The Liquidity Tracker does not vote: its flip has shown no
+ * skill at naming the side price went next (docs/volatility-watch.md, "Confluence").
  */
 function bookVote(v: Record<string, VolatilityValue>): number | null {
   const bid = num(v.bidChangePct), ask = num(v.askChangePct);
