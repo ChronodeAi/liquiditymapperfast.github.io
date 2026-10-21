@@ -7,11 +7,15 @@
  * standard deviation of 15-minute returns over the 24 hours of rows before it. Jev's score and each concept's yes probability (rows Jev
  * answered) are ranked against that (ROC AUC, Brier), beside a plain baseline (the largest of |spotZ15|, |perpZ15|, |retZ15|, volSigma and
  * liqZ5) and the model-free confluence, recomputed from each row's logged values so rows written before it existed count too. The
- * confluence's calls are also scored as trades: the return from the row to the horizon, signed by the call's direction.
+ * confluence's calls are also scored as trades: the return from the row to the horizon, signed by the call's direction. The page warns only
+ * while price is not already moving (`MOVE_SIGMA` in shared/volatility/features.ts), so each model is also judged as an early warning on
+ * those rows alone: its score against the range price had just covered, and its warnings' precision and recall.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { confluence, type Confluence } from '../src/shared/volatility/confluence.ts';
+import { MOVE_SIGMA } from '../src/shared/volatility/features.ts';
+import { WARN_MIN_CONFIDENCE, WARN_MIN_SCORE } from '../src/shared/volatility/jev.ts';
 
 const MINUTE = 60_000;
 
@@ -22,8 +26,12 @@ export interface Row {
   /** The SubQ arms' verdicts on the same minute (see `SUBQ_ARMS` in shared/volatility/jev.ts). */
   arms?: Partial<Record<'subq' | 'subqHistory' | 'subqImage', Row['verdict']>>;
 }
-/** `ret`: log return (%) from the row to the last row within the horizon; `sd`: the standard deviation of 15-minute log returns it was judged by. */
-export interface Labelled { row: Row; volatile: boolean; up: boolean; ret: number; sd: number }
+/**
+ * `ret`: log return (%) from the row to the last row within the horizon; `sd`: the standard deviation of 15-minute log returns it was judged
+ * by; `moved`: the range of prices over the 15 minutes up to the row, in those standard deviations, and `underway` when that is a move
+ * already (`MOVE_SIGMA` or more).
+ */
+export interface Labelled { row: Row; volatile: boolean; up: boolean; ret: number; sd: number; moved: number; underway: boolean }
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -78,7 +86,10 @@ export function label(rows: readonly Row[], horizonMin: number, k: number): Labe
         if (Math.abs(x) > Math.abs(extreme)) extreme = x;
       }
       if (last < t + (horizonMin - 2) * MINUTE) continue; // the log ends before the horizon does
-      out.push({ row, volatile: Math.abs(extreme) >= k * sd, up: extreme > 0, ret: Math.log(lastPrice / p) * 100, sd });
+      let high = p, low = p;
+      for (let j = i - 1; j >= 0 && list[j]!.features.t >= t - 15 * MINUTE; j--) { const x = list[j]!.features.price; if (x > high) high = x; if (x < low) low = x; }
+      const moved = Math.log(high / low) / sd;
+      out.push({ row, volatile: Math.abs(extreme) >= k * sd, up: extreme > 0, ret: Math.log(lastPrice / p) * 100, sd, moved, underway: moved >= MOVE_SIGMA });
     }
   }
   return out;
@@ -131,7 +142,9 @@ function main(): void {
   console.log(`log ${file}: ${rows.length} minutes, ${labelled.length} labelled (horizon ${horizon} min, volatile = move of ${k} sigma of 15-minute returns)`);
   const y = labelled.map(l => l.volatile), positives = y.filter(Boolean).length;
   if (!labelled.length) { console.log('nothing labelled yet: needs 48 rows of history before a row and the horizon after it'); return; }
-  console.log(`base rate: ${(positives / labelled.length * 100).toFixed(1)} % (${positives} volatile)\n`);
+  console.log(`base rate: ${(positives / labelled.length * 100).toFixed(1)} % (${positives} volatile)`);
+  const quiet = labelled.filter(l => !l.underway), quietY = quiet.map(l => l.volatile);
+  console.log(`not already moving (price within ${MOVE_SIGMA} sd over the 15 minutes before): ${quiet.length} rows, ${pctOf(quietY.filter(Boolean).length, quiet.length)} volatile; the range they had covered ranks them with AUC ${fmt(auc(quiet.map(l => l.moved), quietY))}\n`);
   for (const line of confluenceReport(labelled)) console.log(line);
 
   for (const model of MODELS) {
@@ -153,6 +166,9 @@ function main(): void {
     console.log(`direction on volatile rows: ${volatile.length ? `${hits}/${volatile.length} = ${pctOf(hits, volatile.length)}` : 'n/a'}`);
     const called = judged.filter(l => v(l).score >= 3), right = called.filter(l => l.volatile).length;
     console.log(`score >= 3: ${called.length} calls, precision ${pctOf(right, called.length)}, recall ${pctOf(right, volatile.length)}`);
+    const early = judged.filter(l => !l.underway), earlyY = early.map(l => l.volatile), earlyVolatile = earlyY.filter(Boolean).length;
+    const warned = early.filter(l => v(l).score >= WARN_MIN_SCORE && v(l).scoreConfidence >= WARN_MIN_CONFIDENCE), warnedRight = warned.filter(l => l.volatile).length;
+    console.log(`early warning, rows not already moving: ${early.length} (${earlyVolatile} volatile), score AUC ${fmt(auc(early.map(l => v(l).score), earlyY))} against ${fmt(auc(early.map(l => l.moved), earlyY))} for the range covered; the page's warnings (score >= ${WARN_MIN_SCORE}, confidence >= ${WARN_MIN_CONFIDENCE}) ${warned.length}, precision ${pctOf(warnedRight, warned.length)}, recall ${pctOf(warnedRight, earlyVolatile)}`);
     const ms = judged.map(l => v(l).ms).filter((x): x is number => typeof x === 'number').sort((a, b) => a - b);
     const tokens = judged.map(l => v(l).inputTokens).filter((x): x is number => typeof x === 'number');
     if (ms.length) console.log(`latency p50 ${ms[ms.length >> 1]} ms, p90 ${ms[Math.floor(ms.length * 0.9)]} ms; input tokens mean ${tokens.length ? Math.round(tokens.reduce((a, b) => a + b, 0) / tokens.length) : 'n/a'}`);

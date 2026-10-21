@@ -31,7 +31,10 @@ const CELL_USD = 50, GRID_REACH = 0.02;
 const K = 2, STRONG_K = 3, HORIZON = 15;
 /** Volatile minutes of one direction at most GAP minutes apart are one move; its swing is sought from LEAD minutes before them to TRAIL after. */
 const GAP = 15, LEAD = 10, TRAIL = 20;
-/** A model's reading is loud from this score of 4 (the Sounds panel's default); the confluence's is loud when it makes a call. */
+/**
+ * A model's reading is loud from this score of 4, whether or not price was already moving (the page's warning is narrower: `WARN_MIN_SCORE`
+ * in shared/volatility/jev.ts, only while price is quiet, measured by `volatility:eval`); the confluence's is loud when it makes a call.
+ */
 const LOUD = 3;
 const MODELS = ['jev', ...SUBQ_ARMS, 'confluence'] as const;
 type Model = typeof MODELS[number];

@@ -1,5 +1,6 @@
 import type { Print } from '../prints.ts';
 import type { Scope } from '../store.ts';
+import { WARN_MIN_SCORE } from '../../shared/volatility/jev.ts';
 
 /** A size class of trade. A trade belongs to the highest tier whose threshold it reaches, and sounds only when that tier is on. */
 export interface Tier { id: string; name: string; usd: number; on: boolean }
@@ -24,7 +25,7 @@ export interface PanelSounds {
   depthPane: { extreme: boolean; range: number; pct: number; hours: number };
   /** Open interest: a candle closed with an unusual change in open interest (the sensitivity is Highlights'). */
   oi: { jump: boolean };
-  /** Jev, asked once a minute by the local server, thinks a volatile move is coming (`alerts.ts`): at least `score` of 4. */
+  /** Jev, asked once a minute by the local server, thinks a volatile move is coming while price is still quiet (`alerts.ts`): at least `score` of 4. */
   volatility: { on: boolean; score: number };
 }
 
@@ -36,7 +37,7 @@ export const DEFAULT_PANEL_SOUNDS: Readonly<PanelSounds> = Object.freeze({
   // The 99th percentile of six hours: on 36 hours of BTC (2026-10-10, ±20 %) that sounded 10 times, the 95th 18 times.
   depthPane: { extreme: false, range: 0.2, pct: 99, hours: 6 },
   oi: { jump: false },
-  volatility: { on: false, score: 3 },
+  volatility: { on: false, score: WARN_MIN_SCORE },
 });
 /** The bands the depth sound can add up, as the Depth pane's Range offers them. */
 export const DEPTH_RANGES = [0.01, 0.02, 0.05, 0.1, 0.2] as const;

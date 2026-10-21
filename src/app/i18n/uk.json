@@ -1423,7 +1423,7 @@
  "The server did not answer": "Сервер не відповів",
  "Volatile move (Jev)": "Волатильний рух (Jev)",
  "Volatile move likely": "Імовірний волатильний рух",
- "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.": "Раз на хвилину сервер питає TypeSafe Jev, чи наближається волатильний рух, за спотом і перпами, стаканами, ліквідаціями та відкритим інтересом. Потрібен локальний сервер із заданим TYPESAFE_API_KEY. Три ноти, що підіймаються для руху вгору.",
+ "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.": "Раз на хвилину сервер питає TypeSafe Jev, чи наближається волатильний рух, за спотом і перпами, стаканами, ліквідаціями та відкритим інтересом. Потрібен локальний сервер із заданим TYPESAFE_API_KEY. Три ноти, що підіймаються для руху вгору. Мовчить, поки ціна вже рухається: попереджає до руху, а не під час нього.",
  "Minimum score": "Мінімальна оцінка",
  "Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it.": "Оцінка Jev від 0 до 4 для волатильного руху протягом 15 хвилин; Jev також має бути достатньо впевнений.",
  "Not available without a local server": "Недоступно без локального сервера",

@@ -1390,7 +1390,7 @@
  "The server did not answer": "Sunucu yanıt vermedi",
  "Volatile move (Jev)": "Volatil hareket (Jev)",
  "Volatile move likely": "Volatil hareket olası",
- "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.": "Sunucu dakikada bir TypeSafe Jev'e spot ve perp akışından, emir defterlerinden, tasfiyelerden ve açık pozisyondan volatil bir hareketin gelip gelmediğini sorar. TYPESAFE_API_KEY tanımlı yerel bir sunucu gerekir. Üç nota, yukarı için yükselir.",
+ "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.": "Sunucu dakikada bir TypeSafe Jev'e spot ve perp akışından, emir defterlerinden, tasfiyelerden ve açık pozisyondan volatil bir hareketin gelip gelmediğini sorar. TYPESAFE_API_KEY tanımlı yerel bir sunucu gerekir. Üç nota, yukarı için yükselir. Fiyat zaten hareket ederken sessiz kalır: hareketten önce uyarır, hareket sırasında değil.",
  "Minimum score": "En düşük puan",
  "Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it.": "Jev'in 15 dakika içindeki volatil hareket için 0 ile 4 arasındaki puanı; Jev'in de oldukça emin olması gerekir.",
  "Not available without a local server": "Yerel sunucu olmadan kullanılamaz",

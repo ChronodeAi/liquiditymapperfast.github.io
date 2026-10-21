@@ -79,6 +79,20 @@ test('a book dropping out of the sum is not read as liquidity pulled or as a tra
   assert.equal(later.values.askChangePct, 0);
 });
 
+test('price that has covered two of the day\'s 15-minute standard deviations in the last 15 minutes is a move under way', () => {
+  const minutes = 600, flow = new Float32Array(minutes).fill(1 * M), zeros = new Float32Array(minutes);
+  // A random walk for the day, then the last 16 minute prices (the last 15 minutes) as `last15` makes them.
+  const move = (last15: (k: number) => number) => {
+    const px = new Float32Array(minutes); let x = 0;
+    for (let i = 0; i < minutes - 16; i++) { x += 0.0005 * noise(i); px[i] = 100_000 * Math.exp(x); }
+    for (let k = 0; k < 16; k++) px[minutes - 16 + k] = 100_000 * Math.exp(x + last15(k));
+    return volatilityFeatures(inputs({ perp: [{ id: 'perp', t0: NOW - minutes * MINUTE, buy: flow, sell: flow, px, lo: zeros, hi: zeros }] }))!.move;
+  };
+  assert.deepEqual(move(() => 0), { sigma15: 0, underway: false });
+  const running = move(k => k * 0.001);
+  assert.equal(running.underway, true, `${running.sigma15} sigma`);
+});
+
 test('liquidations and whale net flow are summed by side and window', () => {
   const flow = series('perp', 120, () => [2 * M, 1 * M]);
   const liquidations = [

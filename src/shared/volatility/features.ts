@@ -16,6 +16,11 @@ const MIN_WINDOWS = 12;
 const SIDE_Z = 1;
 /** The highlight rule's parameters (the page's defaults). */
 const HIGHLIGHT = { mult: 2, length: 72 };
+/**
+ * A move is under way when price has already travelled this many standard deviations of 15-minute returns within the last 15 minutes: the
+ * distance the evaluation calls a volatile move, so a warning then would come during the move, not before it.
+ */
+export const MOVE_SIGMA = 2;
 
 export interface VolatilityInputs {
   /** Whole minute (ms) the judged minute ends at. */
@@ -54,6 +59,12 @@ export interface VolatilityFeatures {
   values: Record<string, VolatilityValue>;
   /** One sentence per concept (the ids in `CONCEPT_IDS`); a concept with no data yet is absent. */
   words: Record<string, string>;
+  /**
+   * How far price has already travelled in the last 15 minutes (`sigma15`: the highest minus the lowest minute price over them, as a log
+   * return, in standard deviations of the day's 15-minute returns) and whether that is a move under way (`MOVE_SIGMA` or more); null
+   * without a day of returns. Not sent to the model: it keeps the page's warning to the quiet before a move.
+   */
+  move: { sigma15: number | null; underway: boolean | null };
 }
 
 export const CONCEPT_IDS = ['spotPerpDivergence', 'binanceSpotLeads', 'priceCvdDivergence', 'liquidityPulled', 'trackerFlip', 'bookImbalance', 'highlight', 'liquidationCascade', 'leverageBuild', 'whaleVsRetail', 'slicer'] as const;
@@ -97,10 +108,11 @@ function priceOf(candidates: readonly FlowMinutesSeries[], now: number): Float64
 }
 
 const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
-/** `value` of the window ending at `end` against the same-length, non-overlapping windows before it (a day's worth, none starting before `firstActive`). */
-function zOf(valueEnding: (end: number) => number, w: number, firstActive: number): number | null {
-  const current = valueEnding(N);
-  if (!Number.isFinite(current)) return null;
+/**
+ * The mean and standard deviation of `valueEnding` over the same-length, non-overlapping windows before the one ending now (a day's worth, none
+ * starting before `firstActive`); null with fewer than `MIN_WINDOWS` of them or no spread.
+ */
+function dayStats(valueEnding: (end: number) => number, w: number, firstActive: number): { m: number; sd: number } | null {
   const xs: number[] = [];
   for (let j = 1; j <= Math.floor(DAY_MIN / w); j++) {
     const end = N - j * w, start = end - w;
@@ -109,7 +121,14 @@ function zOf(valueEnding: (end: number) => number, w: number, firstActive: numbe
   }
   if (xs.length < MIN_WINDOWS) return null;
   const m = mean(xs), sd = Math.sqrt(mean(xs.map(x => (x - m) * (x - m))));
-  return sd > 0 ? (current - m) / sd : null;
+  return sd > 0 ? { m, sd } : null;
+}
+/** `valueEnding` of the window ending now against `dayStats` of the windows before it. */
+function zOf(valueEnding: (end: number) => number, w: number, firstActive: number): number | null {
+  const current = valueEnding(N);
+  if (!Number.isFinite(current)) return null;
+  const day = dayStats(valueEnding, w, firstActive);
+  return day ? (current - day.m) / day.sd : null;
 }
 const opposite = (a: number | null, b: number | null): boolean | null => a === null || b === null ? null : (a >= SIDE_Z && b <= -SIDE_Z) || (a <= -SIDE_Z && b >= SIDE_Z);
 
@@ -149,7 +168,11 @@ export function volatilityFeatures(input: VolatilityInputs): VolatilityFeatures 
 
   const logReturn = (end: number, w: number): number => { const a = price[end - 1 - w]!, b = price[end - 1]!; return a > 0 && b > 0 ? Math.log(b / a) * 100 : NaN; };
   const ret15 = logReturn(N, 15), ret60 = logReturn(N, 60);
-  const retZ15 = zOf(end => logReturn(end, 15), 15, firstActive);
+  const ret15Day = dayStats(end => logReturn(end, 15), 15, firstActive);
+  const retZ15 = ret15Day && Number.isFinite(ret15) ? (ret15 - ret15Day.m) / ret15Day.sd : null;
+  // How far price has already gone over the same 15 minutes (their 16 minute prices), against the day's 15-minute returns.
+  const recent = Array.from(price.subarray(N - 16)).filter(p => p > 0);
+  const moveSigma15 = ret15Day && recent.length >= 2 ? Math.log(Math.max(...recent) / Math.min(...recent)) * 100 / ret15Day.sd : null;
   const zOfGroup = (g: Group, w: number): number | null => zOf(end => windowSum(g, end, w), w, g.first);
   const spotZ15 = zOfGroup(spot, 15), perpZ15 = zOfGroup(perp, 15), spotZ60 = zOfGroup(spot, 60), perpZ60 = zOfGroup(perp, 60);
   const aggZ15 = zOfGroup(agg, 15);
@@ -254,7 +277,7 @@ export function volatilityFeatures(input: VolatilityInputs): VolatilityFeatures 
   if (z(whaleNet60)) words.whaleVsRetail = `Orders of about $1M and up were net ${whaleNet60 >= 0 ? 'buyers' : 'sellers'} by ${usd(Math.abs(whaleNet60))} over the last hour while all taker flow was net ${aggDelta60 >= 0 ? 'buying' : 'selling'} by ${usd(Math.abs(aggDelta60))}.`;
   if (z(slicerShare)) words.slicer = `${Math.round(slicerShare * 30)} of the last 30 minutes of Binance spot flow were steady, same-size, same-direction minutes (${(slicerShare * 100).toFixed(0)} %).`;
 
-  return { coin, t: now, price: last, values, words };
+  return { coin, t: now, price: last, values, words, move: { sigma15: moveSigma15 === null ? null : round(moveSigma15), underway: moveSigma15 === null ? null : moveSigma15 >= MOVE_SIGMA } };
 }
 
 /**

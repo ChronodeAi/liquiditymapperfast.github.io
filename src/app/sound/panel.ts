@@ -131,7 +131,7 @@ function panelSounds(store: Store, p: PanelSounds, alerts: Alerts, set: (change:
 
   const said = alerts.volatilityStatus;
   body.append(heading(t('Volatile move (Jev)')),
-    switchRow(t('Volatile move likely'), t('Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.'), p.volatility.on, on => change('volatility', { on })),
+    switchRow(t('Volatile move likely'), t('Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.'), p.volatility.on, on => change('volatility', { on })),
     numberRow(t('Minimum score'), t("Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it."), { min: 2, max: 4, step: 0.5, value: p.volatility.score }, score => change('volatility', { score })),
     ...(!alerts.volatilityAvailable ? [note(t('Not available without a local server'))] : said?.reason || said?.lastError ? [note(said.reason || said.lastError || '')] : []),
     tests('volatile-move'));

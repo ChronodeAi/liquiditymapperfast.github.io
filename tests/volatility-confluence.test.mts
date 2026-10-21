@@ -92,7 +92,7 @@ test('a SubQ arm left out of SUBQ_ARMS is never asked, its history is never buil
     const asked: DecisionExtras[] = [];
     const watch = new VolatilityWatch({ dir, read: () => inputs, clock: () => now + 15_000, subqKey: 'key', ...(subqArms ? { subqArms } : {}), ask: async (features, _key, _signal, extras = {}) => {
       asked.push(extras);
-      return { t: features.t, coin: features.coin, price: features.price, concepts: {}, score: 1, scoreConfidence: 0.5, direction: 'up', directionP: 0.6, model: 'subq-snap-preview' };
+      return { t: features.t, coin: features.coin, price: features.price, underway: features.move.underway, concepts: {}, score: 1, scoreConfidence: 0.5, direction: 'up', directionP: 0.6, model: 'subq-snap-preview' };
     } });
     await watch.tick();
     const row = JSON.parse(fs.readFileSync(path.join(dir, 'volatility-log.jsonl'), 'utf8')) as { arms?: Record<string, unknown> };

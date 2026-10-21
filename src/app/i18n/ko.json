@@ -1350,7 +1350,7 @@
  "The server did not answer": "서버가 응답하지 않았습니다",
  "Volatile move (Jev)": "변동성 큰 움직임 (Jev)",
  "Volatile move likely": "변동성 큰 움직임 가능성",
- "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.": "서버가 1분에 한 번 스팟·퍼프 체결 흐름, 호가창, 청산, 미결제약정을 바탕으로 변동성 큰 움직임이 임박했는지 TypeSafe Jev에 묻습니다. TYPESAFE_API_KEY가 설정된 로컬 서버가 필요합니다. 세 개의 음, 상승이면 올라갑니다.",
+ "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.": "서버가 1분에 한 번 스팟·퍼프 체결 흐름, 호가창, 청산, 미결제약정을 바탕으로 변동성 큰 움직임이 임박했는지 TypeSafe Jev에 묻습니다. TYPESAFE_API_KEY가 설정된 로컬 서버가 필요합니다. 세 개의 음, 상승이면 올라갑니다. 가격이 이미 움직이는 동안에는 울리지 않습니다. 움직임 도중이 아니라 그 전에 알립니다.",
  "Minimum score": "최소 점수",
  "Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it.": "15분 내 변동성 큰 움직임에 대한 Jev의 0~4점 점수이며, Jev도 어느 정도 확신해야 합니다.",
  "Not available without a local server": "로컬 서버 없이는 사용할 수 없습니다",

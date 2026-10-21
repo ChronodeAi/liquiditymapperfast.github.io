@@ -1350,7 +1350,7 @@
  "The server did not answer": "服务器没有响应",
  "Volatile move (Jev)": "高波动行情（Jev）",
  "Volatile move likely": "可能出现高波动行情",
- "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.": "服务器每分钟询问一次 TypeSafe Jev，根据现货与永续的成交流、订单簿、清算和未平仓量判断是否即将出现高波动行情。需要设置了 TYPESAFE_API_KEY 的本地服务器。三个音符，上涨时音调上升。",
+ "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.": "服务器每分钟询问一次 TypeSafe Jev，根据现货与永续的成交流、订单簿、清算和未平仓量判断是否即将出现高波动行情。需要设置了 TYPESAFE_API_KEY 的本地服务器。三个音符，上涨时音调上升。价格已在变动时保持安静：它在行情启动前提醒，而不是在行情进行中。",
  "Minimum score": "最低评分",
  "Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it.": "Jev 对 15 分钟内出现高波动行情给出的 0 到 4 分评分；Jev 自己也必须有相当把握。",
  "Not available without a local server": "没有本地服务器时不可用",

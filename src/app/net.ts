@@ -72,7 +72,8 @@ export async function getVolatility(): Promise<VolatilityAnswer> {
   const body = await (await request('/api/v2/volatility')).json() as { enabled?: unknown; reason?: unknown; lastError?: unknown; coin?: unknown; verdicts?: unknown };
   const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
   const verdicts = (Array.isArray(body.verdicts) ? body.verdicts : []).filter((v: Partial<Record<keyof VolatilityVerdict, unknown>> | null): v is VolatilityVerdict =>
-    typeof v === 'object' && v !== null && finite(v.t) && typeof v.coin === 'string' && finite(v.price) && finite(v.score) && v.score >= 0 && v.score <= 4 && finite(v.scoreConfidence)
+    typeof v === 'object' && v !== null && finite(v.t) && typeof v.coin === 'string' && finite(v.price) && (typeof v.underway === 'boolean' || v.underway === null)
+    && finite(v.score) && v.score >= 0 && v.score <= 4 && finite(v.scoreConfidence)
     && (v.direction === 'up' || v.direction === 'down') && finite(v.directionP) && typeof v.model === 'string' && typeof v.concepts === 'object' && v.concepts !== null);
   return {
     enabled: body.enabled === true,

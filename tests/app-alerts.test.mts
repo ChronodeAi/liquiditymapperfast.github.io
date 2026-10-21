@@ -326,10 +326,10 @@ test('Test plays a sample whatever the switches say', async () => {
 
 // ---- Jev: a volatile move is likely -------------------------------------------------------------------------------------------------
 
-const verdict = (t: number, score: number, direction: 'up' | 'down' = 'down', scoreConfidence = 0.8) =>
-  ({ t, coin: 'BTC', price: 100_000, concepts: {}, score, scoreConfidence, direction, directionP: 0.7, model: 'jev-1.13.0' });
+const verdict = (t: number, score: number, direction: 'up' | 'down' = 'down', scoreConfidence = 0.8, underway: boolean | null = false) =>
+  ({ t, coin: 'BTC', price: 100_000, underway, concepts: {}, score, scoreConfidence, direction, directionP: 0.7, model: 'jev-1.13.0' });
 
-test('the volatile-move sound treats the first answer as history, then sounds only a new, fresh, high-scoring, confident assessment', async () => {
+test('the volatile-move sound treats the first answer as history, then sounds only a new, fresh, high-scoring, confident assessment made before a move', async () => {
   let verdicts = [verdict(T - 60_000, 4)];
   const state: AppState = initialState();
   state.sounds = readSounds({ on: true, volume: 1, panels: { volatility: { on: true, score: 3 } } });
@@ -349,6 +349,12 @@ test('the volatile-move sound treats the first answer as history, then sounds on
   verdicts = [...verdicts, verdict(T + 60_000 - 120_000, 4)];
   await step(30_000);
   assert.equal(player.played.length, 0, 'an assessment older than the newest seen is not new');
+  verdicts = [...verdicts, verdict(now - 20_000, 4, 'up', 0.8, true)];
+  await step(30_000);
+  assert.equal(player.played.length, 0, 'price was already moving: a warning now would come during the move');
+  verdicts = [...verdicts, verdict(now - 20_000, 4, 'up', 0.8, null)];
+  await step(30_000);
+  assert.equal(player.played.length, 0, 'nor when the server could not tell');
   verdicts = [...verdicts, verdict(now - 20_000, 3.5, 'down')];
   await step(30_000);
   assert.equal(player.played.length, 1, 'a fresh score of 3.5');

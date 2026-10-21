@@ -19,7 +19,7 @@ import { usd } from '../format.ts';
 import { replaying } from '../replay/clock.ts';
 import { DepthWatch, depthMinutes } from './depth-watch.ts';
 import type { ColumnsFrame } from '../wire.ts';
-import type { VolatilityAnswer } from '../../shared/volatility/jev.ts';
+import { WARN_MIN_CONFIDENCE, type VolatilityAnswer } from '../../shared/volatility/jev.ts';
 
 export type AlertPanel = 'flow' | 'bars' | 'book' | 'depth' | 'depthPane' | 'oi' | 'volatility';
 /** What was decided for one alert: kept for the panel's "recent" list and for the harness; audible is false when the engine was locked or muted. */
@@ -48,8 +48,6 @@ const DEPTH_FRESH_MS = 90_000;
 const DEPTH_COOLDOWN_MS = 300_000;
 /** The volatile-move sound: the server is asked this often, an assessment older than the second is history, and a call is not repeated sooner than the third. */
 const VOLATILITY_EVERY_MS = 30_000, VOLATILITY_FRESH_MS = 90_000, VOLATILITY_COOLDOWN_MS = 600_000;
-/** Jev's own confidence in its score, below which the score is not acted on. */
-const VOLATILITY_MIN_CONFIDENCE = 0.5;
 /** The recorded columns of instruments over [from, to), one-minute steps (the page's data source). */
 export type ColumnsReader = (ids: string[], from: number, to: number) => Promise<ColumnsFrame>;
 
@@ -278,7 +276,8 @@ export class Alerts {
 
   /**
    * Asks the server for its assessments every 30 s while the rule is on. The server asks Jev once a minute; an assessment newer than the last
-   * one seen, fresh, scoring at least the rule's and with Jev confident of its score, sounds. What the first answer holds is history.
+   * one seen, fresh, scoring at least the rule's, with Jev confident of its score, and made while price was not already moving (`underway`
+   * false: the warning is for the quiet before a move, not for one under way), sounds. What the first answer holds is history.
    */
   #volatileMove(now: number): void {
     const s = this.#s, rule = s.sounds.panels.volatility, ask = this.volatility;
@@ -292,7 +291,7 @@ export class Alerts {
       const seen = this.#volatilitySeen;
       for (const v of answer.verdicts) {
         if (seen === null || v.t <= seen || this.clock() - v.t > VOLATILITY_FRESH_MS || replaying()) continue;
-        if (v.score < current.score || v.scoreConfidence < VOLATILITY_MIN_CONFIDENCE) continue;
+        if (v.score < current.score || v.scoreConfidence < WARN_MIN_CONFIDENCE || v.underway !== false) continue;
         const up = v.direction === 'up';
         this.#fire(this.clock(), 'volatility', 'volatile-move', up ? 'buy' : 'sell', t('Volatile move likely within 15 min ({p} % {way}), Jev score {score} of 4', { p: String(Math.round(v.directionP * 100)), way: up ? t('up') : t('down'), score: v.score.toFixed(1) }), 'volatility', VOLATILITY_COOLDOWN_MS);
       }

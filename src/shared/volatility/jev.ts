@@ -51,9 +51,18 @@ export const VOLATILITY_QUESTIONS: Record<ConceptId | 'sharpMove' | 'direction',
   direction: { type: 'choice', instructions: 'If price moves sharply in the next 15 minutes, which way?', criteria: { up: 'Price rises sharply', down: 'Price falls sharply' } },
 };
 
+/**
+ * The page's warning (`app/sound/alerts.ts`, the Sounds panel's Minimum score by default): Jev's score and its own confidence in it, on a
+ * minute when price was not already moving. Jev's score runs lower then than during a move, hence under 3 (Research_Findings.md);
+ * `volatility:eval` scores warnings with the same numbers.
+ */
+export const WARN_MIN_SCORE = 2.5, WARN_MIN_CONFIDENCE = 0.5;
+
 export interface VolatilityVerdict {
   /** The minute judged (ms): the features' time. */
   t: number; coin: string; price: number;
+  /** Whether price was already moving at that minute (`VolatilityFeatures.move`): the page warns only when it was not; null when unknown. */
+  underway: boolean | null;
   /** Per concept asked: the model's yes probability. */
   concepts: Record<string, number>;
   /** 0 to 4. */
@@ -116,7 +125,7 @@ export function readVerdict(body: unknown, features: VolatilityFeatures, asked: 
   if (!d || d.type !== 'choice' || !d.probabilities || !finite(d.probabilities.up) || !finite(d.probabilities.down)) throw malformed();
   const up = d.probabilities.up, down = d.probabilities.down;
   return {
-    t: features.t, coin: features.coin, price: features.price, concepts,
+    t: features.t, coin: features.coin, price: features.price, underway: features.move.underway, concepts,
     score: s.score, scoreConfidence: s.confidence,
     direction: up >= down ? 'up' : 'down', directionP: Math.max(up, down),
     model: typeof model === 'string' ? model : fallbackModel,

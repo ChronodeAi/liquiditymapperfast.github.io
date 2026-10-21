@@ -6,6 +6,7 @@ import type { VolatilityFeatures } from '../src/shared/volatility/features.ts';
 const features: VolatilityFeatures = {
   coin: 'BTC', t: Date.UTC(2026, 9, 12, 12), price: 100_000, values: { spotZ15: 2.1 },
   words: { spotPerpDivergence: 'Spot is buying, perps are selling.', liquidationCascade: 'No liquidations.' },
+  move: { sigma15: 0.8, underway: false },
 };
 const body = (over: Record<string, unknown> = {}) => ({
   model: 'jev-1.13.0',
@@ -29,7 +30,7 @@ test('a valid answer becomes a verdict, and only concepts with a reading are ask
   const { result, sent } = await withFetch(() => json(body()), () => askDecision(features, 'key'));
   const { ms, ...rest } = result;
   assert.ok(typeof ms === 'number' && ms >= 0);
-  assert.deepEqual(rest, { t: features.t, coin: 'BTC', price: 100_000, concepts: { spotPerpDivergence: 0.8, liquidationCascade: 0.1 }, score: 3.2, scoreConfidence: 0.7, direction: 'down', directionP: 0.7, model: 'jev-1.13.0', inputTokens: 1 });
+  assert.deepEqual(rest, { t: features.t, coin: 'BTC', price: 100_000, underway: false, concepts: { spotPerpDivergence: 0.8, liquidationCascade: 0.1 }, score: 3.2, scoreConfidence: 0.7, direction: 'down', directionP: 0.7, model: 'jev-1.13.0', inputTokens: 1 });
   assert.equal(sent[0]!.url, 'https://api.typesafe.ai/v1/systemone');
   assert.equal((sent[0]!.init.headers as Record<string, string>).authorization, 'Bearer key');
   const request = JSON.parse(String(sent[0]!.init.body)) as { model: string; questions: Record<string, unknown>; state: { readings: unknown } };

@@ -1404,7 +1404,7 @@
  "The server did not answer": "El servidor no respondió",
  "Volatile move (Jev)": "Movimiento volátil (Jev)",
  "Volatile move likely": "Movimiento volátil probable",
- "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.": "Una vez por minuto el servidor pregunta a TypeSafe Jev si se acerca un movimiento volátil a partir del flujo spot y perp, los libros, las liquidaciones y el interés abierto. Requiere un servidor local con TYPESAFE_API_KEY definida. Tres notas, ascendentes si es al alza.",
+ "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.": "Una vez por minuto el servidor pregunta a TypeSafe Jev si se acerca un movimiento volátil a partir del flujo spot y perp, los libros, las liquidaciones y el interés abierto. Requiere un servidor local con TYPESAFE_API_KEY definida. Tres notas, ascendentes si es al alza. Calla mientras el precio ya se mueve: avisa antes de un movimiento, no durante él.",
  "Minimum score": "Puntuación mínima",
  "Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it.": "Puntuación de Jev de 0 a 4 para un movimiento volátil en 15 minutos; además debe estar bastante seguro.",
  "Not available without a local server": "No disponible sin un servidor local",

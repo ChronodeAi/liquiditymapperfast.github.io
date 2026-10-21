@@ -1350,7 +1350,7 @@
  "The server did not answer": "サーバーが応答しませんでした",
  "Volatile move (Jev)": "高ボラティリティの値動き（Jev）",
  "Volatile move likely": "高ボラティリティの値動きの可能性",
- "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up.": "サーバーが1分に1回、スポットとパープのフロー、板、清算、建玉から高ボラティリティの値動きが近いかどうかをTypeSafe Jevに尋ねます。TYPESAFE_API_KEYを設定したローカルサーバーが必要です。上昇なら上がる3音。",
+ "Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.": "サーバーが1分に1回、スポットとパープのフロー、板、清算、建玉から高ボラティリティの値動きが近いかどうかをTypeSafe Jevに尋ねます。TYPESAFE_API_KEYを設定したローカルサーバーが必要です。上昇なら上がる3音。価格がすでに動いている間は鳴りません。値動きの最中ではなく、その前に知らせます。",
  "Minimum score": "最小スコア",
  "Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it.": "15分以内の高ボラティリティの値動きに対するJevの0〜4のスコア。Jev自身もある程度確信している必要があります。",
  "Not available without a local server": "ローカルサーバーがないと利用できません",
