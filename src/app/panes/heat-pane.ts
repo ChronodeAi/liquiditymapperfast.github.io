@@ -651,10 +651,14 @@ export class HeatPane {
     return this.#footprintIds.ids;
   }
 
-  /** Advance the footprint level of detail for this frame (also drives the heatmap dimming). */
+  /**
+   * Advance the footprint level of detail for this frame (also drives the heatmap dimming), and load the bars the footprint and the Bar stats
+   * table read: one load for both, made while either shows. The rows are the size the footprint would draw at this zoom whether it shows or
+   * not, so the table's rows (point of control, imbalances) are the footprint's own when both are on.
+   */
   #stepFootprint(state: AppState): void {
-    const v = this.view, pw = this.plotW, ph = this.plotH, now = performance.now();
-    if (!state.show.footprint || !(v.t1 > v.t0)) { this.#lodFrame = this.#lod.step(now, { enabled: false, hasData: false, widthCss: 0, rowHeightCss: 0, factor: 0 }); return; }
+    const v = this.view, pw = this.plotW, ph = this.plotH, now = performance.now(), drawn = state.show.footprint;
+    if (!(drawn || state.show.stats) || !(v.t1 > v.t0)) { this.#lodFrame = this.#lod.step(now, { enabled: false, hasData: false, widthCss: 0, rowHeightCss: 0, factor: 0 }); return; }
     const tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000, fine = this.#footprint.fine;
     const fineRowPx = fine > 0 ? Math.abs(v.yOf(0, ph) - v.yOf(fine, ph)) : 0;
     const rowStep = fine > 0 ? fine * 2 ** this.#lod.level(fineRowPx) : 0;
@@ -665,7 +669,8 @@ export class HeatPane {
     else this.#footprint.ensure(markets.join(','), state.timeframe, v, rowStep, (inst, tf, from, to, rows, lines, budget, venues) => this.hub.footprint(inst, tf, from, to, rows, lines, budget, venues), () => this.invalidate(), cuts, this.hub.sourceNow());
     const rowH = rowStep > 0 ? Math.abs(v.yOf(0, ph) - v.yOf(rowStep, ph)) : 0;
     const factor = visibilityFactor(state.candles, tfMs, v, pw, ph, rowH || 1, rowStep || 1);
-    this.#lodFrame = this.#lod.step(now, { enabled: true, hasData: this.#footprint.bars.size > 0, widthCss: pw * tfMs / (v.t1 - v.t0), rowHeightCss: rowH, factor });
+    // The table alone draws nothing on the map: the footprint's level of detail stays off, and with it the heatmap's dimming and the traps.
+    this.#lodFrame = this.#lod.step(now, { enabled: drawn, hasData: this.#footprint.bars.size > 0, widthCss: pw * tfMs / (v.t1 - v.t0), rowHeightCss: rowH, factor });
     // A trap needs the candles and the footprint to be the same market's; a chart showing a reference series instead says nothing about this market's flow.
     if (this.#lodFrame.barAlpha > 0.05 && state.seriesInstrument === state.marketId && !replaying()) {
       this.#traps.ensure({ inst: state.marketId, tf: state.timeframe, tfMs, candles: state.candles, fine, view: v, load: (inst, tf, from, to, rows) => this.hub.footprint(inst, tf, from, to, rows), onLoad: () => this.invalidate() });

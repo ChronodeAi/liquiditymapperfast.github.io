@@ -97,7 +97,7 @@ async function main(): Promise<void> {
 
   const heat = new HeatPane(chart, store, hub, kernels);
   toolbar.placeRecenter(heat.root);
-  const bars = new BarStatsPane(chart, store, heat.view, heat);
+  const bars = new BarStatsPane(chart, store, heat.view, heat, hub.flow);
   const depth = new DepthPane(chart, store, heat.view, hub);
   const oi = new OiPane(chart, store, heat.view, hub.flow);
   const delta = new DeltaPane(chart, store, heat.view, hub);
@@ -227,7 +227,7 @@ async function main(): Promise<void> {
   const layout = () => {
     const s = store.state;
     gutters();
-    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.footprint;
+    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.stats;
     // The two side panels vanish and return at once: nothing is rebuilt, a hidden column is simply not laid out.
     cvd.root.hidden = !s.show.cvd; ladder.root.hidden = !s.show.book;
     arrange.columns({ flow: s.show.cvd, book: s.show.book });
@@ -266,7 +266,7 @@ async function main(): Promise<void> {
     if (changed.has('oi') || changed.has('show')) { oi.invalidate(); bars.invalidate(); }
     if (changed.has('lt') || changed.has('show') || changed.has('sounds')) lt.refresh();
     if (changed.has('sounds')) depth.syncSound();
-    if (changed.has('barStatOptions') && !changed.has('barStats')) bars.refresh();
+    if ((changed.has('barStatOptions') || changed.has('footprint')) && !changed.has('barStats')) bars.refresh();
     if (changed.has('barStats')) { arrange.setPaneHeight('bars', 12 + Math.max(1, enabledStats(state.barStats).length) * 24); bars.refresh(); }
     if (changed.has('grouping') || changed.has('ladderMode') || changed.has('ladderShow') || changed.has('ladderCurves') || changed.has('cvd') || changed.has('pullStack') || changed.has('ladderVenue') || changed.has('ladderVenues') || changed.has('disabledVenues') || changed.has('scope')) { ladder.invalidate(); ladder.syncControls(); }
     if (changed.has('range')) { heat.invalidate(); oi.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); cvd.invalidate(); }

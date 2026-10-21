@@ -28,7 +28,7 @@ import { scaledUsd, unscaledUsd } from '../coin.ts';
 import { DRAG_MIN_PX, selects } from '../range/selection.ts';
 import type { RangeTool } from '../range/tool.ts';
 import type { FlowBook } from '../flow-book.ts';
-import { buildOiMarketsPanel } from '../market-picker.ts';
+import { buildOiMarketsPanel, marketPicker } from '../market-picker.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 
 /**
@@ -640,10 +640,10 @@ export class BarStatsPane extends TimePane {
     this.#usd = { oi: state.oi, parts, candles: state.candles, price: state.oiPrice, tfMs, map };
     return map;
   }
-  constructor(host: HTMLElement, store: Store, view: View, private heat: HeatPane) {
+  constructor(host: HTMLElement, store: Store, view: View, private heat: HeatPane, private flow: FlowBook | null) {
     super(host, store, view, 'bars');
     this.head.innerHTML = `<strong>${t('Bar stats')}</strong><span class="readout"></span>`;
-    this.head.querySelector('strong')!.after(helpButton('barStats'));
+    this.head.querySelector('strong')!.after(helpButton('stats'));
     this.#button.textContent = t('Stats'); setTip(this.#button, t('Choose, order and configure the statistics shown for each candle'));
     this.#button.onclick = () => { this.#panel = togglePanel(this.#button, { title: t('Bar stats'), width: 440, align: 'right', onClose: () => { this.#panel = null; } }, (tools, body) => this.#build(tools, body)); };
     this.head.append(this.#button);
@@ -661,6 +661,12 @@ export class BarStatsPane extends TimePane {
     tools.append(el('span', { class: 'muted', textContent: t('{shown} of {total} shown', { shown: chosen.length, total: BAR_STATS.length }) }));
 
     body.append(heading(t('Sound')), panelSwitchRow(this.store, 'bars'));
+    // Whose orders the table counts: the footprint's setting, so the two never need two loads and agree when both show.
+    const fp = state.footprint, setMarkets = (markets: typeof fp.markets) => this.store.set({ footprint: { ...this.store.state.footprint, markets } });
+    body.append(heading(t('Markets')),
+      selectRow(t('Count'), t('Whose market orders the footprint and the bar statistics count.'), [['all', t('Aggregated: every market switched on')], ['chart', t('The chart market')], ['custom', t('Chosen markets')]], fp.markets, v => setMarkets(v === 'chart' || v === 'custom' ? v : 'all')),
+      ...(fp.markets === 'custom' ? [marketPicker(this.store, this.flow, 'footprint')] : []),
+      note(t('The footprint counts the same markets: changing them here changes them there.')));
     body.append(heading(t('Shown, in order')));
     if (!chosen.length) body.append(note(t('Nothing selected: tick statistics below to add them.')));
     else {
@@ -708,14 +714,16 @@ export class BarStatsPane extends TimePane {
     const readout = this.head.querySelector('.readout');
     // Aggregated, the rows count every market the footprint adds together; open interest stays the OI pane's one market (as its row's tip says).
     const markets = this.heat.footprintMarkets(state).length, stats = tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view');
-    setText(readout, markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats);
+    // The size of the rows the footprint rows of the table (poc, imbalances) are read on: the footprint's at this zoom, whether it shows or not.
+    const rows = this.heat.footprintData.step > 0 ? ` · ${t('rows of {step}', { step: `$${fmtPrice(this.heat.footprintData.step, this.heat.footprintData.step)}` })}` : '';
+    setText(readout, (markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats) + rows);
     if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); return; }
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
     // The bars of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
     // view, whatever was looked at before.
     const data = this.heat.footprintData, until = replaying() ? pageNow() : Infinity;
     const all = [...data.bars.values()].filter(b => b.t + tfMs <= until && b.t + 2 * tfMs > v.t0 && b.t < v.t1 + tfMs).sort((a, b) => a.t - b.t);
-    if (!all.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once the footprint has executions for the visible candles.'), 12, ph / 2); return; }
+    if (!all.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); return; }
     const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(pageNow() / tfMs) * tfMs : Infinity), candles = new Map(state.candles.map(c => [c[0], c] as const));
     const input = { bars: all, step: data.step, options, cuts: data.cuts, candles, oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
     // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.

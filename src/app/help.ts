@@ -11,7 +11,7 @@ import { t } from './i18n.ts';
  * button opens (Trades, Absorption, Highlights, Sounds) has it in its panel's tool strip; a settings window opened from a pane's header
  * shares that pane's. Windows that only do a job (About, Install, the venue menu, the venue and coin pickers) explain themselves and have none.
  */
-export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'barStats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
+export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
 
 export interface HelpTopic {
   title: string;
@@ -193,11 +193,12 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
       t('Bid above ask means more support close under the price than resistance above it. Switch the view to imbalance to see (bid - ask) / (bid + ask) as one line between -100 % and +100 %. The options set the half-life, the smallest and largest bin that counts, and whether to average per level.'),
       t("Each minute is measured at every sample the recording takes, so zooming out shows the average of its minutes, not a different measure. ≈ before the numbers means part of the line was worked out from the minutes' average books instead: when a size filter is set, or for minutes recorded before the tracker was kept. That is an estimate, rougher the further you zoom out.")],
   },
-  barStats: {
+  stats: {
     title: t('Bar stats'), guide: 'footprint',
-    tip: t('One row of numbers per statistic under each candle: volume, delta (buys minus sells), cumulative delta and more. Click Stats to choose.'),
+    tip: t('A table under the chart: one row per statistic, one cell per candle (volume, delta, cumulative delta and more). Press Stats in its header to choose the rows.'),
     body: [t('Each row is one statistic, one cell per candle, shaded by size. The defaults are volume, delta (buy volume minus sell volume) and cvd (the running sum of delta).'),
-      t('Press Stats to add statistics such as the point of control, stacked imbalances or market orders by size. These come from the executions recorded while the page was open, so they start empty and fill with time.')],
+      t('Press Stats to add statistics such as the point of control, stacked imbalances or market orders by size. These come from the executions recorded while the page was open, so they start empty and fill with time.'),
+      t("It has its own switch and counts the markets the footprint counts (set in either panel). Its point of control and imbalances are read on rows of the size its header shows: the footprint's at this zoom, whether the footprint shows or not.")],
   },
   cvd: {
     title: t('Flow'), guide: 'flow',
