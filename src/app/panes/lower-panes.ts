@@ -11,13 +11,17 @@ import { ASKS, BIDS, DepthBars, fitsBars, neededBars, pixelFlags, sideFlags } fr
 import type { View } from '../view.ts';
 import { clock, price as fmtPrice, usd } from '../format.ts';
 import { gutter, leftGutter, timeTicks, AXIS_W, type HeatPane } from './heat-pane.ts';
-import { BAR_STATS, GROUP_TITLES, PRESETS, coverageOf, csvCell, deviation, enabledStats, rowScale, statCellLines, statDef, strength, viewCellLines, type StatCell, type StatDef, type StatGroup, type StatInput, type StatTone, type ViewCell } from './bar-stats.ts';
+import { BAR_STATS, GROUP_SHORT, GROUP_TITLES, HEAD_H, PRESETS, coverageOf, csvCell, dayStartOf, deviation, enabledStats, pinnedLines, rowScale, statCellLines, statDef, strength, tableBands, viewCellLines, type StatCell, type StatDef, type StatGroup, type StatInput, type StatTone, type TableBand, type ViewCell } from './bar-stats.ts';
+import { resolveZone } from '../traded/settings.ts';
+import { resetKeys } from '../delta/candles.ts';
+import { Asked } from '../measures/measure.ts';
+import { LIQUIDATIONS_PER_ANSWER, type Liquidation } from '../../shared/liquidations.ts';
 import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { barAt, columnAt, depthCardLines, depthColumns, depthKey, ltCardLines, oiCardLines, oiTail, readAt, slotAt } from './pane-cards.ts';
 import type { StatOptions } from '../stat-options.ts';
 import { el } from '../dom.ts';
-import { button, checkRow, heading, note, numberRow, selectRow, sizeControl, sizeRow, sortableList, togglePanel, type Panel } from '../ui.ts';
+import { button, checkRow, heading, note, numberRow, selectRow, sizeControl, sizeRow, sortableList, switchRow, togglePanel, type Panel } from '../ui.ts';
 import { COMMON_SIZES, SIZE_FLOOR_USD, SIZE_MAX_USD, sizeText } from '../sizes.ts';
 import type { LtSeries } from '../lt.ts';
 import { LT_HALF_LIVES } from '../../shared/lt-sample.ts';
@@ -631,9 +635,17 @@ export class LtPane extends TimePane {
 export class BarStatsPane extends TimePane {
   /** The strip is too short for a popup drawn on it, so the cell's popup is a page element. */
   #card = new HoverCard();
+  /** The card of a pinned candle, a page element of its own beside the hover card. */
+  #pinCard = new HoverCard();
   #cell: StatCell | null = null;
   /** The popup of the View column's cell under the pointer, when it is there. */
   #viewLines: InfoLine[] | null = null;
+  /** The candle pinned by a click (its start): shown with every statistic until it is clicked again or Esc is pressed. */
+  #pinned: number | null = null;
+  /** The liquidations of the markets counted over the table's candles, every size the record keeps (as the Liquidations measure asks them). */
+  #liquidations = new Asked<Liquidation[]>();
+  #liqHeld: { ids: string; from: number; to: number; rows: readonly Liquidation[]; version: number } | null = null;
+  #liqBuckets: { key: string; value: StatInput['liquidations'] } | null = null;
   #button = document.createElement('button');
   #panel: Panel | null = null;
   /** The open interest's change in USD, worked out once per set of bars, parts and candles (the pane paints on every pointer move), and only in USD. */
@@ -646,13 +658,15 @@ export class BarStatsPane extends TimePane {
     this.#usd = { oi: state.oi, parts, candles: state.candles, price: state.oiPrice, tfMs, map };
     return map;
   }
-  constructor(host: HTMLElement, store: Store, view: View, private heat: HeatPane, private flow: FlowBook | null) {
+  constructor(host: HTMLElement, store: Store, view: View, private heat: HeatPane, private hub: Hub) {
     super(host, store, view, 'bars');
     this.head.innerHTML = `<strong>${t('Bar stats')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('stats'));
     this.#button.textContent = t('Stats'); setTip(this.#button, t('Choose, order and configure the statistics shown for each candle'));
     this.#button.onclick = () => { this.#panel = togglePanel(this.#button, { title: t('Bar stats'), width: 440, align: 'right', onClose: () => { this.#panel = null; } }, (tools, body) => this.#build(tools, body)); };
     this.head.append(this.#button);
+    this.canvas.addEventListener('click', e => this.#click(e));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && this.#pinned !== null) { this.#pinned = null; this.invalidate(); } });
   }
   /** Redraw after the configuration changed and keep an open panel in step. */
   refresh(): void { this.#panel?.render((tools, body) => this.#build(tools, body)); this.invalidate(); }
@@ -672,7 +686,7 @@ export class BarStatsPane extends TimePane {
     const fp = state.footprint, setMarkets = (markets: typeof fp.markets) => this.store.set({ footprint: { ...this.store.state.footprint, markets } });
     body.append(heading(t('Markets')),
       selectRow(t('Count'), t('Whose market orders the footprint and the bar statistics count.'), [['all', t('Aggregated: every market switched on')], ['chart', t('The chart market')], ['custom', t('Chosen markets')]], fp.markets, v => setMarkets(v === 'chart' || v === 'custom' ? v : 'all')),
-      ...(fp.markets === 'custom' ? [marketPicker(this.store, this.flow, 'footprint')] : []),
+      ...(fp.markets === 'custom' ? [marketPicker(this.store, this.hub.flow, 'footprint')] : []),
       note(t('The footprint counts the same markets: changing them here changes them there.')));
     body.append(heading(t('Shown, in order')));
     if (!chosen.length) body.append(note(t('Nothing selected: tick statistics below to add them.')));
@@ -689,7 +703,11 @@ export class BarStatsPane extends TimePane {
 
     body.append(heading(t('Options')));
     body.append(
-      selectRow(t('Cells'), t('Filled cells are shaded by magnitude (log scale between the visible 2nd and 99th percentile); text only is coloured by sign'), [['filled', t('Filled')], ['text', t('Text only')]], options.cells, v => setOptions({ cells: v as StatOptions['cells'] })),
+      selectRow(t('Cells'), t("Filled: shaded by size among the candles in view (log scale between the 2nd and 99th percentile). Unusual: shaded by how far each stands above its own recent candles, the Highlights' baseline, from 0 to 3σ. Line: each row drawn as a line. Text only: coloured by sign."),
+        [['filled', t('Filled')], ['unusual', t('Unusual (σ)')], ['line', t('Line')], ['text', t('Text only')]], options.cells, v => setOptions({ cells: v as StatOptions['cells'] })),
+      switchRow(t('Group rows by kind'), t('Gather the rows under a header per kind, in the order chosen within each; click a header to fold its rows away.'), options.grouped, grouped => setOptions({ grouped })),
+      selectRow(t('CVD from'), t("Where cvd, cvd retail and cvd whales start: the chart's left edge, or each day's start in the chart's time zone (the day the left edge falls in is loaded whole)."),
+        [['view', t('The left edge')], ['day', t("Each day's start")]], options.cvdFrom, v => setOptions({ cvdFrom: v === 'day' ? 'day' : 'view' })),
       selectRow(t('OI change in'), t("Open-interest change in base coin (the series' own unit) or as USD (change times the bar's close)"), [['base', t('Base coin')], ['usd', 'USD']], options.oiUnits, v => setOptions({ oiUnits: v as StatOptions['oiUnits'] })),
       numberRow(t('Imbalance ratio'), t('A level counts as imbalanced when its volume is at least this many times the opposite volume one row away'), { min: 1, step: 0.5, value: options.imbRatio }, v => setOptions({ imbRatio: v })),
       numberRow(t('Imbalance min USD'), t('Ignore imbalanced levels smaller than this'), { min: 0, step: scaledUsd(1000), value: scaledUsd(options.imbMinUsd) }, v => setOptions({ imbMinUsd: unscaledUsd(v) })),
@@ -708,160 +726,243 @@ export class BarStatsPane extends TimePane {
 
   protected draw(): void {
     this.#cell = null; this.#viewLines = null;
-    this.#strip();
+    const pin = this.#strip();
     const at = this.pointer, lines = this.#cell ? statCellLines(this.#cell) : this.#viewLines;
     if (lines && at) this.#card.show(lines, at.x, at.y); else this.#card.hide();
+    if (pin) this.#pinCard.show(pin.lines, pin.x, pin.y); else this.#pinCard.hide();
   }
 
-  protected override undrawn(): void { this.#cell = null; this.#viewLines = null; this.#card.hide(); }
+  protected override undrawn(): void { this.#cell = null; this.#viewLines = null; this.#card.hide(); this.#pinCard.hide(); }
 
   /** What the table worked out last, kept while nothing it was worked out from changes (a pointer move only redraws), and what Export CSV writes. */
   #table: { key: unknown[]; times: number[]; defs: StatDef[]; values: (number | null)[][]; input: StatInput; view: { at: string; cells: (ViewCell | null)[] } | null } | null = null;
   /** Where the View column is (plot coordinates), while it is drawn: the pointer there reads it, not a candle. */
   #viewSpan: [number, number] | null = null;
+  /** The bands as last drawn, top to bottom (what a click on a header folds). */
+  #layout: { band: TableBand; y: number; h: number }[] = [];
   protected override ownsPoint(x: number): boolean { return !!this.#viewSpan && x >= this.#viewSpan[0] && x <= this.#viewSpan[1]; }
 
-  #strip(): void {
+  /** A click on a kind's header folds or unfolds its rows; on a candle it pins it (on the pinned one, lets it go). Not while the Range tool selects. */
+  #click(e: MouseEvent): void {
+    const state = this.store.state;
+    if (e.ctrlKey || e.metaKey || state.rangeTool) return;
+    const box = this.canvas.getBoundingClientRect(), x = e.clientX - box.left - leftGutter(state), y = e.clientY - box.top;
+    const hit = this.#layout.find(b => y >= b.y && y < b.y + b.h);
+    if (hit?.band.kind === 'head') {
+      const group = hit.band.group, folded = state.barStatOptions.folded;
+      this.store.set({ barStatOptions: { ...state.barStatOptions, folded: folded.includes(group) ? folded.filter(g => g !== group) : [...folded, group] } });
+      return;
+    }
+    const table = this.#table, tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    if (!table || x < 0 || x > this.plotW) return;
+    const at = this.view.tOf(x, this.plotW), start = table.times.find(s => at >= s && at < s + tfMs);
+    if (start === undefined) return;
+    this.#pinned = this.#pinned === start ? null : start;
+    this.invalidate();
+  }
+
+  /** The liquidations by candle over the table's candles, from the window last answered (0 in a candle it covers with none). */
+  #liquidationsFor(ids: readonly string[], times: readonly number[], tfMs: number): StatInput['liquidations'] {
+    const held = this.#liqHeld; if (!held || held.ids !== ids.join(',')) return undefined;
+    const key = `${held.version}|${times[0]}|${times.length}|${times[times.length - 1]}|${tfMs}`;
+    if (this.#liqBuckets?.key === key) return this.#liqBuckets.value;
+    const buy = new Map<number, number>(), sell = new Map<number, number>(), wanted = new Set(ids);
+    for (const start of times) if (start >= held.from && start < held.to) { buy.set(start, 0); sell.set(start, 0); }
+    for (const l of held.rows) {
+      if (!wanted.has(l.id)) continue;
+      const start = Math.floor(l.t / tfMs) * tfMs, side = l.side === 'short' ? buy : sell, sum = side.get(start);
+      // Shorts liquidated are forced buys, longs liquidated forced sells, as in the Liquidations column.
+      if (sum !== undefined) side.set(start, sum + l.usd);
+    }
+    const value = { buy, sell, cut: held.rows.length >= LIQUIDATIONS_PER_ANSWER };
+    this.#liqBuckets = { key, value };
+    return value;
+  }
+
+  #strip(): { lines: InfoLine[]; x: number; y: number } | null {
     const { ctx, palette: p, view: v } = this, pw = this.plotW, ph = this.h, state = this.store.state;
     const tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000, defs = enabledStats(state.barStats), options = state.barStatOptions;
-    const readout = this.head.querySelector('.readout'), data = this.heat.footprintData;
+    const readout = this.head.querySelector('.readout'), data = this.heat.footprintData, daily = options.cvdFrom === 'day';
     // Aggregated, the rows count every market the footprint adds together; open interest stays the OI pane's one market (as its row's tip says).
-    const markets = this.heat.footprintMarkets(state).length, stats = tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view');
+    const markets = this.heat.footprintMarkets(state), stats = daily
+      ? tn(defs.length, "{n} stat · cvd from each day's start", "{n} stats · cvd from each day's start")
+      : tn(defs.length, '{n} stat · cvd sums the bars loaded for the view', '{n} stats · cvd sums the bars loaded for the view');
     // The size of the rows the footprint rows of the table (poc, imbalances) are read on: the footprint's at this zoom, whether it shows or not.
     const rowSize = data.step > 0 ? ` · ${t('rows of {step}', { step: `$${fmtPrice(data.step, data.step)}` })}` : '';
-    setText(readout, (markets > 1 ? `${t('{n} markets', { n: markets })} · ${stats}` : stats) + rowSize);
-    this.#viewSpan = null;
-    if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); this.#table = null; return; }
+    setText(readout, (markets.length > 1 ? `${t('{n} markets', { n: markets.length })} · ${stats}` : stats) + rowSize);
+    this.#viewSpan = null; this.#layout = [];
+    if (!defs.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No statistics selected: use Stats to add some.'), 12, ph / 2); this.#table = null; return null; }
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
     // The candles of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
-    // view, whatever was looked at before.
-    const now = pageNow(), until = replaying() ? now : Infinity, near = (start: number): boolean => start + tfMs <= until && start + 2 * tfMs > v.t0 && start < v.t1 + tfMs;
+    // view, whatever was looked at before; from each day's start, at the start of the day the left edge falls in (loaded whole for it).
+    const zone = resolveZone(state.traded.zone, state.timeZone), from = daily ? Math.min(v.t0, dayStartOf(v.t0, zone)) : v.t0;
+    const now = pageNow(), until = replaying() ? now : Infinity, near = (start: number): boolean => start + tfMs <= until && start + 2 * tfMs > from && start < v.t1 + tfMs;
     // One slot per candle: the chart's candles, and a bar the footprint holds where a candle is missing. A candle without executions (before the
     // recording, a gap) is a slot without a bar: the rows read from the candles and open interest still show there.
     const starts = new Set<number>();
     for (const c of state.candles) if (near(c[0])) starts.add(c[0]);
     for (const b of data.bars.values()) if (near(b.t)) starts.add(b.t);
     const times = [...starts].sort((a, b) => a - b);
-    if (!times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); this.#table = null; return; }
+    if (!times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); this.#table = null; return null; }
     const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(now / tfMs) * tfMs : Infinity);
     const taker = defs.some(def => def.id === 'takerDelta') ? this.heat.takerRows(state, tfMs, times[0]!) : null;
+    // Liquidations of the markets counted, every size the record keeps, over the table's candles (asked again as the window moves or runs on).
+    const source = this.hub.source, liqFrom = times[0]!, liqTo = times[times.length - 1]! + tfMs;
+    let liquidations: StatInput['liquidations'];
+    if (source.liquidations && defs.some(def => def.id === 'liq' || def.id === 'liqNet') && markets.length) {
+      const ids = markets.join(','), live = liqTo >= Date.now() - tfMs;
+      this.#liquidations.ensure(ids, liqFrom, liqTo, live, () => source.liquidations!(liqFrom, liqTo).then(rows => { this.#liqHeld = { ids, from: liqFrom, to: liqTo, rows, version: (this.#liqHeld?.version ?? 0) + 1 }; return rows; }), () => this.invalidate());
+      liquidations = this.#liquidationsFor(markets, times, tfMs);
+    }
+    const restart = daily ? resetKeys(times, 'day', zone) : undefined;
     // Worked out again only when what it is worked out from changes: a pointer move redraws from what is held. The clock counts by the minute
     // (the coverage of the candle under way).
-    const key = [data.version, data.step, state.candles, state.oi, parts, state.oiPrice, state.barStats, options, data.cuts, taker, times[0], times[times.length - 1], times.length, tfMs, Math.floor(now / 60_000)];
+    const key = [data.version, data.step, state.candles, state.oi, parts, state.oiPrice, state.barStats, options, data.cuts, taker, liquidations, zone, times[0], times[times.length - 1], times.length, tfMs, Math.floor(now / 60_000)];
     let table = this.#table;
     if (!table || table.key.length !== key.length || table.key.some((k, i) => k !== key[i])) {
       const candles = new Map(state.candles.map(c => [c[0], c] as const));
-      const input: StatInput = { bars: times.map(start => data.bars.get(start) ?? null), times, tfMs, now, ...(taker ? { taker } : {}), step: data.step, options, cuts: data.cuts, candles,
-        oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
+      const input: StatInput = { bars: times.map(start => data.bars.get(start) ?? null), times, tfMs, now, ...(taker ? { taker } : {}), ...(liquidations ? { liquidations } : {}), ...(restart ? { restart } : {}),
+        step: data.step, options, cuts: data.cuts, candles, oi: new Map(state.oi.map(b => [b[0], b] as const)), oiChange: oiChangeByTime(state.oi, parts, tfMs), oiUsd: this.#oiUsd(state, parts, tfMs, candles) };
       table = this.#table = { key, times, defs, values: defs.map(def => def.compute(input)), input, view: null };
     }
     const { input, values: rowsValues } = table, all = input.bars;
-    // A row taken at the nearest box edge for some bar (the source had no sums for the size set) says so: ≈ before its name.
+    // A row taken at the nearest box edge for some bar (the source had no sums for the size set), or from a cut answer, says so: ≈ before its name.
     const labelOf = new Map(defs.map(def => [def.id, def.approx?.(input) ? `≈${def.label}` : def.label]));
-    const slot = pw * tfMs / (v.t1 - v.t0), top = 3, rowH = Math.max(15, (ph - 6) / defs.length), filled = options.cells === 'filled';
-    // The candles in view are those with some of their time on screen: one only touching an edge is not in the View column's figures or the file.
+    // The bands: rows as chosen, or under a header per kind; the rows share what the headers leave.
+    const bands = tableBands(defs, options), rowCount = bands.filter(b => b.kind === 'row').length, top = 3;
+    const rowH = Math.max(15, (ph - 6 - (bands.length - rowCount) * HEAD_H) / Math.max(1, rowCount));
+    let y0 = top;
+    const layout = this.#layout = bands.map(band => { const h = band.kind === 'head' ? HEAD_H : rowH, at = { band, y: y0, h }; y0 += h; return at; });
+    const gridBottom = y0, slot = pw * tfMs / (v.t1 - v.t0), cells = options.cells, filled = cells === 'filled' || cells === 'unusual';
     const visible = times.map((_, i) => i).filter(i => times[i]! + tfMs > v.t0 && times[i]! < v.t1);
-    if (!visible.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No executions recorded for the candles in view.'), 12, ph / 2); return; }
+    if (!visible.length) { ctx.fillStyle = p.muted; ctx.fillText(t('No executions recorded for the candles in view.'), 12, ph / 2); return null; }
     // A candle the recording holds only in part: the rows read from executions are drawn faint there (rec % says how much).
     const partial = all.map((bar, i) => { const share = bar ? coverageOf(bar, times[i]!, tfMs, now) : null; return share !== null && share < 0.95; });
-    // Under the pointer: the candle (any pane's pointer says which, the time axis being shared) and, from this pane's own pointer, the row; or,
-    // right of the plot, the row's View figure.
+    // Under the pointer: the candle (any pane's pointer says which, the time axis being shared) and, from this pane's own pointer, the band; or,
+    // right of the plot, the band's View figure.
     const vx = pw + 3, vw = Math.min(this.w - pw - 6, 120);
     this.#viewSpan = vw >= 24 ? [vx, vx + vw] : null;
     const box = this.pointer ? this.canvas.getBoundingClientRect() : null, local = box ? this.pointer!.x - box.left - leftGutter(state) : -1, overView = this.ownsPoint(local);
-    const hv = state.hover, viewRow = overView && box ? Math.floor((this.pointer!.y - box.top - top) / rowH) : -1;
+    const bandAt = (y: number): number => layout.findIndex(b => y >= b.y && y < b.y + b.h);
+    const hv = state.hover, viewBand = overView && box ? bandAt(this.pointer!.y - box.top) : -1;
     const under = hv && !overView ? times.findIndex(start => hv.t >= start && hv.t < start + tfMs) : -1;
     // Past the newest candle this pane's own pointer reads the newest (readAt); another pane's pointer there marks nothing here.
     const hoverIdx = overView ? -1 : hv && this.pointer ? readAt(under, hv.t, times.length - 1, times[times.length - 1]!) : under;
     if (hoverIdx >= 0 && hoverIdx !== under) this.cursorT = times[hoverIdx]! + tfMs / 2;
-    const hoverRow = hv && hv.source === 'bars' ? Math.floor((hv.y - top) / rowH) : -1;
+    const hoverBand = hv && hv.source === 'bars' ? bandAt(hv.y) : -1;
     let hoverCell: StatCell | null = null, viewHover: InfoLine[] | null = null;
     const toneColor = (tone: StatTone | null): string => tone === 'buy' ? p.candleUp : tone === 'sell' ? p.candleDown : p.muted;
+    const toneOf = (def: StatDef, value: number): StatTone => def.scale === 'category' ? def.tone?.(value) ?? 'text' : def.scale === 'diverging' ? (value - (def.center ?? 0) >= 0 ? 'buy' : 'sell') : 'text';
+    const shown = (def: StatDef, value: number | null | undefined): string => value === null || value === undefined ? '–' : def.format(value) || (def.id === 'cover' ? '100%' : '—');
     ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
-    defs.forEach((def, rowIndex) => {
-      const values = rowsValues[rowIndex]!, ranked = def.scale !== 'plain' && def.scale !== 'category', scale = ranked ? rowScale(def, visible.map(i => values[i])) : null;
-      const found = state.highlight.on && ranked ? anomalies(Float64Array.from(values, value => value === null || value === undefined ? NaN : deviation(def, value)), state.highlight) : null, unusual = found?.flag ?? null;
-      const mine = hoverIdx >= 0 && rowIndex === hoverRow ? values[hoverIdx] : undefined;
-      if (hoverIdx >= 0 && rowIndex === hoverRow && mine !== null && mine !== undefined) {
+    layout.forEach(({ band, y, h }, bandIndex) => {
+      if (band.kind === 'head') {
+        // A kind's header across the table: ▾ open, ▸ folded with how many rows it holds; a click folds or unfolds it.
+        ctx.save(); ctx.fillStyle = mixHex(p.panel, p.ui, bandIndex === hoverBand || bandIndex === viewBand ? 0.24 : 0.14); ctx.fillRect(0, y, this.w, h - 1);
+        ctx.textAlign = 'left'; ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.fillStyle = p.muted;
+        ctx.fillText(`${band.folded ? '▸' : '▾'} ${GROUP_SHORT[band.group]}${band.folded ? ` · ${band.count}` : ''}`, 6, y + (h - 1) / 2);
+        ctx.restore();
+        return;
+      }
+      const { def, index: rowIndex } = band, values = rowsValues[rowIndex]!, ranked = def.scale !== 'plain' && def.scale !== 'category', scale = ranked ? rowScale(def, visible.map(i => values[i])) : null;
+      // Each row's own baseline (the Highlights' window and multiple): its unusual candles are outlined while Highlights is on, and Unusual shades by it.
+      const found = ranked && (state.highlight.on || cells === 'unusual') ? anomalies(Float64Array.from(values, value => value === null || value === undefined ? NaN : deviation(def, value)), state.highlight) : null;
+      const unusual = state.highlight.on ? found?.flag ?? null : null;
+      const mine = hoverIdx >= 0 && bandIndex === hoverBand ? values[hoverIdx] : undefined;
+      if (hoverIdx >= 0 && bandIndex === hoverBand && mine !== null && mine !== undefined) {
         const previous = hoverIdx > 0 && times[hoverIdx - 1] === times[hoverIdx]! - tfMs ? values[hoverIdx - 1] : null;
-        const seenValues = visible.map(i => values[i]).filter((x): x is number => x !== null && x !== undefined), rank = (x: number) => def.scale === 'diverging' ? Math.abs(x - (def.center ?? 0)) : x;
-        const tone: StatTone = def.scale === 'category' ? def.tone?.(mine) ?? 'text' : def.scale === 'diverging' ? (mine - (def.center ?? 0) >= 0 ? 'buy' : 'sell') : 'text';
+        const seenValues = visible.map(i => values[i]).filter((x): x is number => x !== null && x !== undefined), rank = (x: number) => def.scale === 'diverging' ? deviation(def, x) : x;
         const share = all[hoverIdx] ? coverageOf(all[hoverIdx]!, times[hoverIdx]!, tfMs, now) : null;
+        const sigma = found?.sigma[hoverIdx];
         hoverCell = {
-          label: labelOf.get(def.id)!, title: def.approx?.(input) ? `${def.title} ${t('≈ About: for some of these minutes only the size boxes are known (an older server, or minutes it has not filled in yet), so this line is drawn at the nearest box edge.')}` : def.title,
-          value: def.format(mine) || (def.id === 'cover' ? '100%' : '—'), tone, time: clock(times[hoverIdx]!, true),
-          previous: previous === null || previous === undefined ? null : def.format(previous) || (def.id === 'cover' ? '100%' : '—'), rank: ranked ? 1 + seenValues.filter(x => rank(x) > rank(mine)).length : null, of: seenValues.length,
-          sigma: unusual?.[hoverIdx] && found ? found.sigma[hoverIdx] ?? null : null,
+          label: labelOf.get(def.id)!, title: def.approx?.(input) ? `${def.title} ${def.approxNote?.() ?? t('≈ About: for some of these minutes only the size boxes are known (an older server, or minutes it has not filled in yet), so this line is drawn at the nearest box edge.')}` : def.title,
+          value: shown(def, mine), tone: toneOf(def, mine), time: clock(times[hoverIdx]!, true),
+          previous: previous === null || previous === undefined ? null : shown(def, previous), rank: ranked ? 1 + seenValues.filter(x => rank(x) > rank(mine)).length : null, of: seenValues.length,
+          sigma: (unusual?.[hoverIdx] || cells === 'unusual') && sigma !== undefined && Number.isFinite(sigma) && sigma > 0 ? sigma : null,
           partial: def.source === 'executions' && share !== null && share < 0.95 ? Math.round(share * 100) : null,
         };
       }
-      const y = top + rowIndex * rowH;
-      if (!filled) { ctx.globalAlpha = 0.5; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, Math.round(y + rowH - 1) + 0.5); ctx.lineTo(pw, Math.round(y + rowH - 1) + 0.5); ctx.stroke(); ctx.globalAlpha = 1; }
+      if (!filled) { ctx.globalAlpha = 0.5; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, Math.round(y + h - 1) + 0.5); ctx.lineTo(pw, Math.round(y + h - 1) + 0.5); ctx.stroke(); ctx.globalAlpha = 1; }
+      if (cells === 'line' && def.scale !== 'category') { this.#line(def, values, visible, times, y, h, slot, partial, unusual); return; }
       for (const i of visible) {
         const x = v.xOf(times[i]!, pw), w = Math.max(1, slot - 1), value = values[i], fade = def.source === 'executions' && partial[i] ? 0.45 : 1;
         if (value === null || value === undefined) {
-          if (filled) { ctx.globalAlpha = 0.5; ctx.fillStyle = p.line; ctx.fillRect(x, y, w, rowH - 1); ctx.globalAlpha = 1; }
-          if (slot >= 48) { ctx.fillStyle = p.muted; ctx.fillText('–', x + w / 2, y + (rowH - 1) / 2); }
+          if (filled) { ctx.globalAlpha = 0.5; ctx.fillStyle = p.line; ctx.fillRect(x, y, w, h - 1); ctx.globalAlpha = 1; }
+          if (slot >= 48) { ctx.fillStyle = p.muted; ctx.fillText('–', x + w / 2, y + (h - 1) / 2); }
           continue;
         }
         if (def.scale === 'category') {
           // A mark per candle: tinted by the side it stands for, empty where there is nothing to mark.
           const mark = def.format(value), tone = mark ? def.tone?.(value) ?? null : null, fill = tone ? mixHex(p.panel, toneColor(tone), 0.32) : p.panel;
           ctx.globalAlpha = fade;
-          if (filled) { ctx.fillStyle = fill; ctx.fillRect(x, y, w, rowH - 1); }
-          if (mark && ctx.measureText(mark).width <= w - 2) { ctx.fillStyle = filled && tone ? textOn(fill, 1, p) : toneColor(tone); ctx.fillText(mark, x + w / 2, y + (rowH - 1) / 2); }
+          if (filled || cells === 'line') { ctx.fillStyle = fill; ctx.fillRect(x, y, w, h - 1); }
+          if (mark && ctx.measureText(mark).width <= w - 2) { ctx.fillStyle = (filled || cells === 'line') && tone ? textOn(fill, 1, p) : toneColor(tone); ctx.fillText(mark, x + w / 2, y + (h - 1) / 2); }
           ctx.globalAlpha = 1;
           continue;
         }
-        const t = strength(def, value, scale), tone = (value - (def.center ?? 0)) >= 0 ? p.candleUp : p.candleDown;
+        // Unusual: how far above its own recent candles, from 0 to 3σ (none while the baseline warms up); else its size among the candles in view.
+        const sigma = found?.sigma[i];
+        const t = cells === 'unusual' ? (sigma !== undefined && Number.isFinite(sigma) ? Math.min(1, Math.max(0, sigma) / 3) : 0) : strength(def, value, scale), tone = (value - (def.center ?? 0)) >= 0 ? p.candleUp : p.candleDown;
         // A filled cell takes its colours from the theme (the page's own colour toward its accent, or toward the side's colour) and its figures
         // from textOn: a fixed light ramp made a row of pale bars on every dark theme.
         const fill = def.scale === 'sequential' ? mixHex(p.panel, p.ui, 0.12 + 0.76 * t) : def.scale === 'diverging' ? mixHex(mixHex(p.panel, tone, 0.18), tone, t) : p.panel;
         if (filled) {
           ctx.globalAlpha = fade; ctx.fillStyle = fill;
-          ctx.fillRect(x, y, w, rowH - 1);
-          if (def.scale === 'plain') { ctx.strokeStyle = p.line; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, rowH - 2); }
+          ctx.fillRect(x, y, w, h - 1);
+          if (def.scale === 'plain') { ctx.strokeStyle = p.line; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 2); }
           ctx.globalAlpha = 1;
         }
-        if (unusual?.[i]) { ctx.save(); ctx.lineWidth = 1.6; ctx.strokeStyle = p.text; ctx.globalAlpha = 0.95 * fade; ctx.strokeRect(x + 0.8, y + 0.8, Math.max(1, w - 1.6), rowH - 2.6); ctx.restore(); }
+        if (unusual?.[i]) { ctx.save(); ctx.lineWidth = 1.6; ctx.strokeStyle = p.text; ctx.globalAlpha = 0.95 * fade; ctx.strokeRect(x + 0.8, y + 0.8, Math.max(1, w - 1.6), h - 2.6); ctx.restore(); }
         if (slot >= 48) {
           ctx.fillStyle = filled ? (def.scale === 'plain' ? p.text : textOn(fill, 1, p)) : def.scale === 'diverging' ? tone : p.text;
           ctx.globalAlpha = (filled ? 1 : 0.6 + 0.4 * t) * fade;
-          ctx.fillText(def.format(value), x + w / 2, y + (rowH - 1) / 2); ctx.globalAlpha = 1;
+          ctx.fillText(def.format(value), x + w / 2, y + (h - 1) / 2); ctx.globalAlpha = 1;
         }
       }
     });
+    const hovered = hoverBand >= 0 ? layout[hoverBand] : undefined;
     // The cell under the pointer: its column and row tinted, the cell itself boxed, and a popup beside the pointer.
     if (hoverIdx >= 0) {
-      const x = v.xOf(times[hoverIdx]!, pw), w = Math.max(1, slot - 1), gridH = defs.length * rowH;
-      ctx.save(); ctx.fillStyle = p.text; ctx.globalAlpha = p.dark ? 0.12 : 0.08; ctx.fillRect(x, top, w, gridH);
-      if (hoverRow >= 0 && hoverRow < defs.length) {
-        const y = top + hoverRow * rowH;
-        ctx.fillRect(0, y, pw, rowH - 1);
-        ctx.globalAlpha = 1; ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x) + 0.5, Math.round(y) + 0.5, Math.max(1, Math.round(w) - 1), Math.round(rowH) - 2);
-      } else { ctx.globalAlpha = 0.5; ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x) + 0.5, top + 0.5, Math.max(1, Math.round(w) - 1), gridH - 1); }
+      const x = v.xOf(times[hoverIdx]!, pw), w = Math.max(1, slot - 1);
+      ctx.save(); ctx.fillStyle = p.text; ctx.globalAlpha = p.dark ? 0.12 : 0.08; ctx.fillRect(x, top, w, gridBottom - top);
+      if (hovered?.band.kind === 'row') {
+        ctx.fillRect(0, hovered.y, pw, hovered.h - 1);
+        ctx.globalAlpha = 1; ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x) + 0.5, Math.round(hovered.y) + 0.5, Math.max(1, Math.round(w) - 1), Math.round(hovered.h) - 2);
+      } else { ctx.globalAlpha = 0.5; ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x) + 0.5, top + 0.5, Math.max(1, Math.round(w) - 1), gridBottom - top - 1); }
       ctx.restore();
       this.#cell = hoverCell;
+    }
+    // The pinned candle: its column boxed, and a card of every statistic beside it (gone with it out of view, back with it).
+    if (this.#pinned !== null && this.#pinned % tfMs !== 0) this.#pinned = null;
+    const pinIdx = this.#pinned === null ? -1 : times.indexOf(this.#pinned);
+    let pin: { lines: InfoLine[]; x: number; y: number } | null = null;
+    if (pinIdx >= 0 && visible.includes(pinIdx)) {
+      const x = v.xOf(times[pinIdx]!, pw), w = Math.max(1, slot - 1);
+      ctx.save(); ctx.strokeStyle = p.text; ctx.lineWidth = 2; ctx.strokeRect(Math.round(x) + 1, top + 1, Math.max(1, Math.round(w) - 2), gridBottom - top - 2); ctx.restore();
+      const page = this.canvas.getBoundingClientRect();
+      pin = { lines: pinnedLines(clock(times[pinIdx]!, true), defs.map((def, r) => { const value = rowsValues[r]![pinIdx]; return { label: labelOf.get(def.id)!, value: shown(def, value), tone: value === null || value === undefined ? 'text' : toneOf(def, value) }; })),
+        x: page.left + leftGutter(state) + x + w, y: page.top };
     }
     // The View column, right of the plot under the price axis and the columns: each row over the candles in view (its tip says how).
     if (this.#viewSpan) {
       // Worked out again only for other candles in view or other figures (a pointer move redraws from what is held).
       const at = `${visible[0]}|${visible[visible.length - 1]}|${visible.length}`;
       if (table.view?.at !== at) table.view = { at, cells: defs.map((def, r) => def.view?.(input, visible, rowsValues[r]!) ?? null) };
-      const cells = table.view.cells;
+      const viewCells = table.view.cells;
       ctx.save();
-      ctx.globalAlpha = 0.6; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(Math.round(pw) + 0.5, top); ctx.lineTo(Math.round(pw) + 0.5, top + defs.length * rowH); ctx.stroke(); ctx.globalAlpha = 1;
-      defs.forEach((def, rowIndex) => {
-        const cell = cells[rowIndex] ?? null, y = top + rowIndex * rowH;
+      ctx.globalAlpha = 0.6; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(Math.round(pw) + 0.5, top); ctx.lineTo(Math.round(pw) + 0.5, gridBottom); ctx.stroke(); ctx.globalAlpha = 1;
+      layout.forEach(({ band, y, h }, bandIndex) => {
+        if (band.kind !== 'row') return;
+        const def = band.def, cell = viewCells[band.index] ?? null;
         const fill = cell && cell.tone !== 'text' ? mixHex(p.panel, toneColor(cell.tone), 0.22) : mixHex(p.panel, p.ui, 0.08);
-        ctx.fillStyle = fill; ctx.fillRect(vx, y, vw, rowH - 1);
+        ctx.fillStyle = fill; ctx.fillRect(vx, y, vw, h - 1);
         if (cell) {
           let size = 11; ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
           while (size > 8 && ctx.measureText(cell.value).width > vw - 4) { size--; ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`; }
-          if (ctx.measureText(cell.value).width <= vw - 2) { ctx.fillStyle = textOn(fill, 1, p); ctx.fillText(cell.value, vx + vw / 2, y + (rowH - 1) / 2); }
+          if (ctx.measureText(cell.value).width <= vw - 2) { ctx.fillStyle = textOn(fill, 1, p); ctx.fillText(cell.value, vx + vw / 2, y + (h - 1) / 2); }
         }
-        if (rowIndex === viewRow) {
-          ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(vx) + 0.5, Math.round(y) + 0.5, Math.round(vw) - 1, Math.round(rowH) - 2);
+        if (bandIndex === viewBand) {
+          ctx.strokeStyle = p.text; ctx.lineWidth = 1; ctx.strokeRect(Math.round(vx) + 0.5, Math.round(y) + 0.5, Math.round(vw) - 1, Math.round(h) - 2);
           viewHover = viewCellLines(labelOf.get(def.id)!, cell, def.title, visible.length);
         }
       });
@@ -869,7 +970,49 @@ export class BarStatsPane extends TimePane {
     }
     if (viewHover) this.#viewLines = viewHover;
     ctx.textAlign = 'left'; ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
-    defs.forEach((def, i) => { const y = top + i * rowH, label = labelOf.get(def.id)!, w = ctx.measureText(label).width + 10; ctx.globalAlpha = 0.88; ctx.fillStyle = p.panel; ctx.fillRect(2, y + 2, w, rowH - 5); ctx.globalAlpha = 1; ctx.fillStyle = p.muted; ctx.fillText(label, 6, y + (rowH - 1) / 2); });
+    for (const { band, y, h } of layout) {
+      if (band.kind !== 'row') continue;
+      const label = labelOf.get(band.def.id)!, w = ctx.measureText(label).width + 10;
+      ctx.globalAlpha = 0.88; ctx.fillStyle = p.panel; ctx.fillRect(2, y + 2, w, h - 5); ctx.globalAlpha = 1; ctx.fillStyle = p.muted; ctx.fillText(label, 6, y + (h - 1) / 2);
+    }
+    return pin;
+  }
+
+  /**
+   * Line: a row drawn as a line through its candles (broken where one has no value), on its own scale: a share around 50 % or a signed figure
+   * about its centre line, with each candle's side shaded from it, and the rest from their lowest to their highest in view. Unusual candles get
+   * a ring while Highlights is on.
+   */
+  #line(def: StatDef, values: readonly (number | null)[], visible: readonly number[], times: readonly number[], y: number, h: number, slot: number, partial: readonly boolean[], unusual: Uint8Array | null): void {
+    const { ctx, palette: p, view: v } = this, pw = this.plotW, center = def.center ?? 0, seenValues = visible.flatMap(i => { const x = values[i]; return x === null || x === undefined ? [] : [x]; });
+    if (!seenValues.length) return;
+    const diverging = def.scale === 'diverging', reach = diverging ? Math.max(...seenValues.map(x => Math.abs(x - center))) || 1 : 0;
+    const lo = Math.min(...seenValues), hi = Math.max(...seenValues), span = hi - lo || 1, pad = 3;
+    const yOf = (x: number): number => diverging ? y + h / 2 - (x - center) / reach * (h / 2 - pad) : y + h - pad - (x - lo) / span * (h - 2 * pad);
+    ctx.save();
+    if (diverging) {
+      ctx.globalAlpha = 0.5; ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, Math.round(y + h / 2) + 0.5); ctx.lineTo(pw, Math.round(y + h / 2) + 0.5); ctx.stroke();
+      for (const i of visible) {
+        const x = values[i]; if (x === null || x === undefined) continue;
+        const left = v.xOf(times[i]!, pw), w = Math.max(1, slot * 0.6), top = Math.min(yOf(x), y + h / 2);
+        ctx.globalAlpha = 0.35 * (def.source === 'executions' && partial[i] ? 0.5 : 1); ctx.fillStyle = x >= center ? p.candleUp : p.candleDown;
+        ctx.fillRect(left + (slot - w) / 2, top, w, Math.abs(yOf(x) - (y + h / 2)));
+      }
+    }
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = diverging ? p.text : p.ui; ctx.lineWidth = 1.4; ctx.beginPath();
+    let open = false;
+    for (const i of visible) {
+      const x = values[i];
+      if (x === null || x === undefined) { open = false; continue; }
+      const px = v.xOf(times[i]!, pw) + slot / 2, py = yOf(x);
+      if (open) ctx.lineTo(px, py); else { ctx.moveTo(px, py); open = true; }
+    }
+    ctx.stroke();
+    if (unusual) for (const i of visible) {
+      const x = values[i]; if (!unusual[i] || x === null || x === undefined) continue;
+      ctx.globalAlpha = 1; ctx.strokeStyle = p.text; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(v.xOf(times[i]!, pw) + slot / 2, yOf(x), 3, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Export CSV: the table's candles in view, one line each, every statistic shown as its number or its mark (empty where it has none). */

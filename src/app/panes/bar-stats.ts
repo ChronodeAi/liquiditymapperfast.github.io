@@ -8,6 +8,7 @@ import type { StatOptions } from '../stat-options.ts';
 import { t } from '../i18n.ts';
 import type { InfoLine } from '../infobox.ts';
 import { oiDeltaByTime } from '../oi-change.ts';
+import { windowsOf } from '../keylevels/levels.ts';
 
 /**
  * Per-candle statistics, the Bar stats table under the map. Each definition computes one number per candle from the executions recorded
@@ -36,6 +37,13 @@ export interface StatInput {
   now?: number;
   /** The exchange's own candles with their taker buys (index 7), by start (Binance reports them); absent elsewhere. */
   taker?: ReadonlyMap<number, CandleRow>;
+  /**
+   * Liquidations reported on the markets counted, by candle start: shorts liquidated (forced buys) and longs liquidated (forced sells), USD, 0 in
+   * a candle the loaded window covers with none; `cut` when the source answered only its largest. Absent where the source has none.
+   */
+  liquidations?: { buy: ReadonlyMap<number, number>; sell: ReadonlyMap<number, number>; cut: boolean };
+  /** Where the running sums start again: a key per slot (the start of its day), a new key a new start. Absent: they run from the first slot. */
+  restart?: readonly number[];
   /** Price step of the loaded rows. */
   step: number;
   candles: ReadonlyMap<number, CandleRow>;
@@ -73,6 +81,8 @@ export interface StatDef {
   compute: (input: StatInput) => (number | null)[];
   /** Whether some bar's value was taken at the nearest box edge rather than at the size set (the row then says ≈). */
   approx?: (input: StatInput) => boolean;
+  /** What ≈ means for this row, where it is not the size boxes. */
+  approxNote?: () => string;
   /** What it is read from: the executions recorded (absent before the recording, faded where a candle was recorded in part), or the candles and open interest. */
   source: 'executions' | 'market';
   /** The View column's figure for the visible slots `at`, from the row's `values`; none when absent or null. */
@@ -87,8 +97,13 @@ export function csvCell(def: StatDef, value: number | null | undefined): string 
   return def.csv ? def.csv.cell(value) : def.scale === 'category' ? def.format(value) : String(value);
 }
 
+/** The kinds' names on the table's headers (the panel's are longer). */
+export const GROUP_SHORT: Readonly<Record<StatGroup, string>> = { volume: t('Volume'), footprint: t('Footprint rows'), trades: t('Trades'), market: t('Candle, OI and liquidations') };
+/** The start of the day `t` falls in, in `zone` (where the running sums start again, from each day's start). */
+export const dayStartOf = (t: number, zone: string): number => windowsOf('day', zone, t, t + 1)[0]?.from ?? t;
+
 export const GROUP_TITLES: Readonly<Record<StatGroup, string>> = {
-  volume: t('Volume'), footprint: t('Footprint rows'), trades: t('Trades (recorded since the server started recording them)'), market: t('Candle and open interest'),
+  volume: t('Volume'), footprint: t('Footprint rows'), trades: t('Trades (recorded since the server started recording them)'), market: t('Candle, open interest and liquidations'),
 };
 
 export const signedVol = (value: number): string => (value < 0 ? '-' : '') + volText(Math.abs(value));
@@ -137,11 +152,11 @@ const sumView = (format: (v: number) => string, signed: boolean) => (_input: Sta
 const maxView = (format: (v: number) => string) => (_input: StatInput, at: readonly number[], values: readonly (number | null)[]): ViewCell | null => {
   const found = seen(at, values); return found.length ? { value: format(Math.max(...found)), tone: 'text', how: t('The largest of the candles in view.') } : null;
 };
-/** A running sum's figure is its newest: it already adds up every candle loaded. */
-const lastView = (format: (v: number) => string) => (_input: StatInput, at: readonly number[], values: readonly (number | null)[]): ViewCell | null => {
+/** A running sum's figure is its newest: it already adds up every candle loaded (or those of its day). */
+const lastView = (format: (v: number) => string) => (input: StatInput, at: readonly number[], values: readonly (number | null)[]): ViewCell | null => {
   const found = seen(at, values); if (!found.length) return null;
   const last = found[found.length - 1]!;
-  return { value: format(last), tone: signTone(last), how: t('The newest candle in view: the running sum already adds up the candles loaded.') };
+  return { value: format(last), tone: signTone(last), how: input.restart ? t('The newest candle in view: the running sum from the start of its day.') : t('The newest candle in view: the running sum already adds up the candles loaded.') };
 };
 /** Two sums over the visible bars put against each other, as the statistic puts them for one bar. */
 const ratioView = (format: (v: number) => string, tone: (v: number) => StatTone, ratio: (bars: Bar[]) => number | null) => (input: StatInput, at: readonly number[]): ViewCell | null => {
@@ -176,6 +191,27 @@ function viewPoc(input: StatInput, at: readonly number[]): number | null {
   return rows.size ? pocOf([...rows.values()], input.step) : null;
 }
 const orderUsd = (stats: NonNullable<Bar['stats']>): number => sumBuckets(stats.buy, 0, 7) + sumBuckets(stats.sell, 0, 7);
+
+/** A bar's buys and sells by market, from its rows' parts; null for a bar without them (one market, or a source that does not say). */
+function venueSums(bar: Bar, into = new Map<string, [number, number]>()): Map<string, [number, number]> | null {
+  if (!bar.parts) return null;
+  for (const row of bar.parts) for (const [id, buy, sell] of row) { const sums = into.get(id); if (sums) { sums[0] += buy; sums[1] += sell; } else into.set(id, [buy, sell]); }
+  return into;
+}
+/** The share (%) of the volume on markets whose own delta has the sign of the total; null with fewer than two markets or no delta at all. */
+export function agreement(by: ReadonlyMap<string, readonly [number, number]>): number | null {
+  let delta = 0, all = 0, same = 0;
+  for (const [buy, sell] of by.values()) { delta += buy - sell; all += buy + sell; }
+  if (by.size < 2 || !(all > 0) || delta === 0) return null;
+  for (const [buy, sell] of by.values()) if (Math.sign(buy - sell) === Math.sign(delta)) same += buy + sell;
+  return same / all * 100;
+}
+/** A slot's liquidations, shorts liquidated and longs liquidated; null where the loaded window does not cover it. */
+const liquidated = (input: StatInput, i: number): [number, number] | null => {
+  const start = slotTime(input, i), buy = input.liquidations?.buy.get(start), sell = input.liquidations?.sell.get(start);
+  return buy === undefined || sell === undefined ? null : [buy, sell];
+};
+const liquidationNote = (): string => t('≈ Only the largest 5,000 liquidations of this window are counted.');
 
 /** A row flagged by `diagonalImbalances`: its low price, the heavier side, and how many times the opposite volume it is (Infinity against an empty row). */
 export interface Imbalance { low: number; side: 'buy' | 'sell'; ratio: number }
@@ -231,7 +267,11 @@ export const stackedRuns = (found: readonly Imbalance[], step: number, n: number
 const tradeStat = (id: string, label: string, title: string, scale: StatScale, format: (v: number) => string, pick: (stats: NonNullable<Bar['stats']>, input: StatInput, bar: Bar) => number | null, view?: StatDef['view']): StatDef =>
   ({ id, label, group: 'trades', title, scale, format, source: 'executions', compute: input => input.bars.map(bar => bar?.stats ? pick(bar.stats, input, bar) : null), ...(view ? { view } : {}) });
 const sumBuckets = (values: readonly number[], from: number, to: number): number => values.slice(from, to + 1).reduce((a, b) => a + b, 0);
-const running = (values: (number | null)[]): (number | null)[] => { let run = 0; return values.map(v => v === null ? null : (run += v)); };
+/** A running sum over the slots, starting again where `restart` changes (a new day). */
+const running = (values: (number | null)[], restart?: readonly number[]): (number | null)[] => {
+  let run = 0, key = NaN;
+  return values.map((v, i) => { if (restart && restart[i] !== key) { key = restart[i]!; run = 0; } return v === null ? null : (run += v); });
+};
 
 /**
  * A bar's market orders from the retail or the whale size: the line's own sums when the bar was loaded with them, else its size boxes (at the
@@ -259,7 +299,7 @@ export const BAR_STATS: readonly StatDef[] = [
   { id: 'vol', label: 'vol', group: 'volume', source: 'executions', title: t('Executed volume of the bar (USD, buy + sell)'), scale: 'sequential', format: volText, compute: input => perBar(input, total), view: sumView(volText, false) },
   { id: 'delta', label: 'delta', group: 'volume', source: 'executions', title: t('Buy minus sell volume of the bar (USD)'), scale: 'diverging', format: signedVol, compute: input => perBar(input, bar => bar.buyUsd - bar.sellUsd), view: sumView(signedVol, true) },
   { id: 'cvd', label: 'cvd', group: 'volume', source: 'executions', title: t('Cumulative delta: running sum of delta over the bars loaded for the view'), scale: 'diverging', format: signedVol,
-    compute: input => running(perBar(input, bar => bar.buyUsd - bar.sellUsd)), view: lastView(signedVol) },
+    compute: input => running(perBar(input, bar => bar.buyUsd - bar.sellUsd), input.restart), view: lastView(signedVol) },
   { id: 'deltaPct', label: t('delta %'), group: 'volume', source: 'executions', title: t('Delta as a share of the bar\'s volume (+100 % all buying, -100 % all selling)'), scale: 'diverging', format: signedPct,
     compute: input => perBar(input, bar => total(bar) > 0 ? (bar.buyUsd - bar.sellUsd) / total(bar) * 100 : null),
     view: ratioView(signedPct, signTone, bars => { const all = bars.reduce((s, b) => s + total(b), 0); return all > 0 ? bars.reduce((s, b) => s + b.buyUsd - b.sellUsd, 0) / all * 100 : null; }) },
@@ -280,6 +320,15 @@ export const BAR_STATS: readonly StatDef[] = [
       let held = 0, length = 0;
       for (const i of at) { const bar = input.bars[i], start = slotTime(input, i); if (!bar || bar.minutes === undefined || !input.tfMs || input.now === undefined) continue; held += Math.min(bar.minutes, Math.max(1, Math.ceil((Math.min(input.now, start + input.tfMs) - start) / 60_000))); length += Math.max(1, Math.ceil((Math.min(input.now, start + input.tfMs) - start) / 60_000)); }
       return length > 0 ? { value: pctText(held / length * 100), tone: held / length < 0.95 ? 'sell' : 'text', how: t('The minutes recorded over the minutes of the recorded candles in view.') } : null;
+    } },
+  { id: 'venueAgree', label: t('venues agree %'), group: 'volume', source: 'executions', scale: 'sequential', format: pctText,
+    title: t("How much of the candle's volume traded on markets whose own delta had the sign of the total: 100 % every market pressed the same way, low where they pulled against each other. Needs several markets added together."),
+    compute: input => perBar(input, bar => { const by = venueSums(bar); return by ? agreement(by) : null; }),
+    view: (input, at) => {
+      const by = new Map<string, [number, number]>();
+      for (const i of at) { const bar = input.bars[i]; if (bar) venueSums(bar, by); }
+      const share = agreement(by);
+      return share === null ? null : { value: pctText(share), tone: 'text', how: t('Worked out from the candles in view added together.') };
     } },
   { id: 'maxBuy', label: t('max buy'), group: 'footprint', source: 'executions', title: t('Largest single price row of market buys in the bar (USD)'), scale: 'sequential', format: volText, compute: input => perBar(input, bar => bar.rows.reduce((m, r) => Math.max(m, r[1]), 0)), view: maxView(volText) },
   { id: 'maxSell', label: t('max sell'), group: 'footprint', source: 'executions', title: t('Largest single price row of market sells in the bar (USD)'), scale: 'sequential', format: volText, compute: input => perBar(input, bar => bar.rows.reduce((m, r) => Math.max(m, r[2]), 0)), view: maxView(volText) },
@@ -312,9 +361,9 @@ export const BAR_STATS: readonly StatDef[] = [
   { ...tradeStat('deltaRetail', t('delta retail'), t('Delta of market orders under the retail size (set in the options)'), 'diverging', signedVol, (_stats, input, bar) => sizeDelta(bar, input, 'retail'), sumView(signedVol, true)), approx: approxLine('retail') },
   { ...tradeStat('deltaWhales', t('delta whales'), t('Delta of market orders from the whale size up (set in the options)'), 'diverging', signedVol, (_stats, input, bar) => sizeDelta(bar, input, 'whale'), sumView(signedVol, true)), approx: approxLine('whale') },
   { id: 'cvdRetail', label: t('cvd retail'), group: 'trades', source: 'executions', title: t('Cumulative delta of retail-size market orders over the bars loaded'), scale: 'diverging', format: signedVol,
-    compute: input => running(input.bars.map(bar => bar ? sizeDelta(bar, input, 'retail') : null)), approx: approxLine('retail'), view: lastView(signedVol) },
+    compute: input => running(input.bars.map(bar => bar ? sizeDelta(bar, input, 'retail') : null), input.restart), approx: approxLine('retail'), view: lastView(signedVol) },
   { id: 'cvdWhales', label: t('cvd whales'), group: 'trades', source: 'executions', title: t('Cumulative delta of whale-size market orders over the bars loaded'), scale: 'diverging', format: signedVol,
-    compute: input => running(input.bars.map(bar => bar ? sizeDelta(bar, input, 'whale') : null)), approx: approxLine('whale'), view: lastView(signedVol) },
+    compute: input => running(input.bars.map(bar => bar ? sizeDelta(bar, input, 'whale') : null), input.restart), approx: approxLine('whale'), view: lastView(signedVol) },
   { id: 'range', label: 'range', group: 'market', source: 'market', title: t('High minus low of the candle'), scale: 'sequential', format: value => fmtPrice(value),
     compute: input => perCandle(input, c => c[2] - c[3]),
     view: (input, at) => { const c = viewCandle(input, at); return c ? { value: fmtPrice(c.high - c.low), tone: 'text', how: t('The highest high less the lowest low of the candles in view.') } : null; } },
@@ -341,6 +390,14 @@ export const BAR_STATS: readonly StatDef[] = [
     format: v => QUADRANTS[v] ?? '', tone: v => markTone(v === 1 || v === 3 ? true : v === 2 || v === 4 ? false : null),
     compute: input => { const delta = input.oiChange ?? oiDeltaByTime(input.oi.values()); return perBar(input, (bar, i) => { const change = delta.get(slotTime(input, i)), d = bar.buyUsd - bar.sellUsd; if (change === undefined) return null; return change === 0 || d === 0 ? 0 : change > 0 ? (d > 0 ? 1 : 2) : (d > 0 ? 3 : 4); }); },
     view: markView(() => statDef('oiQuad')!) },
+  { id: 'liq', label: t('liq'), group: 'market', source: 'market', scale: 'sequential', format: volText,
+    title: t('Liquidations reported in the candle on the markets counted (USD): shorts liquidated and longs liquidated together. Only the venues that publish them count, so it is what was reported, not all there was.'),
+    compute: input => input.bars.map((_, i) => { const l = liquidated(input, i); return l ? l[0] + l[1] : null; }),
+    approx: input => !!input.liquidations?.cut, approxNote: liquidationNote, view: sumView(volText, false) },
+  { id: 'liqNet', label: t('liq Δ'), group: 'market', source: 'market', scale: 'diverging', format: signedVol,
+    title: t('Shorts liquidated less longs liquidated in the candle (USD): above 0 the forced buying of a squeeze, below 0 the forced selling of a flush.'),
+    compute: input => input.bars.map((_, i) => { const l = liquidated(input, i); return l ? l[0] - l[1] : null; }),
+    approx: input => !!input.liquidations?.cut, approxNote: liquidationNote, view: sumView(signedVol, true) },
 ];
 
 /** Starting selections offered by the presets. */
@@ -360,6 +417,44 @@ export function enabledStats(ids: readonly string[]): StatDef[] {
   const seen = new Set<string>(), out: StatDef[] = [];
   for (const id of ids) { const def = byId.get(id); if (def && !seen.has(id)) { seen.add(id); out.push(def); } }
   return out;
+}
+
+/** One band of the table: a statistic's row, or (rows grouped by kind) a kind's header, folded or not. */
+export type TableBand = { kind: 'row'; def: StatDef; index: number } | { kind: 'head'; group: StatGroup; folded: boolean; count: number };
+/** The heights the page gives a header and a row when it sizes the pane (the rows stretch to fill what it has). */
+export const HEAD_H = 14, ROW_H = 24;
+
+/**
+ * The table's bands top to bottom: the rows in the order chosen, or gathered under a header per kind (in the kinds' order, the order chosen
+ * within each), a folded kind's rows left out.
+ */
+export function tableBands(defs: readonly StatDef[], options: Pick<StatOptions, 'grouped' | 'folded'>): TableBand[] {
+  if (!options.grouped) return defs.map((def, index) => ({ kind: 'row', def, index }));
+  const out: TableBand[] = [];
+  for (const group of Object.keys(GROUP_TITLES) as StatGroup[]) {
+    const rows = defs.flatMap((def, index) => def.group === group ? [{ def, index }] : []);
+    if (!rows.length) continue;
+    const folded = options.folded.includes(group);
+    out.push({ kind: 'head', group, folded, count: rows.length });
+    if (!folded) for (const row of rows) out.push({ kind: 'row', ...row });
+  }
+  return out;
+}
+
+/** The pane's height for these statistics: what the page gives it when they, the grouping or the folding change. */
+export function tableHeight(ids: readonly string[], options: Pick<StatOptions, 'grouped' | 'folded'>): number {
+  const bands = tableBands(enabledStats(ids), options), rows = bands.filter(b => b.kind === 'row').length;
+  return 12 + Math.max(1, rows) * ROW_H + (bands.length - rows) * HEAD_H;
+}
+
+/** The card of a pinned candle: every statistic shown, for that one candle. */
+export function pinnedLines(time: string, rows: readonly { label: string; value: string; tone: StatTone }[]): InfoLine[] {
+  return [
+    { text: t('Pinned'), bold: true },
+    { label: t('Candle'), text: time },
+    ...rows.map((row, i): InfoLine => ({ label: row.label, text: row.value, color: row.tone, ...(i === 0 ? { rule: true } : {}) })),
+    { text: t('Click the candle again or press Esc to let it go.'), color: 'muted', wrap: true, rule: true },
+  ];
 }
 
 /**
