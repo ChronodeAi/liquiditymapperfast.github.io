@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { FlowBook } from '../src/app/flow-book.ts';
+import { Asked } from '../src/app/measures/measure.ts';
 import type { DeltaTrack } from '../src/app/delta/candles.ts';
 import type { OiPart } from '../src/app/oi-change.ts';
 import { LAYOUT_KEYS, readSettings, type AppState, type OiBar } from '../src/app/store.ts';
@@ -420,4 +421,17 @@ test('the strip\'s own words are gone from every language pack', () => {
     for (const key of ['Profile by time', 'Time profile (along the top)', 'Columns (by price)']) assert.ok(!(key in pack), `${file} still has "${key}"`);
     for (const key of ['Where each measure is drawn', 'Emphasise the bigger side', 'Before the value area', 'After the value area', 'VA start', 'VA end']) assert.ok(key in pack, `${file} lacks "${key}"`);
   }
+});
+
+test('a question whose end only creeps on with a running clock is asked again at most every few seconds, followed live or not', async () => {
+  const held = new Asked<number>();
+  let asked = 0;
+  const load = async () => { asked++; return asked; };
+  held.ensure('', 1_000, 2_000, false, load, () => {});
+  await Promise.resolve(); await Promise.resolve();
+  for (let i = 1; i <= 30; i++) { held.ensure('', 1_000, 2_000 + i * 33, false, load, () => {}); await Promise.resolve(); await Promise.resolve(); }
+  assert.equal(asked, 1, 'thirty frames of a clock-cut end: one question');
+  held.ensure('', 500, 2_000, false, load, () => {});
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(asked, 2, 'a window that moved back is asked at once');
 });
