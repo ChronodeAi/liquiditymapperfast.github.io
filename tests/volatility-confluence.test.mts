@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { confluence } from '../src/shared/volatility/confluence.ts';
-import { VolatilityWatch, subqArmsFrom } from '../src/server/v2/volatility.mts';
+import { VolatilityWatch, binanceSpotIdOf, subqArmsFrom } from '../src/server/v2/volatility.mts';
 import type { VolatilityInputs } from '../src/shared/volatility/features.ts';
 import { SUBQ_ARMS, type DecisionExtras, type SubqArm } from '../src/shared/volatility/jev.ts';
 
@@ -39,6 +39,18 @@ test('bids pulled while asks hold vote down; both sides pulled is no vote; the t
   assert.equal(confluence({}).direction, null);
   assert.equal(confluence({ ltFlipped: true, ltNow: 0.2, lt30: -0.1 }).votes.book, null);
   assert.equal(confluence({ bidChangePct: 2, askChangePct: -40, ltFlipped: true, ltNow: -0.2 }).votes.book, 0.5, 'a flip to the asks does not cancel asks pulled');
+});
+
+test('the Binance spot market is the one the flow recorder holds, whichever venue name the market list gives it', () => {
+  const markets = [
+    { id: 'binance:BTCUSDT', venue: 'binance', marketType: 'perpetual' },
+    { id: 'binance:BTCUSDT:spot', venue: 'binance', marketType: 'spot' },
+    { id: 'coinbase:BTC-USD', venue: 'coinbase', marketType: 'spot' },
+    { id: 'binancespot:BTCUSDT', venue: 'binancespot', marketType: 'spot' },
+  ];
+  assert.equal(binanceSpotIdOf(markets, new Set(['binance:BTCUSDT', 'coinbase:BTC-USD', 'binancespot:BTCUSDT'])), 'binancespot:BTCUSDT');
+  assert.equal(binanceSpotIdOf(markets, new Set(['binance:BTCUSDT:spot'])), 'binance:BTCUSDT:spot');
+  assert.equal(binanceSpotIdOf(markets, new Set(['binance:BTCUSDT', 'coinbase:BTC-USD'])), null);
 });
 
 test('without a key the watch still reads and logs the confluence every minute, and never asks Jev', async () => {
