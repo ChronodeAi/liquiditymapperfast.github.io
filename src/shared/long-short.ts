@@ -208,12 +208,14 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
         const t = num(at(r, 'time')) * 1000, long = num(at(r, longKey)), short = num(at(r, shortKey));
         // Counts (or sizes) of each side, checked against Gate's own ratio.
         take(long > 0 && short > 0 ? lsReading(t, long / (long + short), short / (long + short), num(at(r, ratioKey))) : null);
-        if (t > newest) newest = t;
+        // The cursor moves on from valid times only: an overflowing time ("1e400" is Infinity) or one past the live edge would end the paging
+        // with the rest of the window unread.
+        if (Number.isFinite(t) && t <= Math.max(to, now) + periodMs && t > newest) newest = t;
       }
       if (got.length < rowsMax) break;
       // A full page must move on: one that repeats (or has no valid time) would spend every page and leave the window's end unread, held as
       // read all the same (the cache holds a window up to its end).
-      if (!(newest >= start)) throw new Error('gateio: a full page that does not move on');
+      if (!Number.isFinite(newest) || newest < start) throw new Error('gateio: a full page that does not move on');
       start = newest + periodMs;
     }
     if (start < to && page >= PAGES) throw new Error('gateio: the pages ran out before the window\'s end');

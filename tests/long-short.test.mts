@@ -454,6 +454,20 @@ test('Gate: a market listed after it was not is published once it answers; a ful
   const stuck = fake({ 'https://api.gateio.ws/': () => same });
   await assert.rejects(fetchLongShort('gateio', 'BTC_USDT', 'accounts', 5 * M, NOW - 1000 * 5 * M, NOW, stuck, NOW), /does not move on/);
   assert.equal(stuck.asked.length, 2, 'the second page shows it: no twelve requests');
+  // One overflowing time in a full page ("1e400" is Infinity) moves nothing: the cursor follows the valid times and the window is read to
+  // its end, so an older stretch of it is held, not answered empty unread.
+  const pages = fake({ 'https://api.gateio.ws/': url => {
+    const from = Number(url.searchParams.get('from')) * 1000;
+    return Array.from({ length: 500 }, (_, i) => i === 250 ? { ...row(from + i * 5 * M), time: '1e400' } : row(from + i * 5 * M)).filter(r => r.time === '1e400' || Number(r.time) * 1000 < NOW);
+  } });
+  const held = new LongShortCache(pages, false, () => NOW);
+  const whole = await held.series('gateio:BTC_USDT', 'accounts', 5 * M, NOW - 1000 * 5 * M, NOW);
+  assert.equal(whole.status, 'ok');
+  // Two full pages (one bad time each), then the short page at the live edge.
+  assert.equal(pages.asked.length, 3, 'read on past the overflowing time');
+  assert.ok(whole.points.length >= 997, `the whole window read (${whole.points.length})`);
+  const older = await held.series('gateio:BTC_USDT', 'accounts', 5 * M, NOW - 700 * 5 * M, NOW - 600 * 5 * M);
+  assert.equal(older.status, 'ok'); assert.equal(pages.asked.length, 3, 'held, not asked again');
 });
 
 test('Gate through the real fetcher: its 400 saying CONTRACT_NOT_FOUND is a market it does not list', async () => {
