@@ -2351,21 +2351,27 @@ export class HeatPane {
     const visible = this.hub.signals.visible(v.t0, Math.min(v.t1, now), s, now);
     if (!visible.length && !warnings.length) return;
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip();
+    // Amber over a dark halo: the heatmap's own colours run through amber, so amber alone vanishes on it.
+    const HALO = 'rgba(0, 0, 0, 0.7)';
     for (const w of warnings) {
-      const x = v.xOf(w.t, pw), x1 = v.xOf(Math.min(w.t + AHEAD.bars * w.tf * 60_000, now), pw), py = v.yOf(w.price, ph), r = w.tf === 5 ? 5 : w.tf === 15 ? 7 : 9;
+      const x = v.xOf(w.t, pw), x1 = v.xOf(Math.min(w.t + AHEAD.bars * w.tf * 60_000, now), pw), py = v.yOf(w.price, ph), r = w.tf === 5 ? 6 : w.tf === 15 ? 8 : 10;
       if (x1 < 0 || x > pw + r) continue;
-      ctx.strokeStyle = TRAP_COLOR; ctx.lineWidth = 1; ctx.globalAlpha = 0.85;
-      for (const [k, dash] of [[1, [5, 4]], [-1, [5, 4]], [AHEAD.move, [1.5, 3]], [-AHEAD.move, [1.5, 3]]] as const) {
+      for (const [k, dash] of [[1, [6, 4]], [-1, [6, 4]], [AHEAD.move, [2, 3]], [-AHEAD.move, [2, 3]]] as const) {
         const y = Math.round(v.yOf(w.price * (1 + k * w.sigma), ph)) + 0.5;
-        ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x1, y); ctx.stroke();
+        ctx.setLineDash(dash);
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x1, y);
+        ctx.lineWidth = 3.5; ctx.strokeStyle = HALO; ctx.stroke();
+        ctx.lineWidth = 1.5; ctx.strokeStyle = TRAP_COLOR; ctx.stroke();
       }
-      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      ctx.setLineDash([]);
       if (x < -r || py < -r || py > ph + r) continue;
       ctx.beginPath(); ctx.arc(x, py, r, 0, Math.PI * 2);
-      ctx.fillStyle = p.bg; ctx.globalAlpha = 0.6; ctx.fill(); ctx.globalAlpha = 1;
-      ctx.lineWidth = 2; ctx.strokeStyle = TRAP_COLOR; ctx.stroke();
-      ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = TRAP_COLOR;
-      ctx.fillText(tfLabel(w.tf), x, py - r - 2);
+      ctx.fillStyle = p.bg; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.lineWidth = 5.5; ctx.strokeStyle = HALO; ctx.stroke();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = TRAP_COLOR; ctx.stroke();
+      ctx.font = '700 11px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.lineJoin = 'round';
+      ctx.lineWidth = 3; ctx.strokeStyle = HALO; ctx.strokeText(tfLabel(w.tf), x, py - r - 3);
+      ctx.fillStyle = TRAP_COLOR; ctx.fillText(tfLabel(w.tf), x, py - r - 3);
       this.#aheadMarks.push({ x, y: py, r, warning: w });
     }
     const R = 6, GAP = 3;
