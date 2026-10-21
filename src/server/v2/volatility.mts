@@ -194,3 +194,12 @@ export function subqArmsFrom(text: string | undefined): { arms: SubqArm[]; unkno
   const names = text.split(',').map(name => name.trim()).filter(Boolean);
   return { arms: SUBQ_ARMS.filter(id => names.includes(id)), unknown: names.filter(name => !SUBQ_ARMS.some(id => id === name)) };
 }
+
+/**
+ * The coin's Binance spot market as the flow recorder holds it, from the server's market list (`venue`, `marketType`). The list can carry
+ * it twice, the main server's `binance:<symbol>:spot` (venue `binance`) and the recorder's `binancespot:<symbol>` (venue `binancespot`),
+ * and only the one in `recorded` has flow; null when neither is recorded.
+ */
+export function binanceSpotIdOf(markets: readonly { id: string; venue: unknown; marketType: unknown }[], recorded: ReadonlySet<string>): string | null {
+  return markets.find(m => m.marketType === 'spot' && (m.venue === 'binancespot' || m.venue === 'binance') && recorded.has(m.id))?.id ?? null;
+}

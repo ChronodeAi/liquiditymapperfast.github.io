@@ -30,7 +30,7 @@ import { ExtraVenues, RECOMMENDED_EXTRA_VENUES } from './venues.mts';
 import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
 import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
-import { VolatilityWatch, subqArmsFrom } from './volatility.mts';
+import { VolatilityWatch, binanceSpotIdOf, subqArmsFrom } from './volatility.mts';
 import { HEAT_MINUTES, HEAT_ROWS, HEAT_ROW_BP, VOLATILITY_HISTORY_MS, type VolatilityInputs } from '../../shared/volatility/features.ts';
 import { SUBQ_ARMS } from '../../shared/volatility/jev.ts';
 import { ltIndex } from '../../shared/lt-sample.ts';
@@ -594,13 +594,12 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     const mine = all.filter(m => coinOf(m) === coin && idOf(m));
     const spotIds = mine.filter(m => m.marketType === 'spot').map(idOf), perpIds = mine.filter(m => m.marketType === 'perpetual').map(idOf);
     const ids = [...spotIds, ...perpIds];
-    const binanceSpot = mine.find(m => m.marketType === 'spot' && m.venue === 'binance');
-    const binanceSpotId = binanceSpot ? idOf(binanceSpot) : null;
     const binancePerp = mine.find(m => m.marketType === 'perpetual' && m.venue === 'binance');
     const refPerpId = binancePerp ? idOf(binancePerp) : perpIds[0] ?? null;
 
     const frame = flow.minutes(ids, now - VOLATILITY_HISTORY_MS, now);
     const spot = frame.instruments.filter(s => spotIds.includes(s.id)), perp = frame.instruments.filter(s => perpIds.includes(s.id));
+    const binanceSpotId = binanceSpotIdOf(mine.map(m => ({ id: idOf(m), venue: m.venue, marketType: m.marketType })), new Set(spot.map(s => s.id)));
 
     // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours.
     const lt = ltIndex(25), depthByMinute = new Map<number, { t: number; bidUsd: number; askUsd: number; ltBid: number; ltAsk: number }>();
