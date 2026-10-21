@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LongShortCache, LsNoMarket, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsPopulationOf, lsReading, lsWindowPeriod, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
+import { LongShortCache, LsNoMarket, VENUE_WAITING_MAX, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsPopulationOf, lsReading, lsWindowPeriod, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
 import { lsAt, lsCardLines, lsRange, stepEnd } from '../src/app/panes/ls-pane.ts';
 import { fetchOiHistory, webGet, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
@@ -82,6 +82,46 @@ test('Bitget: each series its own endpoint and fields (2026-10-21), a day is 1Du
   const answers = await Promise.all((['accounts', 'topAccounts', 'topPositions'] as const).map(m => cache.series('bitget:BTCUSDT', m, 5 * M, NOW - H, NOW)));
   assert.deepEqual(answers.map(a => a.status), ['ok', 'ok', 'ok']);
   assert.ok(times.length === 3 && times[1]! - times[0]! >= 140 && times[2]! - times[1]! >= 140, `spaced: ${times.map(t => t - times[0]!).join(', ')}`);
+});
+
+/** A fake Bitget answering every series in its own shape, recording what went out and when. */
+function bitgetFake(): Fetcher & { asked: string[]; sent: { what: string; at: number }[] } {
+  const sent: { what: string; at: number }[] = [];
+  const get = fake({ 'https://api.bitget.com/': url => {
+    const path = url.pathname.split('/').pop()!, ts = String(NOW - 10 * M);
+    sent.push({ what: `${path}@${url.searchParams.get('period')}`, at: Date.now() });
+    return { code: '00000', data: [path === 'long-short' ? { longRatio: '0.6', shortRatio: '0.4', longShortRatio: '1.5', ts } : path === 'account-long-short' ? { longAccountRatio: '0.6', shortAccountRatio: '0.4', longShortAccountRatio: '1.5', ts } : { longPositionRatio: '0.6', shortPositionRatio: '0.4', longShortPositionRatio: '1.5', ts }] };
+  } });
+  return Object.assign(get, { sent });
+}
+
+test('Bitget pacing: one lane, first come first served, a gap from the request that really went out, even after the page was busy', async () => {
+  const get = bitgetFake(), cache = new LongShortCache(get, true, () => NOW, 48, 10_000, 20_000, { bitget: 100 });
+  const id = 'bitget:BTCUSDT', asked = [cache.series(id, 'accounts', 5 * M, NOW - H, NOW), cache.series(id, 'topAccounts', 5 * M, NOW - H, NOW), cache.series(id, 'topPositions', 5 * M, NOW - H, NOW)];
+  // The page busy for longer than the queue's gaps: timers set for the later two would all fire at once, and a request asked now went first.
+  const until = Date.now() + 350; while (Date.now() < until) { /* busy */ }
+  asked.push(cache.series(id, 'accounts', 15 * M, NOW - H, NOW));
+  assert.deepEqual((await Promise.all(asked)).map(a => a.status), ['ok', 'ok', 'ok', 'ok']);
+  assert.deepEqual(get.sent.map(s => s.what), ['long-short@5m', 'account-long-short@5m', 'position-long-short@5m', 'long-short@15m'], 'in the order asked');
+  for (let i = 1; i < get.sent.length; i++) assert.ok(get.sent[i]!.at - get.sent[i - 1]!.at >= 95, `a gap apart: ${get.sent.map(s => s.at - get.sent[0]!.at).join(', ')}`);
+});
+
+test('Bitget pacing: at most VENUE_WAITING_MAX wait for their turn; one more fails at once instead of going out long after its round', async () => {
+  const get = bitgetFake(), cache = new LongShortCache(get, true, () => NOW, 48, 10_000, 20_000, { bitget: 20 });
+  const id = 'bitget:BTCUSDT', asked: Promise<{ status: string }>[] = [];
+  for (const tf of [5 * M, 15 * M, 30 * M, H]) for (const m of ['accounts', 'topAccounts', 'topPositions'] as const) asked.push(cache.series(id, m, tf, NOW - 2 * H, NOW));
+  const statuses = (await Promise.all(asked)).map(a => a.status);
+  assert.equal(statuses.filter(s => s === 'ok').length, VENUE_WAITING_MAX);
+  assert.equal(statuses.filter(s => s === 'failed').length, 12 - VENUE_WAITING_MAX, 'the rest read as failed, asked again with the minute');
+  assert.equal(get.sent.length, VENUE_WAITING_MAX);
+});
+
+test('the popup says Bitget publishes only its newest 30 readings where it has none, without placing where they begin', () => {
+  const bitget = (points: { t: number; long: number }[]) => ({ id: 'bitget:BTCUSDT', population: 'accounts' as const, periodMs: 5 * M, points, status: 'ok' as const });
+  const say = (s: ReturnType<typeof bitget>, at: number) => lsCardLines([s], at, '5m').map(l => l.text).join('\n');
+  assert.match(say(bitget([{ t: NOW - 10 * M, long: 0.6 }]), NOW - 2 * H), /newest 30 readings/);
+  assert.doesNotMatch(say(bitget([{ t: NOW - 10 * M, long: 0.6 }]), NOW - 8 * M), /newest 30 readings/, 'not where it has a reading');
+  assert.match(say(bitget([]), NOW), /newest 30 readings/, 'an answer with none for the window too');
 });
 
 test('the cache: one request per series at a time, the newest stretch again at most once a period, OKX server only in a page, failures reported', async () => {

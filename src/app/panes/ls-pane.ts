@@ -68,16 +68,18 @@ export function shareText(long: number): string {
 /** The popup of one moment: each venue's reading then (or why it has none), and what the numbers count. */
 export function lsCardLines(series: readonly LsSeries[], time: number, tf: string): InfoLine[] {
   const lines: InfoLine[] = [{ text: `${clock(time, true)} · ${tf}`, bold: true }];
+  let noBitget = false;
   for (const s of series) {
     const label = venueLabel(s.id);
     if (s.status === 'serverOnly') { lines.push({ label, text: t('not readable by a web page'), color: 'muted', mark: s.id }); continue; }
     if (s.status === 'failed') { lines.push({ label, text: t('could not be read'), color: 'muted', mark: s.id }); continue; }
     const p = lsAt(s.points, time, s.periodMs);
-    // Bitget publishes only its newest 30 readings: before them its line has none to give, which is not a reading missing.
-    const before = !p && s.id.startsWith('bitget:') && s.points.length > 0 && time < s.points[0]!.t;
-    lines.push(p ? { label, text: shareText(p.long), color: p.long > 0.5 ? 'buy' : p.long < 0.5 ? 'sell' : 'text', mark: s.id } : { label, text: before ? t('before the newest 30 readings it publishes') : t('no reading'), color: 'muted', mark: s.id });
+    if (!p && s.id.startsWith('bitget:')) noBitget = true;
+    lines.push(p ? { label, text: shareText(p.long), color: p.long > 0.5 ? 'buy' : p.long < 0.5 ? 'sell' : 'text', mark: s.id } : { label, text: t('no reading'), color: 'muted', mark: s.id });
     if (s.status === 'stale') lines.push({ text: t('{venue}: the last update could not be read; these are its earlier readings.', { venue: venueLabel(s.id) }), color: 'muted', wrap: true });
   }
+  // Bitget's own limit, said where it has no reading: what it published is not held apart from what the window kept, so it is not placed.
+  if (noBitget) lines.push({ text: t('Bitget publishes only its newest 30 readings; an older time has none.'), color: 'muted', wrap: true });
   // Who each line counts, the venues of one population together: "Binance: top traders, by positions · Bybit, OKX: all accounts".
   const groups = new Map<LsPopulation, string[]>();
   for (const s of series) if (s.population) groups.set(s.population, [...(groups.get(s.population) ?? []), venueLabel(s.id)]);
@@ -264,7 +266,7 @@ export class LsPane extends TimePane {
     if (hover && this.pointer) this.#lines = lsCardLines(series, time, state.timeframe);
     const parts = series.map(s => {
       const q = lsAt(s.points, time, s.periodMs), name = venueLabel(s.id);
-      if (s.status === 'serverOnly') return `<span class="muted">${name} ${t('server only')}</span>`;
+      if (s.status === 'serverOnly') return `<span class="muted">${name} ${t('not readable here')}</span>`;
       if (s.status === 'stale' && q) return `${name} <b class="muted">${pct(q.long)}</b>`;
       return q ? `${name} <b class="${q.long > 0.5 ? 'bid' : q.long < 0.5 ? 'ask' : ''}">${pct(q.long)}</b>` : `<span class="muted">${name} –</span>`;
     });

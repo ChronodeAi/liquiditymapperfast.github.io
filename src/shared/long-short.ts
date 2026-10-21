@@ -70,6 +70,11 @@ const BITGET_SERIES: Readonly<Record<LsMetric, readonly [string, string, string,
  * then the other two at once (the pane's warming), which it once answered "Too Many Requests" (2026-10-21).
  */
 export const VENUE_GAP_MS: Readonly<Record<string, number>> = { bitget: 1_100 };
+/**
+ * The most requests that wait for a paced venue's turn: one more fails at once (read again with the minute's retry), so no request goes out
+ * long after the round that asked for it gave up, and a burst of questions for other windows cannot queue without end.
+ */
+export const VENUE_WAITING_MAX = 8;
 /** Binance answers only for the last 30 days. */
 const BINANCE_SPAN_MS = 30 * DAY;
 const PAGES = 12;
@@ -255,18 +260,30 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
  */
 export class LongShortCache {
   #series = new Map<string, { points: Map<number, LsPoint>; from: number; to: number; checked: number; failed: number; busy: Promise<void> | null; noMarket?: boolean }>();
-  /** When each paced venue may be asked next (wall-clock ms): every series of the venue shares it. */
-  #nextAsk = new Map<string, number>();
+  /** Each paced venue's lane: when its last request went out (wall-clock ms, once it has), and how many wait behind it. */
+  #lanes = new Map<string, { last: Promise<number>; waiting: number }>();
   constructor(private get: Fetcher, private browser: boolean, private now: () => number = Date.now, private maxSeries = 48, private maxPoints = 10_000, private pageDeadlineMs = LS_PAGE_DEADLINE_MS,
     private gapMs: Readonly<Record<string, number>> = VENUE_GAP_MS) {}
 
-  /** `ask`, once the venue's least time since the cache's last request to it has passed (requests to it go out in the order asked). */
+  /**
+   * `ask`, once the venue's least time has passed since its previous request actually went out: one lane a venue, first come first served, the
+   * gap checked again after every wait (timers that fire late, after the page was asleep or busy, then still go out a gap apart).
+   */
   async #paced<T>(venue: string, ask: () => Promise<T>): Promise<T> {
     const gap = this.gapMs[venue];
     if (!gap) return ask();
-    const now = Date.now(), at = Math.max(now, this.#nextAsk.get(venue) ?? 0);
-    this.#nextAsk.set(venue, at + gap);
-    if (at > now) await new Promise<void>(resolve => setTimeout(resolve, at - now));
+    const lane = this.#lanes.get(venue) ?? { last: Promise.resolve(-Infinity), waiting: 0 };
+    this.#lanes.set(venue, lane);
+    if (lane.waiting >= VENUE_WAITING_MAX) throw new Error(`${venue}: too many requests waiting for their turn`);
+    const before = lane.last;
+    let sent!: (at: number) => void;
+    lane.last = new Promise<number>(resolve => { sent = resolve; });
+    lane.waiting++;
+    try {
+      const last = await before;
+      for (let wait = last + gap - Date.now(); wait > 0; wait = last + gap - Date.now()) await new Promise<void>(resolve => setTimeout(resolve, wait));
+    } finally { lane.waiting--; }
+    sent(Date.now());
     return ask();
   }
 
