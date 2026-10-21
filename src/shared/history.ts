@@ -57,10 +57,13 @@ const takerBuy = (buy: unknown, volume: number): number | null => {
   const n = typeof buy === 'number' ? buy : typeof buy === 'string' && buy.trim() !== '' ? Number(buy) : NaN;
   return Number.isFinite(n) && n >= 0 && Number.isFinite(volume) && n <= volume * (1 + 1e-9) ? n : null;
 };
+/** A number, or a numeric string that is not empty; anything else NaN (`Number` would read null, '' and false as 0). */
+const figure = (value: unknown): number => typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
 const row = (start: unknown, open: unknown, high: unknown, low: unknown, close: unknown, volume: unknown, buy?: unknown, quote?: unknown, trades?: unknown, buyQuote?: unknown): CandleRow => {
   const v = num(volume), b = buy === undefined ? null : takerBuy(buy, v);
-  // The trades and the quote volume with its part bought at market, together or not at all: a figure that is not one leaves all three out.
-  const q = quote === undefined ? NaN : num(quote), n = trades === undefined ? NaN : num(trades), bq = buyQuote === undefined || !(q >= 0) ? null : takerBuy(buyQuote, q);
+  // The trades and the quote volume with its part bought at market, together or not at all: a figure that is not one (null, '', false, a
+  // word) leaves all three out, never reads as 0.
+  const q = figure(quote), n = figure(trades), bq = buyQuote === undefined || !(q >= 0) ? null : takerBuy(buyQuote, q);
   const detail = q >= 0 && Number.isSafeInteger(n) && n >= 0 && bq !== null ? { trades: n, quote: q, buyQuote: bq } : {};
   return { start: num(start), open: num(open), high: num(high), low: num(low), close: num(close), volume: v, ...(b === null ? {} : { buy: b }), ...detail };
 };

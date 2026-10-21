@@ -1567,5 +1567,6 @@
  "fills": "체결 수",
  "Trades in the chart market's own candle as the exchange counts them: every fill counts, so one market order filled against several resting orders counts several times. Binance reports them, so the row fills for a Binance chart market, before the recording too, and stays empty for others.": "차트 시장 자체 캔들의 거래 수(거래소 집계): 체결마다 세므로 여러 지정가 주문과 체결된 시장가 주문은 여러 번 셉니다. Binance가 보고하므로 Binance 차트 시장에서는 기록 전에도 채워지고 다른 곳에서는 비어 있습니다.",
  "avg fill": "평균 체결",
- "Average fill in the chart market's own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: an order is often several fills, so it is smaller than avg order.": "차트 시장 자체 캔들의 평균 체결: 호가 통화 거래량을 거래 수로 나눈 값(USDT 시장은 USDT). 주문이 아니라 체결입니다: 주문은 흔히 여러 체결이므로 평균 주문보다 작습니다."
+ "Average fill in the chart market's own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: on one market an order is often several fills, so a fill averages less than an order there; avg order may count other markets too.": "차트 시장 자체 캔들의 평균 체결: 호가 통화 거래량을 거래 수로 나눈 값(USDT 시장은 USDT). 주문이 아니라 체결입니다: 한 시장에서 주문은 흔히 여러 체결이므로 그곳에서 체결은 평균적으로 주문보다 작습니다. 평균 주문은 다른 시장도 셀 수 있습니다.",
+ "No market order began in this candle.": "이 캔들에서 시작된 시장가 주문이 없습니다."
 }

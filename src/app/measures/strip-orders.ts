@@ -21,7 +21,7 @@ export interface StripOrders {
   whale: { buy: number; sell: number; exact: boolean };
   /** Minutes of the candle recorded with statistics (null where the source does not say), of its length in minutes. */
   minutes: number | null; of: number;
-  /** The markets with the most volume in the candle (several markets only), their share of it, the most first. */
+  /** The exchanges with the most volume in the candle (several only; an exchange's markets added together), their share of it, the most first. */
   venues: { id: string; share: number }[];
 }
 
@@ -32,8 +32,9 @@ export function stripOrdersOf(bar: Bar, cut: { size: number; index: number }, tf
   const stats = bar.stats; if (!stats) return null;
   const line = cut.index >= 0 && bar.over && bar.over.length >= 2 * cut.index + 2 ? { buy: bar.over[2 * cut.index]!, sell: bar.over[2 * cut.index + 1]!, exact: true } : null;
   const boxed = line ?? (() => { const o = overFromBoxes(stats.buy, stats.sell, cut.size, sizeScale()); return { buy: o.buy, sell: o.sell, exact: o.exact }; })();
+  // By exchange: Binance's USD-M and COIN-M perpetuals are one exchange's share, not two of the three places.
   const sums = new Map<string, number>();
-  for (const row of bar.parts ?? []) for (const [id, buy, sell] of row) sums.set(id, (sums.get(id) ?? 0) + buy + sell);
+  for (const row of bar.parts ?? []) for (const [id, buy, sell] of row) { const venue = id.slice(0, Math.max(0, id.indexOf(':'))) || id; sums.set(venue, (sums.get(venue) ?? 0) + buy + sell); }
   const all = [...sums.values()].reduce((a, b) => a + b, 0);
   const venues = sums.size > 1 && all > 0 ? [...sums].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id, v]) => ({ id, share: v / all })) : [];
   return { buyN: stats.buyN, sellN: stats.sellN, buyUsd: boxes(stats.buy), sellUsd: boxes(stats.sell), whale: boxed, minutes: bar.minutes ?? null, of: Math.round(tfMs / 60_000), venues };
@@ -48,7 +49,9 @@ export function orderLines(orders: StripOrders | 'loading' | 'failed' | null | u
   if (orders === undefined) return [];
   if (orders === 'loading') return [{ text: t('Reading the market orders of this candle…'), color: 'muted', wrap: true, rule: true }];
   if (orders === 'failed') return [{ text: t('The market orders of this candle could not be read.'), color: 'muted', wrap: true, rule: true }];
-  if (orders === null || orders.buyN + orders.sellN === 0) return [{ text: t('No market orders counted in this candle: its minutes were recorded without order statistics.'), color: 'muted', wrap: true, rule: true }];
+  if (orders === null) return [{ text: t('No market orders counted in this candle: its minutes were recorded without order statistics.'), color: 'muted', wrap: true, rule: true }];
+  // Statistics with no order begun: the fills in it belong to orders begun before it.
+  if (orders.buyN + orders.sellN === 0) return [{ text: t('No market order began in this candle.'), color: 'muted', wrap: true, rule: true }];
   const o = orders, n = o.buyN + o.sellN, whale = o.whale.buy + o.whale.sell, orderUsd = o.buyUsd + o.sellUsd;
   const lines: InfoLine[] = [
     { label: t('Market orders begun'), text: t('{n} · {buys} buys · {sells} sells', { n: n.toLocaleString('en-US'), buys: o.buyN.toLocaleString('en-US'), sells: o.sellN.toLocaleString('en-US') }), rule: true },
@@ -69,38 +72,50 @@ export const WHOLE_RANGE_STEP = 1e9;
 export const ORDERS_REST_MS = 150, ORDERS_OPEN_TTL_MS = 15_000;
 /** How long an answer that failed is kept before asking again, and how many candles' orders are kept (the least recently read go first). */
 export const ORDERS_RETRY_MS = 30_000, ORDERS_HELD_MAX = 256;
+/** How often a candle whose minutes are cut later and later (a replay running through it) is read again. */
+export const ORDERS_CUT_REFRESH_MS = 5_000;
+
+/** A candle's orders as asked: up to `to` (its end, or a replay's time inside it), and whether it can still change (`open`: not settled yet). */
+export interface OrdersAsk { to: number; open: boolean }
+interface HeldOrders { at: number; value: StripOrders | null; failed: boolean; to: number; final: boolean }
 
 /**
- * The orders of the candles pointed at: asked for once the pointer rests on a bar (`ORDERS_REST_MS`), one request at a time a candle, kept
- * (a candle that can still change for `ORDERS_OPEN_TTL_MS`, shown meanwhile as it was), and a bar left before its time asks nothing.
+ * The orders of the candles pointed at: asked for once the pointer rests on a bar (`ORDERS_REST_MS`; pointing at another bar, or at none,
+ * drops the one waiting), one request at a time a candle, and kept. A candle that can still change is read again after
+ * `ORDERS_OPEN_TTL_MS`, and once more after it settles (an answer read while it was open is never final); one cut later and later (a
+ * replay) at most every `ORDERS_CUT_REFRESH_MS`, and an answer cut later than asked (a replay moved back) is never shown. Meanwhile the
+ * last answer is shown, except that one.
  */
 export class StripOrderCache {
-  #held = new Map<string, { at: number; value: StripOrders | null; failed: boolean }>();
+  #held = new Map<string, HeldOrders>();
   #wanted: { key: string; timer: ReturnType<typeof setTimeout> } | null = null;
   #busy = new Set<string>();
 
-  /** The orders of `key` as held, or 'loading' until they are read; `open`: the candle can still change. `onLoad` runs when an answer lands. */
-  want(key: string, open: boolean, load: () => Promise<StripOrders | null>, onLoad: () => void, now = Date.now()): StripOrders | 'loading' | 'failed' | null {
+  /** The orders of `key` as held, 'loading' until they are read, 'failed' when they could not be; `onLoad` runs when an answer lands. */
+  want(key: string, ask: OrdersAsk, load: (to: number) => Promise<StripOrders | null>, onLoad: () => void, now = Date.now()): StripOrders | 'loading' | 'failed' | null {
+    if (this.#wanted && this.#wanted.key !== key) this.rest();
     const held = this.#held.get(key);
-    if (held && (held.failed ? now - held.at < ORDERS_RETRY_MS : !open || now - held.at < ORDERS_OPEN_TTL_MS)) return held.failed ? 'failed' : held.value;
+    const fresh = !held ? false : held.failed ? now - held.at < ORDERS_RETRY_MS : held.to > ask.to ? false
+      : held.to < ask.to ? now - held.at < ORDERS_CUT_REFRESH_MS : held.final || (ask.open && now - held.at < ORDERS_OPEN_TTL_MS);
+    if (held && fresh) return held.failed ? 'failed' : held.value;
     if (!this.#busy.has(key) && this.#wanted?.key !== key) {
-      this.rest();
+      const { to, open } = ask;
       const timer = setTimeout(() => {
         if (this.#wanted?.key !== key) return;
         this.#wanted = null; this.#busy.add(key);
-        load().then(value => this.#keep(key, { at: Date.now(), value, failed: false }), () => this.#keep(key, { at: Date.now(), value: null, failed: true }))
+        load(to).then(value => this.#keep(key, { at: Date.now(), value, failed: false, to, final: !open }), () => this.#keep(key, { at: Date.now(), value: null, failed: true, to, final: false }))
           .finally(() => { this.#busy.delete(key); onLoad(); });
       }, ORDERS_REST_MS);
       this.#wanted = { key, timer };
     }
-    // Shown as it was while read again; never read: being read.
-    return held && !held.failed ? held.value : 'loading';
+    // Shown as it was while read again, unless it says what came after the cut; never read: being read.
+    return held && !held.failed && held.to <= ask.to ? held.value : 'loading';
   }
 
-  /** The pointer left the bars: a request not sent yet is not sent. */
+  /** No bar to read is pointed at: a request not sent yet is not sent. */
   rest(): void { if (this.#wanted) { clearTimeout(this.#wanted.timer); this.#wanted = null; } }
 
-  #keep(key: string, entry: { at: number; value: StripOrders | null; failed: boolean }): void {
+  #keep(key: string, entry: HeldOrders): void {
     this.#held.delete(key); this.#held.set(key, entry);
     while (this.#held.size > ORDERS_HELD_MAX) this.#held.delete(this.#held.keys().next().value!);
   }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { candleUsd, joinRows, stripBars, stripHighlights, stripLines, type StripBar } from '../src/app/measures/volume-strip.ts';
-import { ORDERS_REST_MS, StripOrderCache, orderLines, stripOrdersOf, type StripOrders } from '../src/app/measures/strip-orders.ts';
+import { ORDERS_CUT_REFRESH_MS, ORDERS_REST_MS, StripOrderCache, orderLines, stripOrdersOf, type StripOrders } from '../src/app/measures/strip-orders.ts';
 import { aggregateCandles } from '../src/shared/series.ts';
 import { fetchCandles, type Fetcher } from '../src/shared/history.ts';
 import type { Bar } from '../src/app/panes/footprint.ts';
@@ -93,7 +93,7 @@ test('the orders of a footprint bar: the size boxes added up, the whale line whe
   const bar: Bar = { t: T, rows: [], buyUsd: 999, sellUsd: 999, minutes: 60, stats, over: [70, 0], parts: [[['binance:BTCUSDT', 60, 5], ['okx:BTC-USDT-SWAP', 40, 5]]] };
   const o = stripOrdersOf(bar, { size: 1e5, index: 0 }, H)!;
   assert.deepEqual([o.buyUsd, o.sellUsd, o.whale.buy, o.whale.exact, o.of], [100, 10, 70, true, 60], 'the orders\' dollars, never the bar\'s');
-  assert.deepEqual(o.venues.map(v => [v.id, Math.round(v.share * 100)]), [['binance:BTCUSDT', 59], ['okx:BTC-USDT-SWAP', 41]]);
+  assert.deepEqual(o.venues.map(v => [v.id, Math.round(v.share * 100)]), [['binance', 59], ['okx', 41]]);
   assert.equal(stripOrdersOf({ ...bar, stats: undefined }, { size: 1e5, index: 0 }, H), null, 'no statistics: none');
   assert.equal(stripOrdersOf({ ...bar, over: undefined }, { size: 1e5, index: -1 }, H)!.whale.exact !== undefined, true, 'from the boxes where the line was not asked');
 });
@@ -101,26 +101,72 @@ test('the orders of a footprint bar: the size boxes added up, the whale line whe
 test('the orders cache: asked once the pointer rests, one request a candle, kept, and a bar left in time asks nothing', async () => {
   const cache = new StripOrderCache(), asked: string[] = [], value: StripOrders = { buyN: 1, sellN: 1, buyUsd: 1, sellUsd: 1, whale: { buy: 0, sell: 0, exact: true }, minutes: 60, of: 60, venues: [] };
   let landed = 0;
-  const load = (key: string) => () => { asked.push(key); return Promise.resolve(value); };
-  assert.equal(cache.want('a', false, load('a'), () => landed++), 'loading');
-  assert.equal(cache.want('a', false, load('a'), () => landed++), 'loading', 'the same bar again: no second request');
-  cache.want('b', false, load('b'), () => landed++);
+  const rest = () => new Promise(r => setTimeout(r, ORDERS_REST_MS + 50));
+  const load = (key: string) => (to: number) => { asked.push(`${key}@${to}`); return Promise.resolve(value); };
+  const closed = { to: 100, open: false };
+  assert.equal(cache.want('a', closed, load('a'), () => landed++), 'loading');
+  assert.equal(cache.want('a', closed, load('a'), () => landed++), 'loading', 'the same bar again: no second request');
+  cache.want('b', closed, load('b'), () => landed++);
   cache.rest();
-  await new Promise(r => setTimeout(r, ORDERS_REST_MS + 50));
+  await rest();
   assert.deepEqual(asked, [], 'left before resting: nothing asked');
-  cache.want('c', false, load('c'), () => landed++);
-  await new Promise(r => setTimeout(r, ORDERS_REST_MS + 50));
-  assert.deepEqual(asked, ['c']); assert.equal(landed, 1);
-  assert.equal(cache.want('c', false, load('c'), () => landed++), value, 'kept');
-  // A candle that can still change is read again after its time, shown as it was meanwhile.
-  assert.equal(cache.want('c', true, load('c'), () => landed++, Date.now() + 60_000), value);
-  await new Promise(r => setTimeout(r, ORDERS_REST_MS + 50));
-  assert.deepEqual(asked, ['c', 'c']);
+  cache.want('c', closed, load('c'), () => landed++);
+  await rest();
+  assert.deepEqual(asked, ['c@100']); assert.equal(landed, 1);
+  assert.equal(cache.want('c', closed, load('c'), () => landed++), value, 'kept');
+  // Pointing at another bar, even one held, drops the one waiting for its turn.
+  cache.want('d', closed, load('d'), () => landed++);
+  assert.equal(cache.want('c', closed, load('c'), () => landed++), value);
+  await rest();
+  assert.deepEqual(asked, ['c@100'], 'd was left for c before its turn');
+  // A candle that can still change is read again after its time, shown as it was meanwhile; read while open, read once more once settled.
+  const live = new StripOrderCache(), got: string[] = [];
+  const liveLoad = (to: number) => { got.push(String(to)); return Promise.resolve(value); };
+  live.want('e', { to: 100, open: true }, liveLoad, () => {});
+  await rest();
+  assert.equal(live.want('e', { to: 100, open: true }, liveLoad, () => {}), value);
+  assert.equal(live.want('e', { to: 100, open: true }, liveLoad, () => {}, Date.now() + 60_000), value, 'its time passed: shown, read again');
+  await rest();
+  assert.equal(got.length, 2);
+  live.want('e', { to: 100, open: false }, liveLoad, () => {});
+  await rest();
+  assert.equal(got.length, 3, 'settled: one more read, its answer final');
+  live.want('e', { to: 100, open: false }, liveLoad, () => {}, Date.now() + 3_600_000);
+  await rest();
+  assert.equal(got.length, 3, 'final: kept');
   // A failure is said, and asked again later.
   const failing = new StripOrderCache();
-  failing.want('x', false, () => Promise.reject(new Error('down')), () => {});
-  await new Promise(r => setTimeout(r, ORDERS_REST_MS + 50));
-  assert.equal(failing.want('x', false, () => Promise.resolve(value), () => {}), 'failed');
+  failing.want('x', closed, () => Promise.reject(new Error('down')), () => {});
+  await rest();
+  assert.equal(failing.want('x', closed, () => Promise.resolve(value), () => {}), 'failed');
+});
+
+test('the orders cache in a replay: a cut moving on is read again every few seconds, an answer cut later than asked is never shown', async () => {
+  const cache = new StripOrderCache(), cuts: number[] = [], value: StripOrders = { buyN: 2, sellN: 0, buyUsd: 2, sellUsd: 0, whale: { buy: 0, sell: 0, exact: true }, minutes: 10, of: 60, venues: [] };
+  const load = (to: number) => { cuts.push(to); return Promise.resolve(value); };
+  const rest = () => new Promise(r => setTimeout(r, ORDERS_REST_MS + 50));
+  cache.want('k', { to: 10, open: false }, load, () => {});
+  await rest();
+  assert.equal(cache.want('k', { to: 11, open: false }, load, () => {}), value, 'the minute after: the earlier cut shown');
+  await rest();
+  assert.deepEqual(cuts, [10], 'not read again within the refresh');
+  cache.want('k', { to: 12, open: false }, load, () => {}, Date.now() + ORDERS_CUT_REFRESH_MS + 1);
+  await rest();
+  assert.deepEqual(cuts, [10, 12]);
+  assert.equal(cache.want('k', { to: 11, open: false }, load, () => {}), 'loading', 'moved back: the later answer is not shown');
+  await rest();
+  assert.deepEqual(cuts, [10, 12, 11]);
+});
+
+test('the box: zero orders begun is said as such; venues are exchanges; a zero-volume Binance candle is exact', () => {
+  const none: StripOrders = { buyN: 0, sellN: 0, buyUsd: 0, sellUsd: 0, whale: { buy: 0, sell: 0, exact: true }, minutes: 1, of: 1, venues: [] };
+  assert.match(orderLines(none, 1).map(l => l.text).join(' '), /No market order began/);
+  assert.doesNotMatch(orderLines(none, 1).map(l => l.text).join(' '), /without order statistics/);
+  const stats = { buyN: 1, sellN: 1, buy: [10, 0, 0, 0, 0, 0, 0, 0], sell: [10, 0, 0, 0, 0, 0, 0, 0] };
+  const bar: Bar = { t: T, rows: [], buyUsd: 20, sellUsd: 0, stats, parts: [[['binance:BTCUSDT', 60, 0], ['binance:BTCUSD_PERP', 30, 0], ['bybit:BTCUSDT', 10, 0]]] };
+  assert.deepEqual(stripOrdersOf(bar, { size: 1e9, index: -1 }, H)!.venues.map(v => [v.id, Math.round(v.share * 100)]), [['binance', 90], ['bybit', 10]], 'one exchange\'s markets added together');
+  const quiet = stripBars(candles, H, null, null, T + 8 * H, T, T + 8 * H, place, s => [s, 100, 100, 100, 100, 0, 1, 0, 0, 0, 0], false);
+  assert.deepEqual([quiet[0]!.exact, quiet[0]!.trades, quiet[0]!.buy + quiet[0]!.sell], [true, 0, 0]);
 });
 
 test('Binance candles carry their trades and quote volumes, summed across minutes, never scaled by a listing\'s unit, all three or none', async () => {
@@ -133,6 +179,11 @@ test('Binance candles carry their trades and quote volumes, summed across minute
   const get: Fetcher = async url => { const end = Number(new URL(url).searchParams.get('endTime')); return [kline(Math.floor(end / 60_000) * 60_000 - 60_000)]; };
   const got = await fetchCandles('binance:BTCUSDT', 60_000, T, T + 120_000, get, undefined, 1, { buy: true });
   assert.deepEqual(got.at(-1)!.slice(7), [1, 12, 200.5, 120.25]);
+  // A quote volume or a count that is not a figure (null, '', false) leaves all three out: never read as 0.
+  for (const bad of [null, '', false]) {
+    const broken: Fetcher = async url => { const end = Number(new URL(url).searchParams.get('endTime')); const k = kline(Math.floor(end / 60_000) * 60_000 - 60_000); k[7] = bad as never; return [k]; };
+    assert.equal((await fetchCandles('binance:BTCUSDT', 60_000, T, T + 120_000, broken, undefined, 1, { buy: true })).at(-1)!.length, 8, `${JSON.stringify(bad)}: none of the three`);
+  }
 });
 
 test('the strip never borrows another bar: before the rows asked for, a bar is its candle; a bar the recording begins inside without its rows, too', () => {

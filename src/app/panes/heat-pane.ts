@@ -702,7 +702,8 @@ export class HeatPane {
     const key = `${tf}|${h.id}|${h.version}`;
     if (this.#takerRows?.key !== key) {
       const rows = new Map<number, CandleRow>();
-      for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] > 0) rows.set(b[0], b); }
+      // A candle with nothing traded is one too (its trades and quote volume 0): its readers guard their own division by its volume.
+      for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] >= 0) rows.set(b[0], b); }
       this.#takerRows = { key, rows };
     }
     return this.#takerRows.rows;
@@ -1149,17 +1150,19 @@ export class HeatPane {
   /**
    * The market orders of a recorded strip bar, from the footprint's statistics of the strip's own markets for that candle (one request, rows
    * of the whole range, the whale size as a line, each market's part), read once the pointer rests on it; undefined for a bar of no recording
-   * or with too many markets for one question. In a replay only the minutes before the replay's time are asked.
+   * or with too many markets for one question. In a replay only the minutes before the replay's time are asked. An answer without the bar
+   * fails (asked again later): a bar the recording holds has its minutes, so its absence is not a candle without statistics.
    */
   #stripOrders(state: AppState, s: StripState, bar: StripBar, whale: number): ReturnType<StripOrderCache['want']> | undefined {
-    if (bar.source === 'candle' || bar.source === 'gap' || !s.ids.length || s.ids.length > MAX_PROFILE_INSTRUMENTS) return undefined;
     const to = replaying() ? Math.min(bar.t + s.tf, Math.floor(pageNow() / 60_000) * 60_000) : bar.t + s.tf;
-    if (!(to > bar.t)) return undefined;
+    if (bar.source === 'candle' || bar.source === 'gap' || !s.ids.length || s.ids.length > MAX_PROFILE_INSTRUMENTS || !(to > bar.t)) { this.#orders.rest(); return undefined; }
+    // The whale size is part of the question: another size is other whale dollars, even where neither is asked as a line.
     const cuts = linesToAsk([state.barStatOptions.whaleUsd], scaledUsd), index = cuts.findIndex(c => Math.abs(c - whale) <= 1e-6 * whale), inst = s.ids.join(',');
-    const key = `${inst}|${state.timeframe}|${bar.t}|${to}|${cuts.join(',')}`, open = bar.t + s.tf + FOOTPRINT_SETTLE_MS > Date.now();
-    return this.#orders.want(key, open, () => this.hub.footprint(inst, state.timeframe, bar.t, to, WHOLE_RANGE_STEP, cuts, undefined, s.ids.length > 1).then(body => {
+    const key = `${inst}|${state.timeframe}|${bar.t}|${cuts.join(',')}|${whale}`, open = bar.t + s.tf + FOOTPRINT_SETTLE_MS > Date.now();
+    return this.#orders.want(key, { to, open }, at => this.hub.footprint(inst, state.timeframe, bar.t, at, WHOLE_RANGE_STEP, cuts, undefined, s.ids.length > 1).then(body => {
       const raw = body.bars.find(b => b.t === bar.t);
-      return raw ? stripOrdersOf(readBar(raw, cuts.length, body.venues), { size: whale, index }, s.tf) : null;
+      if (!raw) throw new Error('the candle is not in the answer');
+      return stripOrdersOf(readBar(raw, cuts.length, body.venues), { size: whale, index }, s.tf);
     }), () => this.invalidate());
   }
 
@@ -2075,7 +2078,7 @@ export class HeatPane {
   }
 
   #paintCrosshair(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
-    const hv = state.hover; if (!hv) return;
+    const hv = state.hover; if (!hv) { this.#orders.rest(); return; }
     const p = this.#palette, v = this.view;
     const x = v.xOf(hv.t, pw), inX = x >= 0 && x <= pw, ownY = hv.source === 'heat' && hv.price !== null;
     // Replay: right of its moment everything is covered, so nothing there answers the pointer.

@@ -388,7 +388,7 @@ export const BAR_STATS: readonly StatDef[] = [
     title: t('Trades in the chart market\'s own candle as the exchange counts them: every fill counts, so one market order filled against several resting orders counts several times. Binance reports them, so the row fills for a Binance chart market, before the recording too, and stays empty for others.'),
     compute: input => input.bars.map((_, i) => input.taker?.get(slotTime(input, i))?.[8] ?? null), view: sumView(count, false) },
   { id: 'avgFill', label: t('avg fill'), group: 'trades', source: 'market', scale: 'sequential', format: volText,
-    title: t('Average fill in the chart market\'s own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: an order is often several fills, so it is smaller than avg order.'),
+    title: t('Average fill in the chart market\'s own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: on one market an order is often several fills, so a fill averages less than an order there; avg order may count other markets too.'),
     compute: input => input.bars.map((_, i) => { const c = input.taker?.get(slotTime(input, i)), q = c?.[9], n = c?.[8]; return q !== undefined && n !== undefined && n > 0 ? q / n : null; }),
     view: (input, at) => {
       let q = 0, n = 0;

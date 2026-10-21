@@ -1567,5 +1567,6 @@
  "fills": "約定数",
  "Trades in the chart market's own candle as the exchange counts them: every fill counts, so one market order filled against several resting orders counts several times. Binance reports them, so the row fills for a Binance chart market, before the recording too, and stays empty for others.": "チャート市場自身のローソク足の取引数（取引所の数え方）：約定ごとに数えるため、複数の指値注文と約定した成行注文は複数回数えられます。Binance が報告するので、Binance のチャート市場では記録前も埋まり、他では空のままです。",
  "avg fill": "平均約定",
- "Average fill in the chart market's own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: an order is often several fills, so it is smaller than avg order.": "チャート市場自身のローソク足の平均約定：クォート出来高を取引数で割った値（USDT 市場では USDT）。注文ではなく約定です。注文は多くの場合複数の約定になるため、平均注文より小さくなります。"
+ "Average fill in the chart market's own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: on one market an order is often several fills, so a fill averages less than an order there; avg order may count other markets too.": "チャート市場自身のローソク足の平均約定：クォート出来高を取引数で割った値（USDT 市場では USDT）。注文ではなく約定です。同じ市場では注文は多くの場合複数の約定になるため、そこでは約定の平均は注文より小さくなります。平均注文は他の市場も含むことがあります。",
+ "No market order began in this candle.": "このローソク足で始まった成行注文はありません。"
 }

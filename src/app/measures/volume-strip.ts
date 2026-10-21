@@ -65,7 +65,7 @@ export function stripBars(candles: readonly CandleRow[], tf: number, rows: TimeR
     }
     if (replay && e > now) continue;
     const own = exchange(s), [quote, quoteBought, trades] = [own?.[9], own?.[10], own?.[8]];
-    if (quote !== undefined && quoteBought !== undefined && quote > 0) {
+    if (quote !== undefined && quoteBought !== undefined && quote >= 0) {
       const bought = Math.min(quote, Math.max(0, quoteBought));
       out.push({ t: s, x, w, source: 'candle', buy: bought, sell: quote - bought, split: true, exact: true, ...(trades !== undefined ? { trades } : {}), i: -1, gap: null });
       continue;

@@ -1567,5 +1567,6 @@
  "fills": "成交笔数",
  "Trades in the chart market's own candle as the exchange counts them: every fill counts, so one market order filled against several resting orders counts several times. Binance reports them, so the row fills for a Binance chart market, before the recording too, and stays empty for others.": "图表市场自身 K 线中交易所统计的成交笔数：每次撮合都计入，所以与多笔挂单撮合的市价单会被计多次。Binance 报告这些数据，所以 Binance 图表市场的这一行在记录之前也有数据，其他市场为空。",
  "avg fill": "平均成交",
- "Average fill in the chart market's own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: an order is often several fills, so it is smaller than avg order.": "图表市场自身 K 线的平均成交：计价货币成交额除以成交笔数（USDT 市场为 USDT）。是成交而非订单：一笔订单往往是多次成交，所以它小于平均订单。"
+ "Average fill in the chart market's own candle: its quote volume divided by its trades (USDT for a USDT market). A fill, not an order: on one market an order is often several fills, so a fill averages less than an order there; avg order may count other markets too.": "图表市场自身 K 线的平均成交：计价货币成交额除以成交笔数（USDT 市场为 USDT）。是成交而非订单：在同一市场一笔订单往往是多次成交，所以在那里成交平均小于订单；平均订单可能还计入其他市场。",
+ "No market order began in this candle.": "这根 K 线中没有开始的市价单。"
 }
