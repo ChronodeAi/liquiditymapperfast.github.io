@@ -196,9 +196,12 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
     const [longKey, shortKey, ratioKey] = GATE_FIELDS[metric], rowsMax = PAGE_ROWS.gateio!;
     let start = Math.max(from - periodMs, to - PAGES * rowsMax * periodMs);
     const reached = start > from - periodMs ? start : from;
+    const unlisted = (answer: unknown): boolean => at(answer, 'label') === 'CONTRACT_NOT_FOUND' || String(at(answer, 'body') ?? '').includes('CONTRACT_NOT_FOUND');
     for (; page < PAGES && start < to; page++) {
-      const answer = await get(`https://api.gateio.ws/api/v4/futures/${settle}/contract_stats?contract=${s}&interval=${name}&from=${Math.floor(start / 1000)}&limit=${rowsMax}`);
-      if (!Array.isArray(answer) && at(answer, 'label') === 'CONTRACT_NOT_FOUND') throw new LsNoMarket(`gateio: ${symbol}`);
+      // Gate says so with a 400 (`webGet` keeps its body on the error); a fetcher that hands the body back gives it as the answer.
+      const answer = await get(`https://api.gateio.ws/api/v4/futures/${settle}/contract_stats?contract=${s}&interval=${name}&from=${Math.floor(start / 1000)}&limit=${rowsMax}`)
+        .catch((error: unknown) => { throw unlisted(error) ? new LsNoMarket(`gateio: ${symbol}`) : error; });
+      if (!Array.isArray(answer) && unlisted(answer)) throw new LsNoMarket(`gateio: ${symbol}`);
       const got = rows(answer, 'gateio', 'time', longKey, shortKey, ratioKey);
       let newest = -Infinity;
       for (const r of got) {
@@ -207,9 +210,13 @@ export async function fetchLongShort(venue: string, symbol: string, metric: LsMe
         take(long > 0 && short > 0 ? lsReading(t, long / (long + short), short / (long + short), num(at(r, ratioKey))) : null);
         if (t > newest) newest = t;
       }
-      if (got.length < rowsMax || !Number.isFinite(newest)) break;
+      if (got.length < rowsMax) break;
+      // A full page must move on: one that repeats (or has no valid time) would spend every page and leave the window's end unread, held as
+      // read all the same (the cache holds a window up to its end).
+      if (!(newest >= start)) throw new Error('gateio: a full page that does not move on');
       start = newest + periodMs;
     }
+    if (start < to && page >= PAGES) throw new Error('gateio: the pages ran out before the window\'s end');
     return { points: [...out.values()].sort((a, b) => a.t - b.t), from: reached };
   } else if (venue === 'bitget') {
     const answer = await get(`https://api.bitget.com/api/v2/mix/market/account-long-short?symbol=${s}&period=${name}`);
@@ -273,7 +280,8 @@ export class LongShortCache {
       if (kind !== 'whole' && end - start > reach) { h.points.clear(); h.from = Infinity; h.to = -Infinity; start = from; end = want; kind = 'whole'; }
       // The Binance series chosen is Binance's: every other venue publishes its accounts alone.
       h.busy = fetchLongShort(venue, symbol, LS_CHOSEN_VENUES.includes(venue) ? metric : 'accounts', periodMs, start, end, get, now).then(({ points, from: reached }) => {
-        h.failed = 0;
+        // A market the venue did not list before (asked again once a minute) is published again once it answers.
+        h.failed = 0; h.noMarket = false;
         for (const p of points) h.points.set(p.t, p);
         // Held from where the answer reached (a long window's pages may stop short of it: the next question reads on from there), up to a
         // period before now: the reading of the period under way comes later. A window that starts inside that period (or after it) is held

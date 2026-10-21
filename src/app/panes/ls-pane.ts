@@ -15,7 +15,6 @@ import { TimePane, setHtml } from './lower-panes.ts';
 import { LS_ROUND_MS, lsLanded, lsMessage, lsWindow, type LsHeld } from './ls-window.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { LS_CHOSEN_VENUES, LS_METRICS, LS_VENUES, lsPopulationOf, lsWindowPeriod, type LsMetric, type LsPoint, type LsPopulation, type LsSeries } from '../../shared/long-short.ts';
-import { currentCoin } from '../coin.ts';
 
 const HOUR = 3_600_000;
 /** One colour per venue, apart from each other on either theme (the brands' own are black on two of them); the venue's mark ends its line. */
@@ -27,8 +26,9 @@ const HOLD_PERIODS = 3;
 export function lsIds(state: AppState, hub: Hub): string[] {
   const oi = oiMarketIds(state, hub.flow);
   // Gate publishes its long/short ratios but no open interest the page reads: with every market counted (and its chip on, perpetuals in the
-  // filter) its USDT perpetual joins the lines; a coin it does not list reads as publishing none.
-  const gate = oi && state.oiMarkets === 'all' && state.scope !== 'spot' && !state.disabledVenues.includes('gateio') ? [`gateio:${currentCoin().coin}_USDT`] : [];
+  // filter) its perpetual joins the lines, where the page's markets have one (a coin Gate does not list has none, and is never asked).
+  const listed = state.markets.find(m => m.venue === 'gateio' && m.marketType === 'perpetual' && m.instrumentId)?.instrumentId;
+  const gate = listed && oi && state.oiMarkets === 'all' && state.scope !== 'spot' && !state.disabledVenues.includes('gateio') ? [listed] : [];
   const ids = [...(oi ?? [state.oiInstrument || state.seriesInstrument || state.marketId]), ...gate];
   const venue = (id: string): number => LS_VENUES.indexOf(id.split(':')[0]!);
   return [...new Set(ids)].filter(id => venue(id) >= 0).sort((a, b) => venue(a) - venue(b));
@@ -182,11 +182,13 @@ export class LsPane extends TimePane {
     const tfMs = TIMEFRAMES[state.timeframe] ?? HOUR, chosen = ids.filter(id => LS_CHOSEN_VENUES.includes(id.slice(0, id.indexOf(':'))));
     const key = `${chosen.map(id => `${id}@${lsWindowPeriod(id.slice(0, id.indexOf(':')), tfMs, from, to)}`).join(',')}|${state.timeframe}|${Math.floor(from / HOUR)}`;
     if (!chosen.length || this.#warming || this.#warmed === key) return;
-    this.#warmed = key;
     // Its own lifetime: cancelled with the pane's settings, and given up with the round's deadline, so it never holds a connection for good.
     const warming = this.#warming = new AbortController(), timer = window.setTimeout(() => warming.abort(), LS_ROUND_MS);
     const source = this.hub.source, others = LS_METRICS.filter(m => m !== state.lsMetric);
+    // Warmed only once every series came back read: one cancelled (a new round, the pane's settings, the deadline) or failed is warmed again
+    // with the next round (the source's cache keeps a failing venue to one question a minute).
     void Promise.allSettled(chosen.flatMap(id => others.map(metric => source.longShort(id, metric, state.timeframe, from, to, warming.signal))))
+      .then(results => { if (!warming.signal.aborted && results.every(r => r.status === 'fulfilled' && r.value.status !== 'failed')) this.#warmed = key; })
       .finally(() => { window.clearTimeout(timer); if (this.#warming === warming) this.#warming = null; });
     // An abort settles the requests at once (their promises reject): the gate opens with it.
     warming.signal.addEventListener('abort', () => { if (this.#warming === warming) this.#warming = null; }, { once: true });

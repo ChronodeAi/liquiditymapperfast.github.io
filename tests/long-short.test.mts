@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LongShortCache, LsNoMarket, fetchLongShort, lsPeriodAtLeast, lsPeriodOf, lsPopulationOf, lsReading, lsWindowPeriod, parseLsSeries, shareOfRatio } from '../src/shared/long-short.ts';
 import { lsAt, lsCardLines, lsRange, stepEnd } from '../src/app/panes/ls-pane.ts';
-import { fetchOiHistory, type Fetcher } from '../src/shared/history.ts';
+import { fetchOiHistory, webGet, type Fetcher } from '../src/shared/history.ts';
 import { LAYOUT_KEYS, readSettings, type CandleRow } from '../src/app/store.ts';
 import { atOnePrice } from '../src/app/oi-change.ts';
 
@@ -433,6 +433,35 @@ test('Gate: every series from one answer, its counts or sizes checked against it
   await assert.rejects(fetchLongShort('gateio', 'NOPE_USDT', 'accounts', 5 * M, NOW - H, NOW, missing, NOW), LsNoMarket);
   const cache = new LongShortCache(missing, false, () => NOW);
   assert.equal((await cache.series('gateio:NOPE_USDT', 'accounts', 5 * M, NOW - H, NOW)).status, 'unsupported', 'not a failure to read');
+  // Gate says so with a 400: `webGet` keeps the body on its error.
+  const http400 = fake({ 'https://api.gateio.ws/': () => { throw Object.assign(new Error('HTTP 400'), { status: 400, body: '{"label":"CONTRACT_NOT_FOUND"}' }); } });
+  await assert.rejects(fetchLongShort('gateio', 'NOPE_USDT', 'accounts', 5 * M, NOW - H, NOW, http400, NOW), LsNoMarket);
+  const other400 = fake({ 'https://api.gateio.ws/': () => { throw Object.assign(new Error('HTTP 400'), { status: 400, body: '{"label":"INVALID_PARAM_VALUE"}' }); } });
+  await assert.rejects(fetchLongShort('gateio', 'BTC_USDT', 'accounts', 5 * M, NOW - H, NOW, other400, NOW), (e: unknown) => !(e instanceof LsNoMarket), 'any other error is a failure');
+});
+
+test('Gate: a market listed after it was not is published once it answers; a full page that does not move on fails, never held as read', async () => {
+  let now = NOW, listed = false;
+  const row = (t: number) => ({ time: t / 1000, lsr_account: 1.5, long_users: 600, short_users: 400 });
+  const get = fake({ 'https://api.gateio.ws/': url => listed ? [row(Number(url.searchParams.get('from')) * 1000)] : { label: 'CONTRACT_NOT_FOUND' } });
+  const cache = new LongShortCache(get, false, () => now);
+  assert.equal((await cache.series('gateio:NEW_USDT', 'accounts', 5 * M, NOW - H, NOW)).status, 'unsupported');
+  listed = true; now += 2 * M;
+  const after = await cache.series('gateio:NEW_USDT', 'accounts', 5 * M, NOW - H, now);
+  assert.equal(after.status, 'ok', 'asked again after the minute, and published');
+  // 1,000 readings asked; the venue gives the same 500 again and again.
+  const same = Array.from({ length: 500 }, (_, i) => row(NOW - 1000 * 5 * M + i * 5 * M));
+  const stuck = fake({ 'https://api.gateio.ws/': () => same });
+  await assert.rejects(fetchLongShort('gateio', 'BTC_USDT', 'accounts', 5 * M, NOW - 1000 * 5 * M, NOW, stuck, NOW), /does not move on/);
+  assert.equal(stuck.asked.length, 2, 'the second page shows it: no twelve requests');
+});
+
+test('Gate through the real fetcher: its 400 saying CONTRACT_NOT_FOUND is a market it does not list', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => new Response('{"label":"CONTRACT_NOT_FOUND"}', { status: 400, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+  try {
+    await assert.rejects(fetchLongShort('gateio', 'NOPE_USDT', 'accounts', 5 * M, NOW - H, NOW, webGet, NOW), LsNoMarket);
+  } finally { globalThis.fetch = real; }
 });
 
 test('the period of a window is what the cache reads it in: the chart\'s own, coarser for a long window, daily from 30 days', () => {
