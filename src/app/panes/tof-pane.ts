@@ -129,9 +129,10 @@ export class TofPane extends TimePane {
     ctx.restore();
     ctx.fillStyle = p.muted; ctx.textAlign = 'left';
     ctx.fillText(`$${usd(max)}`, this.w - AXIS_W + 6, y(max)); ctx.fillText('0', this.w - AXIS_W + 6, bottom);
-    // Readout and popup: the candle under the pointer, else the newest in view.
-    const time = state.hover ? state.hover.t : Math.min(now, v.t1);
-    const row = [...rows].reverse().find(r => r.candle.t <= time) ?? rows[rows.length - 1]!;
+    // Readout and popup: the candle under the pointer, else the newest in view; past the newest, the newest, and the cursor there.
+    const time = state.hover ? state.hover.t : Math.min(now, v.t1), newest = rows[rows.length - 1]!;
+    const row = [...rows].reverse().find(r => r.candle.t <= time) ?? newest;
+    if (state.hover && this.pointer && time >= newest.candle.t + tf) this.cursorT = newest.candle.t + tf / 2;
     if (state.hover && this.pointer) this.#lines = tofCardLines(row, model.ids, state.timeframe);
     const parts = model.ids.map((id, i) => {
       const c = row.cells[i], band = bandOf(c?.z ?? null);

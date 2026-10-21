@@ -2376,8 +2376,9 @@ export class HeatPane {
     }
     if (s.histogram) {
       const last = state.candles[state.candles.length - 1], step = (last ? last[4] : (v.p0 + v.p1) / 2) * 0.001;
-      const rows = tofByPrice(levels, step), top = Math.max(0, ...rows.map(r => r.tof)) || 1, width = Math.min(120, pw * 0.15);
-      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.strokeStyle = EDGE; ctx.lineWidth = 1;
+      const rows = tofByPrice(levels, step), top = Math.max(0, ...rows.map(r => r.tof)) || 1, width = Math.min(90, pw * 0.12);
+      // Light, so the newest candles under them still show.
+      ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.strokeStyle = 'rgba(17,17,17,0.5)'; ctx.lineWidth = 1;
       for (const r of rows) {
         const y0 = v.yOf(r.price + step, ph), y1 = v.yOf(r.price, ph), h = Math.max(2, y1 - y0 - 1), len = Math.max(2, r.tof / top * width);
         if (y1 < 0 || y0 > ph) continue;
