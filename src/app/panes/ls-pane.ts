@@ -14,7 +14,7 @@ import { AXIS_W } from './heat-pane.ts';
 import { TimePane, setHtml } from './lower-panes.ts';
 import { LS_ROUND_MS, lsLanded, lsMessage, lsWindow, type LsHeld } from './ls-window.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
-import { LS_VENUES, type LsMetric, type LsPoint, type LsPopulation, type LsSeries } from '../../shared/long-short.ts';
+import { LS_METRICS, LS_VENUES, lsPopulationOf, type LsMetric, type LsPoint, type LsPopulation, type LsSeries } from '../../shared/long-short.ts';
 
 const HOUR = 3_600_000;
 /** One colour per venue, apart from each other on either theme (the brands' own are black on two of them); the venue's mark ends its line. */
@@ -98,6 +98,8 @@ export class LsPane extends TimePane {
   #seriesOf = '';
   /** Cancels the requests of the round under way that have not answered. */
   #round: AbortController | null = null;
+  /** The window Binance's other series were last read for in the background, and whether that read is under way. */
+  #warmed = ''; #warming = false;
   #sync: (() => void)[] = [];
 
   constructor(host: HTMLElement, store: Store, view: View, private hub: Hub) {
@@ -133,7 +135,13 @@ export class LsPane extends TimePane {
     // Another round (other markets, series or timeframe) cancels what the last one still waits for.
     this.#round?.abort();
     const round = this.#round = new AbortController(), answers = new Map<string, LsSeries>();
-    if (this.#seriesOf !== of) { this.#series = []; this.#seriesOf = of; }
+    // Another Binance series: the other venues publish one population each, so their lines stay drawn while Binance's is read (they used to
+    // blank with it, the pane looking slow to switch); another timeframe is other readings for all of them.
+    if (this.#seriesOf !== of) {
+      const sameTimeframe = this.#seriesOf.endsWith(`|${state.timeframe}`);
+      this.#series = sameTimeframe ? this.#series.filter(s => s.population === lsPopulationOf(s.id.slice(0, s.id.indexOf(':')), state.lsMetric)) : [];
+      this.#seriesOf = of;
+    }
     this.#held = { ident, from, to, at: now }; this.#loading = true;
     let over = false;
     const land = (final: boolean): void => {
@@ -144,6 +152,7 @@ export class LsPane extends TimePane {
         if (this.#round === round) this.#round = null;
         this.#loading = false;
         if (this.#held) this.#held.at = Date.now();
+        this.#warm(ids, state, from, to);
       }
       this.invalidate();
     };
@@ -153,6 +162,18 @@ export class LsPane extends TimePane {
         .catch((): LsSeries => ({ id, population: null, periodMs: 0, points: [], status: 'failed' }))
         .then(series => { if (over || generation !== this.#generation) return; answers.set(id, series); land(answers.size === ids.length); });
     }
+  }
+
+  /**
+   * Read Binance's other series for the window just answered, quietly, once a window: the source keeps them (its long/short cache), so switching
+   * to one draws at once instead of waiting for Binance's pages. Only Binance's change with the series; one read at a time, nothing drawn.
+   */
+  #warm(ids: readonly string[], state: AppState, from: number, to: number): void {
+    const binance = ids.filter(id => id.startsWith('binance:')), key = `${binance.join(',')}|${state.timeframe}|${Math.floor(from / 3_600_000)}`;
+    if (!binance.length || this.#warming || this.#warmed === key) return;
+    this.#warmed = key; this.#warming = true;
+    const source = this.hub.source, others = LS_METRICS.filter(m => m !== state.lsMetric);
+    void Promise.allSettled(binance.flatMap(id => others.map(metric => source.longShort(id, metric, state.timeframe, from, to)))).finally(() => { this.#warming = false; });
   }
 
   protected draw(): void {
