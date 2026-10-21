@@ -106,9 +106,11 @@ A directional reading of the same values without a model, made every minute whet
 | Family | Parts (vote) |
 | --- | --- |
 | `flow` | Spot taker flow leads: `spotZ15` (else `spotZ60`) from 1σ, full at 3σ; without a spot side, `binanceSpotZ60` at three quarters. Whales against everyone (`whaleOpposite`): ±0.5 their way. A Binance spot slicer (`slicerShare` ≥ 0.6): ±0.25 with Binance spot |
-| `book` | One side within 1 % pulled by 30 % or more in 5 to 10 minutes while the other held (no worse than -10 %): ±0.5 toward the pulled side (bids pulled: down). The tracker flipped: ±0.5 to its new side. The imbalance at the 90th / 10th percentile of 6 h: ±0.5 with the heavy side |
+| `book` | One side within 1 % pulled by 30 % or more in 5 to 10 minutes while the other held (no worse than -10 %): ±0.5 toward the pulled side (bids pulled: down). The imbalance at the 90th / 10th percentile of 6 h: ±0.5 with the heavy side |
 | `positioning` | A liquidation burst (`liqZ5` ≥ 2) over two-thirds longs: +0.5 (forced sellers at a pivot), shorts: -0.5. Open interest up 0.3 % or more in 15 minutes into a move: ±0.5 against the move |
 
 A family whose vote is under 0.25 does not vote. `direction` is the sign of the sum, `score` its mean over the three families. A **call** needs at least two families with `direction`, none against it, and a trigger this minute: a highlighted bar (`volSigma` or `deltaSigma` ≥ 2), a liquidation burst, `spotPerpOpposite` or `priceCvdOpposite`. Agreement without a trigger is a drift, not a call.
+
+The Liquidity Tracker does not vote: measured against what price did next, the side its flip pointed to was not the side price went (Research_Findings.md). `trackerFlip` stays a concept Jev reads, and its values stay in the log.
 
 The rules come from Karl's posts (Concepts above) and are hypotheses until `volatility:eval` says otherwise. The minute grid is the recorder's: this is a one-minute reading over a 15-minute horizon, not a sub-second signal.

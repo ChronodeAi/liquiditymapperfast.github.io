@@ -66,16 +66,15 @@ function flowVote(v: Record<string, VolatilityValue>): number | null {
 
 /**
  * Resting liquidity. A side pulled while the other holds leaves no cushion that way (market makers stop replenishing bids: price falls
- * through); the tracker flipping votes for the side it flipped to; an imbalance at the edge of the last 6 h votes with the heavy side.
+ * through); an imbalance at the edge of the last 6 h votes with the heavy side. The Liquidity Tracker does not vote: measured against what
+ * price did next, the side its flip pointed to was not the side price went (docs/volatility-watch.md, "Confluence").
  */
 function bookVote(v: Record<string, VolatilityValue>): number | null {
   const bid = num(v.bidChangePct), ask = num(v.askChangePct);
   const pulled = bid === null || ask === null ? null : bid <= -PULL_PCT && ask >= HOLD_PCT ? -0.5 : ask <= -PULL_PCT && bid >= HOLD_PCT ? 0.5 : 0;
-  const ltNow = num(v.ltNow);
-  const flip = v.ltFlipped === true && ltNow !== null && ltNow !== 0 ? 0.5 * Math.sign(ltNow) : v.ltFlipped === false ? 0 : null;
   const pctile = num(v.imbPctile6h), imb = num(v.imb1pct);
   const edge = pctile === null || imb === null ? null : pctile >= IMB_HIGH && imb > 0 ? 0.5 : pctile <= IMB_LOW && imb < 0 ? -0.5 : 0;
-  return family([pulled, flip, edge]);
+  return family([pulled, edge]);
 }
 
 /**

@@ -33,10 +33,12 @@ test('readings within one family never count as two agreeing families', () => {
   assert.deepEqual([c.agree, c.call], [1, false]);
 });
 
-test('bids pulled while asks hold vote down; both sides pulled is no vote', () => {
+test('bids pulled while asks hold vote down; both sides pulled is no vote; the tracker flipping casts no vote', () => {
   assert.equal(confluence({ bidChangePct: -45, askChangePct: 0 }).votes.book, -0.5);
   assert.equal(confluence({ bidChangePct: -45, askChangePct: -45 }).votes.book, 0);
   assert.equal(confluence({}).direction, null);
+  assert.equal(confluence({ ltFlipped: true, ltNow: 0.2, lt30: -0.1 }).votes.book, null);
+  assert.equal(confluence({ bidChangePct: 2, askChangePct: -40, ltFlipped: true, ltNow: -0.2 }).votes.book, 0.5, 'a flip to the asks does not cancel asks pulled');
 });
 
 test('without a key the watch still reads and logs the confluence every minute, and never asks Jev', async () => {
