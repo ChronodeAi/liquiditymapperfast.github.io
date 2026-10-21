@@ -180,9 +180,15 @@ test('Binance candles carry their trades and quote volumes, summed across minute
   const got = await fetchCandles('binance:BTCUSDT', 60_000, T, T + 120_000, get, undefined, 1, { buy: true });
   assert.deepEqual(got.at(-1)!.slice(7), [1, 12, 200.5, 120.25]);
   // A quote volume or a count that is not a figure (null, '', false) leaves all three out: never read as 0.
-  for (const bad of [null, '', false]) {
-    const broken: Fetcher = async url => { const end = Number(new URL(url).searchParams.get('endTime')); const k = kline(Math.floor(end / 60_000) * 60_000 - 60_000); k[7] = bad as never; return [k]; };
-    assert.equal((await fetchCandles('binance:BTCUSDT', 60_000, T, T + 120_000, broken, undefined, 1, { buy: true })).at(-1)!.length, 8, `${JSON.stringify(bad)}: none of the three`);
+  // The bought quote volume is '0' so that a quote volume read as 0 would pass its range check: only the figure check leaves them out.
+  const broken = (field: 7 | 8, bad: unknown): Fetcher => async url => {
+    const end = Number(new URL(url).searchParams.get('endTime')), k = kline(Math.floor(end / 60_000) * 60_000 - 60_000);
+    k[field] = bad as never; if (field === 7) k[10] = '0';
+    return [k];
+  };
+  for (const field of [7, 8] as const) for (const bad of [null, '', false]) {
+    const got = await fetchCandles('binance:BTCUSDT', 60_000, T, T + 120_000, broken(field, bad), undefined, 1, { buy: true });
+    assert.equal(got.at(-1)!.length, 8, `${field === 7 ? 'quote volume' : 'trades'} ${JSON.stringify(bad)}: none of the three`);
   }
 });
 
