@@ -9,6 +9,7 @@ import { t } from '../i18n.ts';
 import type { InfoLine } from '../infobox.ts';
 import { oiDeltaByTime } from '../oi-change.ts';
 import { windowsOf } from '../keylevels/levels.ts';
+import type { Liquidation } from '../../shared/liquidations.ts';
 
 /**
  * Per-candle statistics, the Bar stats table under the map. Each definition computes one number per candle from the executions recorded
@@ -211,7 +212,32 @@ const liquidated = (input: StatInput, i: number): [number, number] | null => {
   const start = slotTime(input, i), buy = input.liquidations?.buy.get(start), sell = input.liquidations?.sell.get(start);
   return buy === undefined || sell === undefined ? null : [buy, sell];
 };
-const liquidationNote = (): string => t('≈ Only the largest 5,000 liquidations of this window are counted.');
+const liquidationNote = (): string => t('≈ A day of these candles held more than 5,000 liquidations: only its largest 5,000 are counted.');
+
+/** One UTC day of liquidations as the source answered it: every one it keeps, or its largest 5,000 (`cut`). */
+export interface LiquidationDay { rows: readonly Liquidation[]; cut: boolean }
+export const DAY_MS = 86_400_000;
+
+/**
+ * Liquidations of `ids` by candle start: shorts liquidated (forced buys) and longs liquidated (forced sells), USD. A candle counts (0 where
+ * none) where its UTC day is answered and the record reaches back to it (`coverFrom`: kept a week, and only since it started); `cut` where
+ * one of those days held more than the source answers.
+ */
+export function liquidationBuckets(days: ReadonlyMap<number, LiquidationDay>, ids: readonly string[], times: readonly number[], tfMs: number, coverFrom: number): NonNullable<StatInput['liquidations']> {
+  const buy = new Map<number, number>(), sell = new Map<number, number>(), wanted = new Set(ids), used = new Set<number>();
+  let cut = false;
+  for (const start of times) {
+    const day = Math.floor(start / DAY_MS) * DAY_MS, held = days.get(day);
+    if (!held || start < coverFrom) continue;
+    buy.set(start, 0); sell.set(start, 0); used.add(day); if (held.cut) cut = true;
+  }
+  for (const day of used) for (const l of days.get(day)!.rows) {
+    if (!wanted.has(l.id)) continue;
+    const start = Math.floor(l.t / tfMs) * tfMs, side = l.side === 'short' ? buy : sell, sum = side.get(start);
+    if (sum !== undefined) side.set(start, sum + l.usd);
+  }
+  return { buy, sell, cut };
+}
 
 /** A row flagged by `diagonalImbalances`: its low price, the heavier side, and how many times the opposite volume it is (Infinity against an empty row). */
 export interface Imbalance { low: number; side: 'buy' | 'sell'; ratio: number }
