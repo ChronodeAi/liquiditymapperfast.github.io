@@ -270,3 +270,11 @@ test('a pinned candle\'s card lists every statistic for it', () => {
   assert.deepEqual(lines.map(l => l.label ? `${l.label}: ${l.text}` : l.text).slice(0, 4), ['Pinned', 'Candle: Oct 20 14:00', 'vol: 1.2B', 'delta: -3.1M']);
   assert.equal(lines[3]!.color, 'sell');
 });
+
+test('the View figure of venue agreement needs every candle in view to say its markets', () => {
+  const parted = { ...bar(0, [[100, 70, 30]]), parts: [[['a', 60, 10], ['b', 10, 20]]] as Bar['parts'] }, bare = bar(MIN, [[100, 0, 1_000]]);
+  const def = statDef('venueAgree')!, slots: StatInput = { ...input(), bars: [parted, bare] };
+  assert.equal(def.view!(slots, [0, 1], def.compute(slots)), null, 'a heavy candle without them would turn the total');
+  const alone: StatInput = { ...input(), bars: [parted] };
+  assert.ok(def.view!(alone, [0], def.compute(alone)), 'with them, a figure');
+});

@@ -16,6 +16,7 @@ import { resolveZone } from '../traded/settings.ts';
 import { resetKeys } from '../delta/candles.ts';
 import { Asked } from '../measures/measure.ts';
 import { LIQUIDATIONS_PER_ANSWER, type Liquidation } from '../../shared/liquidations.ts';
+import { MAX_PROFILE_SPAN_MS } from '../../shared/footprint.ts';
 import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { barAt, columnAt, depthCardLines, depthColumns, depthKey, ltCardLines, oiCardLines, oiTail, readAt, slotAt } from './pane-cards.ts';
@@ -78,10 +79,11 @@ export abstract class TimePane {
     const source = this.#source = cls as 'depth' | 'oi' | 'lt' | 'bars' | 'delta' | 'ls';
     // A drag across a pane selects a stretch of time for the Range tool while it is armed, or with Ctrl (Cmd on a Mac) held.
     this.canvas.addEventListener('pointerdown', e => {
+      this.rangeGesture = false;
       if (e.pointerType === 'touch' || !this.#range) return;
       const x = e.clientX - this.canvas.getBoundingClientRect().left - this.#left;
       if (!selects(this.#range.armed, e) || x < 0 || x > this.plotW) return;
-      this.#selecting = { x }; this.#range.begin({ t: this.#timeAt(x), p: null }); this.canvas.setPointerCapture(e.pointerId);
+      this.rangeGesture = true; this.#selecting = { x }; this.#range.begin({ t: this.#timeAt(x), p: null }); this.canvas.setPointerCapture(e.pointerId);
     });
     this.canvas.addEventListener('pointerup', e => {
       const sel = this.#selecting; if (!sel || !this.#range) return;
@@ -149,6 +151,8 @@ export abstract class TimePane {
     this.#pinned = null;
     if (this.store.state.hover?.touch) this.store.set({ hover: null });
   }
+  /** Whether the last press began a Range selection: the click it ends in is the selection's, not a click on the pane. */
+  protected rangeGesture = false;
   /** Whether the pane answers the pointer at `x` (plot coordinates) itself, rather than as a time on the axis the panes share. */
   protected ownsPoint(_x: number): boolean { return false; }
   /** Header element, the grip target for drag-reordering. */
@@ -640,8 +644,12 @@ export class BarStatsPane extends TimePane {
   #cell: StatCell | null = null;
   /** The popup of the View column's cell under the pointer, when it is there. */
   #viewLines: InfoLine[] | null = null;
-  /** The candle pinned by a click (its start): shown with every statistic until it is clicked again or Esc is pressed. */
-  #pinned: number | null = null;
+  /**
+   * The candle pinned by a click (its start, and the market, the markets counted and the timeframe it was pinned on): shown with every statistic
+   * until it is clicked again, Esc is pressed, or any of those changes.
+   */
+  #pinned: { t: number; on: string } | null = null;
+  #pinContext(state: AppState): string { return `${state.marketId}|${state.timeframe}|${this.heat.footprintMarkets(state).join(',')}`; }
   /** The liquidations of the markets counted over the table's candles, every size the record keeps (as the Liquidations measure asks them). */
   #liquidations = new Asked<Liquidation[]>();
   #liqHeld: { ids: string; from: number; to: number; rows: readonly Liquidation[]; version: number } | null = null;
@@ -745,7 +753,7 @@ export class BarStatsPane extends TimePane {
   /** A click on a kind's header folds or unfolds its rows; on a candle it pins it (on the pinned one, lets it go). Not while the Range tool selects. */
   #click(e: MouseEvent): void {
     const state = this.store.state;
-    if (e.ctrlKey || e.metaKey || state.rangeTool) return;
+    if (this.rangeGesture || e.ctrlKey || e.metaKey || state.rangeTool) { this.rangeGesture = false; return; }
     const box = this.canvas.getBoundingClientRect(), x = e.clientX - box.left - leftGutter(state), y = e.clientY - box.top;
     const hit = this.#layout.find(b => y >= b.y && y < b.y + b.h);
     if (hit?.band.kind === 'head') {
@@ -757,7 +765,7 @@ export class BarStatsPane extends TimePane {
     if (!table || x < 0 || x > this.plotW) return;
     const at = this.view.tOf(x, this.plotW), start = table.times.find(s => at >= s && at < s + tfMs);
     if (start === undefined) return;
-    this.#pinned = this.#pinned === start ? null : start;
+    this.#pinned = this.#pinned?.t === start ? null : { t: start, on: this.#pinContext(state) };
     this.invalidate();
   }
 
@@ -767,7 +775,7 @@ export class BarStatsPane extends TimePane {
     const key = `${held.version}|${times[0]}|${times.length}|${times[times.length - 1]}|${tfMs}`;
     if (this.#liqBuckets?.key === key) return this.#liqBuckets.value;
     const buy = new Map<number, number>(), sell = new Map<number, number>(), wanted = new Set(ids);
-    for (const start of times) if (start >= held.from && start < held.to) { buy.set(start, 0); sell.set(start, 0); }
+    for (const start of times) if (start >= held.from && start + tfMs <= held.to) { buy.set(start, 0); sell.set(start, 0); }
     for (const l of held.rows) {
       if (!wanted.has(l.id)) continue;
       const start = Math.floor(l.t / tfMs) * tfMs, side = l.side === 'short' ? buy : sell, sum = side.get(start);
@@ -795,7 +803,7 @@ export class BarStatsPane extends TimePane {
     // Replay: only the candles that ended by its moment (a candle under way would carry its future executions).
     // The candles of the view and one each side (what the footprint asks for), not every bar it still holds: the running sums (cvd) start at the
     // view, whatever was looked at before; from each day's start, at the start of the day the left edge falls in (loaded whole for it).
-    const zone = resolveZone(state.traded.zone, state.timeZone), from = daily ? Math.min(v.t0, dayStartOf(v.t0, zone)) : v.t0;
+    const zone = resolveZone('page', state.timeZone), from = daily ? Math.min(v.t0, dayStartOf(v.t0, zone)) : v.t0;
     const now = pageNow(), until = replaying() ? now : Infinity, near = (start: number): boolean => start + tfMs <= until && start + 2 * tfMs > from && start < v.t1 + tfMs;
     // One slot per candle: the chart's candles, and a bar the footprint holds where a candle is missing. A candle without executions (before the
     // recording, a gap) is a slot without a bar: the rows read from the candles and open interest still show there.
@@ -806,11 +814,12 @@ export class BarStatsPane extends TimePane {
     if (!times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Bar stats appear once executions are recorded for the visible candles.'), 12, ph / 2); this.#table = null; return null; }
     const parts = oiPartsUntil(state.oiParts, tfMs, replaying() ? Math.floor(now / tfMs) * tfMs : Infinity);
     const taker = defs.some(def => def.id === 'takerDelta') ? this.heat.takerRows(state, tfMs, times[0]!) : null;
-    // Liquidations of the markets counted, every size the record keeps, over the table's candles (asked again as the window moves or runs on).
-    const source = this.hub.source, liqFrom = times[0]!, liqTo = times[times.length - 1]! + tfMs;
+    // Liquidations of the markets counted, every size the record keeps, over the table's candles to the view's end (steady through a replay, whose
+    // candles after its moment are not slots), and no longer than the source answers whole (its newest eight days): a candle before is not known.
+    const source = this.hub.source, liqTo = Math.ceil((v.t1 + tfMs) / tfMs) * tfMs, liqFrom = Math.max(times[0]!, liqTo - MAX_PROFILE_SPAN_MS);
     let liquidations: StatInput['liquidations'];
     if (source.liquidations && defs.some(def => def.id === 'liq' || def.id === 'liqNet') && markets.length) {
-      const ids = markets.join(','), live = liqTo >= Date.now() - tfMs;
+      const ids = markets.join(','), live = liqTo >= Date.now();
       this.#liquidations.ensure(ids, liqFrom, liqTo, live, () => source.liquidations!(liqFrom, liqTo).then(rows => { this.#liqHeld = { ids, from: liqFrom, to: liqTo, rows, version: (this.#liqHeld?.version ?? 0) + 1 }; return rows; }), () => this.invalidate());
       liquidations = this.#liquidationsFor(markets, times, tfMs);
     }
@@ -902,7 +911,8 @@ export class BarStatsPane extends TimePane {
         }
         // Unusual: how far above its own recent candles, from 0 to 3σ (none while the baseline warms up); else its size among the candles in view.
         const sigma = found?.sigma[i];
-        const t = cells === 'unusual' ? (sigma !== undefined && Number.isFinite(sigma) ? Math.min(1, Math.max(0, sigma) / 3) : 0) : strength(def, value, scale), tone = (value - (def.center ?? 0)) >= 0 ? p.candleUp : p.candleDown;
+        // A value flagged against a flat baseline (no spread, so no σ) is as unusual as a value can be.
+        const t = cells === 'unusual' ? (found?.flag[i] && !(sigma! > 0) ? 1 : sigma !== undefined && Number.isFinite(sigma) ? Math.min(1, Math.max(0, sigma) / 3) : 0) : strength(def, value, scale), tone = (value - (def.center ?? 0)) >= 0 ? p.candleUp : p.candleDown;
         // A filled cell takes its colours from the theme (the page's own colour toward its accent, or toward the side's colour) and its figures
         // from textOn: a fixed light ramp made a row of pale bars on every dark theme.
         const fill = def.scale === 'sequential' ? mixHex(p.panel, p.ui, 0.12 + 0.76 * t) : def.scale === 'diverging' ? mixHex(mixHex(p.panel, tone, 0.18), tone, t) : p.panel;
@@ -933,8 +943,8 @@ export class BarStatsPane extends TimePane {
       this.#cell = hoverCell;
     }
     // The pinned candle: its column boxed, and a card of every statistic beside it (gone with it out of view, back with it).
-    if (this.#pinned !== null && this.#pinned % tfMs !== 0) this.#pinned = null;
-    const pinIdx = this.#pinned === null ? -1 : times.indexOf(this.#pinned);
+    if (this.#pinned && this.#pinned.on !== this.#pinContext(state)) this.#pinned = null;
+    const pinIdx = this.#pinned ? times.indexOf(this.#pinned.t) : -1;
     let pin: { lines: InfoLine[]; x: number; y: number } | null = null;
     if (pinIdx >= 0 && visible.includes(pinIdx)) {
       const x = v.xOf(times[pinIdx]!, pw), w = Math.max(1, slot - 1);
@@ -1008,6 +1018,13 @@ export class BarStatsPane extends TimePane {
       if (open) ctx.lineTo(px, py); else { ctx.moveTo(px, py); open = true; }
     }
     ctx.stroke();
+    // A value with none beside it (zoomed to one candle, or between gaps) is a dot, not a line of no length.
+    ctx.fillStyle = diverging ? p.text : p.ui;
+    visible.forEach((i, k) => {
+      const x = values[i], before = k > 0 ? values[visible[k - 1]!] : null, after = k < visible.length - 1 ? values[visible[k + 1]!] : null;
+      if (x === null || x === undefined || (before !== null && before !== undefined) || (after !== null && after !== undefined)) return;
+      ctx.beginPath(); ctx.arc(v.xOf(times[i]!, pw) + slot / 2, yOf(x), 2, 0, Math.PI * 2); ctx.fill();
+    });
     if (unusual) for (const i of visible) {
       const x = values[i]; if (!unusual[i] || x === null || x === undefined) continue;
       ctx.globalAlpha = 1; ctx.strokeStyle = p.text; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(v.xOf(times[i]!, pw) + slot / 2, yOf(x), 3, 0, Math.PI * 2); ctx.stroke();

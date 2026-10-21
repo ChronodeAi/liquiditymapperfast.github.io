@@ -668,7 +668,7 @@ export class HeatPane {
     const markets = this.footprintMarkets(state);
     if (!markets.length) this.#footprint.clear();
     // The table's running sums from each day's start need the bars from the start of the day the left edge falls in.
-    const window = state.show.stats && state.barStatOptions.cvdFrom === 'day' ? { t0: Math.min(v.t0, dayStartOf(v.t0, resolveZone(state.traded.zone, state.timeZone))), t1: v.t1, p0: v.p0, p1: v.p1 } : v;
+    const window = state.show.stats && state.barStatOptions.cvdFrom === 'day' ? { t0: Math.min(v.t0, dayStartOf(v.t0, resolveZone('page', state.timeZone))), t1: v.t1, p0: v.p0, p1: v.p1 } : v;
     if (markets.length) this.#footprint.ensure(markets.join(','), state.timeframe, window, rowStep, (inst, tf, from, to, rows, lines, budget, venues) => this.hub.footprint(inst, tf, from, to, rows, lines, budget, venues), () => this.invalidate(), cuts, this.hub.sourceNow());
     const rowH = rowStep > 0 ? Math.abs(v.yOf(0, ph) - v.yOf(rowStep, ph)) : 0;
     const factor = visibilityFactor(state.candles, tfMs, v, pw, ph, rowH || 1, rowStep || 1);

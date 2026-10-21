@@ -326,7 +326,8 @@ export const BAR_STATS: readonly StatDef[] = [
     compute: input => perBar(input, bar => { const by = venueSums(bar); return by ? agreement(by) : null; }),
     view: (input, at) => {
       const by = new Map<string, [number, number]>();
-      for (const i of at) { const bar = input.bars[i]; if (bar) venueSums(bar, by); }
+      // A candle that traded without saying its markets would leave its delta out of the total's sign: then there is no figure.
+      for (const i of at) { const bar = input.bars[i]; if (!bar) continue; if (!bar.parts && total(bar) > 0) return null; venueSums(bar, by); }
       const share = agreement(by);
       return share === null ? null : { value: pctText(share), tone: 'text', how: t('Worked out from the candles in view added together.') };
     } },
