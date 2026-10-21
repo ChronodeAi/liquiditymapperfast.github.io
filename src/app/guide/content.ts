@@ -146,7 +146,7 @@ export const SECTIONS: readonly Section[] = [
     id: 'footprint', title: 'The footprint',
     blocks: [
       { t: 'p', text: 'Zoom into the time axis until each candle is wide and the **footprint** appears. At every price inside the candle it shows how much traded **at the bid** (sellers hitting it, the left number) and **at the ask** (buyers lifting it, the right number). Bars show each row\'s volume, coloured where one side was 15% bigger. The heatmap fades as the footprint takes over: both answer the same question at different scales.' },
-      { t: 'p', text: '**Delta** is buys minus sells. A candle that rose on mostly sellers\' volume is more fragile than one that rose on buyers\'. The strip under the chart (**Bar stats**) shows one number per candle, by default volume, delta and cumulative delta (cvd). **Stats** adds more.' },
+      { t: 'p', text: '**Delta** is buys minus sells. A candle that rose on mostly sellers\' volume is more fragile than one that rose on buyers\'. The table under the chart (**Bar stats**, shown with **Stats** among the panels, apart from the footprint) has one number per candle, by default volume, delta and cumulative delta (cvd); Stats in its header adds more.' },
       { t: 'p', text: '**Rejected aggressive buying or selling.** When a candle\'s wick holds more net aggressive buying than any equally tall slice of the rest of the candle, and the candle then closed at least one average range below where those buyers paid, the wick\'s busiest cells glow amber and slowly pulse. Hover them for the numbers. A lower wick works the same way for sellers.' },
       { t: 'fig', id: 'footprint', caption: 'Zooming in reveals the rows, then the imbalances, then a candle with rejected buying.' },
       { t: 'note', kind: 'warn', text: 'This describes a closed candle and says nothing about who holds what. It needs a footprint that holds the candle\'s whole volume (about an hour of recording at 5 minutes, longer at slower timeframes), and nobody has shown that it predicts anything. Treat it as a place to look, never as a signal.' },
@@ -168,9 +168,9 @@ export const SECTIONS: readonly Section[] = [
         '**Open Interest** is the number of contracts currently open, which is not volume. It rises when positions are opened and falls when they are closed, and it cannot tell you who is long or short. The small bars are its change per candle.',
         '**Delta** is each candle\'s market buys minus sells, as bars or as CVD candles, with divergences and **NL/NS**, an estimate of who opened and closed positions.',
         '**Liquidity Tracker** (LT) draws bid and ask liquidity near the price as two lines, the closest counting most. Bid above ask means more support below the price than resistance above.',
-        '**Bar stats** is the strip of numbers per candle described above.',
+        '**Bar stats** is the table of numbers per candle described above.',
       ] },
-      { t: 'p', text: 'Each has a **?** in its header, and the toolbar buttons (Depth, OI, Delta, LT) show or hide them.' },
+      { t: 'p', text: 'Each has a **?** in its header, and the toolbar buttons (Depth, OI, Delta, LT, Stats) show or hide them.' },
     ],
   },
   {

@@ -672,7 +672,8 @@ export class HeatPane {
     // The table alone draws nothing on the map: the footprint's level of detail stays off, and with it the heatmap's dimming and the traps.
     this.#lodFrame = this.#lod.step(now, { enabled: drawn, hasData: this.#footprint.bars.size > 0, widthCss: pw * tfMs / (v.t1 - v.t0), rowHeightCss: rowH, factor });
     // A trap needs the candles and the footprint to be the same market's; a chart showing a reference series instead says nothing about this market's flow.
-    if (this.#lodFrame.barAlpha > 0.05 && state.seriesInstrument === state.marketId && !replaying()) {
+    // Only while the footprint shows: switched off with the table still on, its fade must not start another scan.
+    if (drawn && this.#lodFrame.barAlpha > 0.05 && state.seriesInstrument === state.marketId && !replaying()) {
       this.#traps.ensure({ inst: state.marketId, tf: state.timeframe, tfMs, candles: state.candles, fine, view: v, load: (inst, tf, from, to, rows) => this.hub.footprint(inst, tf, from, to, rows), onLoad: () => this.invalidate() });
     } else this.#traps.clear();
     if (this.#lodFrame.needsFrame) this.invalidate();
