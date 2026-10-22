@@ -291,7 +291,11 @@ export class LadderPane {
   invalidate(): void { if (this.#suspended) { this.#owed = true; return; } if (!this.#frame) this.#frame = requestAnimationFrame(() => { this.#frame = 0; this.#render(); }); }
   /** Covered by a view of its own (the phone's Candle tab): nothing is drawn until it shows again (pull/stack still takes its snapshots as the frames arrive). */
   #suspended = false; #owed = false;
-  setSuspended(on: boolean): void { if (on === this.#suspended) return; this.#suspended = on; if (on) this.#cues.stop(); if (!on && this.#owed) { this.#owed = false; this.invalidate(); } }
+  /**
+   * Covered (the phone's Tape tab) or not. A covered book lights nothing and what was lit is let go; it is drawn again when it shows, whether or not
+   * data came meanwhile, so no cue is left painted on the canvas for the first look at it (it may have been covered with cells lit).
+   */
+  setSuspended(on: boolean): void { if (on === this.#suspended) return; this.#suspended = on; if (on) this.#cues.stop(); else { this.#owed = false; this.invalidate(); } }
   /** Whether the book is on screen and live, which is when it may light anything: the page is visible, the pane is shown and not covered, no replay runs. */
   /** Whether the book is on screen and live: the page is visible, the pane is not covered, hidden (switched off, or by the phone's tabs: it has no size then) or in replay. */
   #cueShown(): boolean { return !document.hidden && !this.#suspended && !this.root.hidden && this.#w >= MIN_BOOK_W && !replaying(); }
