@@ -70,11 +70,18 @@ export interface CueTuning {
   tauFreshMs: number; tauActivityMs: number; zoneSteps: number; pairBins: number; pairTolerance: number; confirmRatio: number;
   noiseHalfLifeMs: number; minGapMs: number; gapCadences: number; forgetMs: number; meanShare: number; noiseMultiple: number; noiseClip: number;
   backToleranceMs: number; ghostMs: number;
+  /**
+   * Whether an increase under the gate counts towards the recent net increase. It does by default, as the brief says, and a cell that jitters
+   * (adds and takes back a little each second) then fills up with recent increases whatever its quantity does: a decrease takes from them in
+   * proportion, so its share of fresh climbs towards 1. With `true` only increases that were worth an event count, and a jittering cell stays
+   * as it was.
+   */
+  freshGated: boolean;
 }
 export const DEFAULT_TUNING: CueTuning = {
   tauFreshMs: TAU_FRESH_MS, tauActivityMs: TAU_ACTIVITY_MS, zoneSteps: ZONE_STEPS, pairBins: PAIR_BINS, pairTolerance: PAIR_TOLERANCE, confirmRatio: CONFIRM_RATIO,
   noiseHalfLifeMs: NOISE_HALF_LIFE_MS, minGapMs: MIN_GAP_MS, gapCadences: GAP_CADENCES, forgetMs: FORGET_MS, meanShare: MEAN_SHARE, noiseMultiple: NOISE_MULTIPLE,
-  noiseClip: NOISE_CLIP, backToleranceMs: BACK_TOLERANCE_MS, ghostMs: GHOST_MS,
+  noiseClip: NOISE_CLIP, backToleranceMs: BACK_TOLERANCE_MS, ghostMs: GHOST_MS, freshGated: false,
 };
 
 /** What the tracker reads of a `LiveBook` (structural: a `LiveBook` is one). `step` is the grid the server merged the book on (`ValuedBook.step`). */
@@ -284,12 +291,15 @@ function judge(gate: number, qp: number, qn: number, pend: number, pre: number, 
   return dropped;
 }
 
-/** The estimates after a change from `qp` to `qn` over `dtMs`: the fresh share cools and takes the gain or its share of the loss, the unknown share its share of the loss. */
+/**
+ * The estimates after a change from `qp` to `qn`: the recent increase and the activity cool by the factors `fresh` and `active` (of the time since the
+ * last publication), the recent increase takes the gain (when `gain`: see `CueTuning.freshGated`) or its share of the loss, the unknown share its share of the loss.
+ */
 const est = { m: 0, u: 0, a: 0 };
-function advance(m: number, u: number, a: number, qp: number, qn: number, fresh: number, active: number): void {
+function advance(m: number, u: number, a: number, qp: number, qn: number, fresh: number, active: number, gain: boolean): void {
   const d = qn - qp;
   m *= fresh; a *= active;
-  if (d > 0) m += d; else if (d < 0) { const keep = qp > 0 ? qn / qp : 0; m *= keep; u *= keep; }
+  if (d > 0) { if (gain) m += d; } else if (d < 0) { const keep = qp > 0 ? qn / qp : 0; m *= keep; u *= keep; }
   a += d < 0 ? -d : d;
   if (m > qn) m = qn;
   if (u > qn - m) u = qn - m > 0 ? qn - m : 0;
@@ -564,7 +574,7 @@ export class BookCueTracker {
         const qp = s.q[i]!, d = qn - qp, ad = d < 0 ? -d : d;
         // Nothing changed and nothing waits (nearly every cell, nearly every time): the estimates only cool.
         if (d === 0 && pend[i] === 0) { s.m[i]! *= fresh; s.a[i]! *= active; if (qn > 0) nCnt++; continue; }
-        advance(s.m[i]!, s.u[i]!, s.a[i]!, qp, qn, fresh, active);
+        advance(s.m[i]!, s.u[i]!, s.a[i]!, qp, qn, fresh, active, !t.freshGated || d >= gate);
         s.m[i] = est.m; s.u[i] = est.u; s.a[i] = est.a;
         if (qp > 0 || qn > 0) { nSum += ad < cap ? ad : cap; nCnt++; }
         // A change measured from the value before a weak one rests on the publication that value was in.
@@ -669,7 +679,7 @@ export class BookCueTracker {
     const first = out.length;
     const visit = (cell: Cell, qn: number): void => {
       const qp = cell.q, d = qn - qp, ad = d < 0 ? -d : d;
-      advance(cell.m, cell.u, cell.a, qp, qn, fresh, active);
+      advance(cell.m, cell.u, cell.a, qp, qn, fresh, active, !t.freshGated || d >= gate);
       cell.m = est.m; cell.u = est.u; cell.a = est.a;
       if (qp > 0 || qn > 0) { nSum += ad < cap ? ad : cap; nCnt++; }
       const from = cell.pend !== 0 ? cell.preWall : st.lastWall;

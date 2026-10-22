@@ -706,6 +706,23 @@ test('the estimates of a cell: unknown at first, an increase is recent, a decrea
   near(h.fresh, 1, 'a returned cell is recent'); near(h.unknown, 0, 'and not unknown');
 });
 
+test('freshGated leaves increases under the gate out of the recent increase: a cell that only jitters stays as it was, a real addition still counts', () => {
+  const BIN = MID - 5, [lo, hi] = cell(BIN);
+  const jitter = (freshGated: boolean): number => {
+    const tr = new BookCueTracker({ freshGated }); let l = ladder();
+    tr.observe([book(ID, 0, l)], [ID], ctx(0));
+    for (let k = 1; k <= 40; k++) { l = copy(l); l.bids.set(BIN, k % 2 ? 1_030_000 : 1_000_000); tr.observe([book(ID, k * 1_000, l)], [ID], ctx(k * 1_000)); }
+    return tr.heat(ID, 'bid', lo, hi, 40_000)!.fresh;
+  };
+  assert.ok(jitter(false) > 0.25, 'by default a jittering cell fills up with recent increases (each decrease takes only its share of them)');
+  assert.equal(jitter(true), 0, 'gated: $30k against a gate of $50k never counts');
+  const tr = new BookCueTracker({ freshGated: true }), l = ladder();
+  tr.observe([book(ID, 0, l)], [ID], ctx(0));
+  const up = copy(l); up.bids.set(BIN, 1_100_000);
+  tr.observe([book(ID, 1_000, up)], [ID], ctx(1_000));
+  near(tr.heat(ID, 'bid', lo, hi, 1_000)!.fresh, 0.1 / 1.1, 'a $100k increase is over the gate');
+});
+
 test('a cell that enters the zone is unknown, one that leaves it has no estimate, and a book that is not held has none', () => {
   const tr = new BookCueTracker(), l = ladder();
   tr.observe([book(ID, 1_000, l)], [ID], ctx(1_000));
