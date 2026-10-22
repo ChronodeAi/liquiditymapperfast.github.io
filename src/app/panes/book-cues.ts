@@ -37,8 +37,10 @@ import { binOf } from '../../shared/footprint.ts';
  * liquidity coming or going).
  *
  * Pure: no DOM, no WASM (the step costs 0.07 ms for 12 books x 120 bins, and JavaScript matched or beat a Rust kernel in the study, which
- * copies across the boundary), no text. State is typed arrays of at most `BINS` cells a side a book, reused; a frame allocates the events
- * it returns and nothing else once a book is warm.
+ * copies across the boundary), no text. State is typed arrays of 2 x `ZONE_STEPS` + 20 cells (518) a side a book, reused; once a book is
+ * warm a frame allocates the events it returns, the array that holds them and a few iterators, nothing sized by the books. Measured in
+ * Node (`Research_Files/order_book_physics_20261022/tracker-bench.mts`): the eleven default books at about 430 levels a side with four new
+ * publications a frame take 0.24 ms (a frame that repeats them all, 0.07 ms); 25 books at 500 levels a side with eight, 0.57 ms.
  */
 
 /** Estimated recent net increase cools with this time constant; recent activity (adds and removes) with the second. */
@@ -127,7 +129,11 @@ export interface CueContext { wall: number; scale: number; floorUsd: number }
 /** One display row of an event: the share of the event's USD that falls in the row (`rowEvents`). */
 export interface RowEvent { id: string; side: CueSide; row: number; usd: number; strength: number; wall: number; prevWall: number; seq: number; removed: boolean; added: boolean; pair: boolean; band: boolean }
 
-export interface CueStats { frames: number; observations: number; distinct: number; baselines: number; events: number; weakDropped: number; pairs: number; errors: number }
+/**
+ * Counters: `observations` is books looked at (every book of every frame), `distinct` the publications among them (a book that differs from its
+ * last and was compared from), `hints` the frames of a banded book that changed with its stamp unchanged (revalued by the touch hint: no publication).
+ */
+export interface CueStats { frames: number; observations: number; distinct: number; hints: number; baselines: number; events: number; weakDropped: number; pairs: number; errors: number }
 
 const sizeFor = (len: number): number => { let n = 16; while (n < len) n *= 2; return n; };
 /** USD figures and prices the arithmetic can use: finite, and no bigger than something real. */
@@ -297,7 +303,7 @@ const overlaps = (lo: number, hi: number, spanLo: number, spanHi: number): boole
  * since its last publication costs one comparison and nothing else.
  */
 export class BookCueTracker {
-  readonly stats: CueStats = { frames: 0, observations: 0, distinct: 0, baselines: 0, events: 0, weakDropped: 0, pairs: 0, errors: 0 };
+  readonly stats: CueStats = { frames: 0, observations: 0, distinct: 0, hints: 0, baselines: 0, events: 0, weakDropped: 0, pairs: 0, errors: 0 };
   readonly #t: CueTuning;
   readonly #n: number;
   readonly #books = new Map<string, Book>();
@@ -350,14 +356,13 @@ export class BookCueTracker {
       st.seen = wall;
       try {
         if (st.pub.matches(book)) continue;
-        this.stats.distinct++;
         this.#publish(st, book, ctx, out);
       } catch {
         // A frame the tracker cannot read is a frame it does not compare from: the next one starts again.
         this.stats.errors++; st.usable = false; st.pub.valid = false;
       }
     }
-    for (const [id, st] of this.#books) if (!this.#done.has(id) && wall - st.seen > this.#t.forgetMs) this.#books.delete(id);
+    for (const st of this.#books.values()) if (wall - st.seen > this.#t.forgetMs && !this.#done.has(st.id)) this.#books.delete(st.id);
     this.#done.clear();
     return out;
   }
@@ -419,6 +424,11 @@ export class BookCueTracker {
   /** One publication of a book that differs from its last: the time rules, then the comparison by the book's kind. */
   #publish(st: Book, book: CueBook, ctx: CueContext, out: CueEvent[]): void {
     const t = this.#t, wall = ctx.wall, mode = book.coarse ? 'band' : 'point';
+    // A banded book whose stamp did not move was revalued by the touch hint (the cut inside its top groups follows the trades), not published
+    // again (Hyperliquid: about three of these to each real refresh in the live check): it says nothing new of its bands, so it neither confirms
+    // nor drops a waiting change and is no step of its rhythm. What it holds is kept, so it is not looked at again.
+    if (mode === 'band' && st.mode === 'band' && st.usable && Number.isFinite(book.timestamp) && book.timestamp === st.lastStamp) { this.stats.hints++; st.pub.store(book); return; }
+    this.stats.distinct++;
     let baseline = !st.usable || st.mode !== mode;
     let dt = 0;
     if (st.observations > 0) {
@@ -716,8 +726,8 @@ export class BookCueTracker {
  * the rows its interval overlaps in proportion to the overlap (a band spreads as `spread_levels` spreads it, a grid bin finer than a row lies
  * in one row or two, a row finer than the grid takes its part), and the events of one venue, side and publication that meet in a row are
  * summed, their strength worked out again from the sum. `removed` and `added` are true when every event that meets in the row says so: for a
- * row of several bins that is a hint, and the reader looks at the cell. `window` keeps only the rows of that price range; an event never makes
- * more than 4,096 rows.
+ * row of several bins that is a hint, and the reader looks at the cell; `pair` and `band` are true when any of them is, `seq` is the newest and
+ * `prevWall` the earliest. `window` keeps only the rows of that price range; an event never makes more than 4,096 rows.
  */
 export function rowEvents(events: readonly CueEvent[], step: number, scale: number, window?: { lo: number; hi: number }): RowEvent[] {
   if (!(step > 0) || !Number.isFinite(step) || events.length === 0) return [];

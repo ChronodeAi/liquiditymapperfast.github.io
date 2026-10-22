@@ -255,6 +255,7 @@ test('reset forgets every book, and the ids a frame does not ask for are not tra
   assert.equal(tr.info('other'), null); assert.equal(tr.size().books, 1);
   tr.reset();
   assert.equal(tr.info(ID), null);
+  assert.equal(tr.heat(ID, 'bid', ...cell(MID - 5), 1_500), null, 'and with it the estimates');
   assert.deepEqual(tr.observe([book(ID, 2_000, big)], [ID], ctx(2_000)), [], 'a baseline');
 });
 
@@ -511,6 +512,23 @@ test('a band that went empty inside the range the book reaches is a removal; one
   assert.deepEqual([back.lo, back.usd, back.added], [80_900, 2_000_000, true]);
 });
 
+test('a band that went empty is kept for a minute (its last event stays for the hover), and its return is an addition either way: the range it was in was known to be empty', () => {
+  const run = (gap: number): { remembered: CueEvent | null; back: CueEvent[] } => {
+    const tr = new BookCueTracker();
+    tr.observe([hl(0)], [HL], ctx(0));
+    tr.observe([hl(5_400, { bid: { 80_900: null } })], [HL], ctx(5_400));         // gone (a removal event)
+    let wall = 5_400;
+    while (wall + 5_400 < 5_400 + gap) { wall += 5_400; tr.observe([hl(wall, { bid: { 80_900: null } })], [HL], ctx(wall)); }
+    const remembered = tr.recent(HL, 'bid', 80_900, 81_000);
+    wall += 5_400;
+    return { remembered, back: tr.observe([hl(wall)], [HL], ctx(wall)) };         // and back
+  };
+  const soon = run(30_000), late = run(70_000);
+  assert.deepEqual([soon.remembered?.removed, soon.remembered?.usd], [true, -2_000_000], 'thirty seconds on, the removal is still the band\'s last event');
+  assert.equal(late.remembered, null, 'seventy seconds on, it is forgotten');
+  for (const r of [soon, late]) assert.deepEqual(r.back.map(e => [e.lo, e.added, e.usd]), [[80_900, true, 2_000_000]]);
+});
+
 test('a venue that changes its grouping (every edge new) is a baseline, not the pull of everything', () => {
   const tr = new BookCueTracker();
   tr.observe([hl(1_000)], [HL], ctx(1_000));
@@ -526,6 +544,33 @@ test('a book that publishes every 5.4 s is compared on each publication and is n
   assert.equal(tr.stats.baselines, 1);
   assert.ok(Math.abs(tr.info(HL)!.cadenceMs - 5_400) < 1);
   assert.deepEqual(tr.info(HL)!.zone, { lo: 79_700, hi: 82_800 });
+});
+
+test('a banded book that changed with its stamp unchanged was revalued by the touch hint: no publication, no confirmation, no step of its rhythm', () => {
+  const tr = new BookCueTracker();
+  tr.observe([hl(1_000)], [HL], ctx(1_000));
+  // A weak change at the next real publication: $200k on a band of $2M is over the gate (5 % of the mean band), under three of it.
+  assert.deepEqual(tr.observe([hl(6_400, { bid: { 81_000: 2_200_000 } })], [HL], ctx(6_400)), []);
+  // The hint moves the cut inside the top groups: the stamp is the same, the top bands differ, nothing else does.
+  const hint = { bid: { 81_000: 2_200_000 }, topBid: 3_300_000, topAsk: 2_700_000 };
+  assert.deepEqual(tr.observe([hl(6_400, hint)], [HL], ctx(7_400)), []);
+  assert.deepEqual([tr.stats.hints, tr.info(HL)!.observations, tr.stats.weakDropped, tr.stats.events], [1, 2, 0, 0], 'the change is still waiting');
+  // The next real publication confirms it, measured from the publication before the weak change.
+  const e = only(tr.observe([hl(11_800, { bid: { 81_000: 2_200_100 } })], [HL], ctx(11_800)));
+  assert.deepEqual([e.confirmed, e.usd, e.prevWall, e.wall], [true, 200_100, 1_000, 11_800]);
+  assert.ok(Math.abs(tr.info(HL)!.cadenceMs - 5_400) < 1, 'the hint was no step of the rhythm');
+  // A hint seen again is the same frame: it is not looked at twice.
+  const again = { bid: { 81_000: 2_200_100 }, topBid: 3_300_000, topAsk: 2_700_000 };
+  tr.observe([hl(11_800, again)], [HL], ctx(12_000));
+  const hints = tr.stats.hints;
+  tr.observe([hl(11_800, again)], [HL], ctx(12_250));
+  assert.equal(tr.stats.hints, hints);
+  // A point book is different: a changed book with the same stamp is a publication (a far book that arrived, a venue that stamps by the second).
+  const l = ladder(), big = copy(l); big.asks.set(MID + 4, 3_000_000);
+  const pt = new BookCueTracker();
+  pt.observe([book(ID, 1_000, l)], [ID], ctx(1_000));
+  assert.equal(only(pt.observe([book(ID, 1_000, big)], [ID], ctx(1_250))).usd, 2_000_000);
+  assert.equal(pt.stats.hints, 0);
 });
 
 test('a band keeps its estimates: the share that is recent, the share that is unknown, the part of a band a row covers', () => {
@@ -813,6 +858,30 @@ test('malformed books never throw and are never compared from', () => {
   const next = copy(good); next.bids.set(MID - 3, 3_000_000);
   const e = only(tr.observe([book(ID, 11_000, next)], [ID], { wall: 11_000, scale: Number.NaN, floorUsd: Number.NaN }));
   assert.ok(e.strength > 0.8 && e.strength < 0.9, 'the default reference size');
+});
+
+test('a book whose arrays are missing is counted as an error and starts the book again, and nothing else is stopped by it', () => {
+  const tr = new BookCueTracker(), l = ladder(), other = 'other';
+  tr.observe([book(ID, 1_000, l), book(other, 1_000, l)], [ID, other], ctx(1_000));
+  const broken = { id: ID, timestamp: 2_000, coarse: false, step: G, bids: undefined, asks: undefined } as unknown as CueBook;
+  const big = copy(l); big.asks.set(MID + 4, 3_000_000);
+  const events = tr.observe([broken, book(other, 2_000, big)], [ID, other], ctx(2_000));
+  assert.deepEqual(events.map(e => e.id), [other], 'the other book was read');
+  assert.equal(tr.stats.errors, 1);
+  assert.deepEqual(tr.observe([book(ID, 3_000, big)], [ID], ctx(3_000)), [], 'the broken book starts again');
+  assert.equal(only(tr.observe([book(ID, 4_000, (() => { const x = copy(big); x.asks.set(MID + 4, 5_000_000); return x; })())], [ID], ctx(4_000))).usd, 2_000_000);
+});
+
+test('a weak change waiting when its cell stops being comparable is dropped, and is never raised later', () => {
+  const tr = new BookCueTracker(), l = ladder(1_000_000, 40);                      // asks MID .. MID + 39
+  tr.observe([book(ID, 1_000, l)], [ID], ctx(1_000));
+  const weak = copy(l); weak.asks.set(MID + 5, 1_100_000);
+  assert.deepEqual(tr.observe([book(ID, 2_000, weak)], [ID], ctx(2_000)), []);
+  const shorter = copy(weak); for (let k = 4; k < 40; k++) shorter.asks.delete(MID + k);   // the depth limit comes in past the cell
+  assert.deepEqual(tr.observe([book(ID, 3_000, shorter)], [ID], ctx(3_000)), []);
+  assert.equal(tr.stats.weakDropped, 1);
+  assert.deepEqual(tr.observe([book(ID, 4_000, weak)], [ID], ctx(4_000)), [], 'the cell is back as a baseline: the change that waited is gone');
+  assert.deepEqual(tr.observe([book(ID, 5_000, nudge(weak))], [ID], ctx(5_000)), []);
 });
 
 test('a book that has only ever been broken holds no estimate', () => {
