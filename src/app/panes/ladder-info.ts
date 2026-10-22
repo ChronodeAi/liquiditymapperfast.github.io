@@ -47,7 +47,8 @@ export function cueLines(f: Pick<LevelFacts, 'ask' | 'changes' | 'heat'>, limit 
   const lines: InfoLine[] = [];
   const changes = (f.changes ?? []).slice(0, limit);
   changes.forEach((c, i) => lines.push({ label: i === 0 ? t('Last change') : '', text: `${signedUsd(c.usd)}${c.removed ? ` · ${t('emptied')}` : ''} · ${agoText(c.ageMs)}`, color: f.ask ? 'above' : 'below', rule: i === 0, ...(c.id ? { mark: c.id } : {}) }));
-  if (changes.some(c => c.pair)) lines.push({ text: t('Another change nearby, the other way: probably a re-quote.'), color: 'muted', wrap: true });
+  // Two opposite changes of about one size next to each other are said as that: nothing in the book says whether it is one order moving, a row's edge crossed, or two.
+  if (changes.some(c => c.pair)) lines.push({ text: t('A change nearby went the other way, by about the same size.'), color: 'muted', wrap: true });
   if (f.heat && f.heat.fresh + f.heat.unknown + f.heat.activity > 0) {
     const h = f.heat, pct = (v: number): string => `${Math.round(v * 100)}%`;
     lines.push(h.kind === 'added' ? { label: t('Recent adds'), text: pct(h.fresh), rule: !changes.length } : { label: t('Recent change'), text: pct(h.activity), rule: !changes.length });

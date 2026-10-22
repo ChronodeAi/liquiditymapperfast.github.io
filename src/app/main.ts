@@ -264,7 +264,7 @@ async function main(): Promise<void> {
     if (changed.has('levels')) { if (state.show.book) ladder.levelsArrived(); ladder.invalidate(); ladder.syncVenues(); heat.invalidate(); }
     // The cues' look and heat, and a reconnect (what the book showed before it is not compared with what it shows after).
     if (changed.has('ladderCues')) { ladder.cuesChanged(); hub.setTape(tapeWanted()); }
-    if (changed.has('connected')) ladder.connectionChanged();
+    if (changed.has('connected') || (changed.has('show') && !state.show.book)) ladder.interrupted();
     // Replay starting or ending changes what the book, the flow column and the panes show, whether or not new data arrives.
     if (changed.has('replay')) { ladder.invalidate(); cvd.invalidate(); heat.invalidate(); lower(); }
     if (changed.has('layers') || changed.has('layer') || changed.has('candles') || changed.has('mark') || changed.has('heat') || changed.has('show')) heat.invalidate();

@@ -48,6 +48,8 @@ const signedUsd = (v: number): string => `${v > 0 ? '+' : v < 0 ? '−' : ''}${u
 /** Dragging the price column zooms; this is the width of that column's hit area, and how far to drag per zoom step. */
 const AXIS_W = PRICE_W + 6, AXIS_DRAG_PX = 26;
 const BOOK_MIN_W = 250;
+/** A pane narrower than this draws no book (it is hidden: it has no size), and lights nothing. */
+const MIN_BOOK_W = 80;
 /** A step as the Group list writes it: as it is, or in decimals once it is small enough that it would read "2e-9". */
 const stepText = (step: number): string => step >= 1e-4 ? String(step) : fmtPrice(step, step);
 
@@ -143,7 +145,8 @@ export class LadderPane {
     host.append(this.root);
     this.#mat = this.#matCanvas.getContext('2d')!;
     this.#ctx = this.#canvas.getContext('2d')!;
-    this.#cues = new CueLayer({ mat: this.#mat, canvas: this.#matCanvas, dpr: () => this.#dpr, palette: () => this.#palette, shown: () => this.#cueShown() });
+    this.#cues = new CueLayer({ mat: this.#mat, canvas: this.#matCanvas, dpr: () => this.#dpr, palette: () => this.#palette, shown: () => this.#cueShown(),
+      view: () => ({ x0: this.#scroller.scrollLeft, x1: this.#scroller.scrollLeft + this.#w }) });
     this.#cues.setLook(this.store.state.ladderCues.look); this.#cues.setSense(this.store.state.ladderCues.sense);
     new ResizeObserver(() => this.#resize()).observe(this.#scroller);
     this.#bindInput();
@@ -290,15 +293,20 @@ export class LadderPane {
   #suspended = false; #owed = false;
   setSuspended(on: boolean): void { if (on === this.#suspended) return; this.#suspended = on; if (on) this.#cues.stop(); if (!on && this.#owed) { this.#owed = false; this.invalidate(); } }
   /** Whether the book is on screen and live, which is when it may light anything: the page is visible, the pane is shown and not covered, no replay runs. */
-  #cueShown(): boolean { return !document.hidden && !this.#suspended && !this.root.hidden && !replaying(); }
+  /** Whether the book is on screen and live: the page is visible, the pane is not covered, hidden (switched off, or by the phone's tabs: it has no size then) or in replay. */
+  #cueShown(): boolean { return !document.hidden && !this.#suspended && !this.root.hidden && this.#w >= MIN_BOOK_W && !replaying(); }
   /** The cue settings changed (or another coin's book begins): the layer takes the look, and the book is drawn with or without the gutter and the strips. */
   cuesChanged(): void { this.#cues.setLook(this.store.state.ladderCues.look); this.#cues.setSense(this.store.state.ladderCues.sense); this.invalidate(); }
-  /** The socket closed or opened again: what was seen before is not compared with what comes after (a reconnect is a new book, not a burst of changes). */
-  connectionChanged(): void { this.#cues.reset(); }
+  /**
+   * The book was away: the socket closed or opened again, or the pane was switched off. What was seen before is not compared with what comes
+   * after (a reconnect is a new book, not a burst of changes, and a pane switched on again is not shown what happened while it was off).
+   */
+  interrupted(): void { this.#cues.reset(); }
   /** Market orders arrived (the trade tape): the large ones ripple on the venues' cells they reached, without the book being drawn again. */
   tapeArrived(): void {
     const state = this.store.state, cues = state.ladderCues;
-    if (!cues.contact || cues.look === 'off' || !state.show.book || !(state.mark.price > 0)) return;
+    // Not reading the tape (contacts off, the pane away): the next reading starts where the tape stands, not at the orders that came meanwhile.
+    if (!cues.contact || cues.look === 'off' || !state.show.book || !(state.mark.price > 0) || !this.#cueShown()) { this.#cues.forgetTape(); return; }
     const ids = new Set(state.ladderMode === 'single' ? this.#singleIds(state) : activeIds(state));
     if (this.#cues.readContacts(this.hub?.tape ?? null, ids) > 0) this.#cues.lightNow();
   }
@@ -444,7 +452,7 @@ export class LadderPane {
     for (const c of [mat, ctx]) { c.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0); c.clearRect(0, 0, width, h); }
     // The context keeps the last frame's alignment (the columns are right-aligned): a message starts at the left.
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    if (!frame || !(mark > 0) || width < 80) { ctx.fillStyle = p.muted; ctx.fillText(t('Waiting for order book…'), 12, 20); this.#cues.stop(); return; }
+    if (!frame || !(mark > 0) || width < MIN_BOOK_W) { ctx.fillStyle = p.muted; ctx.fillText(t('Waiting for order book…'), 12, 20); this.#cues.stop(); return; }
     // Replay: the books are recorded a minute at a time (the map's columns), not as a ladder; this one is the live book, which would mislead.
     if (replaying()) { ctx.fillStyle = p.muted; ctx.fillText(t('Replay: the order book is live only.'), 12, 20); this.#cues.stop(); return; }
     // Pull/stack: its snapshots are taken as the frames arrive (`levelsArrived`); here only the price between them is noted.
@@ -486,7 +494,8 @@ export class LadderPane {
       const order = state.ladderMode === 'compact' && ids.length > 1 ? this.#venueOrder(g, hiBin - rows + 1, hiBin) : null;
       this.#curvesLeftOut = [];
       const curves = withMark && state.ladderMode === 'compact' && state.ladderShow !== 'levels' && state.ladderCurves > 0 ? this.#curves(state, g, frame, markBin, hiBin - rows + 1, hiBin) : null;
-      this.#drawBook(mat, ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? ids : null, order, curves, cellW, head, balanceH, cover: null, totals: withMark, centerBin, rows, markBin, mark, step });
+      // The cell columns are the grouping's own venues, in its order (`g.ids`): the arrays the cells are read from are indexed by it.
+      this.#drawBook(mat, ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? g.ids : null, order, curves, cellW, head, balanceH, cover: null, totals: withMark, centerBin, rows, markBin, mark, step });
     }
     // The cues go over what was just drawn (the resting material is copied for them, the lit cells are laid over it, and a frame loop runs only while any is lit).
     this.#cues.end();
@@ -585,8 +594,10 @@ export class LadderPane {
     // The gutter answers for a row whose level may have emptied (the mark of a cell that went to nothing has no bar to point at), so it comes before the size is asked.
     const rowIds = o.markId ? [o.markId] : g.ids;
     if (k.gut > 0 && hv.x >= k.barX - k.gut && hv.x < k.barX) {
-      const changes = this.#changesAt(rowIds, isAsk, rowLo, rowLo + step);
-      return changes.length ? { lines: gutterLines({ low: rowLo, step, mark: o.mark, ask: isAsk, changes, ...(o.title ? { title: o.title } : {}) }), x: k.barX - k.gut, y: head + r * ROW_H, w: k.gut, h: ROW_H } : null;
+      // The mark in the box is what is pointed at, and it says the side it was made on (the row may show the other side by now); a box with none answers for the side the row shows.
+      const mark = this.#cues.board.markAt(g.bin0 + bin, o.markId ?? ''), markAsk = mark ? mark.side === 'ask' : isAsk;
+      const changes = this.#changesAt(rowIds, markAsk, rowLo, rowLo + step);
+      return changes.length ? { lines: gutterLines({ low: rowLo, step, mark: o.mark, ask: markAsk, changes, ...(o.title ? { title: o.title } : {}) }), x: k.barX - k.gut, y: head + r * ROW_H, w: k.gut, h: ROW_H } : null;
     }
     if (!(size > 0)) return null;
     const y = head + r * ROW_H, ids = o.cells, at = (i: number): number => (isAsk ? g.ask[i] : g.bid[i])?.[bin] ?? 0;
@@ -990,10 +1001,10 @@ export class LadderPane {
           for (const piece of pieces) {
             const rect: Cell = { x: piece.x, y: y + 2, w: Math.max(1, piece.w - (piece.w >= 3 ? 1 : 0)), h: ROW_H - 4, usd: piece.usd };
             if (piece.id) { place(piece.id, r, isAsk, rect, rowLo); continue; }
-            // The smaller venues' piece: each of them lights it, and its strip is theirs added up (by size).
+            // The smaller venues' piece is one block of material that none of them owns: a change of one of them lights nothing there (it leaves its
+            // mark and its hover), and the piece's strip is theirs added up (by size).
             let fresh = 0, total = 0;
             for (const m of piece.merged) {
-              cues.cells.set(m.id, r, isAsk ? 1 : 0, rect.x, rect.y, rect.w, rect.h, m.usd);
               const h = heatKind === 'off' ? null : cues.tracker.heat(m.id, isAsk ? 'ask' : 'bid', rowLo, rowLo + step, wall);
               if (h) fresh += share(h) * m.usd;
               total += m.usd;

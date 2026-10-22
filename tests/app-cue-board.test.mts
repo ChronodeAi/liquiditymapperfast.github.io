@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, markKey, bodyLight, crestAt, crestLight, markLight, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
-import { cueShows } from '../src/app/panes/ladder-cue-paint.ts';
+import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, markKey, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { cueShows, paintCue } from '../src/app/panes/ladder-cue-paint.ts';
+import { PALETTES } from '../src/app/theme.ts';
 import { PULSE_ATTACK_MS, pulseEnvelope } from '../src/app/candle/model.ts';
 
 let seq = 0;
@@ -53,7 +54,7 @@ test('a change on a row that is on screen lights its cell and leaves its mark', 
   const cue = board.active[0]!;
   assert.deepEqual([cue.id, cue.side, cue.row, cue.sign, cue.strength, cue.t0], ['a:BTC', 'ask', 5, 1, 0.6, 1_000]);
   assert.ok(cue.cost > 0 && cue.cost <= 100 * 10);
-  const mark = board.marks.get(markKey('ask', 5))!;
+  const mark = board.marks.get(markKey(5))!;
   assert.deepEqual([mark.sign, mark.lit, mark.t0], [1, true, 1_000]);
   board.push([row('a:BTC', 'bid', 3, -4e6, 0.9, { removed: true })]); board.admit(1_100, 'wash', flat());
   assert.equal(board.active[1]!.sign, -1); assert.equal(board.active[1]!.removed, true);
@@ -64,9 +65,9 @@ test('a row off screen, a venue with no cell there and a change too small to see
   board.push([row('a:BTC', 'ask', 5, 2e6, 0.6), row('b:BTC', 'ask', 6, 2e6, 0.6), row('c:BTC', 'ask', 7, 2e6, MIN_CUE_STRENGTH / 2)]);
   board.admit(1_000, 'wash', flat(r => r !== 5, (id) => id !== 'b:BTC'));
   assert.equal(board.active.length, 0);
-  assert.equal(board.marks.has(markKey('ask', 5)), false, 'off screen: nothing');
-  assert.equal(board.marks.get(markKey('ask', 6))!.lit, false, 'on screen with no cell for that venue: a mark, no light');
-  assert.equal(board.marks.get(markKey('ask', 7))!.lit, false, 'too small');
+  assert.equal(board.marks.has(markKey(5)), false, 'off screen: nothing');
+  assert.equal(board.marks.get(markKey(6))!.lit, false, 'on screen with no cell for that venue: a mark, no light');
+  assert.equal(board.marks.get(markKey(7))!.lit, false, 'too small');
   board.push([row('a:BTC', 'ask', 8, 0, 0.9), row('a:BTC', 'ask', 9, NaN, 0.9)]); board.admit(1_000, 'wash', flat());
   assert.equal(board.active.length, 0, 'no change, no light');
 });
@@ -77,7 +78,7 @@ test('light is spent from a budget: the cell count and the area are capped and n
   board.admit(1_000, 'wash', flat());
   assert.equal(board.active.length, 3); assert.equal(board.stats.turnedDown, 2);
   board.push([row('big:BTC', 'ask', 20, 5e9, 1)]); board.admit(1_100, 'wash', flat());
-  assert.equal(board.active.length, 3, 'a huge change does not bypass the cap'); assert.ok(board.marks.has(markKey('ask', 20)), 'but it leaves its mark');
+  assert.equal(board.active.length, 3, 'a huge change does not bypass the cap'); assert.ok(board.marks.has(markKey(20)), 'but it leaves its mark');
   const area = new CueBoard({ maxCues: 100, maxArea: 2_500 });
   area.push([1, 2, 3, 4, 5, 6].map(i => row(`v${i}:BTC`, 'bid', i, -1e6, 1)));
   area.admit(1_000, 'wash', flat());
@@ -146,7 +147,36 @@ test('a cue that paints nothing any more is left alone: its cell is neither rest
   assert.equal(cueShows('wash', change, 0), true, 'at its first instant the body is still dark but the crest is already there'); assert.equal(cueShows('wash', change, 100), true);
   assert.equal(cueShows('wash', change, CUE_LIFE_MS - 1), true, 'the crest is the last thing to go'); assert.equal(cueShows('wash', change, CUE_LIFE_MS + 1), false);
   assert.equal(cueShows('marks', change, 100), false);
-  assert.equal(cueShows('wash', contact, 10), true); assert.equal(cueShows('wash', contact, CONTACT_LIFE_MS - 1), false, 'a ripple is under a hundredth of itself before it ends'); assert.equal(cueShows('marks', contact, 10), true, 'a contact is not a look of the changes');
+  assert.equal(cueShows('wash', contact, 10), true); assert.equal(cueShows('wash', contact, CONTACT_LIFE_MS - 1), false, 'a ripple is under a hundredth of itself before it ends');
+  assert.equal(cueShows('marks', contact, 10), false, 'Signs and reduced motion light nothing: a ripple that was running when the look changed goes with it');
+});
+
+/** A canvas context that records where light is laid: the clip in force and every fill. */
+function recorder(): { m: CanvasRenderingContext2D; fills: { x: number; y: number; w: number; h: number; clip: number[] | null }[] } {
+  const fills: { x: number; y: number; w: number; h: number; clip: number[] | null }[] = [], stack: (number[] | null)[] = [];
+  let clip: number[] | null = null, path: number[] | null = null;
+  const m = { globalAlpha: 1, fillStyle: '', save: () => { stack.push(clip); }, restore: () => { clip = stack.pop() ?? null; }, beginPath: () => { path = null; }, rect: (x: number, y: number, w: number, h: number) => { path = [x, y, w, h]; },
+    clip: () => { clip = path; }, fillRect: (x: number, y: number, w: number, h: number) => { fills.push({ x, y, w, h, clip }); } } as unknown as CanvasRenderingContext2D;
+  return { m, fills };
+}
+
+test('light stays inside the changed cell, in every look and for a contact, so a neighbouring piece never takes any', () => {
+  const cell = { x: 100, y: 40, w: 30, h: 15, usd: 1e6 };
+  const mk = (kind: 'depth' | 'contact', sign: 1 | -1): Cue => ({ key: 'k', id: 'a:BTC', side: 'ask', row: 5, sign, strength: 0.8, usd: 1e6 * sign, t0: 0, removed: false, added: false, pair: false, band: false, cost: 100, seq: 1, kind, life: kind === 'contact' ? CONTACT_LIFE_MS : CUE_LIFE_MS, buy: sign > 0 });
+  for (const palette of [PALETTES.dark!, PALETTES.light!]) for (const look of ['wash', 'rim', 'deposit'] as const) for (const kind of ['depth', 'contact'] as const) for (const sign of [1, -1] as const) for (const age of [0, 40, 120, 300, 500]) {
+    const { m, fills } = recorder();
+    paintCue(m, look, mk(kind, sign), cell, age, palette);
+    for (const f of fills) {
+      const c = f.clip; assert.ok(c, `${palette.dark ? 'dark' : 'light'} ${look} ${kind} ${sign} at ${age}: a fill outside any clip`);
+      assert.deepEqual(c, [cell.x, cell.y, cell.w, cell.h], 'the clip is the cell');
+    }
+  }
+  const { m, fills } = recorder();
+  paintCue(m, 'wash', mk('depth', 1), cell, 380, PALETTES.dark!);
+  const crest = fills.find(f => f.w === 2.2)!;
+  assert.ok(crest && crest.x >= cell.x && crest.x + crest.w <= cell.x + cell.w + 1e-9, 'at the end of its run the crest lies inside the cell, against its outer edge');
+  const none = recorder(); paintCue(none.m, 'marks', mk('depth', 1), cell, 100, PALETTES.dark!); paintCue(none.m, 'marks', mk('contact', 1), cell, 100, PALETTES.dark!);
+  assert.equal(none.fills.length, 0, 'the Signs look paints no light, contacts included');
 });
 
 test('a strong change is lit while faint ones are still running out', () => {
@@ -156,18 +186,88 @@ test('a strong change is lit while faint ones are still running out', () => {
   assert.equal(board.active.length, 4); assert.equal(board.brightCount(1_900), 1); assert.equal(board.stats.turnedDown, 0);
 });
 
+test('the changes waiting at a cell are taken in the order they happened: the newest decides its sign, whatever its size, and the same sign adds up', () => {
+  const later = new CueBoard();
+  later.push([row('a:BTC', 'ask', 5, 3e6, 0.8, { seq: 11 }), row('a:BTC', 'ask', 5, -1e6, 0.4, { seq: 12 })]);
+  later.admit(1_000, 'wash', flat());
+  assert.equal(later.active.length, 1); assert.deepEqual([later.active[0]!.sign, later.active[0]!.strength], [-1, 0.4], 'the decrease came last: the cell ends lower, though the addition was larger');
+  const earlier = new CueBoard();
+  earlier.push([row('a:BTC', 'ask', 5, 3e6, 0.8, { seq: 22 }), row('a:BTC', 'ask', 5, -1e6, 0.4, { seq: 21 })]); // queued newest first
+  earlier.admit(1_000, 'wash', flat());
+  assert.deepEqual([earlier.active[0]!.sign, earlier.active[0]!.strength], [1, 0.8], 'the older decrease cannot take the place of the newer addition');
+  const same = new CueBoard();
+  same.push([row('a:BTC', 'ask', 5, 1e6, 0.5, { seq: 31 }), row('a:BTC', 'ask', 5, 2e6, 0.7, { seq: 32 })]); same.admit(1_000, 'wash', flat());
+  assert.equal(same.active.length, 1); assert.deepEqual([same.active[0]!.usd, same.active[0]!.strength], [3e6, 0.7]);
+  assert.equal(same.marks.get(markKey(5))!.sign, 1);
+});
+
+test('a renewed cue is charged at the strength it keeps, and every cue is charged for the cell it lights after each draw', () => {
+  const board = new CueBoard({ maxCues: 10, maxArea: 1e9 });
+  board.push([row('a:BTC', 'ask', 5, 1e6, 0.9)]); board.admit(1_000, 'wash', flat());
+  board.push([row('a:BTC', 'ask', 5, 1e5, 0.2)]); board.admit(1_100, 'wash', flat());
+  assert.equal(board.active[0]!.strength, 0.9);
+  assert.ok(Math.abs(board.active[0]!.cost - 1_000 * (0.25 + 0.75 * 0.9)) < 1e-9, 'the 0.9 it keeps, not the 0.2 that renewed it');
+  const grown = (w: number): Geometry => ({ rowVisible: () => true, cell: () => ({ x: 0, y: 0, w, h: 10, usd: 5e6 }) });
+  board.reprice(1_150, 'wash', grown(400));
+  assert.ok(Math.abs(board.active[0]!.cost - 4_000 * (0.25 + 0.75 * 0.9)) < 1e-9, 'the cell grew: so did the charge');
+  board.reprice(1_150, 'rim', grown(400));
+  assert.ok(Math.abs(board.active[0]!.cost - 4_000 * (0.25 + 0.75 * 0.9) * 0.2) < 1e-9, 'another look lights another share of it');
+  board.reprice(1_150, 'wash', { rowVisible: () => true, cell: () => null });
+  assert.equal(board.active.length, 0, 'a cue whose cell is gone ends');
+});
+
+test('cells that grew past the area cap end the dimmest cue first, and only as many as the cap needs', () => {
+  const board = new CueBoard({ maxCues: 10, maxArea: 5_200 });
+  board.push([row('a:BTC', 'ask', 1, 1e6, 1), row('b:BTC', 'ask', 2, 1e6, 0.3), row('c:BTC', 'ask', 3, 1e6, 0.6)]); board.admit(1_000, 'wash', flat());
+  assert.equal(board.active.length, 3);
+  board.reprice(1_000, 'wash', { rowVisible: () => true, cell: () => ({ x: 0, y: 0, w: 300, h: 10, usd: 1 }) });
+  assert.deepEqual(board.active.map(c => c.id).sort(), ['a:BTC', 'c:BTC'], 'the faintest went: 6,525 px2 became 5,100');
+  assert.ok(board.litArea(1_000) <= 5_200);
+});
+
+test('a full list drops its weakest, not its oldest, so a flood of faint changes cannot push out a strong one', () => {
+  const list: { strength: number; n: number }[] = [];
+  for (let i = 0; i < 5; i++) pushStrongest(list, { strength: 0.5, n: i }, 5);
+  pushStrongest(list, { strength: 0.9, n: 5 }, 5); pushStrongest(list, { strength: 0.1, n: 6 }, 5);
+  assert.deepEqual(list.map(x => x.n).sort(), [1, 2, 3, 4, 5], 'the new strong one took the first weakest\'s place; the faintest of all was not let in');
+  const board = new CueBoard();
+  board.push([row('quiet:BTC', 'ask', 1, 5e6, 0.95)]);
+  board.push(Array.from({ length: 600 }, (_, i) => row('busy:BTC', 'ask', 100 + i, 1e5, 0.15)));
+  assert.equal(board.waiting, 512);
+  board.admit(1_000, 'wash', flat());
+  assert.ok(board.active.some(c => c.id === 'quiet:BTC'), 'the quiet venue\'s strongest change survived 600 weaker ones queued after it'); assert.ok(board.marks.has(markKey(1)));
+});
+
+test('a row has one mark whichever side made it, and it keeps the side it was made on; Single mode keeps one for each venue', () => {
+  const board = new CueBoard();
+  board.push([row('a:BTC', 'bid', 5, -2e6, 0.7)]); board.admit(1_000, 'wash', flat());
+  assert.equal(board.markAt(5)!.side, 'bid');
+  board.push([row('b:BTC', 'ask', 5, 3e6, 0.9)]); board.admit(1_100, 'wash', flat());
+  assert.equal(board.marks.size, 1, 'one mark a box'); assert.deepEqual([board.markAt(5)!.side, board.markAt(5)!.id], ['ask', 'b:BTC']);
+  const single = new CueBoard();
+  single.push([row('a:BTC', 'bid', 5, -2e6, 0.7), row('b:BTC', 'ask', 5, 3e6, 0.9)]); single.admit(1_000, 'wash', flat(), true);
+  assert.equal(single.marks.size, 2); assert.equal(single.markAt(5, 'a:BTC')!.side, 'bid'); assert.equal(single.markAt(5, 'b:BTC')!.side, 'ask'); assert.equal(single.markAt(5), undefined);
+});
+
+test('dim() puts the light out and keeps the marks', () => {
+  const board = new CueBoard();
+  board.push([row('a:BTC', 'ask', 5, 1e6, 0.9)]); board.admit(1_000, 'wash', flat());
+  assert.equal(board.active.length, 1);
+  board.dim(); assert.equal(board.active.length, 0); assert.equal(board.marks.size, 1);
+});
+
 test('a row\'s mark is the strongest recent change on it, and the look of marks only lights nothing', () => {
   const board = new CueBoard();
   board.push([row('a:BTC', 'ask', 5, 1e6, 0.9)]); board.admit(1_000, 'wash', flat());
   board.push([row('b:BTC', 'ask', 5, 1e5, 0.05)]); board.admit(1_100, 'wash', flat());
-  assert.equal(board.marks.get(markKey('ask', 5))!.id, 'a:BTC', 'a weak change does not replace a strong one');
+  assert.equal(board.marks.get(markKey(5))!.id, 'a:BTC', 'a weak change does not replace a strong one');
   board.push([row('c:BTC', 'ask', 5, -5e6, 0.8)]); board.admit(1_200, 'wash', flat());
-  assert.equal(board.marks.get(markKey('ask', 5))!.id, 'c:BTC', 'a comparable change of the other sign does');
+  assert.equal(board.marks.get(markKey(5))!.id, 'c:BTC', 'a comparable change of the other sign does');
   board.push([row('d:BTC', 'ask', 5, 2e5, 0.9)]); board.admit(1_000 + MARK_LIFE_MS - 50, 'wash', flat());
-  assert.equal(board.marks.get(markKey('ask', 5))!.id, 'd:BTC', 'a fading mark gives way to a fresh one of the same strength');
+  assert.equal(board.marks.get(markKey(5))!.id, 'd:BTC', 'a fading mark gives way to a fresh one of the same strength');
   const marks = new CueBoard();
   marks.push([row('a:BTC', 'ask', 5, 1e6, 0.9)]); marks.admit(1_000, 'marks', flat());
-  assert.equal(marks.active.length, 0); assert.equal(marks.marks.get(markKey('ask', 5))!.lit, false); assert.equal(marks.stats.off, 1);
+  assert.equal(marks.active.length, 0); assert.equal(marks.marks.get(markKey(5))!.lit, false); assert.equal(marks.stats.off, 1);
 });
 
 test('a look pays for the area it lights: a rim costs a fifth of a wash', () => {

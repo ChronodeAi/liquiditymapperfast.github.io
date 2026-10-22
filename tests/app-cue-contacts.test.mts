@@ -68,7 +68,7 @@ test('a contact is a quick cue of its own that leaves no mark, takes the taker\'
   assert.equal(board.prune(1_000 + CONTACT_LIFE_MS), true); assert.equal(board.prune(1_000 + CONTACT_LIFE_MS + 1), false);
 });
 
-test('contacts are lit after the changes and out of the same budget, and a contact costs less than a change', () => {
+test('contacts are lit after the changes and out of the same budget, at the cost of a change of the same strength (its shorter life is counted by the light it shows)', () => {
   const board = new CueBoard({ maxCues: 2, maxArea: 1e9 });
   board.push([change('a:BTC', 5, 1e6, 0.5), change('b:BTC', 6, 1e6, 0.4)]);
   board.pushContacts([contact('c:BTC', 7, 0.99)]);
@@ -78,7 +78,8 @@ test('contacts are lit after the changes and out of the same budget, and a conta
   const cost = new CueBoard();
   cost.push([change('a:BTC', 5, 1e6, 0.5)]); cost.pushContacts([contact('b:BTC', 6, 0.5)]); cost.admit(1_000, 'wash', flat);
   const [d, c] = cost.active;
-  assert.ok(Math.abs(c!.cost / d!.cost - 0.3) < 1e-9);
+  assert.ok(Math.abs(c!.cost / d!.cost - 1) < 1e-9);
+  assert.ok(cost.litArea(1_000 + 400) < cost.used, 'both have run down by then: the area they show is under what they cost at their peaks');
 });
 
 test('a contact where one is lit renews it, and the look of marks lights no contact', () => {

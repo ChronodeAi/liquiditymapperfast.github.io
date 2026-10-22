@@ -17,7 +17,7 @@ export interface Box { x: number; y: number; w: number; h: number }
 
 /** The strongest a wash gets: an addition's light, and how far a decrease takes a cell back toward the panel. */
 export const WASH_UP = 0.46, WASH_DOWN = 0.62;
-/** The crest's width in px, and how far its glow reaches either side of it. */
+/** The crest's width in px, and how far its glow reaches either side of it (inside the cell: the light is clipped to it). */
 const CREST_W = 2.2, CREST_GLOW = 3.5;
 /** A cell narrower than this has no room for a crest to cross it: its wash alone speaks. */
 const CREST_MIN_W = 6;
@@ -26,8 +26,10 @@ const SHOWS_CHANGE = 0.002, SHOWS_CONTACT = 0.01;
 /** A contact's light at `age`: as strong as the order, running out over its short life. */
 const contactLight = (cue: Cue, age: number): number => cue.strength * (1 - age / CONTACT_LIFE_MS) ** 1.4;
 
-/** What the pane must restore under a cue: its cell grown by the crest's reach. */
-export const cueBox = (cell: Cell): Box => ({ x: cell.x - CREST_GLOW - 1, y: cell.y - 1, w: cell.w + 2 * CREST_GLOW + 2, h: cell.h + 2 });
+/** What the pane must restore under a cue: its cell, and the pixel the edge of a cell at a fraction of a pixel touches. A cue paints nowhere else (`clipTo`). */
+export const cueBox = (cell: Cell): Box => ({ x: cell.x - 1, y: cell.y - 1, w: cell.w + 2, h: cell.h + 2 });
+/** Light is clipped to the changed venue's own material: a neighbouring piece, a packed pair of cells a pixel apart, never takes it. */
+function clipTo(m: CanvasRenderingContext2D, cell: Cell): void { m.beginPath(); m.rect(cell.x, cell.y, cell.w, cell.h); m.clip(); }
 /** The gutter cell of a row (where its mark is drawn): `x` is the gutter's left edge. */
 export const markBox = (x: number, y: number, w: number, rowH: number): Box => ({ x, y, w, h: rowH });
 
@@ -44,11 +46,11 @@ function lay(m: CanvasRenderingContext2D, x: number, y: number, w: number, h: nu
   m.globalAlpha = Math.min(1, alpha); m.fillStyle = color; m.fillRect(x, y, w, h); m.globalAlpha = 1;
 }
 
-/** The crest: a thin front across the cell, out for an addition and back for a decrease, with a soft glow either side. */
+/** The crest: a thin front across the cell, out for an addition and back for a decrease, with a soft glow either side; it stays inside the cell. */
 function crest(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: number, light: number, p: Palette): void {
   if (!(light > 0.003) || cell.w < CREST_MIN_W) return;
   const up = cue.sign > 0, color = up ? crestUp(cue.side, p) : crestDown(cue.side, p);
-  const fx = cell.x + crestAt(cue.sign, age) * cell.w;
+  const fx = cell.x + CREST_W / 2 + crestAt(cue.sign, age) * (cell.w - CREST_W);
   lay(m, fx - CREST_GLOW, cell.y, 2 * CREST_GLOW, cell.h, color, light * 0.22);
   lay(m, fx - CREST_W / 2, cell.y, CREST_W, cell.h, color, light * (up ? 0.95 : 0.8));
 }
@@ -64,7 +66,7 @@ function paintContact(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: nu
   if (!(a > SHOWS_CONTACT)) return;
   const tint = cue.buy ? p.bid : p.ask, color = p.dark ? mixHex(tint, '#ffffff', 0.72) : mixHex(tint, '#000000', 0.5);
   const { x, y, w, h } = cell, fx = x + Math.min(1, k * 1.7) * w, strike = Math.max(0, 1 - age / 150);
-  m.save(); m.beginPath(); m.rect(x - CREST_GLOW, y, w + 2 * CREST_GLOW, h); m.clip();
+  m.save(); clipTo(m, cell);
   // The strike: the whole cell takes the light for an instant (a narrow cell has no room for a ripple to cross), then the spark at the inner edge and the ripple through it.
   lay(m, x, y, w, h, color, a * (0.12 + 0.55 * strike));
   lay(m, x, y, Math.min(3, w), h, color, a * 0.95);
@@ -74,19 +76,21 @@ function paintContact(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: nu
 
 /** Whether the cue paints anything at `age`: the pane neither restores nor repaints the cell of one that does not (the tail of its life). */
 export function cueShows(look: CueLook, cue: Cue, age: number): boolean {
+  // Signs (and reduced motion) light nothing: a ripple or a wash that was running when the look changed goes with it.
+  if (look === 'marks') return false;
   if (cue.kind === 'contact') return age >= 0 && age <= CONTACT_LIFE_MS && contactLight(cue, age) > SHOWS_CONTACT;
-  return look !== 'marks' && (bodyLight(cue.strength, age) > SHOWS_CHANGE || crestLight(cue.strength, age) > SHOWS_CHANGE);
+  return bodyLight(cue.strength, age) > SHOWS_CHANGE || crestLight(cue.strength, age) > SHOWS_CHANGE;
 }
 
-/** Paint one cue on `m` (the material, in CSS px) at `age` ms. The cell's own fill is already there; the cue is laid over it and nothing else is touched. */
+/** Paint one cue on `m` (the material, in CSS px) at `age` ms. The cell's own fill is already there; the cue is laid over it, inside it, and nothing else is touched. */
 export function paintCue(m: CanvasRenderingContext2D, look: CueLook, cue: Cue, cell: Cell, age: number, p: Palette): void {
-  if (cue.kind === 'contact') { paintContact(m, cue, cell, age, p); return; }
   if (look === 'marks') return;
+  if (cue.kind === 'contact') { paintContact(m, cue, cell, age, p); return; }
   const a = bodyLight(cue.strength, age), c = crestLight(cue.strength, age);
   if (!(a > SHOWS_CHANGE) && !(c > SHOWS_CHANGE)) return;
   const { x, y, w, h } = cell, up = cue.sign > 0;
   m.save();
-  m.beginPath(); m.rect(x - CREST_GLOW, y, w + 2 * CREST_GLOW, h); m.clip();
+  clipTo(m, cell);
   if (look === 'wash') {
     lay(m, x, y, w, h, up ? washUp(cue.side, p) : p.panel, a * (up ? WASH_UP : WASH_DOWN));
     crest(m, cue, cell, age, c, p);

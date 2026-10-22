@@ -3,7 +3,7 @@ import type { LevelsFrame } from '../wire.ts';
 import { scaledUsd } from '../coin.ts';
 import type { TapeRing } from '../tape/ring.ts';
 import { BookCueTracker, rowEvents, type CueEvent } from './book-cues.ts';
-import { CellMap, CueBoard, contactRows, type CueLook } from './ladder-cues.ts';
+import { CellMap, CueBoard, MAX_PENDING, contactRows, pushStrongest, type CueLook, type Geometry } from './ladder-cues.ts';
 import { cueBox, cueShows, markBox, paintCue, paintMark, type Box } from './ladder-cue-paint.ts';
 import { SENSE_SCALE_USD, type CueLookSetting, type Sense } from './ladder-cue-settings.ts';
 
@@ -26,8 +26,6 @@ export const CUE_FLOOR_USD = 10_000;
 export const CONTACT_MIN_USD = 25_000, CONTACT_SCALE_USD = 500_000;
 /** An order older than this when it is read is history, not contact (the ring can be filled late). */
 const CONTACT_MAX_AGE_MS = 4_000;
-/** Changes waiting for a draw: a stalled pane cannot pile them up. */
-const MAX_WAITING = 512;
 /** How often the marks are redrawn while nothing is lit (they fade slowly), and, in reduced motion, how often the board is looked at to take them away. */
 const MARK_REFRESH_MS = 100, STILL_REFRESH_MS = 600;
 
@@ -39,6 +37,8 @@ export interface CueHost {
   palette(): Palette;
   /** Whether the book is on screen and live: the page is visible, the pane is shown and not covered, and no replay runs. */
   shown(): boolean;
+  /** The part of the canvas (CSS px, from its left edge) that is in view: Single mode's books are side by side and the scroller shows some of them. */
+  view(): { x0: number; x1: number };
 }
 
 /** The layout of the last draw that the layer needs: the absolute row index of the first row, the rows, where they start (CSS px) and how tall they are, the step, and whether each book has its own gutter. */
@@ -65,12 +65,23 @@ export class CueLayer {
   #seen = -1;
 
   constructor(private readonly host: CueHost) {
-    if (typeof matchMedia === 'function') matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', e => { this.#reduced = e.matches; this.#schedule(); });
+    if (typeof matchMedia === 'function') matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', e => { this.#reduced = e.matches; if (e.matches) this.#stillLook(); else this.#schedule(); });
   }
 
   /** The look in force: reduced motion keeps only the signed marks (they hold still), whatever was chosen. */
   get look(): CueLook | 'off' { return this.#look === 'off' ? 'off' : this.#reduced ? 'marks' : this.#look; }
-  setLook(look: CueLookSetting): void { if (look === this.#look) return; this.#look = look; if (look === 'off') this.clear(); }
+  setLook(look: CueLookSetting): void {
+    if (look === this.#look) return;
+    this.#look = look;
+    // The pane draws again after a change of setting: Off takes everything away, Signs only the light (the marks stay).
+    if (look === 'off') this.clear(); else if (look === 'marks') this.board.dim();
+  }
+  /** The look became still while cues were lit (reduced motion): the cells they lit are put back and only the marks are painted. */
+  #stillLook(): void {
+    this.board.dim();
+    if (this.#baseValid) { this.#erase(); this.#paint(performance.now()); }
+    this.#schedule();
+  }
   setSense(sense: Sense): void { this.#sense = sense; }
   /** What a change must be to be at full strength, for the coin on screen and the sensitivity chosen. */
   get scale(): number { return scaledUsd(SENSE_SCALE_USD[this.#sense]); }
@@ -82,20 +93,40 @@ export class CueLayer {
     if (!frame || (this.#look === 'off' && !heat)) { this.reset(); return; }
     const events = this.tracker.observe(frame.books, ids, { wall: Date.now(), scale: this.scale, floorUsd: scaledUsd(CUE_FLOOR_USD) });
     if (this.#look === 'off' || !this.host.shown()) return;
-    for (const e of events) { if (this.#events.length >= MAX_WAITING) this.#events.shift(); this.#events.push(e); }
+    for (const e of events) pushStrongest(this.#events, e, MAX_PENDING);
   }
 
-  /** Forget everything: a reconnect, a replay, another coin. */
+  /** Forget everything: a reconnect, a venue that went, a replay, another coin. */
   reset(): void { this.tracker.reset(); this.clear(); }
-  /** Nothing lit and nothing waiting (the tracker keeps its history). */
-  clear(): void {
+  /** Nothing lit and nothing waiting (the tracker keeps its history): the cells that were lit are put back as the draw left them. */
+  clear(): void { this.#erase(); this.#drop(); }
+  /** The pane is about to draw (or is hidden, or covered): what was lit and waits is let go, with nothing done to the canvas. */
+  #drop(): void {
     if (this.#raf) { cancelAnimationFrame(this.#raf); this.#raf = 0; }
     if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; }
     this.board.clear(); this.#events.length = 0; this.#dirty.length = 0; this.#baseValid = false;
   }
+  /** Put back what the last frame painted (when its resting copy is the canvas's own size). */
+  #erase(): void {
+    const c = this.host.canvas;
+    if (!this.#baseValid || this.#base.width !== c.width || this.#base.height !== c.height) return;
+    for (const box of this.#dirty) this.#restore(box);
+    this.#dirty.length = 0;
+  }
 
-  /** A draw begins: where its rows are. */
-  begin(layout: CueLayout): void { this.#layout = layout; this.cells.begin(layout.top, layout.rows); this.#gutters.length = 0; }
+  /**
+   * A draw begins: where its rows are. The rows are indices at the step, so another step (a zoom) or another way of keeping the marks makes every
+   * cue and mark that was kept the cue of another price: they go, and the changes the tracker found wait for the rows they are in now.
+   */
+  begin(layout: CueLayout): void {
+    const L = this.#layout;
+    if (layout.step !== L.step || layout.perVenue !== L.perVenue) {
+      if (this.#raf) { cancelAnimationFrame(this.#raf); this.#raf = 0; }
+      if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; }
+      this.board.clear(); this.#dirty.length = 0; this.#baseValid = false;
+    }
+    this.#layout = layout; this.cells.begin(layout.top, layout.rows); this.#gutters.length = 0;
+  }
   /** A book's gutter (the column of signed marks before its bars) at `x`; `id` is its venue in Single mode, null for the one shared gutter. */
   addGutter(id: string | null, x: number, w: number): void { this.#gutters.push({ id, x, w }); }
 
@@ -105,15 +136,24 @@ export class CueLayer {
     const hasWork = this.#events.length > 0 || this.board.active.length > 0 || this.board.marks.size > 0;
     if (!hasWork) { this.#dirty.length = 0; this.#baseValid = false; return; }
     if (!this.#snapshot()) { this.#dirty.length = 0; this.#baseValid = false; return; }
-    const now = performance.now();
+    const now = performance.now(), look = this.look === 'off' ? 'marks' : this.look;
+    // The cells were laid out again: what is lit is charged for the cells it lights now.
+    const geo = this.#geometry();
+    this.board.prune(now); this.board.reprice(now, look, geo);
     if (this.#events.length) {
       // Only the rows on screen: a band as wide as the book would make hundreds of rows nobody sees and push the ones that are seen out of the queue.
       const L = this.#layout, window = { lo: (L.top - L.rows + 1) * L.step, hi: (L.top + 1) * L.step };
       this.board.push(rowEvents(this.#events, L.step, this.scale, window)); this.#events.length = 0;
     }
-    this.board.admit(now, this.look === 'off' ? 'marks' : this.look, this.cells, this.#layout.perVenue);
+    this.board.admit(now, look, geo, this.#layout.perVenue);
     this.#paint(now);
     this.#schedule();
+  }
+
+  /** The cells of the last draw that are in view: a book scrolled out of the scroller lights nothing and takes no place or area from the ones that show. */
+  #geometry(): Geometry {
+    const v = this.host.view();
+    return { rowVisible: row => this.cells.rowVisible(row), cell: (id, side, row) => { const c = this.cells.cell(id, side, row); return c && c.x + c.w > v.x0 && c.x < v.x1 ? c : null; } };
   }
 
   /** The material canvas as it is now becomes the resting copy the lit cells are restored from. False when there is nothing to copy. */
@@ -148,16 +188,16 @@ export class CueLayer {
     if (this.#look === 'off' || !this.host.shown() || !this.board.waiting) return;
     if (!this.#baseValid && !this.#snapshot()) return;
     const now = performance.now();
-    this.board.admit(now, this.look === 'off' ? 'marks' : this.look, this.cells, this.#layout.perVenue);
+    this.board.admit(now, this.look === 'off' ? 'marks' : this.look, this.#geometry(), this.#layout.perVenue);
     this.#paint(now);
     this.#schedule();
   }
 
-  /** The trade tape was replaced (another coin): start reading it again from where it stands. */
+  /** The trade tape was replaced (another coin) or is not being read (the pane is away, or the contacts are off): start reading it again from where it stands. */
   forgetTape(): void { this.#seen = -1; }
 
-  /** What is lit stops: the pane is hidden or covered. */
-  stop(): void { this.clear(); }
+  /** What is lit stops: the pane is hidden or covered, or its draw says something else than the book (the canvases were just cleared: nothing is put back). */
+  stop(): void { this.#drop(); }
 
   #restore(box: Box): void {
     const d = this.host.dpr(), c = this.host.canvas;
@@ -174,15 +214,16 @@ export class CueLayer {
     const m = this.host.mat, p = this.host.palette(), look = this.look === 'off' ? 'marks' : this.look, L = this.#layout, still = this.#reduced;
     for (const box of this.#dirty) this.#restore(box);
     this.#dirty.length = 0;
+    const v = this.host.view(), inView = (x: number, w: number): boolean => x + w > v.x0 && x < v.x1;
     for (const cue of this.board.active) {
       const age = now - cue.t0;
       if (!cueShows(look, cue, age)) continue;
-      const cell = this.cells.cell(cue.id, cue.side, cue.row); if (!cell) continue;
+      const cell = this.cells.cell(cue.id, cue.side, cue.row); if (!cell || !inView(cell.x, cell.w)) continue;
       this.#dirty.push(cueBox(cell)); paintCue(m, look, cue, cell, age, p);
     }
     for (const mark of this.board.marks.values()) {
       const r = L.top - mark.row; if (r < 0 || r >= L.rows) continue;
-      const g = L.perVenue ? this.#gutters.find(x => x.id === mark.id) : this.#gutters[0]; if (!g) continue;
+      const g = L.perVenue ? this.#gutters.find(x => x.id === mark.id) : this.#gutters[0]; if (!g || !inView(g.x, g.w)) continue;
       const box = markBox(g.x, L.head + r * L.rowH, g.w, L.rowH);
       this.#dirty.push(box); paintMark(m, mark, box, now - mark.t0, p, still);
     }

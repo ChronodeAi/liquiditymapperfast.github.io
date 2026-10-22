@@ -44,8 +44,8 @@ export const BRIGHT_SHARE = 0.1;
 export const MIN_CUE_STRENGTH = 0.1;
 /** A change under this strength leaves no mark either. */
 export const MIN_MARK_STRENGTH = 0.04;
-/** A contact costs this share of what a change of the same size would against the area budget (it is a ripple that lasts a few hundred ms). */
-export const CONTACT_COST = 0.3;
+/** Changes, and contacts, that wait for a draw: a stalled pane cannot pile them up. */
+export const MAX_PENDING = 512, MAX_CONTACTS = 256;
 
 /** How a cue looks. `marks` lights nothing: only the rows' signed marks show (reduced motion, and a look of its own). */
 export type CueLook = 'wash' | 'rim' | 'deposit' | 'marks';
@@ -81,7 +81,7 @@ export interface Cue {
   life: number;
   buy: boolean;
 }
-/** A row's signed mark: the strongest recent change on the row, lit or not. */
+/** A row's signed mark: the strongest recent change on the row, lit or not. It keeps the side it was made on (the row may show the other now). */
 export interface Mark { id: string; side: 'bid' | 'ask'; row: number; sign: 1 | -1; strength: number; usd: number; t0: number; lit: boolean; removed: boolean; pair: boolean }
 
 /** The most rows one order's contact reaches (from the touch outward), and how much weaker each row after the first is. */
@@ -107,8 +107,22 @@ export function contactRows(ring: Pick<TapeRing, 'data' | 'capacity' | 'at'>, fr
 }
 
 export const cueKey = (id: string, side: 'bid' | 'ask', row: number): string => `${id}|${side}|${row}`;
-/** A mark is a row's (all venues, one gutter) or, in Single mode where each book has a gutter of its own, a venue's row's: `scope` is then its id. */
-export const markKey = (side: 'bid' | 'ask', row: number, scope = ''): string => `${scope}|${side}|${row}`;
+/**
+ * A mark is a row's (all venues, one gutter box a row) or, in Single mode where each book has a gutter of its own, a venue's row's: `scope`
+ * is then its id. One mark a box, whichever side made it, so two marks never share one and what the pointer is on is the one drawn.
+ */
+export const markKey = (row: number, scope = ''): string => `${scope}|${row}`;
+
+/** What a cue costs against the area budget (px2 at full light): the cell it lights, as strong as the cue is, as much of it as the look lights. */
+export const cueCost = (cell: Cell, strength: number, weight: number): number => Math.max(1, cell.w) * Math.max(1, cell.h) * (0.25 + 0.75 * strength) * weight;
+
+/** Add to a list that is bounded: when it is full the weakest goes (the new one, when it is the weakest), so a flood of faint items cannot push out the strong ones. */
+export function pushStrongest<T extends { strength: number }>(list: T[], item: T, cap: number): void {
+  if (list.length < cap) { list.push(item); return; }
+  let weakest = 0;
+  for (let i = 1; i < list.length; i++) if (list[i]!.strength < list[weakest]!.strength) weakest = i;
+  if (list[weakest]!.strength < item.strength) list[weakest] = item;
+}
 
 /** Where a cue's crest is along its cell, 0 (the cell's inner edge) to 1 (its outer): out for an addition, back in for a decrease. */
 export function crestAt(sign: 1 | -1, age: number): number {
@@ -144,20 +158,24 @@ export class CueBoard {
   readonly stats = { pushed: 0, lit: 0, renewed: 0, reversed: 0, turnedDown: 0, off: 0, contacts: 0, contactsLit: 0, /** How many cues lit at each strength: under .1, .2, .4, .7, and above. */ strengths: [0, 0, 0, 0, 0] };
   constructor(private readonly caps: { maxCues: number; maxArea: number } = { maxCues: MAX_CUES, maxArea: MAX_CUE_AREA }) {}
 
-  /** Changes seen at a data frame; they wait for `admit`. Bounded: a stall cannot pile them up. */
+  /** Changes seen at a data frame; they wait for `admit`. Bounded, the weakest going first: a stall cannot pile them up, nor faint ones push out the strong. */
   push(rows: readonly CueRow[]): void {
-    for (const r of rows) { if (this.#pending.length >= 512) this.#pending.shift(); this.#pending.push(r); }
+    for (const r of rows) pushStrongest(this.#pending, r, MAX_PENDING);
     this.stats.pushed += rows.length;
   }
   /** Market orders that reached resting depth (the trade tape): they wait for `admit` with the changes, and are lit after them. Bounded likewise. */
   pushContacts(rows: readonly ContactRow[]): void {
-    for (const r of rows) { if (this.#contacts.length >= 256) this.#contacts.shift(); this.#contacts.push(r); }
+    for (const r of rows) pushStrongest(this.#contacts, r, MAX_CONTACTS);
     this.stats.contacts += rows.length;
   }
   get waiting(): number { return this.#pending.length + this.#contacts.length; }
 
   /** Nothing is lit and nothing waits: a hidden pane, a replay, a new coin. */
   clear(): void { this.active.length = 0; this.marks.clear(); this.#pending.length = 0; this.#contacts.length = 0; }
+  /** The light goes out, the marks stay (the Signs look, and reduced motion): what is lit and the contacts waiting are dropped, the changes waiting still leave their marks. */
+  dim(): void { this.active.length = 0; this.#contacts.length = 0; }
+  /** The mark in the gutter box of `row` (of venue `scope` in Single mode), if there is one. */
+  markAt(row: number, scope = ''): Mark | undefined { return this.marks.get(markKey(row, scope)); }
 
   /** Drop what is over by `now`. Returns whether any cue is still lit. */
   prune(now: number): boolean {
@@ -176,6 +194,29 @@ export class CueBoard {
   brightCount(now: number): number { let n = 0; for (const c of this.active) if (shareAt(c, now - c.t0) >= BRIGHT_SHARE) n++; return n; }
 
   /**
+   * The cells were laid out again (a draw with new data, another zoom, another look): each cue is charged for the cell it lights now, a cue whose
+   * cell is gone ends, and when the cells grew past the area cap the dimmest ends first, so a cap that held when a cue was admitted holds as long
+   * as it shows.
+   */
+  reprice(now: number, look: CueLook, geo: Geometry): void {
+    const weight = LOOK_COST[look];
+    let w = 0;
+    for (const c of this.active) {
+      const cell = geo.rowVisible(c.row) ? geo.cell(c.id, c.side, c.row) : null;
+      if (!cell) continue;
+      c.cost = cueCost(cell, c.strength, weight);
+      this.active[w++] = c;
+    }
+    this.active.length = w;
+    for (let area = this.litArea(now); area > this.caps.maxArea && this.active.length > 0;) {
+      let dimmest = 0, least = Infinity;
+      this.active.forEach((c, i) => { const light = c.strength * shareAt(c, now - c.t0); if (light < least) { least = light; dimmest = i; } });
+      const gone = this.active[dimmest]!; area -= gone.cost * shareAt(gone, now - gone.t0);
+      this.active.splice(dimmest, 1);
+    }
+  }
+
+  /**
    * Give the waiting changes light, largest first (the first of every venue before the second of any), within the caps: nothing bypasses them.
    * A change whose cell is not on screen lights nothing; a change on a visible row always leaves its mark. `look` prices the area (`LOOK_COST`);
    * `perVenue` keeps a mark for each venue's row, not each row (Single mode: one gutter a book).
@@ -185,34 +226,45 @@ export class CueBoard {
     if (!pending.length && !contacts.length) return;
     this.prune(now);
     const lit = look !== 'marks', weight = LOOK_COST[look];
+    // One cell, one candidate: the changes waiting at a cell are taken in the order they happened (what it did last decides its sign: the same
+    // sign adds up, the other replaces), and only then are the cells ranked, so an older change can never take the place of a newer one.
+    const folded = new Map<string, CueRow>();
+    pending.sort((a, b) => a.seq - b.seq);
+    for (const r of pending) {
+      if (!(r.usd !== 0) || !Number.isFinite(r.usd)) continue;
+      const key = cueKey(r.id, r.side, r.row), had = folded.get(key);
+      if (!had || (had.usd > 0) !== (r.usd > 0)) { folded.set(key, { ...r }); continue; }
+      had.usd += r.usd; had.strength = Math.max(had.strength, r.strength); had.removed = r.removed; had.pair ||= r.pair; had.band ||= r.band; had.wall = r.wall; had.seq = r.seq;
+    }
     // The venue's rank among its own changes, so one busy venue cannot take every place before a quiet one gets its first.
     const byVenue = new Map<string, CueRow[]>();
-    for (const r of pending) { let list = byVenue.get(r.id); if (!list) { list = []; byVenue.set(r.id, list); } list.push(r); }
+    for (const r of folded.values()) { let list = byVenue.get(r.id); if (!list) { list = []; byVenue.set(r.id, list); } list.push(r); }
     const order: { r: CueRow; rank: number }[] = [];
     for (const list of byVenue.values()) { list.sort((a, b) => b.strength - a.strength || a.seq - b.seq || a.row - b.row); list.forEach((r, rank) => order.push({ r, rank })); }
     order.sort((a, b) => a.rank - b.rank || b.r.strength - a.r.strength || a.r.seq - b.r.seq || (a.r.id < b.r.id ? -1 : a.r.id > b.r.id ? 1 : 0));
     // What the cues show now is what the caps hold; a cell's own cue is given up for its next one (a cell is one cue), so it counts for nothing against it.
     let area = this.litArea(now), bright = this.brightCount(now);
     for (const { r } of order) {
-      if (!geo.rowVisible(r.row) || !(r.usd !== 0) || !Number.isFinite(r.usd)) continue;
+      if (!geo.rowVisible(r.row)) continue;
       const sign: 1 | -1 = r.usd > 0 ? 1 : -1, cell = geo.cell(r.id, r.side, r.row), key = cueKey(r.id, r.side, r.row);
       const old = this.active.findIndex(c => c.key === key);
       let didLight = false;
       if (lit && cell && r.strength >= MIN_CUE_STRENGTH) {
-        const cost = Math.max(1, cell.w) * Math.max(1, cell.h) * (0.25 + 0.75 * r.strength) * weight;
         const was = old >= 0 ? this.active[old]! : null, wasShare = was ? shareAt(was, now - was.t0) : 0;
+        // The cue it becomes is charged at the strength it ends up with: a renewed cue keeps the stronger of the two.
+        const strength = was && was.sign === sign ? Math.max(was.strength, r.strength) : r.strength, cost = cueCost(cell, strength, weight);
         const freed = was ? was.cost * wasShare : 0, freedPlace = wasShare >= BRIGHT_SHARE ? 1 : 0;
         if (bright - freedPlace < this.caps.maxCues && area - freed + cost <= this.caps.maxArea) {
-          const cue: Cue = { key, id: r.id, side: r.side, row: r.row, sign, strength: r.strength, usd: r.usd, t0: now, removed: r.removed, added: r.added, pair: r.pair, band: r.band, cost, seq: r.seq, kind: 'depth', life: CUE_LIFE_MS, buy: false };
+          const cue: Cue = { key, id: r.id, side: r.side, row: r.row, sign, strength, usd: r.usd, t0: now, removed: r.removed, added: r.added, pair: r.pair, band: r.band, cost, seq: r.seq, kind: 'depth', life: CUE_LIFE_MS, buy: false };
           if (was) {
-            if (was.sign === sign) { cue.strength = Math.max(was.strength, r.strength); cue.usd = was.usd + r.usd; this.stats.renewed++; } else this.stats.reversed++;
+            if (was.sign === sign) { cue.usd = was.usd + r.usd; this.stats.renewed++; } else this.stats.reversed++;
             this.active[old] = cue;
           } else this.active.push(cue);
           area += cost - freed; bright += 1 - freedPlace;
           didLight = true; this.stats.lit++; this.stats.strengths[r.strength < 0.1 ? 0 : r.strength < 0.2 ? 1 : r.strength < 0.4 ? 2 : r.strength < 0.7 ? 3 : 4]!++;
         } else this.stats.turnedDown++;
       } else if (!lit) this.stats.off++;
-      const mk = markKey(r.side, r.row, perVenue ? r.id : ''), had = this.marks.get(mk);
+      const mk = markKey(r.row, perVenue ? r.id : ''), had = this.marks.get(mk);
       if (r.strength < MIN_MARK_STRENGTH) continue;
       if (!had || r.strength >= had.strength * markLight(now - had.t0) || had.sign !== sign && r.strength >= 0.5 * had.strength) {
         this.marks.set(mk, { id: r.id, side: r.side, row: r.row, sign, strength: r.strength, usd: r.usd, t0: now, lit: didLight, removed: r.removed, pair: r.pair });
@@ -225,12 +277,12 @@ export class CueBoard {
       if (!geo.rowVisible(c.row) || !(c.strength >= MIN_CUE_STRENGTH)) continue;
       const cell = geo.cell(c.id, c.side, c.row); if (!cell) continue;
       const key = `${cueKey(c.id, c.side, c.row)}|contact`, old = this.active.findIndex(x => x.key === key);
-      const cost = Math.max(1, cell.w) * Math.max(1, cell.h) * (0.25 + 0.75 * c.strength) * weight * CONTACT_COST;
       const was = old >= 0 ? this.active[old]! : null, wasShare = was ? shareAt(was, now - was.t0) : 0;
+      const strength = was ? Math.max(was.strength, c.strength) : c.strength, cost = cueCost(cell, strength, weight);
       const freed = was ? was.cost * wasShare : 0, freedPlace = wasShare >= BRIGHT_SHARE ? 1 : 0;
       if (bright - freedPlace >= this.caps.maxCues || area - freed + cost > this.caps.maxArea) { this.stats.turnedDown++; continue; }
-      const cue: Cue = { key, id: c.id, side: c.side, row: c.row, sign: c.buy ? 1 : -1, strength: c.strength, usd: c.usd, t0: now, removed: false, added: false, pair: false, band: false, cost, seq: c.seq, kind: 'contact', life: CONTACT_LIFE_MS, buy: c.buy };
-      if (was) { cue.strength = Math.max(was.strength, c.strength); this.active[old] = cue; } else this.active.push(cue);
+      const cue: Cue = { key, id: c.id, side: c.side, row: c.row, sign: c.buy ? 1 : -1, strength, usd: c.usd, t0: now, removed: false, added: false, pair: false, band: false, cost, seq: c.seq, kind: 'contact', life: CONTACT_LIFE_MS, buy: c.buy };
+      if (was) this.active[old] = cue; else this.active.push(cue);
       area += cost - freed; bright += 1 - freedPlace;
       this.stats.contactsLit++;
     }

@@ -1657,7 +1657,6 @@
  "{n} min ago": "hace {n} min",
  "Last change": "Último cambio",
  "emptied": "vaciada",
- "Another change nearby, the other way: probably a re-quote.": "Otro cambio cercano en sentido contrario: probablemente una recotización.",
  "Recent change": "Cambio reciente",
  "Not known yet: the first snapshot has no history.": "Aún no se sabe: la primera instantánea no tiene historial.",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "La profundidad que mostró este exchange, comparada entre dos de sus propias instantáneas: no es una orden y no se sabe si se canceló o se ejecutó.",
@@ -1665,5 +1664,6 @@
  "How large a change must be to light a cell.": "Qué tamaño debe tener un cambio para iluminar una celda.",
  "Calm": "Tranquilo",
  "Normal": "Normal",
- "Lively": "Animado"
+ "Lively": "Animado",
+ "A change nearby went the other way, by about the same size.": "Cerca hubo un cambio en sentido contrario, de tamaño parecido."
 }

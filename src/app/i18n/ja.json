@@ -1591,7 +1591,6 @@
  "{n} min ago": "{n} 分前",
  "Last change": "直近の変化",
  "emptied": "空になった",
- "Another change nearby, the other way: probably a re-quote.": "近くで逆向きの別の変化: おそらく気配の更新です。",
  "Recent change": "最近の変化",
  "Not known yet: the first snapshot has no history.": "まだ分かりません: 最初のスナップショットには履歴がありません。",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "この取引所が表示していた板の厚みを、その取引所自身の2つのスナップショットの間で比較したもの。注文ではなく、キャンセルされたのか約定したのかも分かりません。",
@@ -1599,5 +1598,6 @@
  "How large a change must be to light a cell.": "セルを光らせるのに必要な変化の大きさ。",
  "Calm": "穏やか",
  "Normal": "標準",
- "Lively": "活発"
+ "Lively": "活発",
+ "A change nearby went the other way, by about the same size.": "近くで逆向きの変化があり、大きさはほぼ同じです。"
 }

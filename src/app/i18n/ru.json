@@ -1674,7 +1674,6 @@
  "{n} min ago": "{n} мин назад",
  "Last change": "Последнее изменение",
  "emptied": "опустела",
- "Another change nearby, the other way: probably a re-quote.": "Рядом другое изменение в обратную сторону: вероятно, переставленная заявка.",
  "Recent change": "Недавнее изменение",
  "Not known yet: the first snapshot has no history.": "Пока неизвестно: у первого снимка нет истории.",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "Глубина, которую показывала эта биржа, сравнённая между двумя её собственными снимками: это не заявка, и неизвестно, была ли она отменена или исполнена.",
@@ -1682,5 +1681,6 @@
  "How large a change must be to light a cell.": "Насколько велико должно быть изменение, чтобы подсветить ячейку.",
  "Calm": "Спокойно",
  "Normal": "Обычно",
- "Lively": "Живо"
+ "Lively": "Живо",
+ "A change nearby went the other way, by about the same size.": "Рядом было изменение в обратную сторону, примерно такого же размера."
 }

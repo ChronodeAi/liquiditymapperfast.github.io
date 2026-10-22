@@ -1640,7 +1640,6 @@
  "{n} min ago": "{n} dk önce",
  "Last change": "Son değişiklik",
  "emptied": "boşaldı",
- "Another change nearby, the other way: probably a re-quote.": "Yakında ters yönde başka bir değişiklik: muhtemelen yeniden fiyatlama.",
  "Recent change": "Yakın zamanlı değişiklik",
  "Not known yet: the first snapshot has no history.": "Henüz bilinmiyor: ilk anlık görüntünün geçmişi yok.",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "Bu borsanın gösterdiği derinlik, kendi iki anlık görüntüsü arasında karşılaştırıldı: bir emir değildir ve iptal edildiği ya da işlem gördüğü bilinmez.",
@@ -1648,5 +1647,6 @@
  "How large a change must be to light a cell.": "Bir hücreyi aydınlatmak için bir değişikliğin ne kadar büyük olması gerektiği.",
  "Calm": "Sakin",
  "Normal": "Normal",
- "Lively": "Canlı"
+ "Lively": "Canlı",
+ "A change nearby went the other way, by about the same size.": "Yakınında ters yönde, yaklaşık aynı büyüklükte bir değişiklik oldu."
 }

@@ -1591,7 +1591,6 @@
  "{n} min ago": "{n} 分钟前",
  "Last change": "最近一次变化",
  "emptied": "已清空",
- "Another change nearby, the other way: probably a re-quote.": "附近还有一处方向相反的变化：很可能是重新报价。",
  "Recent change": "近期变化",
  "Not known yet: the first snapshot has no history.": "尚不清楚：第一份快照没有历史记录。",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "该交易所所显示的深度，在它自己的两份快照之间比较得出：不是订单，也不知道是被撤销还是被成交。",
@@ -1599,5 +1598,6 @@
  "How large a change must be to light a cell.": "变化要多大才会点亮单元格。",
  "Calm": "平稳",
  "Normal": "标准",
- "Lively": "灵敏"
+ "Lively": "灵敏",
+ "A change nearby went the other way, by about the same size.": "附近有一次方向相反、大小相近的变化。"
 }

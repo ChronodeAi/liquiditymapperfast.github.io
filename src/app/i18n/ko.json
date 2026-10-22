@@ -1591,7 +1591,6 @@
  "{n} min ago": "{n}분 전",
  "Last change": "마지막 변화",
  "emptied": "비었음",
- "Another change nearby, the other way: probably a re-quote.": "근처에서 반대 방향의 다른 변화: 아마도 호가 재제시일 것입니다.",
  "Recent change": "최근 변화",
  "Not known yet: the first snapshot has no history.": "아직 알 수 없음: 첫 스냅샷에는 이력이 없습니다.",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "이 거래소가 보여 준 잔량을 그 거래소 자신의 두 스냅샷 사이에서 비교한 것입니다. 주문이 아니며, 취소되었는지 체결되었는지도 알 수 없습니다.",
@@ -1599,5 +1598,6 @@
  "How large a change must be to light a cell.": "셀이 빛나려면 변화가 얼마나 커야 하는지입니다.",
  "Calm": "차분함",
  "Normal": "보통",
- "Lively": "활발함"
+ "Lively": "활발함",
+ "A change nearby went the other way, by about the same size.": "근처에서 반대 방향의 변화가 있었고 크기가 비슷합니다."
 }

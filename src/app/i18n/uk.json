@@ -1679,7 +1679,6 @@
  "{n} min ago": "{n} хв тому",
  "Last change": "Остання зміна",
  "emptied": "спорожніла",
- "Another change nearby, the other way: probably a re-quote.": "Поруч інша зміна у протилежний бік: імовірно, переставлена заявка.",
  "Recent change": "Недавня зміна",
  "Not known yet: the first snapshot has no history.": "Ще невідомо: перший знімок не має історії.",
  "The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.": "Глибина, яку показувала ця біржа, порівняна між двома її власними знімками: це не заявка, і невідомо, чи її скасовано або виконано.",
@@ -1687,5 +1686,6 @@
  "How large a change must be to light a cell.": "Наскільки великою має бути зміна, щоб підсвітити комірку.",
  "Calm": "Спокійно",
  "Normal": "Звичайно",
- "Lively": "Жваво"
+ "Lively": "Жваво",
+ "A change nearby went the other way, by about the same size.": "Поруч сталася зміна в протилежний бік, приблизно такого ж розміру."
 }

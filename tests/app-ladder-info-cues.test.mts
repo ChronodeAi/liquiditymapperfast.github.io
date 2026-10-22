@@ -24,7 +24,8 @@ test('a cell that emptied, a pair and a limit of lines are said', () => {
   const emptied = cueLines({ ask: true, changes: [change({ usd: -5e6, removed: true })] });
   assert.equal(emptied[0]!.text, '−$5M · emptied · 1 s ago');
   const paired = cueLines({ ask: true, changes: [change({ pair: true })] });
-  assert.ok(paired.some(l => /re-quote/.test(l.text)));
+  assert.ok(paired.some(l => /went the other way, by about the same size/.test(l.text)));
+  assert.ok(!paired.some(l => /re-quote|requote|probably/i.test(l.text)), 'it names no cause: the book does not say whether it is one order moving, a row\'s edge crossed, or two');
   const many = cueLines({ ask: false, changes: [1, 2, 3, 4, 5].map(i => change({ ageMs: i * 1_000 })) });
   assert.equal(many.filter(l => /\$/.test(l.text) && /ago/.test(l.text)).length, 3, 'three by default');
   assert.equal(cueLines({ ask: false, changes: [1, 2, 3, 4, 5].map(i => change({ ageMs: i * 1_000 })) }, 5).filter(l => /ago/.test(l.text)).length, 5);
