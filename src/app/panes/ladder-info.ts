@@ -1,6 +1,18 @@
 import type { InfoLine } from '../infobox.ts';
 import { price as fmtPrice, usd } from '../format.ts';
 import { t, tn } from '../i18n.ts';
+import { binOf } from '../../shared/footprint.ts';
+import { rowEvents, type CueEvent, type RowEvent } from './book-cues.ts';
+
+/**
+ * The change a price row's light was made from: the events of one publication that fell in [lo, lo + step) shared over the row and added up as the
+ * cue's were (`rowEvents`), so the figure the pointer reads is the figure the cell was lit with, whether the row holds several bins that changed
+ * together or one bin shared with the row next to it. Null when no event reached the row.
+ */
+export function rowChange(events: readonly CueEvent[], lo: number, step: number, scale: number): RowEvent | null {
+  const row = binOf(lo, step);
+  return rowEvents(events, step, scale).find(r => r.row === row) ?? null;
+}
 
 /** What is known about one price level of the order book, to say what the pointer is on. */
 export interface LevelFacts {

@@ -1,9 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agoText, cueLines, gutterLines, levelLines, smallerVenuesLines, venueCellLines, type ChangeFact, type LevelFacts } from '../src/app/panes/ladder-info.ts';
+import { agoText, cueLines, gutterLines, levelLines, rowChange, smallerVenuesLines, venueCellLines, type ChangeFact, type LevelFacts } from '../src/app/panes/ladder-info.ts';
+import { rowEvents, type CueEvent } from '../src/app/panes/book-cues.ts';
+
+let seq = 0;
+const event = (lo: number, usd: number, extra: Partial<CueEvent> = {}): CueEvent => ({ id: 'binance:BTCUSDT', side: 'ask', lo, hi: lo + 20, grid: 20, sign: usd > 0 ? 1 : -1, usd, before: 5e6, after: 5e6 + usd, strength: 0.5, wall: 10_000, seq: ++seq, prevWall: 9_000,
+  removed: false, added: false, pair: false, approx: false, band: false, confirmed: false, ...extra });
 
 const facts = (extra: Partial<LevelFacts> = {}): LevelFacts => ({ low: 81_000, step: 50, mark: 81_040, ask: false, size: 12e6, cumulative: 30e6, venues: [{ name: 'Binance BTCUSDT', usd: 8e6, id: 'binance:BTCUSDT' }, { name: 'OKX BTC-USDT', usd: 4e6, id: 'okx:BTC-USDT' }], ...extra });
 const change = (extra: Partial<ChangeFact> = {}): ChangeFact => ({ name: 'Binance BTCUSDT', id: 'binance:BTCUSDT', usd: 2.4e6, ageMs: 1_200, removed: false, pair: false, ...extra });
+
+test('the figure the pointer reads for a row is the one its cell was lit with: the sum of what changed together in it, shared as the light shared it', () => {
+  const together = [event(81_000, 1e6, { seq: 1 }), event(81_020, 2e6, { seq: 2 }), event(81_040, -0.5e6, { seq: 3 })];
+  const row = rowChange(together, 81_000, 100, 1.5e6)!;
+  assert.equal(row.usd, 2.5e6, 'three bins of one publication in one $100 row: their sum, not the newest one');
+  assert.deepEqual(row, rowEvents(together, 100, 1.5e6).find(r => r.row === 810)!, 'the very row the cue was made from');
+  assert.equal(row.wall, 10_000); assert.equal(row.prevWall, 9_000);
+  const half = rowChange([event(81_020, 1e6)], 81_020, 10, 1.5e6)!;
+  assert.equal(half.usd, 0.5e6, 'a $20 bin under $10 rows lights both rows with half, as the ladder itself shows it');
+  assert.equal(rowChange([event(81_020, 1e6)], 81_040, 10, 1.5e6), null, 'a row the event did not reach');
+  assert.equal(rowChange([], 81_000, 100, 1.5e6), null);
+});
 
 test('how long ago reads as a person says it', () => {
   assert.equal(agoText(0), 'just now'); assert.equal(agoText(999), 'just now');

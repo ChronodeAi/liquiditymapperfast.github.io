@@ -18,7 +18,7 @@ import { currentCoin } from '../coin.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type Pt } from '../touch.ts';
 import { dimOutside, mirrorLines, mirrorStats, paintBand, paintMirrorBox, percentText, type MirrorStats } from '../mirror.ts';
 import { paintInfoBox, type InfoLine } from '../infobox.ts';
-import { gutterLines, levelLines, smallerVenuesLines, venueCellLines, type ChangeFact, type HeatFact, type LevelFacts } from './ladder-info.ts';
+import { gutterLines, levelLines, rowChange, smallerVenuesLines, venueCellLines, type ChangeFact, type HeatFact, type LevelFacts } from './ladder-info.ts';
 import { CueLayer } from './ladder-cue-layer.ts';
 import type { Cell, CueBoard } from './ladder-cues.ts';
 import { heatTone, paintStrip } from './ladder-cue-paint.ts';
@@ -641,12 +641,17 @@ export class LadderPane {
     return hv.x < k.barX + len ? { lines: levelLines(facts), x: k.barX, y: y + 2, w: len, h: ROW_H - 4 } : null;
   }
 
-  /** The latest changes the cues saw at a price row, newest first: each of the books' `ids` own (the last two minutes), named as a popup names a book. */
+  /**
+   * The latest changes the cues saw at a price row, newest first: each of the books' `ids` own (the last two minutes), named as a popup names a book.
+   * Each is the row's change as the light made it (`rowEvents` over the events of the newest publication that touched the row: shared over the row
+   * and added up), so the figure the pointer reads is the one the cell was lit with, and a row of several bins that changed together says their sum.
+   */
   #changesAt(ids: readonly string[], ask: boolean, lo: number, hi: number): ChangeFact[] {
-    const now = Date.now(), out: ChangeFact[] = [];
+    const now = Date.now(), out: ChangeFact[] = [], step = hi - lo, scale = this.#cues.scale;
     for (const id of ids) {
-      const e = this.#cues.tracker.recent(id, ask ? 'ask' : 'bid', lo, hi);
-      if (e && now - e.wall <= CHANGE_HOVER_MS) out.push({ name: bookName(id), id, usd: e.usd, ageMs: Math.max(0, now - e.wall), removed: e.removed, pair: e.pair });
+      const events = this.#cues.tracker.recentEvents(id, ask ? 'ask' : 'bid', lo, hi);
+      const r = events.length ? rowChange(events, lo, step, scale) : null;
+      if (r && now - r.wall <= CHANGE_HOVER_MS) out.push({ name: bookName(id), id, usd: r.usd, ageMs: Math.max(0, now - r.wall), removed: r.removed, pair: r.pair });
     }
     return out.sort((a, b) => a.ageMs - b.ageMs);
   }
