@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MAX_CUE_AREA, MIN_CUE_AREA, MIN_CUE_STRENGTH, markKey, maxAreaFor, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, evictFairly, MARK_LIFE_MS, MAX_CUE_AREA, MIN_CUE_AREA, MIN_CUE_STRENGTH, markKey, maxAreaFor, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
 import { cueShows, heatTone, paintCue } from '../src/app/panes/ladder-cue-paint.ts';
 import { PALETTES, contrastRatio } from '../src/app/theme.ts';
 import { nearDirection } from '../src/app/cvd/colors.ts';
@@ -124,10 +124,10 @@ test('a cue is over after its life, a mark after its own, and what is over frees
   assert.deepEqual(board.active.map(c => c.id), ['b:BTC'], 'the first cue ended and made room');
 });
 
-test('a cue shows a share of its peak: its envelope, held at full through the attack; a contact\'s ripple runs out sooner', () => {
+test('a cue shows a share of its peak: its body or its crest, whichever is brighter, held at full through the attack; a contact\'s ripple runs out sooner', () => {
   const change = { kind: 'depth' as const, life: CUE_LIFE_MS }, contact = { kind: 'contact' as const, life: CONTACT_LIFE_MS };
   assert.equal(shareAt(change, 0), 1); assert.equal(shareAt(change, PULSE_ATTACK_MS - 1), 1, 'still rising: the budget does not assume less');
-  for (const age of [PULSE_ATTACK_MS, 200, 600, 1_400]) assert.equal(shareAt(change, age), pulseEnvelope(age));
+  for (const age of [PULSE_ATTACK_MS, 200, 600, 1_000]) assert.ok(shareAt(change, age) >= pulseEnvelope(age) - 1e-12 && shareAt(change, age) >= crestLight(1, age) - 1e-12, `age ${age}`);
   assert.equal(shareAt(change, -1), 0); assert.equal(shareAt(change, CUE_LIFE_MS + 1), 0);
   assert.ok(shareAt(change, 500) > BRIGHT_SHARE && shareAt(change, 600) < BRIGHT_SHARE, 'a change is a tail after about half a second');
   assert.equal(shareAt(contact, 0), 1); assert.ok(shareAt(contact, 300) < 0.5 && shareAt(contact, CONTACT_LIFE_MS) === 0 && shareAt(contact, CONTACT_LIFE_MS + 1) === 0);
@@ -146,7 +146,7 @@ test('the budget counts the light that shows: a cue running out holds no place a
 test('a cue that paints nothing any more is left alone: its cell is neither restored nor repainted', () => {
   const change = { kind: 'depth' as const, life: CUE_LIFE_MS, strength: 0.6 } as Cue, contact = { kind: 'contact' as const, life: CONTACT_LIFE_MS, strength: 0.6 } as Cue;
   assert.equal(cueShows('wash', change, 0), true, 'at its first instant the body is still dark but the crest is already there'); assert.equal(cueShows('wash', change, 100), true);
-  assert.equal(cueShows('wash', change, CUE_LIFE_MS - 1), true, 'the crest is the last thing to go'); assert.equal(cueShows('wash', change, CUE_LIFE_MS + 1), false);
+  assert.equal(cueShows('wash', change, 900), true, 'the crest is the last thing to go'); assert.equal(cueShows('wash', change, CUE_LIFE_MS + 1), false);
   assert.equal(cueShows('marks', change, 100), false);
   assert.equal(cueShows('wash', contact, 10), true); assert.equal(cueShows('wash', contact, CONTACT_LIFE_MS - 1), false, 'a ripple is under a hundredth of itself before it ends');
   assert.equal(cueShows('marks', contact, 10), false, 'Signs and reduced motion light nothing: a ripple that was running when the look changed goes with it');
@@ -257,6 +257,36 @@ test('a full list drops its weakest, not its oldest, so a flood of faint changes
   assert.equal(board.waiting, 512);
   board.admit(1_000, 'wash', flat());
   assert.ok(board.active.some(c => c.id === 'quiet:BTC'), 'the quiet venue\'s strongest change survived 600 weaker ones queued after it'); assert.ok(board.marks.has(markKey(1)));
+});
+
+test('a newer change is never behind an older one in a full queue, and a quiet venue keeps its only change however faint', () => {
+  const board = new CueBoard();
+  // an older strong decrease at a cell, then 600 stronger changes of other cells, then a newer weak addition at the first cell
+  board.push([row('a:BTC', 'ask', 1, -3e6, 0.9, { seq: 1 })]);
+  board.push(Array.from({ length: 600 }, (_, i) => row(`v${i % 14}:BTC`, 'bid', 100 + i, -4e6, 0.95, { seq: 2 + i })));
+  board.push([row('a:BTC', 'ask', 1, 3e5, 0.2, { seq: 700 })]);
+  assert.ok(board.waiting <= 512);
+  board.admit(1_000, 'wash', flat());
+  const cue = board.active.find(c => c.id === 'a:BTC' && c.row === 1);
+  assert.ok(cue && cue.sign === 1 && cue.strength === 0.2, 'the cell was last seen adding: it is not painted as the older removal');
+  const fair = new CueBoard();
+  fair.push([row('quiet:BTC', 'ask', 1, 1e5, 0.12, { seq: 1 })]);
+  fair.push(Array.from({ length: 700 }, (_, i) => row('busy:BTC', 'ask', 100 + i, 2e6, 0.5, { seq: 2 + i })));
+  fair.admit(1_000, 'wash', flat());
+  assert.ok(fair.active.some(c => c.id === 'quiet:BTC') && fair.marks.has(markKey(1)), 'a weaker quiet venue survives a flood of stronger changes: it gets light and a mark');
+  const list = [...Array.from({ length: 6 }, (_, i) => ({ id: 'busy', strength: 0.5 + i / 100 })), { id: 'quiet', strength: 0.01 }];
+  evictFairly(list, 4);
+  assert.deepEqual(list.map(x => x.id).sort(), ['busy', 'busy', 'busy', 'quiet'], 'the busy venue gave up three of its faintest, the quiet one kept its only');
+  assert.ok(list.filter(x => x.id === 'busy').every(x => x.strength >= 0.53), 'its three strongest stayed');
+});
+
+test('the crest is part of the light a cue holds a place by: both are under a tenth of their peak after about half a second', () => {
+  const change = { kind: 'depth' as const, life: CUE_LIFE_MS };
+  for (let age = 0; age <= CUE_LIFE_MS; age += 10) {
+    assert.ok(shareAt(change, age) >= pulseEnvelope(age) - 1e-12 && shareAt(change, age) >= crestLight(1, age) - 1e-12 && shareAt(change, age) <= 1, `age ${age}`);
+  }
+  assert.ok(crestLight(1, CREST_MS) > 0.45, 'the crest keeps its brightness while it crosses the cell');
+  assert.ok(shareAt(change, 500) > BRIGHT_SHARE && shareAt(change, 620) < BRIGHT_SHARE, `at 620 ms a crest of ${crestLight(1, 620).toFixed(3)} no longer holds a place`);
 });
 
 test('a row has one mark whichever side made it, and it keeps the side it was made on; Single mode keeps one for each venue', () => {

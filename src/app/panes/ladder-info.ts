@@ -11,7 +11,8 @@ import { rowEvents, type CueEvent, type RowEvent } from './book-cues.ts';
  */
 export function rowChange(events: readonly CueEvent[], lo: number, step: number, scale: number): RowEvent | null {
   const row = binOf(lo, step);
-  return rowEvents(events, step, scale).find(r => r.row === row) ?? null;
+  // Only this row is projected: a band across thousands of rows (a fine Group) or a bin across many would otherwise be cut short, or made into rows nobody asked about.
+  return rowEvents(events, step, scale, { lo, hi: lo }).find(r => r.row === row) ?? null;
 }
 
 /** What is known about one price level of the order book, to say what the pointer is on. */

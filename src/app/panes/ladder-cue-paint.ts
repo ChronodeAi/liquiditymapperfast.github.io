@@ -77,8 +77,8 @@ function paintContact(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: nu
 /** Whether the cue paints anything at `age`: the pane neither restores nor repaints the cell of one that does not (the tail of its life). */
 export function cueShows(look: CueLook, cue: Cue, age: number): boolean {
   // Signs (and reduced motion) light nothing: a ripple or a wash that was running when the look changed goes with it.
-  if (look === 'marks') return false;
-  if (cue.kind === 'contact') return age >= 0 && age <= CONTACT_LIFE_MS && contactLight(cue, age) > SHOWS_CONTACT;
+  if (look === 'marks' || age < 0 || age > cue.life) return false;
+  if (cue.kind === 'contact') return contactLight(cue, age) > SHOWS_CONTACT;
   return bodyLight(cue.strength, age) > SHOWS_CHANGE || crestLight(cue.strength, age) > SHOWS_CHANGE;
 }
 

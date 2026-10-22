@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TapeRing } from '../src/app/tape/ring.ts';
 import type { TapeBatch } from '../src/shared/tape.ts';
-import { CONTACT_FALLOFF, CONTACT_LIFE_MS, CONTACT_ROWS, CueBoard, contactRows, type ContactRow, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { CONTACT_FALLOFF, CONTACT_LIFE_MS, CONTACT_ROWS, CONTACT_WEIGHT, CueBoard, contactRows, type ContactRow, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
 
 const T0 = 1_760_000_000_000;
 interface Order { id: string; t: number; price: number; usd: number; lo?: number; hi?: number }
@@ -68,7 +68,7 @@ test('a contact is a quick cue of its own that leaves no mark, takes the taker\'
   assert.equal(board.prune(1_000 + CONTACT_LIFE_MS), true); assert.equal(board.prune(1_000 + CONTACT_LIFE_MS + 1), false);
 });
 
-test('contacts are lit after the changes and out of the same budget, at the cost of a change of the same strength (its shorter life is counted by the light it shows)', () => {
+test('contacts are lit after the changes and out of the same budget, at 1.5 times a wash of their strength in every look (a contact paints the whole cell), and their shorter life is counted by the light they show', () => {
   const board = new CueBoard({ maxCues: 2, maxArea: 1e9 });
   board.push([change('a:BTC', 5, 1e6, 0.5), change('b:BTC', 6, 1e6, 0.4)]);
   board.pushContacts([contact('c:BTC', 7, 0.99)]);
@@ -78,7 +78,14 @@ test('contacts are lit after the changes and out of the same budget, at the cost
   const cost = new CueBoard();
   cost.push([change('a:BTC', 5, 1e6, 0.5)]); cost.pushContacts([contact('b:BTC', 6, 0.5)]); cost.admit(1_000, 'wash', flat);
   const [d, c] = cost.active;
-  assert.ok(Math.abs(c!.cost / d!.cost - 1) < 1e-9);
+  assert.ok(Math.abs(c!.cost / d!.cost - CONTACT_WEIGHT) < 1e-9);
+  for (const look of ['rim', 'deposit'] as const) {
+    const other = new CueBoard();
+    other.push([change('a:BTC', 5, 1e6, 0.5)]); other.pushContacts([contact('b:BTC', 6, 0.5)]); other.admit(1_000, look, flat);
+    const [x, y] = other.active;
+    assert.ok(Math.abs(y!.cost - 100 * 10 * (0.25 + 0.75 * 0.5) * CONTACT_WEIGHT) < 1e-9, `${look}: a contact is not a thin edge`);
+    assert.ok(y!.cost > x!.cost, `${look}: it costs more than the change beside it`);
+  }
   assert.ok(cost.litArea(1_000 + 400) < cost.used, 'both have run down by then: the area they show is under what they cost at their peaks');
 });
 

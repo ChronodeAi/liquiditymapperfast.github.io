@@ -3,7 +3,7 @@ import type { LevelsFrame } from '../wire.ts';
 import { scaledUsd } from '../coin.ts';
 import type { TapeRing } from '../tape/ring.ts';
 import { BookCueTracker, rowEvents, type CueEvent } from './book-cues.ts';
-import { CellMap, CueBoard, MAX_PENDING, contactRows, maxAreaFor, pushStrongest, type CueLook, type Geometry } from './ladder-cues.ts';
+import { CellMap, CueBoard, MAX_PENDING, contactRows, evictFairly, maxAreaFor, type CueLook, type Geometry } from './ladder-cues.ts';
 import { cueBox, cueShows, markBox, paintCue, paintMark, type Box } from './ladder-cue-paint.ts';
 import { SENSE_SCALE_USD, type CueLookSetting, type Sense } from './ladder-cue-settings.ts';
 
@@ -92,8 +92,11 @@ export class CueLayer {
   feed(frame: LevelsFrame | null, ids: readonly string[], heat: boolean): void {
     if (!frame || (this.#look === 'off' && !heat)) { this.reset(); return; }
     const events = this.tracker.observe(frame.books, ids, { wall: Date.now(), scale: this.scale, floorUsd: scaledUsd(CUE_FLOOR_USD) });
-    if (this.#look === 'off' || !this.host.shown()) return;
-    for (const e of events) pushStrongest(this.#events, e, MAX_PENDING);
+    // Hidden, covered or in replay: what waited for a draw goes too (it would play, after what happened while away, as if it were new) and nothing is added;
+    // the tracker goes on, its history is what the heat strip reads.
+    if (this.#look === 'off' || !this.host.shown()) { this.#events.length = 0; return; }
+    this.#events.push(...events);
+    evictFairly(this.#events, MAX_PENDING);
   }
 
   /** Forget everything: a reconnect, a venue that went, a replay, another coin. */
@@ -189,8 +192,10 @@ export class CueLayer {
   lightNow(): void {
     if (this.#look === 'off' || !this.host.shown() || !this.board.waiting) return;
     if (!this.#baseValid && !this.#snapshot()) return;
-    const now = performance.now();
-    this.board.admit(now, this.look === 'off' ? 'marks' : this.look, this.#geometry(), this.#layout.perVenue);
+    const now = performance.now(), look = this.look === 'off' ? 'marks' : this.look, geo = this.#geometry();
+    // What the book scrolled out of view lit gives its places back before a contact asks for one (nothing redraws the book on a scroll).
+    this.board.prune(now); this.board.reprice(now, look, geo);
+    this.board.admit(now, look, geo, this.#layout.perVenue);
     this.#paint(now);
     this.#schedule();
   }
@@ -244,7 +249,7 @@ export class CueLayer {
   #frame(): void {
     if (!this.host.shown() || this.#look === 'off') { this.clear(); return; }
     const now = performance.now();
-    this.board.prune(now);
+    this.board.prune(now); this.board.reprice(now, this.look === 'off' ? 'marks' : this.look, this.#geometry());
     this.#paint(now);
     this.#schedule();
   }

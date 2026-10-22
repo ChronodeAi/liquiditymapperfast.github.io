@@ -20,6 +20,9 @@ test('the figure the pointer reads for a row is the one its cell was lit with: t
   assert.equal(half.usd, 0.5e6, 'a $20 bin under $10 rows lights both rows with half, as the ladder itself shows it');
   assert.equal(rowChange([event(81_020, 1e6)], 81_040, 10, 1.5e6), null, 'a row the event did not reach');
   assert.equal(rowChange([], 81_000, 100, 1.5e6), null);
+  const band = event(80_000, 1e6, { hi: 81_000, grid: 0, band: true });
+  const fine = rowChange([band], 80_900, 0.1, 1.5e6)!;
+  assert.ok(fine && Math.abs(fine.usd - 1e6 * 0.1 / 1_000) < 1e-6, 'a band a thousand dollars wide at Group $0.1: the row asked about gets its share, not null from a projection cut short');
 });
 
 test('what traded around a change is said beside it where the tape says, and nothing is said where it does not', () => {
