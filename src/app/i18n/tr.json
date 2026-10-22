@@ -1648,5 +1648,8 @@
  "Calm": "Sakin",
  "Normal": "Normal",
  "Lively": "Canlı",
- "A change nearby went the other way, by about the same size.": "Yakınında ters yönde, yaklaşık aynı büyüklükte bir değişiklik oldu."
+ "A change nearby went the other way, by about the same size.": "Yakınında ters yönde, yaklaşık aynı büyüklükte bir değişiklik oldu.",
+ "{usd} traded": "{usd} işlem gördü",
+ "none traded": "işlem yok",
+ "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "İşlem: o borsada aynı sıralarda bu satıra ulaşan piyasa emirleri. Emir defteri, değişikliğin ne kadarını açıkladıklarını söylemez."
 }

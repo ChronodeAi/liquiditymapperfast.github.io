@@ -1665,5 +1665,8 @@
  "Calm": "Tranquilo",
  "Normal": "Normal",
  "Lively": "Animado",
- "A change nearby went the other way, by about the same size.": "Cerca hubo un cambio en sentido contrario, de tamaño parecido."
+ "A change nearby went the other way, by about the same size.": "Cerca hubo un cambio en sentido contrario, de tamaño parecido.",
+ "{usd} traded": "{usd} negociados",
+ "none traded": "nada negociado",
+ "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "Negociado: órdenes de mercado que llegaron a esta fila en ese mercado más o menos al mismo tiempo. El libro no dice cuánto del cambio explican."
 }

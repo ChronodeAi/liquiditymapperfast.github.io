@@ -172,7 +172,8 @@ async function main(): Promise<void> {
     document.documentElement.dataset.material = glass.on ? 'glass' : 'solid';
   };
   // On a phone the Tape keeps the market's orders from the page's opening, whichever tab shows, so the ring runs there always.
-  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off' && store.state.ladderCues.contact);
+  // The book's cues read the tape for the contact ripples and for what traded beside a change (the hover), so they want it whether or not the ripples are on.
+  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off');
   // The map and the book are covered while the Candle tab shows: they draw nothing then, and catch up when they show again.
   const coverPanes = (): void => { const covered = candleShown(); heat.setSuspended(covered); ladder.setSuspended(covered); };
   dock.onChange = () => { candle.setShown(candleShown()); coverPanes(); hub.setTape(tapeWanted()); };

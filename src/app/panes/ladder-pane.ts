@@ -20,7 +20,7 @@ import { dimOutside, mirrorLines, mirrorStats, paintBand, paintMirrorBox, percen
 import { paintInfoBox, type InfoLine } from '../infobox.ts';
 import { gutterLines, levelLines, rowChange, smallerVenuesLines, venueCellLines, type ChangeFact, type HeatFact, type LevelFacts } from './ladder-info.ts';
 import { CueLayer } from './ladder-cue-layer.ts';
-import type { Cell, CueBoard } from './ladder-cues.ts';
+import { meanwhile, tradedInRow, type Cell, type CueBoard } from './ladder-cues.ts';
 import { heatTone, paintStrip } from './ladder-cue-paint.ts';
 import type { CueLookSetting, HeatKind, Sense } from './ladder-cue-settings.ts';
 import { barPieces, pieceAt, pieceLabel, rankVenues, type BarPiece } from './ladder-pieces.ts';
@@ -651,9 +651,23 @@ export class LadderPane {
     for (const id of ids) {
       const events = this.#cues.tracker.recentEvents(id, ask ? 'ask' : 'bid', lo, hi);
       const r = events.length ? rowChange(events, lo, step, scale) : null;
-      if (r && now - r.wall <= CHANGE_HOVER_MS) out.push({ name: bookName(id), id, usd: r.usd, ageMs: Math.max(0, now - r.wall), removed: r.removed, pair: r.pair });
+      if (!r || now - r.wall > CHANGE_HOVER_MS) continue;
+      const traded = this.#tradedMeanwhile(id, ask, lo, hi, r.prevWall, r.wall);
+      out.push({ name: bookName(id), id, usd: r.usd, ageMs: Math.max(0, now - r.wall), removed: r.removed, pair: r.pair, ...(traded !== null ? { traded } : {}) });
     }
     return out.sort((a, b) => a.ageMs - b.ageMs);
+  }
+
+  /** What traded on `id` at a row around a change seen between the snapshots at `prevWall` and `wall` (null: the tape does not say). Held a second, so a pointer moving over the row does not read the tape again for every draw. */
+  #traded = new Map<string, { at: number; usd: number | null }>();
+  #tradedMeanwhile(id: string, ask: boolean, lo: number, hi: number, prevWall: number, wall: number): number | null {
+    const ring = this.hub?.tape; if (!ring) return null;
+    const key = `${id}|${ask ? 1 : 0}|${lo}|${hi}|${prevWall}|${wall}`, now = performance.now(), held = this.#traded.get(key);
+    if (held && now - held.at < 1_000) return held.usd;
+    if (this.#traded.size > 64) this.#traded.clear();
+    const usd = tradedInRow(ring, { id, ask, lo, hi, ...meanwhile(prevWall, wall) });
+    this.#traded.set(key, { at: now, usd });
+    return usd;
   }
 
   /** A venue line under the pointer: a dot where it crosses the pointer's row, and what it says there (on the key: the venue and its volume). */

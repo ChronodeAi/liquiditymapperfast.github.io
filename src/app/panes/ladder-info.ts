@@ -39,8 +39,11 @@ export interface LevelFacts {
   heat?: HeatFact;
 }
 
-/** One venue's latest observed change of its displayed depth at a level: its size (signed USD), how long ago, and how it read. */
-export interface ChangeFact { name: string; id?: string; usd: number; ageMs: number; removed: boolean; pair: boolean }
+/**
+ * One venue's latest observed change of its displayed depth at a level: its size (signed USD), how long ago, and how it read; `traded` is the USD of
+ * market orders that reached the row on that venue around the same time (`tradedInRow`), absent when the tape does not say.
+ */
+export interface ChangeFact { name: string; id?: string; usd: number; ageMs: number; removed: boolean; pair: boolean; traded?: number }
 /** The shares (0 to 1) of a cell the heat strip is drawn from; `kind` says which one it shows. */
 export interface HeatFact { kind: 'added' | 'activity'; fresh: number; unknown: number; activity: number }
 
@@ -58,7 +61,8 @@ export function agoText(ms: number): string {
 export function cueLines(f: Pick<LevelFacts, 'ask' | 'changes' | 'heat'>, limit = 3): InfoLine[] {
   const lines: InfoLine[] = [];
   const changes = (f.changes ?? []).slice(0, limit);
-  changes.forEach((c, i) => lines.push({ label: i === 0 ? t('Last change') : '', text: `${signedUsd(c.usd)}${c.removed ? ` · ${t('emptied')}` : ''} · ${agoText(c.ageMs)}`, color: f.ask ? 'above' : 'below', rule: i === 0, ...(c.id ? { mark: c.id } : {}) }));
+  const tradedText = (c: ChangeFact): string => c.traded === undefined ? '' : ` · ${c.traded > 0 ? t('{usd} traded', { usd: `$${usd(c.traded)}` }) : t('none traded')}`;
+  changes.forEach((c, i) => lines.push({ label: i === 0 ? t('Last change') : '', text: `${signedUsd(c.usd)}${c.removed ? ` · ${t('emptied')}` : ''} · ${agoText(c.ageMs)}${tradedText(c)}`, color: f.ask ? 'above' : 'below', rule: i === 0, ...(c.id ? { mark: c.id } : {}) }));
   // Two opposite changes of about one size next to each other are said as that: nothing in the book says whether it is one order moving, a row's edge crossed, or two.
   if (changes.some(c => c.pair)) lines.push({ text: t('A change nearby went the other way, by about the same size.'), color: 'muted', wrap: true });
   if (f.heat && f.heat.fresh + f.heat.unknown + f.heat.activity > 0) {
@@ -66,6 +70,7 @@ export function cueLines(f: Pick<LevelFacts, 'ask' | 'changes' | 'heat'>, limit 
     lines.push(h.kind === 'added' ? { label: t('Recent adds'), text: pct(h.fresh), rule: !changes.length } : { label: t('Recent change'), text: pct(h.activity), rule: !changes.length });
     if (h.unknown > 0.5) lines.push({ text: t('Not known yet: the first snapshot has no history.'), color: 'muted', wrap: true });
   }
+  if (changes.some(c => c.traded !== undefined)) lines.push({ text: t('Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.'), color: 'muted', wrap: true });
   if (changes.length) lines.push({ text: t('The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.'), color: 'muted', wrap: true });
   return lines;
 }

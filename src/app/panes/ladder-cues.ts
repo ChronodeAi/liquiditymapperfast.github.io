@@ -32,6 +32,10 @@ export const CREST_MS = 380;
 /** Cues showing light at once, and the area they may cover at full light (CSS px squared): under a quarter of W3C's 10-degree flash area (about 21,800 px2) with the Tape and the page's waves besides. */
 export const MAX_CUES = 40;
 export const MAX_CUE_AREA = 12_000;
+/** And no more than this share of the ladder on screen (a phone's book is a fifth of a desktop's, so the same lit area would be five times as busy), nor under this much. */
+export const MAX_CUE_AREA_SHARE = 0.05, MIN_CUE_AREA = 1_500;
+/** The area cap for a ladder of `w` x `h` CSS px on screen. */
+export const maxAreaFor = (w: number, h: number): number => Math.max(MIN_CUE_AREA, Math.min(MAX_CUE_AREA, MAX_CUE_AREA_SHARE * w * h));
 /**
  * A cue showing under this share of its peak is a tail (a change's body is there after about half a second) and holds no place. It bounds the
  * cues running, tails included: at most `MAX_CUES` begin in any half second and each runs 1.5 s at the most, so about three times as many.
@@ -106,6 +110,44 @@ export function contactRows(ring: Pick<TapeRing, 'data' | 'capacity' | 'at'>, fr
   return out;
 }
 
+/**
+ * "Traded meanwhile", for the hover: the market orders of one venue that reached a price row around the time of a change, so that a decrease can be
+ * read against what was taken from it. The change was seen between two snapshots of that venue's book (the page's clock) and the orders are stamped by
+ * the exchange: the interval is looked at a little widely, and no wider. It is a fact about the tape, not an explanation of the change.
+ */
+export const MEANWHILE_BEFORE_MS = 1_000, MEANWHILE_AFTER_MS = 500;
+/** A stretch of the tape whose last order is up to this long before the end of an interval still covers it (a quiet market is not a gap). */
+const COVER_SLACK_MS = 5_000;
+/** A venue that traded nothing in the minute before the interval is not known to be on the tape at all: its silence says nothing. */
+const ACTIVE_MS = 60_000;
+/** The interval a change between the snapshots at `from` and `to` (the page's clock, ms) is looked at for orders. */
+export const meanwhile = (from: number, to: number): { from: number; to: number } => ({ from: from - MEANWHILE_BEFORE_MS, to: to + MEANWHILE_AFTER_MS });
+
+/**
+ * The USD of the market orders of venue `id` that reached [lo, hi) between `from` and `to` (ms) on the side that takes from the depth there (a
+ * buyer takes the asks), whole orders: an order that walked through the row counts at its full size. Null when it is not known: the tape does not
+ * cover the interval without a gap, or the venue has no orders on it around then.
+ */
+export function tradedInRow(ring: Pick<TapeRing, 'data' | 'capacity' | 'segments' | 'runs' | 'ids' | 't0' | 'p0'>, o: { id: string; ask: boolean; lo: number; hi: number; from: number; to: number }): number | null {
+  if (!(o.to >= o.from) || !ring.segments.some(s => s.from <= o.from && s.to + COVER_SLACK_MS >= o.to)) return null;
+  const local = ring.ids.indexOf(o.id);
+  if (local < 0) return null;
+  const d = ring.data, cap = ring.capacity;
+  let usd = 0, active = false;
+  for (const [a, b] of ring.runs(o.from - ACTIVE_MS, o.to)) for (let k = a; k < b; k++) {
+    const at = (k % cap) * STRIDE;
+    if (d[at + 3] !== local) continue;
+    const t = ring.t0 + d[at]!;
+    if (t < o.from - ACTIVE_MS || t > o.to) continue;
+    active = true;
+    const u = d[at + 2]!;
+    if (t < o.from || (u > 0) !== o.ask) continue;
+    const lo = ring.p0 + d[at + 4]!, hi = ring.p0 + d[at + 5]!, low = lo < hi ? lo : hi, high = lo < hi ? hi : lo;
+    if (high >= o.lo && low < o.hi) usd += u < 0 ? -u : u;
+  }
+  return active ? usd : null;
+}
+
 export const cueKey = (id: string, side: 'bid' | 'ask', row: number): string => `${id}|${side}|${row}`;
 /**
  * A mark is a row's (all venues, one gutter box a row) or, in Single mode where each book has a gutter of its own, a venue's row's: `scope`
@@ -174,6 +216,8 @@ export class CueBoard {
   clear(): void { this.active.length = 0; this.marks.clear(); this.#pending.length = 0; this.#contacts.length = 0; }
   /** The light goes out, the marks stay (the Signs look, and reduced motion): what is lit and the contacts waiting are dropped, the changes waiting still leave their marks. */
   dim(): void { this.active.length = 0; this.#contacts.length = 0; }
+  /** The area cap for the ladder as it is on screen now (`maxAreaFor`); what is lit already is checked against it at the next `reprice`. */
+  setMaxArea(px2: number): void { this.caps.maxArea = px2; }
   /** The mark in the gutter box of `row` (of venue `scope` in Single mode), if there is one. */
   markAt(row: number, scope = ''): Mark | undefined { return this.marks.get(markKey(row, scope)); }
 

@@ -22,6 +22,16 @@ test('the figure the pointer reads for a row is the one its cell was lit with: t
   assert.equal(rowChange([], 81_000, 100, 1.5e6), null);
 });
 
+test('what traded around a change is said beside it where the tape says, and nothing is said where it does not', () => {
+  const beside = cueLines({ ask: true, changes: [change({ usd: -1.5e6, removed: true, traded: 1.1e6 })] });
+  assert.equal(beside[0]!.text, '−$1.5M · emptied · 1 s ago · $1.1M traded');
+  assert.ok(beside.some(l => /^Traded: market orders that reached this row/.test(l.text) && /does not say how much of the change/.test(l.text)), 'said once what it counts, and that it explains nothing by itself');
+  const none = cueLines({ ask: true, changes: [change({ usd: -1.5e6, traded: 0 })] });
+  assert.equal(none[0]!.text, '−$1.5M · 1 s ago · none traded');
+  const unknown = cueLines({ ask: true, changes: [change({ usd: -1.5e6 })] });
+  assert.equal(unknown[0]!.text, '−$1.5M · 1 s ago'); assert.ok(!unknown.some(l => /^Traded:/.test(l.text)), 'the tape does not say: nothing said, not "none"');
+});
+
 test('how long ago reads as a person says it', () => {
   assert.equal(agoText(0), 'just now'); assert.equal(agoText(999), 'just now');
   assert.equal(agoText(1_000), '1 s ago'); assert.equal(agoText(4_400), '4 s ago'); assert.equal(agoText(59_000), '59 s ago');

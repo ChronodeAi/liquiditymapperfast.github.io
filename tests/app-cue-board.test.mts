@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, markKey, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MAX_CUE_AREA, MIN_CUE_AREA, MIN_CUE_STRENGTH, markKey, maxAreaFor, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
 import { cueShows, paintCue } from '../src/app/panes/ladder-cue-paint.ts';
 import { PALETTES } from '../src/app/theme.ts';
 import { PULSE_ATTACK_MS, pulseEnvelope } from '../src/app/candle/model.ts';
@@ -223,6 +223,17 @@ test('cells that grew past the area cap end the dimmest cue first, and only as m
   board.reprice(1_000, 'wash', { rowVisible: () => true, cell: () => ({ x: 0, y: 0, w: 300, h: 10, usd: 1 }) });
   assert.deepEqual(board.active.map(c => c.id).sort(), ['a:BTC', 'c:BTC'], 'the faintest went: 6,525 px2 became 5,100');
   assert.ok(board.litArea(1_000) <= 5_200);
+});
+
+test('the area cap follows the ladder on screen: a share of it, capped, and never under what lights a few cells', () => {
+  assert.equal(maxAreaFor(420, 540), 0.05 * 420 * 540, 'a desktop book: about 11,000 px2');
+  assert.equal(maxAreaFor(1_000, 1_000), MAX_CUE_AREA, 'a large one: the cap');
+  assert.equal(maxAreaFor(375, 210), 0.05 * 375 * 210, 'a phone\'s book: a third of that');
+  assert.equal(maxAreaFor(50, 50), MIN_CUE_AREA);
+  const board = new CueBoard({ maxCues: 10, maxArea: 1e9 });
+  board.setMaxArea(2_500);
+  board.push([1, 2, 3, 4].map(i => row(`v${i}:BTC`, 'bid', i, -1e6, 1))); board.admit(1_000, 'wash', flat());
+  assert.equal(board.active.length, 2, 'two 1,000 px2 cells at full strength fit under 2,500');
 });
 
 test('a full list drops its weakest, not its oldest, so a flood of faint changes cannot push out a strong one', () => {

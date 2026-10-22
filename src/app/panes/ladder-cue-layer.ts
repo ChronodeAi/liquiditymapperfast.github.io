@@ -3,7 +3,7 @@ import type { LevelsFrame } from '../wire.ts';
 import { scaledUsd } from '../coin.ts';
 import type { TapeRing } from '../tape/ring.ts';
 import { BookCueTracker, rowEvents, type CueEvent } from './book-cues.ts';
-import { CellMap, CueBoard, MAX_PENDING, contactRows, pushStrongest, type CueLook, type Geometry } from './ladder-cues.ts';
+import { CellMap, CueBoard, MAX_PENDING, contactRows, maxAreaFor, pushStrongest, type CueLook, type Geometry } from './ladder-cues.ts';
 import { cueBox, cueShows, markBox, paintCue, paintMark, type Box } from './ladder-cue-paint.ts';
 import { SENSE_SCALE_USD, type CueLookSetting, type Sense } from './ladder-cue-settings.ts';
 
@@ -138,7 +138,9 @@ export class CueLayer {
     if (!this.#snapshot()) { this.#dirty.length = 0; this.#baseValid = false; return; }
     const now = performance.now(), look = this.look === 'off' ? 'marks' : this.look;
     // The cells were laid out again: what is lit is charged for the cells it lights now.
-    const geo = this.#geometry();
+    const geo = this.#geometry(), L0 = this.#layout, view = this.host.view();
+    // No more light than a share of the ladder that is on screen: a phone's book is small, and the same lit area would be far busier there.
+    this.board.setMaxArea(maxAreaFor(view.x1 - view.x0, L0.head + L0.rows * L0.rowH));
     this.board.prune(now); this.board.reprice(now, look, geo);
     if (this.#events.length) {
       // Only the rows on screen: a band as wide as the book would make hundreds of rows nobody sees and push the ones that are seen out of the queue.
