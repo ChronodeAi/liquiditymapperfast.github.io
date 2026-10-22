@@ -739,8 +739,9 @@ export class BookCueTracker {
         s.pend[i] = 0;
         if (verdict.kind === WEAK) {
           s.pend[i] = verdict.usd > 0 ? 1 : -1; s.pre[i] = verdict.before; s.preWall[i] = prevWall;
-          // The levels of the publication before the change wait on the cell for the one that confirms it (a change that waits already has them).
-          if (!waiting && lvPrev) { fl[i] = LV_PREV; lp[i] = []; cells.push(i); }
+          // The levels of the publication before the change wait on the cell for the one that confirms it (a change that waits already has them). They
+          // are the previous publication's alone, whatever this one holds: the event measures from them to the confirming publication's.
+          if (!waiting && !prevBand) { fl[i] = LV_PREV; lp[i] = []; cells.push(i); }
         } else if (verdict.kind !== NONE) {
           const bin = s.base + i;
           const ev = this.#event(st.id, side, bin * g, (bin + 1) * g, g, verdict.usd, verdict.before, qn, ctx, false, st.approx, verdict.kind === CONFIRMED, prevWall);

@@ -1331,6 +1331,28 @@ test('a side that has a band level, now or in the publication before, leaves its
   assert.equal(only(banded.observe([tenBands(6_400, { bid: run(40, 5, { 60: 4 * MILLION }) })], [HL], ctx(6_400))).lv, undefined);
 });
 
+test('a weak change noted in a publication that has a band level keeps the levels of the publication before it, and is put on rows by them when a clean one confirms it', () => {
+  // $1M a bin; the bid at MID - 3 as given; with `band`, the tenth bid is a band of eight dollars inside its bin.
+  const at = (ts: number, usd: number, band: boolean): CueBook => {
+    const l = ladder(); l.bids.set(MID - 3, usd);
+    const b = book(ID, ts, l);
+    if (band) { const hi = Float64Array.from(b.bids.lo); hi[9]! += 8; b.bids = { lo: b.bids.lo, hi, usd: b.bids.usd }; }
+    return b;
+  };
+  const tr = new BookCueTracker();
+  tr.observe([at(1_000, 1_000_000, false)], [ID], ctx(1_000));
+  assert.deepEqual(tr.observe([at(2_000, 1_100_000, true)], [ID], ctx(2_000)), [], '+$100k with a band level on the side: weak, and waiting');
+  const e = only(tr.observe([at(3_000, 1_200_000, false)], [ID], ctx(3_000)));
+  assert.deepEqual([e.confirmed, e.usd, e.before, e.after], [true, 200_000, 1_000_000, 1_200_000]);
+  const price = (MID - 3 + 0.5) * G;
+  assert.deepEqual(e.lv, { prev: [price, 1_000_000], cur: [price, 1_200_000] });
+  // One that is confirmed while the side has a band level is left to the share: the levels of the confirming publication are not prices.
+  const shared = new BookCueTracker();
+  shared.observe([at(1_000, 1_000_000, false)], [ID], ctx(1_000));
+  shared.observe([at(2_000, 1_100_000, false)], [ID], ctx(2_000));
+  assert.equal(only(shared.observe([at(3_000, 1_200_000, true)], [ID], ctx(3_000))).lv, undefined);
+});
+
 test('rows of an event with levels: a window keeps only its rows, at most 4,096 are made, levels that cancel in a row leave none, and a row\'s own old and new USD say removed and added', () => {
   const lv = (prev: number[], cur: number[]): CueEvent => ev({ lo: 81_020, hi: 81_040, usd: 0, lv: { prev, cur } });
   const moved = lv([81_021, 1_000_000], [81_031, 2_000_000]);                      // a level that moved to the next row, and doubled
