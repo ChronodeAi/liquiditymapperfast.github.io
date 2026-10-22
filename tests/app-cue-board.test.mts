@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MAX_CUE_AREA, MIN_CUE_AREA, MIN_CUE_STRENGTH, markKey, maxAreaFor, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
-import { cueShows, paintCue } from '../src/app/panes/ladder-cue-paint.ts';
-import { PALETTES } from '../src/app/theme.ts';
+import { cueShows, heatTone, paintCue } from '../src/app/panes/ladder-cue-paint.ts';
+import { PALETTES, contrastRatio } from '../src/app/theme.ts';
+import { nearDirection } from '../src/app/cvd/colors.ts';
 import { PULSE_ATTACK_MS, pulseEnvelope } from '../src/app/candle/model.ts';
 
 let seq = 0;
@@ -177,6 +178,15 @@ test('light stays inside the changed cell, in every look and for a contact, so a
   assert.ok(crest && crest.x >= cell.x && crest.x + crest.w <= cell.x + cell.w + 1e-9, 'at the end of its run the crest lies inside the cell, against its outer edge');
   const none = recorder(); paintCue(none.m, 'marks', mk('depth', 1), cell, 100, PALETTES.dark!); paintCue(none.m, 'marks', mk('contact', 1), cell, 100, PALETTES.dark!);
   assert.equal(none.fills.length, 0, 'the Signs look paints no light, contacts included');
+});
+
+test('the heat strip has a tone that reads on every theme and is not near its buy or sell colour', () => {
+  for (const [name, p] of Object.entries(PALETTES)) {
+    const tone = heatTone(p);
+    assert.match(tone, /^#[0-9a-f]{6}$/i, `${name}: a colour`);
+    assert.ok(contrastRatio(tone, p.panel) >= 3 - 1e-9, `${name}: ${tone} on ${p.panel} reads at ${contrastRatio(tone, p.panel).toFixed(2)}`);
+    assert.ok(tone === p.text || !nearDirection(tone, p), `${name}: ${tone} is near its buy or sell colour`);
+  }
 });
 
 test('a strong change is lit while faint ones are still running out', () => {
