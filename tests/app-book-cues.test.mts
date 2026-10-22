@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { BookCueTracker, DEFAULT_TUNING, FORGET_MS, GAP_CADENCES, MIN_GAP_MS, PAIR_BINS, TAU_ACTIVITY_MS, TAU_FRESH_MS, ZONE_STEPS, rowEvents, type CueBook, type CueContext, type CueEvent, type CueTuning } from '../src/app/panes/book-cues.ts';
 import { mergeByDistance } from '../src/shared/merge.ts';
 import { binOf } from '../src/shared/footprint.ts';
 import { gridStepFor } from '../src/shared/grid.ts';
+import { accumulateSide } from '../src/shared/recorder.ts';
 import type { SideArrays } from '../src/app/wire.ts';
 
 // BTC's grid at $81k is $20. The mid sits on the edge between bin 4063 (the best bid's) and bin 4064 (the best ask's): $81,280.
@@ -445,11 +449,14 @@ test('a $10 add that moves a $100k merged bucket across a $25 row edge is one $1
   const naive0 = sumsOf(p0.bids, 25), naive1 = sumsOf(p1.bids, 25);
   assert.equal(naive0.get(3_241)! - naive1.get(3_241)!, 100_000);
   assert.equal(naive1.get(3_240)! - naive0.get(3_240)!, 100_010);
-  // The native book moved $10 into row 3240; the grid of 20 cannot say which side of 81,025 it is on, so rowEvents shares it by overlap.
+  // The tracker's event is the $10 in the bin: the bucket never left it. The rows of $25 follow the levels the ladder's bars are drawn from, and the merge
+  // reported the bucket on the other side of 81,025 in the second publication, so the bar hopped and so do its rows: that is what the bar did.
   const rows = rowEvents([e], 25, 1_000_000);
-  assert.deepEqual(rows.map(r => [r.row, r.usd]), [[3_240, 2.5], [3_241, 7.5]]);
-  assert.ok(rows.every(r => Math.abs(r.usd) <= 10), 'nothing like the $100k bucket');
+  assert.deepEqual(rows.map(r => [r.row, r.usd]), [[3_240, 100_010], [3_241, -100_000]]);
   assert.deepEqual(rowEvents([e], 20, 1_000_000).map(r => [r.row, r.usd]), [[4_051, 10]], 'on a row of the same grid it is where it is');
+  // An event that does not keep its levels is shared by overlap: the $10 where the bin is, not the hop.
+  const shared = rowEvents([{ ...e, lv: undefined }], 25, 1_000_000);
+  assert.deepEqual(shared.map(r => [r.row, r.usd]), [[3_240, 2.5], [3_241, 7.5]]);
 });
 
 // ---- Banded books ----
@@ -830,7 +837,7 @@ test('a band is shared over the rows it covers in proportion, as the spreader sh
 test('rows can be limited to a window, an event never makes more than 4,096, and bad steps or sizes make none', () => {
   const band = ev({ lo: 81_000, hi: 81_400, grid: 0, usd: 400_000, band: true });
   assert.deepEqual(rowEvents([band], 100, 1_000_000, { lo: 81_100, hi: 81_299 }).map(r => r.row), [811, 812]);
-  assert.equal(rowEvents([ev({ lo: 0, hi: 1e6, usd: 1 })], 1, 1_000_000).length, 4_097);
+  assert.equal(rowEvents([ev({ lo: 0, hi: 1e6, usd: 1 })], 1, 1_000_000).length, 4_096);
   for (const step of [0, -5, Number.NaN, Infinity]) assert.deepEqual(rowEvents([ev({ lo: 0, hi: 20, usd: 1 })], step, 1_000_000), []);
   assert.deepEqual(rowEvents([ev({ lo: 20, hi: 20, usd: 1 }), ev({ lo: 30, hi: 10, usd: 1 })], 10, 1_000_000), [], 'no width, no rows');
   assert.ok(rowEvents([ev({ lo: 0, hi: 20, usd: 5_000_000 })], 20, 0)[0]!.strength > 0.99, 'a scale of zero falls back to the default reference');
@@ -1106,4 +1113,333 @@ test('a banded book\'s recentEvents are its cells\' newest publication, price as
   tr.observe([tenBands(11_800, { bid: run(40, 5, { 40: 3 * MILLION, 80: 4 * MILLION, 60: 5 * MILLION }) })], [HL], ctx(11_800));
   assert.deepEqual(tr.recentEvents(HL, 'bid', 40, 90).map(e => [e.lo, e.wall]), [[60, 11_800], [80, 11_800]], 'the change of 6.4 s is not of the newest publication');
   assert.deepEqual(tr.recentEvents(HL, 'bid', 40, 50).map(e => [e.lo, e.wall]), [[40, 6_400]]);
+});
+
+// ---- Sol's round-B review: levels inside a bin, ghost keys, and a venue that left the frame ----
+
+/** A venue's book from native levels in whole dollars (price to USD), merged by distance from its own mid on the grid, as the server publishes it. */
+const venue = (ts: number, bids: Record<number, number>, asks: Record<number, number>, o: { step?: number | null; id?: string } = {}): CueBook => {
+  const side = (m: Record<number, number>, bid: boolean): SideArrays => {
+    const prices = Object.keys(m).map(Number).filter(p => m[p]! > 0).sort((a, b) => bid ? b - a : a - b);
+    const lo = Float64Array.from(prices);
+    return { lo, hi: lo, usd: Float64Array.from(prices, p => m[p]!) };
+  };
+  const b = side(bids, true), a = side(asks, false), mid = (b.lo[0]! + a.lo[0]!) / 2;
+  const out: CueBook = { id: o.id ?? ID, timestamp: ts, coarse: false, bids: mergeByDistance(b, mid, G, true), asks: mergeByDistance(a, mid, G, false) };
+  if (o.step !== null) out.step = o.step ?? G;
+  return out;
+};
+/** $1M a level, `count` levels from `first`, a grid step apart: a ladder deep enough to be compared, with a mean cell of about $1M (a gate of about $50k). */
+const fillBids = (first: number, count: number, m: Record<number, number> = {}): Record<number, number> => { for (let k = 0; k < count; k++) m[first - G * k] = 1_000_000; return m; };
+const fillAsks = (first: number, count: number, m: Record<number, number> = {}): Record<number, number> => { for (let k = 0; k < count; k++) m[first + G * k] = 1_000_000; return m; };
+/** Sol's reproduction: in the bin [81,020, 81,040) a venue adds $2M at 81,021 and takes $500k off the $1.5M at 81,031 (`next`); the mid is 81,060. With `asks`, the ask at 81,081 doubles too. */
+const sol = (next: boolean, o: { step?: number | null; asks?: boolean } = {}): CueBook => {
+  const bids = fillBids(80_990, 60, { 81_059: 1_000_000, 81_045: 1_000_000, 81_031: next ? 1_000_000 : 1_500_000, 81_010: 1_000_000 });
+  if (next) bids[81_021] = 2_000_000;
+  const asks = fillAsks(81_061, 60);
+  if (next && o.asks) asks[81_081] = 2_000_000;
+  return venue(next ? 2_000 : 1_000, bids, asks, o);
+};
+/** The same book with its levels in another order: `rising` or `falling` in price on both sides, or `shuffled` (a fixed shuffle). */
+const reorder = (b: CueBook, how: 'rising' | 'falling' | 'shuffled'): CueBook => {
+  const re = (s: SideArrays): SideArrays => {
+    const idx = [...s.usd.keys()];
+    if (how === 'rising') idx.sort((x, y) => s.lo[x]! - s.lo[y]!);
+    else if (how === 'falling') idx.sort((x, y) => s.lo[y]! - s.lo[x]!);
+    else idx.sort((x, y) => ((x * 7919) % 101) - ((y * 7919) % 101));
+    const lo = Float64Array.from(idx, i => s.lo[i]!);
+    return { lo, hi: lo, usd: Float64Array.from(idx, i => s.usd[i]!) };
+  };
+  return { ...b, bids: re(b.bids), asks: re(b.asks) };
+};
+const pairsOf = (flat: readonly number[]): string[] => { const out: string[] = []; for (let j = 0; j + 1 < flat.length; j += 2) out.push(`${flat[j]}:${flat[j + 1]}`); return out.sort(); };
+const rowsOf = (events: readonly CueEvent[], step: number, window?: { lo: number; hi: number }): [number, number][] => rowEvents(events, step, 1_000_000, window).map(r => [r.row, r.usd]);
+
+test('a cell keeps the levels it is made of, and a row takes the change its own levels made: +$2M and -$500k in one bin are two rows, not $750k on both', () => {
+  const tr = new BookCueTracker();
+  tr.observe([sol(false)], [ID], ctx(1_000));
+  const e = only(tr.observe([sol(true)], [ID], ctx(2_000)));
+  assert.deepEqual([e.side, e.lo, e.hi, e.usd], ['bid', 81_020, 81_040, 1_500_000]);
+  assert.deepEqual(e.lv, { prev: [81_031, 1_500_000], cur: [81_031, 1_000_000, 81_021, 2_000_000] });
+  assert.deepEqual(rowsOf([e], 10), [[8_102, 2_000_000], [8_103, -500_000]]);
+  assert.deepEqual(rowsOf([e], 5), [[16_204, 2_000_000], [16_206, -500_000]], 'no row for the one that holds no level');
+  assert.deepEqual(rowsOf([e], 25), [[3_240, 2_000_000], [3_241, -500_000]], '81,025 divides them');
+  assert.deepEqual(rowsOf([e], 20), [[4_051, 1_500_000]]);
+  assert.deepEqual(rowsOf([e], 50), [[1_620, 1_500_000]], 'one row holds both');
+  assert.deepEqual(rowsOf([{ ...e, lv: undefined }], 10), [[8_102, 750_000], [8_103, 750_000]], 'the share by overlap that it replaces');
+  const rows = rowEvents([e], 10, 1_000_000);
+  assert.deepEqual(rows.map(r => [r.added, r.removed]), [[true, false], [false, false]]);
+  near(rows[0]!.strength, 1 - Math.exp(-2)); near(rows[1]!.strength, 1 - Math.exp(-0.5));
+  // The hover reads the same events through the same function.
+  assert.deepEqual(rowsOf(tr.recentEvents(ID, 'bid', 81_030, 81_040), 10), [[8_102, 2_000_000], [8_103, -500_000]]);
+});
+
+interface Glue { default(options: { module_or_path: Uint8Array }): Promise<unknown>; spread_levels: (lo: Float64Array, hi: Float64Array, usd: Float64Array, inst: Uint32Array, nInst: number, step: number, bin0: number, nBins: number) => Float32Array }
+/** The repository root, from the source tree or from the compiled tests. */
+function repoRoot(): string {
+  let dir = import.meta.dirname;
+  for (let i = 0; i < 6; i++, dir = path.dirname(dir)) if (fs.existsSync(path.join(dir, 'src', 'app', 'wasm', 'hlm_kernels.js'))) return dir;
+  throw new Error('the repository root is not above the tests');
+}
+/** The committed kernel exactly as shipped (as tests/app-levels-memo.test.mts loads it): what draws the ladder's bars. */
+async function spreadKernel(): Promise<Glue['spread_levels']> {
+  const root = repoRoot(), glue = await import(pathToFileURL(path.join(root, 'src', 'app', 'wasm', 'hlm_kernels.js')).href) as Glue;
+  await glue.default({ module_or_path: fs.readFileSync(path.join(root, 'src', 'app', 'wasm', 'hlm_kernels_bg.wasm')) });
+  return glue.spread_levels;
+}
+/** The rows whose bar changed from one publication of a side to the next on rows of `step`, as the ladder draws them: [row, change in USD]. */
+const barChange = (spread: Glue['spread_levels'], a: SideArrays, b: SideArrays, step: number, p0: number, p1: number): [number, number][] => {
+  const bin0 = Math.floor(p0 / step), nBins = Math.ceil(p1 / step) - bin0 + 1;
+  const bar = (s: SideArrays): Float32Array => spread(s.lo, s.hi, s.usd, new Uint32Array(s.usd.length), 1, step, bin0, nBins);
+  const x = bar(a), y = bar(b), out: [number, number][] = [];
+  for (let i = 0; i < nBins; i++) if (y[i]! !== x[i]!) out.push([bin0 + i, y[i]! - x[i]!]);
+  return out;
+};
+
+test('the rows an event is put on are the rows the ladder\'s bars changed on: Sol\'s reproduction against the committed kernel, on every row step', async () => {
+  const spread = await spreadKernel(), p0 = sol(false), p1 = sol(true);
+  const tr = new BookCueTracker();
+  tr.observe([p0], [ID], ctx(1_000));
+  const e = only(tr.observe([p1], [ID], ctx(2_000)));
+  for (const step of [1, 5, 10, 20, 25, 50, 100]) assert.deepEqual(rowsOf([e], step), barChange(spread, p0.bids, p1.bids, step, 79_000, 82_000), `rows of $${step}`);
+});
+
+test('a bin that a row edge cuts is put on its two rows by its levels: the default $50 rows over a $20 grid', () => {
+  // Bids on every grid bin, and in the bin [81,040, 81,060), which the $50 edge at 81,050 cuts, $1M at 81,045 and at 81,055: then $500k off the one and $2M on the other.
+  const at = (ts: number, a: number, b: number): CueBook => venue(ts, { ...fillBids(81_025, 50), 81_045: a, 81_055: b, 81_069: 1_000_000 }, fillAsks(81_071, 50));
+  const tr = new BookCueTracker();
+  tr.observe([at(1_000, 1_000_000, 1_000_000)], [ID], ctx(1_000));
+  const e = only(tr.observe([at(2_000, 500_000, 3_000_000)], [ID], ctx(2_000)));
+  assert.deepEqual([e.lo, e.hi, e.usd], [81_040, 81_060, 1_500_000]);
+  assert.deepEqual(rowsOf([e], 50), [[1_620, -500_000], [1_621, 2_000_000]]);
+  assert.deepEqual(rowsOf([{ ...e, lv: undefined }], 50), [[1_620, 750_000], [1_621, 750_000]], 'shared by overlap it flashed the wrong way on the first row');
+  assert.deepEqual(rowsOf([e], 20), [[4_052, 1_500_000]]);
+});
+
+test('a row coarser than the grid sums the changes of its bins, each put by its levels', () => {
+  // $100 rows over bins of $20: the row [81,000, 81,100) holds five bins and three of them change (+$1M, -$500k, +$700k).
+  const at = (next: boolean): CueBook => venue(next ? 2_000 : 1_000, { ...fillBids(80_985, 60), 81_119: 1_000_000, 81_031: next ? 2_000_000 : 1_000_000, 81_051: next ? 500_000 : 1_000_000, 81_079: next ? 1_700_000 : 1_000_000 }, fillAsks(81_121, 60));
+  const tr = new BookCueTracker();
+  tr.observe([at(false)], [ID], ctx(1_000));
+  const events = tr.observe([at(true)], [ID], ctx(2_000));
+  assert.deepEqual(events.map(e => [e.lo, e.usd]), [[81_020, 1_000_000], [81_040, -500_000], [81_060, 700_000]]);
+  assert.deepEqual(rowsOf(events, 100), [[810, 1_200_000]]);
+  const row = rowEvents(events, 100, 1_000_000)[0]!;
+  assert.deepEqual([row.added, row.removed], [false, false]);
+  near(row.strength, 1 - Math.exp(-1.2));
+  assert.deepEqual(rowsOf(events, 20), [[4_051, 1_000_000], [4_052, -500_000], [4_053, 700_000]]);
+});
+
+test('the levels of a cell are found whichever way a venue orders its prices: nearest first, the other way, or not in order at all', () => {
+  const events = (how?: 'rising' | 'falling' | 'shuffled'): CueEvent[] => {
+    const tr = new BookCueTracker(), put = (b: CueBook): CueBook => how ? reorder(b, how) : b;
+    tr.observe([put(sol(false, { asks: true }))], [ID], ctx(1_000));
+    return tr.observe([put(sol(true, { asks: true }))], [ID], ctx(2_000));
+  };
+  const natural = events();
+  assert.deepEqual(natural.map(e => [e.side, e.lo, e.usd]), [['bid', 81_020, 1_500_000], ['ask', 81_080, 1_000_000]]);
+  assert.deepEqual(rowsOf(natural, 10), [[8_102, 2_000_000], [8_103, -500_000], [8_108, 1_000_000]]);
+  for (const how of ['rising', 'falling', 'shuffled'] as const) {
+    const got = events(how);
+    assert.deepEqual(got.map(e => [e.side, e.lo, e.usd]), [['bid', 81_020, 1_500_000], ['ask', 81_080, 1_000_000]], how);
+    got.forEach((e, k) => assert.deepEqual([pairsOf(e.lv!.prev), pairsOf(e.lv!.cur)], [pairsOf(natural[k]!.lv!.prev), pairsOf(natural[k]!.lv!.cur)], `${how} ${e.side}`));
+    assert.deepEqual(rowsOf(got, 10), rowsOf(natural, 10), how);
+  }
+});
+
+test('a level on a bin edge is in the bin it opens, not the one it closes, however the venue orders its prices', () => {
+  // Bids at 81,020 and 81,040 exactly: the first opens the bin [81,020, 81,040), the second the bin above it. And one a hair under 81,040 (a part in
+  // 10^13), which `binOf` forgives as it forgives a division that comes out a hair under a whole number: it is in the bin above, though its price is below the edge.
+  const hair = 81_040 - 1e-8;
+  const at = (ts: number, a: number, b: number, c: number): CueBook => venue(ts, { ...fillBids(81_005, 50), 81_020: a, 81_040: b, [hair]: c, 81_069: 1_000_000 }, fillAsks(81_071, 50));
+  for (const how of [undefined, 'rising', 'shuffled'] as const) {
+    const put = (b: CueBook): CueBook => how ? reorder(b, how) : b, tr = new BookCueTracker();
+    tr.observe([put(at(1_000, 1_000_000, 1_000_000, 1_000_000))], [ID], ctx(1_000));
+    const events = tr.observe([put(at(2_000, 3_000_000, 2_000_000, 1_500_000))], [ID], ctx(2_000));
+    assert.deepEqual(events.map(e => [e.lo, e.usd, pairsOf(e.lv!.prev), pairsOf(e.lv!.cur)]), [
+      [81_020, 2_000_000, ['81020:1000000'], ['81020:3000000']],
+      [81_040, 1_500_000, [`${hair}:1000000`, '81040:1000000'].sort(), [`${hair}:1500000`, '81040:2000000'].sort()],
+    ], String(how));
+  }
+});
+
+test('a book whose grid is not published keeps the levels of its cells too, and its events say the grid is a guess', () => {
+  const tr = new BookCueTracker();
+  tr.observe([sol(false, { step: null })], [ID], ctx(1_000));
+  const e = only(tr.observe([sol(true, { step: null })], [ID], ctx(2_000)));
+  assert.equal(e.approx, true);
+  assert.deepEqual(rowsOf([e], 10), [[8_102, 2_000_000], [8_103, -500_000]]);
+});
+
+/** A bin [81,020, 81,040) of three levels (81,021, 81,025 and 81,031), $1M each at first, in a ladder with a mean cell of about $1M (a gate of about $52k). */
+const weakBook = (ts: number, a: number, b: number): CueBook => venue(ts, { ...fillBids(81_045, 50), 81_021: a, 81_031: b }, fillAsks(81_065, 50));
+
+test('a weak change that is confirmed later is put on the rows by the levels of the publication before it, not of the one between', () => {
+  const tr = new BookCueTracker();
+  tr.observe([weakBook(1_000, 1_000_000, 1_000_000)], [ID], ctx(1_000));
+  assert.deepEqual(tr.observe([weakBook(2_000, 1_100_000, 1_000_000)], [ID], ctx(2_000)), [], '+$100k against a gate of about $52k: waiting');
+  const e = only(tr.observe([weakBook(3_000, 1_200_000, 950_000)], [ID], ctx(3_000)));
+  assert.deepEqual([e.confirmed, e.usd, e.before, e.after, e.prevWall, e.wall], [true, 150_000, 3_000_000, 3_150_000, 1_000, 3_000]);
+  assert.deepEqual(e.lv, { prev: [81_031, 1_000_000, 81_025, 1_000_000, 81_021, 1_000_000], cur: [81_031, 950_000, 81_025, 1_000_000, 81_021, 1_200_000] });
+  assert.deepEqual(rowsOf([e], 10), [[8_102, 200_000], [8_103, -50_000]], 'from the first publication: the second would have made the first row +$100k');
+  // A move the other way is judged from the value before the weak one, and so are its levels.
+  const back = new BookCueTracker();
+  back.observe([weakBook(1_000, 1_000_000, 1_000_000)], [ID], ctx(1_000));
+  back.observe([weakBook(2_000, 1_100_000, 1_000_000)], [ID], ctx(2_000));
+  const down = only(back.observe([weakBook(3_000, 500_000, 1_000_000)], [ID], ctx(3_000)));
+  assert.deepEqual([down.confirmed, down.usd, down.before, down.prevWall], [false, -500_000, 3_000_000, 1_000]);
+  assert.deepEqual(rowsOf([down], 10), [[8_102, -500_000]]);
+  // A change that came back is dropped, and what waited with it is gone: the next one starts from its own publication.
+  const gone = new BookCueTracker();
+  gone.observe([weakBook(1_000, 1_000_000, 1_000_000)], [ID], ctx(1_000));
+  gone.observe([weakBook(2_000, 1_100_000, 1_000_000)], [ID], ctx(2_000));
+  assert.deepEqual(gone.observe([weakBook(3_000, 1_000_000, 1_000_000)], [ID], ctx(3_000)), []);
+  const next = only(gone.observe([weakBook(4_000, 2_000_000, 1_000_000)], [ID], ctx(4_000)));
+  assert.deepEqual([next.usd, next.confirmed, next.lv!.prev], [1_000_000, false, [81_031, 1_000_000, 81_025, 1_000_000, 81_021, 1_000_000]]);
+});
+
+test('the levels a weak change waits with move with its cell when the window follows the mid', () => {
+  const tr = new BookCueTracker();
+  // The best ask is $560 higher: the mid moves fourteen bins, past the spare cells either side of the window.
+  const later = (ts: number, a: number, b: number): CueBook => venue(ts, { ...fillBids(81_045, 50), 81_021: a, 81_031: b }, fillAsks(81_065 + 20 * 28, 30));
+  tr.observe([weakBook(1_000, 1_000_000, 1_000_000)], [ID], ctx(1_000));
+  tr.observe([weakBook(2_000, 1_100_000, 1_000_000)], [ID], ctx(2_000));
+  const e = tr.observe([later(3_000, 1_200_000, 950_000)], [ID], ctx(3_000)).find(x => x.side === 'bid' && x.confirmed);
+  assert.ok(e, 'confirmed in a window that has moved');
+  assert.deepEqual(e.lv!.prev, [81_031, 1_000_000, 81_025, 1_000_000, 81_021, 1_000_000]);
+  assert.deepEqual(rowsOf([e], 10), [[8_102, 200_000], [8_103, -50_000]]);
+});
+
+test('a side that has a band level, now or in the publication before, leaves its events to the share by overlap; the other side keeps its levels', () => {
+  const make = (ts: number, k: number, band: boolean): CueBook => {          // $1M a bin, then k $M more at a bid and at an ask; with `band`, the tenth bid is a band of eight dollars inside its bin
+    const l = ladder(); l.bids.set(MID - 3, 1_000_000 + k * 1_000_000); l.asks.set(MID + 3, 1_000_000 + k * 1_000_000);
+    const b = book(ID, ts, l);
+    if (band) { const hi = Float64Array.from(b.bids.lo); hi[9]! += 8; b.bids = { lo: b.bids.lo, hi, usd: b.bids.usd }; }
+    return b;
+  };
+  const has = (events: readonly CueEvent[]): [string, boolean][] => events.map(e => [e.side, e.lv !== undefined]);
+  const tr = new BookCueTracker();
+  tr.observe([make(1_000, 0, true)], [ID], ctx(1_000));
+  const now = tr.observe([make(2_000, 1, true)], [ID], ctx(2_000));
+  assert.deepEqual(has(now), [['bid', false], ['ask', true]], 'a band level now');
+  assert.deepEqual(has(tr.observe([make(3_000, 2, false)], [ID], ctx(3_000))), [['bid', false], ['ask', true]], 'a band level in the publication before');
+  assert.deepEqual(has(tr.observe([make(4_000, 3, false)], [ID], ctx(4_000))), [['bid', true], ['ask', true]], 'none in either');
+  assert.deepEqual(rowsOf([now[0]!], 10), [[8_122, 500_000], [8_123, 500_000]], 'the bin shared over its two rows');
+  // A band is never given levels, whatever its book.
+  const banded = new BookCueTracker();
+  banded.observe([tenBands(1_000)], [HL], ctx(1_000));
+  assert.equal(only(banded.observe([tenBands(6_400, { bid: run(40, 5, { 60: 4 * MILLION }) })], [HL], ctx(6_400))).lv, undefined);
+});
+
+test('rows of an event with levels: a window keeps only its rows, at most 4,096 are made, levels that cancel in a row leave none, and a row\'s own old and new USD say removed and added', () => {
+  const lv = (prev: number[], cur: number[]): CueEvent => ev({ lo: 81_020, hi: 81_040, usd: 0, lv: { prev, cur } });
+  const moved = lv([81_021, 1_000_000], [81_031, 2_000_000]);                      // a level that moved to the next row, and doubled
+  assert.deepEqual(rowEvents([moved], 10, 1_000_000).map(r => [r.row, r.usd, r.removed, r.added]), [[8_102, -1_000_000, true, false], [8_103, 2_000_000, false, true]]);
+  assert.deepEqual(rowsOf([moved], 10, { lo: 81_030, hi: 81_039 }), [[8_103, 2_000_000]]);
+  assert.deepEqual(rowsOf([moved], 10, { lo: 81_000, hi: 81_025 }), [[8_102, -1_000_000]]);
+  assert.deepEqual(rowsOf([moved], 10, { lo: 90_000, hi: 91_000 }), []);
+  assert.deepEqual(rowsOf([lv([100.5, 0.1, 100.7, 0.2], [100.6, 0.3])], 1), [], 'levels that cancel to float dust leave no row');
+  const many = lv([], Array.from({ length: 5_000 }, (_, i) => [200_000 + i, 1]).flat());
+  const capped = rowEvents([many], 1, 1_000_000);
+  assert.equal(capped.length, 4_096); assert.equal(capped[0]!.row, 200_000);
+  assert.equal(rowEvents([many], 1, 1_000_000, { lo: 200_000, hi: 200_099 }).length, 100, 'the cap is after the window');
+  assert.deepEqual(rowsOf([lv([81_021, 1_000_000, 5], [81_031, Number.NaN, 81_035, -3, 0, 4])], 10), [[8_102, -1_000_000]], 'a stray element, NaN and non-positive figures are passed over');
+  // An event with levels and one without meet in a row: summed.
+  assert.deepEqual(rowsOf([moved, ev({ lo: 81_030, hi: 81_050, usd: 400_000 })], 10), [[8_102, -1_000_000], [8_103, 2_200_000], [8_104, 200_000]]);
+  // A level is in the row the kernel puts it in, the floor of price / step as it comes out: 0.3 / 0.1 is 2.9999999999999996, so row 2 (`binOf` would say 3).
+  assert.deepEqual(rowsOf([lv([], [0.3, 1_000])], 0.1), [[2, 1_000]]);
+});
+
+test('over random merged books, an event\'s rows on any row step add up to its bin\'s change and are what accumulating its bin\'s levels on that step gives (the pure twin of the kernel)', () => {
+  const rnd = rng(21);
+  let events = 0, rowsChecked = 0;
+  for (let trial = 0; trial < 60; trial++) {
+    const n0 = nativeBook(rnd, 812_000 + Math.floor(rnd() * 8_000)), n1 = mutate(rnd, n0), p0 = published(n0), p1 = published(n1);
+    const tr = new BookCueTracker(open);
+    tr.observe([pubBook(ID, 1_000, p0)], [ID], tiny(1_000));
+    const raised = tr.observe([pubBook(ID, 2_000, p1)], [ID], tiny(2_000));
+    for (const e of raised) {
+      assert.ok(e.lv, `trial ${trial}: a point book lists the levels of its cells`);
+      events++;
+      for (const step of [5, 7, 10, 25, 50, 100]) near(rowEvents([e], step, 1e6).reduce((s, r) => s + r.usd, 0) / Math.max(1, Math.abs(e.usd)), e.usd / Math.max(1, Math.abs(e.usd)), `trial ${trial} $${step}`);
+    }
+    for (const side of ['bid', 'ask'] as const) {
+      const bins = new Set(raised.filter(e => e.side === side).map(e => Math.round(e.lo / G)));
+      const pick = (s: SideArrays): SideArrays => { const keep = [...s.usd.keys()].filter(i => bins.has(binOf(s.lo[i]!, G))); return { lo: Float64Array.from(keep, i => s.lo[i]!), hi: Float64Array.from(keep, i => s.hi[i]!), usd: Float64Array.from(keep, i => s.usd[i]!) }; };
+      for (const step of [5, 10, 25, 50, 100]) {
+        const m0 = new Map<number, number>(), m1 = new Map<number, number>(), expected = new Map<number, number>();
+        accumulateSide(pick(side === 'bid' ? p0.bids : p0.asks), step, m0); accumulateSide(pick(side === 'bid' ? p1.bids : p1.asks), step, m1);
+        for (const r of new Set([...m0.keys(), ...m1.keys()])) { const d = (m1.get(r) ?? 0) - (m0.get(r) ?? 0); if (d !== 0) expected.set(r, d); }
+        const got = new Map(rowsOf(raised.filter(e => e.side === side), step));
+        assert.deepEqual([...got].sort((x, y) => x[0] - y[0]), [...expected].sort((x, y) => x[0] - y[0]), `trial ${trial} ${side} $${step}`);
+        rowsChecked += expected.size;
+      }
+    }
+  }
+  assert.ok(events > 300 && rowsChecked > 2_000, `${events} events, ${rowsChecked} rows`);
+});
+
+// ---- Ghost keys, and a venue that left the frame ----
+
+test('a band regrouped beside a ghost is still a regrouping: a ghost is no band the previous publication held (Sol\'s three steps)', () => {
+  const tr = new BookCueTracker();
+  tr.observe([tenBands(1_000)], [HL], ctx(1_000));
+  // 1. [60, 70) goes, and leaves a ghost.
+  const gone = only(tr.observe([tenBands(2_000, { bid: run(40, 5, { 60: null }) })], [HL], ctx(2_000)));
+  assert.deepEqual([gone.lo, gone.removed, gone.usd, gone.lv], [60, true, -MILLION, undefined]);
+  // 2. [70, 80) is regrouped as [60, 80).
+  const joined: Band[] = [...run(40, 2), [60, 80, MILLION], [80, 90, MILLION]];
+  assert.deepEqual(tr.observe([tenBands(3_000, { bid: joined })], [HL], ctx(3_000)), []);
+  // 3. That band splits into [60, 70) and [70, 80) of $500k: the ghost of [60, 70) is held, and is not the band that was there.
+  const split: Band[] = [...run(40, 2), [60, 70, 500_000], [70, 80, 500_000], [80, 90, MILLION]];
+  assert.deepEqual(tr.observe([tenBands(4_000, { bid: split })], [HL], ctx(4_000)), []);
+  assert.equal(tr.stats.baselines, 1);
+  for (const [lo, hi] of [[60, 70], [70, 80]] as const) assert.deepEqual(tr.heat(HL, 'bid', lo, hi, 4_000), { fresh: 0, unknown: 1, activity: 0 });
+  assert.equal(tr.recent(HL, 'bid', 60, 70)?.removed, true, 'what the ghost last showed stays with its edges, for the hover');
+  // The bands go on being compared from there.
+  assert.equal(only(tr.observe([tenBands(5_000, { bid: [...run(40, 2), [60, 70, 500_000], [70, 80, 3 * MILLION], [80, 90, MILLION]] })], [HL], ctx(5_000))).lo, 70);
+});
+
+test('a band that went empty and comes back with nothing regrouped is still an addition, beside a regrouping elsewhere too', () => {
+  const tr = new BookCueTracker();
+  tr.observe([tenBands(1_000)], [HL], ctx(1_000));
+  tr.observe([tenBands(2_000, { bid: run(40, 5, { 60: null }) })], [HL], ctx(2_000));                    // [60, 70) goes: a ghost
+  assert.deepEqual(only(tr.observe([tenBands(3_000)], [HL], ctx(3_000))).added, true, 'it returns as it was');
+  const again = new BookCueTracker();
+  again.observe([tenBands(1_000)], [HL], ctx(1_000));
+  again.observe([tenBands(2_000, { bid: run(40, 5, { 60: null }) })], [HL], ctx(2_000));
+  const back: Band[] = [...run(40, 4), [80, 85, 500_000], [85, 90, 500_000]];                              // it returns while [80, 90) is regrouped
+  assert.deepEqual(again.observe([tenBands(3_000, { bid: back })], [HL], ctx(3_000)).map(e => [e.lo, e.added, e.usd]), [[60, true, MILLION]]);
+});
+
+test('a venue that vanishes from the frame starts again when it is back, with ids made from the frame as the pane makes them; a book that is in the frame and out of ids is left alone', () => {
+  const l = ladder(), big = copy(l); big.asks.set(MID + 4, 3_000_000);
+  const bigger = copy(big); bigger.asks.set(MID + 4, 5_000_000);
+  const idsOf = (frame: CueBook[]): string[] => frame.map(b => b.id);                                      // `activeIds`: the books of the frame
+  const tr = new BookCueTracker(), a0 = book('a', 1_000, l), b0 = book('b', 1_000, l);
+  tr.observe([a0, b0], idsOf([a0, b0]), ctx(1_000));
+  tr.observe([b0], idsOf([b0]), ctx(1_250));                                                               // a is gone from the frame, and from the ids with it
+  assert.equal(tr.info('a')!.usable, false);
+  assert.equal(tr.heat('a', 'ask', ...cell(MID + 4), 1_250), null);
+  const a1 = book('a', 2_000, big);
+  assert.deepEqual(tr.observe([a1, b0], idsOf([a1, b0]), ctx(2_000)), [], 'its replacement is a baseline, whatever it shows');
+  assert.equal(tr.stats.baselines, 3);
+  const a2 = book('a', 3_000, bigger);
+  assert.equal(only(tr.observe([a2, b0], idsOf([a2, b0]), ctx(3_000))).usd, 2_000_000, 'and is compared from then on');
+  // A book that is in the frame and out of the ids (the reader hid it) is kept as it was, and compared when it is asked for again.
+  const hid = new BookCueTracker(), a = book('a', 1_000, l);
+  hid.observe([a, b0], ['a', 'b'], ctx(1_000));
+  hid.observe([a, b0], ['b'], ctx(1_250));
+  assert.equal(hid.info('a')!.usable, true);
+  assert.equal(only(hid.observe([book('a', 2_000, big), b0], ['a', 'b'], ctx(2_000))).usd, 2_000_000);
+  assert.equal(hid.stats.baselines, 2);
+  // An empty frame takes every book out of it, once; a repeated book is not one that left.
+  const gap = new BookCueTracker();
+  gap.observe([a, b0], idsOf([a, b0]), ctx(1_000)); gap.observe([a, b0], idsOf([a, b0]), ctx(1_250));
+  assert.equal(gap.info('a')!.usable, true);
+  gap.observe([], [], ctx(1_500));
+  assert.deepEqual([gap.info('a')!.usable, gap.info('b')!.usable], [false, false]);
+  gap.observe([], [], ctx(1_750));
+  assert.deepEqual(gap.observe([book('a', 2_000, big), b0], idsOf([a, b0]), ctx(2_000)), []);
+  assert.equal(gap.stats.baselines, 4);
 });

@@ -22,7 +22,15 @@ import { binOf } from '../../shared/footprint.ts';
  *    within 250 steps of the mid, and then it never straddles a grid bin, so the merged book holds the native USD per grid bin there
  *    exactly: a property test (`Research_Files/order_book_physics_20261022/merge-bin-invariance.mjs`, repeated in the tests of this
  *    module) found 0 bins changed on grids that are multiples of the merge step and 13 to 54 % on a $50 or $25 row grid beyond $500 from
- *    the mid. So the comparison is made on the grid, within `ZONE_STEPS` of the mid, and `rowEvents` shares a cell over the rows afterwards.
+ *    the mid. So the comparison is made on the grid, within `ZONE_STEPS` of the mid, and `rowEvents` puts a cell on the rows afterwards.
+ *  - A cell keeps the levels it is made of (`CueEvent.lv`: the price and USD of each point level of the bin, in both publications). The merge
+ *    keeps the touch at a twentieth of the grid step (a lone level keeps its exact price; widths grow through step / 10, / 5, / 4, / 2 to one
+ *    whole step at 250 steps from the mid), so a bin holds up to twenty prices where the ladder's rows are finer than the grid ($10 or $5
+ *    zoomed in) or straddle its edge (the default $50 rows over a $20 grid: one bin in five), and the ladder's own bars are built from those
+ *    prices. A bin's net says nothing of which row moved which way: +$2M at 81,021 and -$500K at 81,031 in one bin read as +$750K on both $10
+ *    rows when the net was shared by overlap (Sol, 2026-10-22), where the bars show +$2M and -$500K. `rowEvents` places each level in its row as
+ *    the kernel does (`spread_levels`: the floor of price / step), so a row's change is the bar's change. A band level (a share of a bin, not a
+ *    price) in either publication of a side, or a weak change whose first publication was not kept, leaves the event to the share by overlap.
  *  - A cell counts only where the book covers it in BOTH publications (a depth limit moving with the price is not a pull): a bin past the
  *    lowest bid level or the highest ask level is unknown, not empty, and so is the edge bin that holds that level and may be cut; the
  *    bins in the spread are known to be empty. Bins that enter the zone or the book's reach start again, with no event.
@@ -34,13 +42,16 @@ import { binOf } from '../../shared/footprint.ts';
  * for a grid the book did not publish (`approx`: inferred from the mid, which can differ from the recorder's, stale after a big move)
  * the merge guarantee does not hold, and the cells there are not compared or are flagged. Banded books (Hyperliquid) are compared band
  * by band where the same band exists in both publications, never inside their touch span (a split that moves with the trades is not
- * liquidity coming or going).
+ * liquidity coming or going). A change that nets to zero inside one bin (a level moving between two prices of the bin) raises no event, however
+ * far it moves the bar between two rows finer than the grid; and where the merge widens its buckets (from $250 away at BTC) a bucket is reported
+ * at its farthest member, so its price can hop between two such rows when its members change: the bar shows that hop, and so does the cue.
  *
  * Pure: no DOM, no WASM (the step costs 0.07 ms for 12 books x 120 bins, and JavaScript matched or beat a Rust kernel in the study, which
  * copies across the boundary), no text. State is typed arrays of 2 x `ZONE_STEPS` + 20 cells (518) a side a book, reused; once a book is
- * warm a frame allocates the events it returns, the array that holds them and a few iterators, nothing sized by the books. Measured in
- * Node (`Research_Files/order_book_physics_20261022/tracker-bench.mts`): the eleven default books at about 430 levels a side with four new
- * publications a frame take 0.24 ms (a frame that repeats them all, 0.07 ms); 25 books at 500 levels a side with eight, 0.57 ms.
+ * warm a frame allocates the events it returns, the short lists of levels they keep, the array that holds them and a few iterators, nothing
+ * sized by the books. Measured in Node (`Research_Files/order_book_physics_20261022/tracker-bench.mts`, synthetic books that raise about three
+ * times the events the live ones do): the eleven default books at about 430 levels a side with four new publications a frame take 0.26 ms (a
+ * frame that repeats them all, 0.07 ms), of which keeping the levels is 0.035 ms (1.5 us an event); 25 books at 500 levels with eight, 0.62 ms.
  */
 
 /** Estimated recent net increase cools with this time constant; recent activity (adds and removes) with the second. */
@@ -89,6 +100,12 @@ export interface CueBook { id: string; timestamp: number; coarse: boolean; step?
 export type CueSide = 'bid' | 'ask';
 
 /**
+ * The point levels a cell was made of, flat `[price, usd, price, usd, ...]`: those of the venue's side whose price lies in the cell, in the publication
+ * the change is measured from (`prev`) and in the one that raised it (`cur`). The cell's `usd` is the sum of `cur` less the sum of `prev`.
+ */
+export interface CueLevels { readonly prev: readonly number[]; readonly cur: readonly number[] }
+
+/**
  * One cell of one side of one book that changed between two publications. `lo`..`hi` is the price interval of the cell (a grid bin, or a
  * venue's band); the object is shared with the tracker (`recent`), so a reader never changes it.
  */
@@ -118,6 +135,12 @@ export interface CueEvent {
   band: boolean;
   /** Raised by a second publication that agreed with a weak first one. */
   confirmed: boolean;
+  /**
+   * The point levels the cell is made of, in the two publications it rests on (the one before the weak change, once confirmed), so `rowEvents` can
+   * place the change on the rows the way the ladder's bars were: a bin's net says nothing of which of two finer rows moved which way. Absent on a
+   * band, on a side that has a band level in either publication, and on a confirmed change whose first publication was not kept.
+   */
+  lv?: CueLevels;
 }
 
 /** What a cell holds of the estimates: shares of its displayed USD, each 0 to 1. */
@@ -133,7 +156,10 @@ export interface CueHeat {
 /** What `observe` needs from the caller: the page's clock, the display reference size (about $1M at BTC) and the smallest change worth a cue. */
 export interface CueContext { wall: number; scale: number; floorUsd: number }
 
-/** One display row of an event: the share of the event's USD that falls in the row (`rowEvents`). */
+/**
+ * One display row of an event (`rowEvents`): `usd` is the row's own signed change, which is the share of the event's USD that falls in the row, or,
+ * for an event that keeps its levels (`CueEvent.lv`), what those levels did in the row (so it can be the opposite sign to the bin's net).
+ */
 export interface RowEvent { id: string; side: CueSide; row: number; usd: number; strength: number; wall: number; prevWall: number; seq: number; removed: boolean; added: boolean; pair: boolean; band: boolean }
 
 /**
@@ -156,6 +182,8 @@ function equal(a: Float64Array, b: ArrayLike<number>, n: number): boolean {
 class SideCopy {
   lo = new Float64Array(16); hi = new Float64Array(16); usd = new Float64Array(16);
   nLo = 0; nHi = 0; nUsd = 0; sharedHi = false;
+  /** How many levels the copy holds (its arrays are larger). */
+  get len(): number { return Math.min(this.nLo, this.nHi, this.nUsd); }
   copy(side: SideArrays): void {
     this.nLo = side.lo.length; this.nHi = side.hi.length; this.nUsd = side.usd.length;
     if (this.lo.length < this.nLo) this.lo = new Float64Array(sizeFor(this.nLo));
@@ -191,6 +219,13 @@ class Publication {
 
 type Typed = Float64Array | Uint8Array | Int8Array;
 
+/** Slide the references of a window `d` cells towards its start (a negative `d`: towards its end), leaving null where the window has nothing. */
+function shiftRefs<T>(arr: (T | null)[], d: number): void {
+  const n = arr.length;
+  if (d > 0) { for (let i = 0; i < n - d; i++) arr[i] = arr[i + d]!; for (let i = n - d; i < n; i++) arr[i] = null; }
+  else { for (let i = n - 1; i >= -d; i--) arr[i] = arr[i + d]!; for (let i = 0; i < -d; i++) arr[i] = null; }
+}
+
 /** One side of a point book on its grid: the cells of a window of `n` bins that follows the mid, and the estimates kept per cell. */
 class Fine {
   base = 0; placed = false;
@@ -200,25 +235,31 @@ class Fine {
   /** The sign of a weak change waiting for the next publication to agree, and the value before it. */
   readonly pend: Int8Array;
   readonly last: (CueEvent | null)[];
+  /** The levels of the publication the value before a waiting weak change was in (`pre`), flat `[price, usd, ...]`: set only while a change waits, and only when they could be listed. */
+  readonly preLv: (number[] | null)[];
+  /** Whether the side of the last publication had a band level (a share of a bin, not a price): the levels behind its cells cannot be listed. */
+  hadBand = false;
+  /** Which way the prices of the side of the last publication ran (1 rising, -1 falling, 0 neither): whether its levels can be found by a search. */
+  dir = 0;
   noise = 0; noiseWall = 0;
   readonly n: number;
   constructor(n: number) {
     this.n = n;
     this.q = new Float64Array(n); this.m = new Float64Array(n); this.u = new Float64Array(n); this.a = new Float64Array(n); this.pre = new Float64Array(n); this.preWall = new Float64Array(n);
-    this.known = new Uint8Array(n); this.pend = new Int8Array(n); this.last = new Array<CueEvent | null>(n).fill(null);
+    this.known = new Uint8Array(n); this.pend = new Int8Array(n); this.last = new Array<CueEvent | null>(n).fill(null); this.preLv = new Array<number[] | null>(n).fill(null);
   }
   /** Every cell unknown again; how many weak changes that dropped. */
   wipe(): number {
     let dropped = 0;
     for (let i = 0; i < this.n; i++) if (this.pend[i] !== 0) dropped++;
-    this.q.fill(0); this.m.fill(0); this.u.fill(0); this.a.fill(0); this.pre.fill(0); this.preWall.fill(0); this.known.fill(0); this.pend.fill(0); this.last.fill(null);
-    this.placed = false;
+    this.q.fill(0); this.m.fill(0); this.u.fill(0); this.a.fill(0); this.pre.fill(0); this.preWall.fill(0); this.known.fill(0); this.pend.fill(0); this.last.fill(null); this.preLv.fill(null);
+    this.placed = false; this.hadBand = false; this.dir = 0;
     return dropped;
   }
   /** One cell no longer comparable (outside the zone or the reach); true when it dropped a weak change. */
   drop(i: number): boolean {
     const was = this.pend[i] !== 0;
-    this.known[i] = 0; this.q[i] = 0; this.m[i] = 0; this.u[i] = 0; this.a[i] = 0; this.pend[i] = 0;
+    this.known[i] = 0; this.q[i] = 0; this.m[i] = 0; this.u[i] = 0; this.a[i] = 0; this.pend[i] = 0; this.preLv[i] = null;
     return was;
   }
   /** Move the window so it starts at `base`, keeping the cells both windows hold. */
@@ -229,8 +270,7 @@ class Fine {
     if (Math.abs(d) >= n) { this.wipe(); this.base = base; this.placed = true; return; }
     const move = (arr: Typed): void => { if (d > 0) { arr.copyWithin(0, d, n); arr.fill(0, n - d, n); } else { arr.copyWithin(-d, 0, n + d); arr.fill(0, 0, -d); } };
     move(this.q); move(this.m); move(this.u); move(this.a); move(this.pre); move(this.preWall); move(this.known); move(this.pend);
-    if (d > 0) { for (let i = 0; i < n - d; i++) this.last[i] = this.last[i + d]!; for (let i = n - d; i < n; i++) this.last[i] = null; }
-    else { for (let i = n - 1; i >= -d; i--) this.last[i] = this.last[i + d]!; for (let i = 0; i < -d; i++) this.last[i] = null; }
+    shiftRefs(this.last, d); shiftRefs(this.preLv, d);
     this.base = base;
   }
 }
@@ -255,6 +295,8 @@ interface Book {
   id: string;
   /** The wall time it was last asked for and present. */
   seen: number;
+  /** The number of the last frame it was in, asked for or not. */
+  frame: number;
   pub: Publication;
   /** Whether the last publication could be compared from (a usable mid, or bands). */
   usable: boolean;
@@ -316,6 +358,56 @@ function sharePrices(alo: number, ahi: number, blo: number, bhi: number): boolea
 }
 
 /**
+ * What `#fineSide` reads of one side of the publication: the frame's arrays and how many levels of them count, whether any level is a band, which way
+ * the prices run (`dir`: 1 rising, -1 falling, 0 neither), the previous publication's copy.
+ */
+interface SideNow { arrays: SideArrays; len: number; bands: number; dir: number; prev: SideCopy }
+/** The levels a cell needs listed: those of the previous publication (`LV_PREV`), those of this one (`LV_CUR`). */
+const LV_PREV = 1, LV_CUR = 2;
+
+/** The first index of `lo[0, len)` whose price is at or past `p` in the order the prices run: `dir` 1 (rising) the first at or above it, -1 (falling) the first below it. */
+function firstFrom(lo: Float64Array, len: number, dir: number, p: number): number {
+  let a = 0, b = len;
+  while (a < b) { const m = (a + b) >>> 1; if (dir === 1 ? lo[m]! >= p : lo[m]! < p) b = m; else a = m + 1; }
+  return a;
+}
+
+/**
+ * Append `[price, usd]` of every usable level of one side that lies in a flagged bin (`mask` set in `flags`) to that bin's list in `into`: bins on the
+ * grid `g`, the window starting at bin `base`, the flagged ones in `cells`. A side whose prices run one way (`dir`) is searched for each bin, which costs
+ * the levels in it and a few steps, however long the book; any other is passed over in full, and levels outside the price span [wLo, wHi) of the
+ * flagged bins on two comparisons. Levels are filtered and binned as `#scan` does, and listed in the order of the array.
+ */
+function listLevels(lo: Float64Array, hi: Float64Array, usd: Float64Array, len: number, dir: number, g: number, base: number, n: number, cells: readonly number[], flags: Uint8Array, mask: number,
+  into: (number[] | null)[], wLo: number, wHi: number): void {
+  if (dir === 0) {
+    for (let j = 0; j < len; j++) {
+      const p = lo[j]!;
+      if (p < wLo || p >= wHi) continue;
+      const h = hi[j]!, u = usd[j]!;
+      if (!(u > 0 && u < MAX_VALUE && p > 0 && h >= p && h < MAX_VALUE)) continue;
+      const k = binOf(p, g) - base;
+      if (k < 0 || k >= n || (flags[k]! & mask) === 0) continue;
+      into[k]!.push(p, u);
+    }
+    return;
+  }
+  for (let c = 0; c < cells.length; c++) {
+    const i = cells[c]!;
+    if ((flags[i]! & mask) === 0) continue;
+    // The bin's prices, with a sliver of margin for `binOf`'s own (a price on the edge may be counted in the bin below).
+    const pLo = (base + i) * g - g * 1e-6, pHi = (base + i + 1) * g + g * 1e-6, list = into[i]!;
+    for (let j = firstFrom(lo, len, dir, dir === 1 ? pLo : pHi); j < len; j++) {
+      const p = lo[j]!;
+      if (dir === 1 ? p >= pHi : p < pLo) break;
+      const h = hi[j]!, u = usd[j]!;
+      if (!(u > 0 && u < MAX_VALUE && p > 0 && h >= p && h < MAX_VALUE) || binOf(p, g) - base !== i) continue;
+      list.push(p, u);
+    }
+  }
+}
+
+/**
  * The tracker of a set of books (one per instrument id). `observe` takes every levels frame the page gets; a book that did not change
  * since its last publication costs one comparison and nothing else.
  */
@@ -326,17 +418,26 @@ export class BookCueTracker {
   readonly #books = new Map<string, Book>();
   readonly #want = new Set<string>();
   readonly #done = new Set<string>();
+  /** The number of the frame being read: a book in it, asked for or not, is stamped with it (`Book.frame`). */
+  #frame = 0;
   readonly #sq: Float64Array; readonly #sa: Float64Array;
   #seq = 0;
   #bins: number[] = [];
-  /** What `#scan` found: the usable levels of a side, its best price and its reach. */
-  readonly #sc = { valid: 0, best: 0, reach: 0 };
+  /** What `#scan` found: the usable levels of a side, its best price and its reach, how many of them are bands, and which way its prices run. */
+  readonly #sc = { valid: 0, best: 0, reach: 0, bands: 0, dir: 0 };
+  /** The side `#fineSide` is reading (refilled for each side, never allocated). */
+  readonly #now: SideNow = { arrays: { lo: new Float64Array(0), hi: new Float64Array(0), usd: new Float64Array(0) }, len: 0, bands: 0, dir: 0, prev: new SideCopy() };
+  /** The cells of the side being read whose levels are being listed: what is wanted of each, and the lists (by window cell, each null unless wanted). */
+  readonly #lvFlag: Uint8Array;
+  readonly #lvPrev: (number[] | null)[]; readonly #lvCur: (number[] | null)[];
+  readonly #lvCells: number[] = [];
 
   constructor(tuning: Partial<CueTuning> = {}) {
     this.#t = { ...DEFAULT_TUNING, ...tuning };
     // The window holds the zone (2 x zoneSteps bins) and PAD spare cells each side, which is 518 bins at the default.
     this.#n = 2 * Math.ceil(this.#t.zoneSteps) + 2 * PAD + 4;
     this.#sq = new Float64Array(this.#n); this.#sa = new Float64Array(this.#n);
+    this.#lvFlag = new Uint8Array(this.#n); this.#lvPrev = new Array<number[] | null>(this.#n).fill(null); this.#lvCur = new Array<number[] | null>(this.#n).fill(null);
   }
 
   /** Forget everything (a reconnect, a replay, another coin): the next publication of every book is a baseline. */
@@ -352,9 +453,10 @@ export class BookCueTracker {
   /**
    * One levels frame: every book of `ids` that is in it. Returns the events this frame raised (ordered by the books' order in the frame, bids
    * before asks, price ascending; `seq` increases along it). A book unchanged since its last publication raises nothing, confirms nothing
-   * and costs one comparison. A book that is in `ids` and not in the frame has left the feed (a venue reconnecting does not change the page's own
-   * connection state): what it publishes next is a baseline. One that is not in `ids` (hidden) is kept, and judged by the gap rule when it
-   * returns. A book is forgotten once it has been out of `ids` or the frames for `forgetMs`.
+   * and costs one comparison. A book that is not in the frame has left the feed (a venue reconnecting does not change the page's own connection
+   * state, and a reader's `ids` are made from the frame, so a book that vanishes from the frame vanishes from `ids` with it): what it publishes
+   * next is a baseline, whether or not its id is in `ids`. A book that is in the frame and not in `ids` (the reader hid it) is kept as it was, and
+   * judged by the gap rule when it returns. A book is forgotten once it has been out of `ids` or the frames for `forgetMs`.
    */
   observe(books: readonly CueBook[], ids: readonly string[], ctx: CueContext): CueEvent[] {
     const out: CueEvent[] = [];
@@ -362,13 +464,16 @@ export class BookCueTracker {
     const wall = ctx.wall;
     if (!Number.isFinite(wall)) return out;
     this.#want.clear(); for (const id of ids) this.#want.add(id);
+    const frame = ++this.#frame;
     for (const book of books) {
-      if (!book || !this.#want.has(book.id) || this.#done.has(book.id)) continue;
+      if (!book) continue;
+      let st = this.#books.get(book.id);
+      if (st) st.frame = frame;
+      if (!this.#want.has(book.id) || this.#done.has(book.id)) continue;
       this.#done.add(book.id);
       this.stats.observations++;
-      let st = this.#books.get(book.id);
       if (!st) {
-        st = { id: book.id, seen: wall, pub: new Publication(), usable: false, mode: null, grid: 0, approx: false, lastWall: wall, lastStamp: NaN, cadence: 0, observations: 0,
+        st = { id: book.id, seen: wall, frame, pub: new Publication(), usable: false, mode: null, grid: 0, approx: false, lastWall: wall, lastStamp: NaN, cadence: 0, observations: 0,
           zoneLo: NaN, zoneHi: NaN, fine: null, bands: null, touchLo: NaN, touchHi: NaN };
         this.#books.set(book.id, st);
       }
@@ -382,11 +487,10 @@ export class BookCueTracker {
       }
     }
     for (const st of this.#books.values()) {
-      if (this.#done.has(st.id)) continue;
-      // A book that is asked for and not in the frame is gone from the feed (a reconnect of the venue, which the page's own connection state does not
-      // show): what it publishes next is a baseline. One that is not asked for (the reader hid it) keeps the rule of the gap.
-      if (this.#want.has(st.id) && (st.usable || st.pub.valid)) { st.usable = false; st.pub.valid = false; this.#invalidate(st); }
-      if (wall - st.seen > this.#t.forgetMs) this.#books.delete(st.id);
+      // A book that is not in the frame is gone from the feed (a reconnect of the venue, which the page's own connection state does not show): what it
+      // publishes next is a baseline. It does not matter whether its id is asked for: a reader that builds `ids` from the frame drops it from both.
+      if (st.frame !== frame && (st.usable || st.pub.valid)) { st.usable = false; st.pub.valid = false; this.#invalidate(st); }
+      if (!this.#done.has(st.id) && wall - st.seen > this.#t.forgetMs) this.#books.delete(st.id);
     }
     this.#done.clear();
     return out;
@@ -519,9 +623,9 @@ export class BookCueTracker {
     const gSpec = spec ? st.grid : 0, baseSpec = spec ? held![0].base : 0;
     if (spec) { sq.fill(0); sa.fill(0); }
     this.#scan(bids, nb, true, gSpec, baseSpec, sq);
-    const vb = sc.valid, bestBid = sc.best, bidLo = sc.reach;
+    const vb = sc.valid, bestBid = sc.best, bidLo = sc.reach, bandsB = sc.bands, dirB = sc.dir;
     this.#scan(asks, na, false, gSpec, baseSpec, sa);
-    const va = sc.valid, bestAsk = sc.best, askHi = sc.reach;
+    const va = sc.valid, bestAsk = sc.best, askHi = sc.reach, bandsA = sc.bands, dirA = sc.dir;
     if (!vb || !va || !(bestBid <= bestAsk)) return false;
     const mid = (bestBid + bestAsk) / 2;
     const g = published ? book.step! : gridStepFor(mid);
@@ -541,29 +645,37 @@ export class BookCueTracker {
     // What each side covers, in grid bins: bids from just above the bin holding the lowest bid level (that bin may be cut) up to the best ask's
     // bin (a bid cannot rest higher, and the spread is known empty); asks from the best bid's bin to just below the bin holding the highest ask.
     const bidFrom = binOf(bidLo, g) + 1, bidTo = binOf(bestAsk, g), askFrom = binOf(bestBid, g), askTo = binOf(askHi, g) - 1;
-    this.#fineSide(st, fine[0], sq, Math.max(bidFrom, z0), Math.min(bidTo, z1), 'bid', ctx, baseline, dt, out);
-    this.#fineSide(st, fine[1], sa, Math.max(askFrom, z0), Math.min(askTo, z1), 'ask', ctx, baseline, dt, out);
+    // The previous publication is still the one `st.pub` holds (it is stored once this returns), which is where the levels behind a cell's old value are.
+    const now = this.#now;
+    now.arrays = bids; now.len = nb; now.bands = bandsB; now.dir = dirB; now.prev = st.pub.bids;
+    this.#fineSide(st, fine[0], sq, Math.max(bidFrom, z0), Math.min(bidTo, z1), 'bid', ctx, baseline, dt, out, now);
+    now.arrays = asks; now.len = na; now.bands = bandsA; now.dir = dirA; now.prev = st.pub.asks;
+    this.#fineSide(st, fine[1], sa, Math.max(askFrom, z0), Math.min(askTo, z1), 'ask', ctx, baseline, dt, out, now);
     return true;
   }
 
   /**
-   * One pass over one side: how many of its levels are usable, the best price (a bid's upper edge, an ask's lower) and the price it reaches to
-   * (the lowest bid, the highest ask edge), into `this.#sc`; and, when `g` > 0, the levels binned into `dst` on that grid from `base`.
+   * One pass over one side: how many of its levels are usable and how many of those are bands, the best price (a bid's upper edge, an ask's lower)
+   * and the price it reaches to (the lowest bid, the highest ask edge), which way its prices run (all of them, usable or not: rising, falling, or
+   * neither, which a search by price needs), into `this.#sc`; and, when `g` > 0, the levels binned into `dst` on that grid from `base`.
    */
   #scan(side: SideArrays, len: number, bid: boolean, g: number, base: number, dst: Float64Array): void {
     const n = this.#n, slo = side.lo, shi = side.hi, susd = side.usd, sc = this.#sc;
-    let valid = 0, best = bid ? -Infinity : Infinity, reach = bid ? Infinity : -Infinity;
+    let valid = 0, bands = 0, best = bid ? -Infinity : Infinity, reach = bid ? Infinity : -Infinity, up = true, down = true, before = NaN;
     for (let i = 0; i < len; i++) {
       const lo = slo[i]!, hi = shi[i]!, usd = susd[i]!;
+      if (i > 0) { if (!(lo >= before)) up = false; if (!(lo <= before)) down = false; }
+      before = lo;
       if (!(usd > 0 && usd < MAX_VALUE && lo > 0 && hi >= lo && hi < MAX_VALUE)) continue;
       valid++;
       if (bid) { if (hi > best) best = hi; if (lo < reach) reach = lo; } else { if (lo < best) best = lo; if (hi > reach) reach = hi; }
+      if (hi > lo) bands++;
       if (g > 0) {
         if (hi > lo) this.#spread(lo, hi, usd, g, base, dst);
         else { const k = binOf(lo, g) - base; if (k >= 0 && k < n) dst[k]! += usd; }
       }
     }
-    sc.valid = valid; sc.best = best; sc.reach = reach;
+    sc.valid = valid; sc.bands = bands; sc.best = best; sc.reach = reach; sc.dir = up ? 1 : down ? -1 : 0;
   }
 
   /** Add the levels of one side into `dst`, a window of bins starting at `base`; a level that is a band is shared over the bins it covers. */
@@ -589,8 +701,13 @@ export class BookCueTracker {
   }
 
   /** One side of a point book: the cells in [from, to] (absolute bins, inside the zone and the reach) are compared, the rest become unknown. */
-  #fineSide(st: Book, s: Fine, sq: Float64Array, from: number, to: number, side: CueSide, ctx: CueContext, baseline: boolean, dt: number, out: CueEvent[]): void {
+  #fineSide(st: Book, s: Fine, sq: Float64Array, from: number, to: number, side: CueSide, ctx: CueContext, baseline: boolean, dt: number, out: CueEvent[], now: SideNow): void {
     const t = this.#t, n = this.#n, wall = ctx.wall, g = st.grid;
+    // The levels behind a cell can be listed when this side has no band level now (a band is shared over bins: its share is no price a row can be
+    // told by) and, for the previous publication's, had none then.
+    const prevBand = s.hadBand, prevDir = s.dir; s.hadBand = now.bands > 0; s.dir = now.dir;
+    const lvNow = now.bands === 0, lvPrev = lvNow && !prevBand;
+    const fl = this.#lvFlag, lp = this.#lvPrev, lc = this.#lvCur, cells = this.#lvCells; cells.length = 0;
     const iLo = from - s.base, iHi = to - s.base;
     const has = iHi >= iLo, known = s.known, pend = s.pend;
     // Cells outside the range become unknown; a cell that already is has nothing to clear (known and waiting are the only things set on one).
@@ -615,19 +732,26 @@ export class BookCueTracker {
         advance(s.m[i]!, s.u[i]!, s.a[i]!, qp, qn, fresh, active, !t.freshGated || d >= gate);
         s.m[i] = est.m; s.u[i] = est.u; s.a[i] = est.a;
         if (qp > 0 || qn > 0) { nSum += ad < cap ? ad : cap; nCnt++; }
-        // A change measured from the value before a weak one rests on the publication that value was in.
-        const waiting = s.pend[i] !== 0, from = waiting ? s.preWall[i]! : st.lastWall;
+        // A change measured from the value before a weak one rests on the publication that value was in, and on the levels it listed then.
+        const waiting = s.pend[i] !== 0, prevWall = waiting ? s.preWall[i]! : st.lastWall;
         const dropped = judge(gate, qp, qn, s.pend[i]!, s.pre[i]!, t.confirmRatio);
         if (dropped) this.stats.weakDropped++;
         s.pend[i] = 0;
-        if (verdict.kind === WEAK) { s.pend[i] = verdict.usd > 0 ? 1 : -1; s.pre[i] = verdict.before; s.preWall[i] = from; }
-        else if (verdict.kind !== NONE) {
+        if (verdict.kind === WEAK) {
+          s.pend[i] = verdict.usd > 0 ? 1 : -1; s.pre[i] = verdict.before; s.preWall[i] = prevWall;
+          // The levels of the publication before the change wait on the cell for the one that confirms it (a change that waits already has them).
+          if (!waiting && lvPrev) { fl[i] = LV_PREV; lp[i] = []; cells.push(i); }
+        } else if (verdict.kind !== NONE) {
           const bin = s.base + i;
-          const ev = this.#event(st.id, side, bin * g, (bin + 1) * g, g, verdict.usd, verdict.before, qn, ctx, false, st.approx, verdict.kind === CONFIRMED, from);
+          const ev = this.#event(st.id, side, bin * g, (bin + 1) * g, g, verdict.usd, verdict.before, qn, ctx, false, st.approx, verdict.kind === CONFIRMED, prevWall);
           s.last[i] = ev; out.push(ev); bins.push(bin);
-        }
+          if (waiting) {
+            const kept = s.preLv[i]!; s.preLv[i] = null;
+            if (kept !== null && lvNow) { fl[i] = LV_CUR; lp[i] = kept; lc[i] = []; cells.push(i); }
+          } else if (lvPrev) { fl[i] = LV_PREV | LV_CUR; lp[i] = []; lc[i] = []; cells.push(i); }
+        } else if (waiting) s.preLv[i] = null;
       } else {
-        if (s.pend[i] !== 0) { this.stats.weakDropped++; s.pend[i] = 0; }
+        if (s.pend[i] !== 0) { this.stats.weakDropped++; s.pend[i] = 0; s.preLv[i] = null; }
         s.m[i] = 0; s.a[i] = 0; s.u[i] = qn; s.known[i] = 1;
       }
       s.q[i] = qn;
@@ -637,6 +761,39 @@ export class BookCueTracker {
       s.noise += (mean - s.noise) * decay; s.noiseWall = wall;
     }
     if (out.length - first > 1) this.#pair(out, first, bins);
+    if (cells.length > 0) this.#levels(s, now, prevDir, g, out, first, bins);
+  }
+
+  /**
+   * The point levels behind the cells `#fineSide` flagged, from the frame's side for the cells that need this publication's levels and from the
+   * previous publication's copy for those that need that one's (`listLevels`: a search for each cell where the prices run in order, as the merge
+   * sends them, one pass over the side where they do not). They go on the events just raised (`lv`), and the levels a weak change's first
+   * publication held stay on the cell (`preLv`) for the event that confirms it.
+   */
+  #levels(s: Fine, now: SideNow, prevDir: number, g: number, out: CueEvent[], first: number, bins: number[]): void {
+    const n = this.#n, base = s.base, fl = this.#lvFlag, lp = this.#lvPrev, lc = this.#lvCur, cells = this.#lvCells;
+    let needPrev = false, needCur = false, lo = Infinity, hi = -Infinity;
+    for (let c = 0; c < cells.length; c++) {
+      const i = cells[c]!, f = fl[i]!;
+      if ((f & LV_PREV) !== 0) needPrev = true;
+      if ((f & LV_CUR) !== 0) needCur = true;
+      if (i < lo) lo = i;
+      if (i > hi) hi = i;
+    }
+    // The price span of the flagged cells, with a sliver of margin for `binOf`'s own: a level outside it is none of theirs.
+    const wLo = (base + lo) * g - g * 1e-6, wHi = (base + hi + 1) * g + g * 1e-6;
+    if (needCur) listLevels(now.arrays.lo, now.arrays.hi, now.arrays.usd, now.len, now.dir, g, base, n, cells, fl, LV_CUR, lc, wLo, wHi);
+    if (needPrev) { const p = now.prev; listLevels(p.lo, p.hi, p.usd, p.len, prevDir, g, base, n, cells, fl, LV_PREV, lp, wLo, wHi); }
+    for (let j = first; j < out.length; j++) {
+      const i = bins[j - first]! - base, p = lp[i], c = lc[i];
+      if (p !== null && c !== null) out[j]!.lv = { prev: p!, cur: c! };
+    }
+    for (let c = 0; c < cells.length; c++) {
+      const i = cells[c]!;
+      if (fl[i] === LV_PREV) s.preLv[i] = lp[i]!;
+      fl[i] = 0; lp[i] = null; lc[i] = null;
+    }
+    cells.length = 0;
   }
 
   /** Flag opposite changes of about the same size within `pairBins` bins of each other, nearest first, each event in at most one pair. */
@@ -716,12 +873,14 @@ export class BookCueTracker {
     let nSum = 0, nCnt = 0;
     const first = out.length;
     // A band in one of the two publications only, overlapping a band that is in the other only, is one region the venue grouped differently (it moved
-    // an edge, split a band or joined two): no addition and no pull. The new bands start as unknown and the old ones go without an event.
+    // an edge, split a band or joined two): no addition and no pull. The new bands start as unknown and the old ones go without an event. "In the
+    // previous publication" is a live quantity, not a key of the map: a band that went empty stays as a ghost (so its return is an addition), and a
+    // ghost is no band that publication held, so a band of the same edges as a ghost is as new as one of other edges.
     let freshKeys: Set<string> | null = null, goneKeys: Set<string> | null = null;
     if (!baseline) {
       const gone: [string, Cell][] = [], fresh: [string, { lo: number; hi: number }][] = [];
       for (const [key, c] of bs.cells) if (c.q > 0 && !now.has(key)) gone.push([key, c]);
-      if (gone.length) for (const [key, b] of now) if (!bs.cells.has(key)) fresh.push([key, b]);
+      if (gone.length) for (const [key, b] of now) { const held = bs.cells.get(key); if (held === undefined || held.q === 0) fresh.push([key, b]); }
       for (const [gk, c] of gone) for (const [fk, b] of fresh) if (sharePrices(c.lo, c.hi, b.lo, b.hi)) { (goneKeys ??= new Set()).add(gk); (freshKeys ??= new Set()).add(fk); }
     }
     const visit = (cell: Cell, qn: number): void => {
@@ -743,7 +902,13 @@ export class BookCueTracker {
     };
     // The bands in this publication.
     for (const [key, b] of now) {
-      if (freshKeys !== null && freshKeys.has(key)) { bs.cells.set(key, { lo: b.lo, hi: b.hi, q: b.usd, m: 0, u: b.usd, a: 0, pend: 0, pre: 0, preWall: 0, zero: 0, last: null }); continue; }
+      if (freshKeys !== null && freshKeys.has(key)) {
+        // It takes the place of a ghost of the same edges, if there is one: a change waiting on the ghost is dropped, what the ghost last showed stays.
+        const ghost = bs.cells.get(key);
+        if (ghost !== undefined && ghost.pend !== 0) this.stats.weakDropped++;
+        bs.cells.set(key, { lo: b.lo, hi: b.hi, q: b.usd, m: 0, u: b.usd, a: 0, pend: 0, pre: 0, preWall: 0, zero: 0, last: ghost !== undefined ? ghost.last : null });
+        continue;
+      }
       const held = bs.cells.get(key);
       const cutByTouch = suppressed(b.lo, b.hi);
       if (!baseline && held && !cutByTouch) { visit(held, b.usd); continue; }
@@ -781,36 +946,72 @@ export class BookCueTracker {
   }
 }
 
+/** The most rows one event makes on a display grid (after the window). */
+const MAX_ROWS = 4_096;
+
 /**
- * Cell events on display rows of `step` (row `k` is [k x step, (k + 1) x step), `k` = `Math.floor(price / step)`): an event's USD is shared over
- * the rows its interval overlaps in proportion to the overlap (a band spreads as `spread_levels` spreads it, a grid bin finer than a row lies
- * in one row or two, a row finer than the grid takes its part), and the events of one venue, side and publication that meet in a row are
- * summed, their strength worked out again from the sum. `removed` and `added` are true when every event that meets in the row says so: for a
- * row of several bins that is a hint, and the reader looks at the cell; `pair` and `band` are true when any of them is, `seq` is the newest and
+ * Cell events on display rows of `step` (row `k` is [k x step, (k + 1) x step)). An event that keeps its levels (`CueEvent.lv`) is placed by them,
+ * as the ladder's bars were: each level of the new publication adds its USD to the row of its price and each of the old takes its USD from the row
+ * of its price (the floor of price / step, as `spread_levels` and `accumulateSide` place a point level), so a row's USD is its own signed change,
+ * which can be the opposite sign to the bin's net (+$2M at 81,021 and -$500K at 81,031 in one $20 bin are +$2M on one $10 row and -$500K on the
+ * next), and a row where the levels cancel has none. The USD of any other event is shared over the rows its interval overlaps in proportion to the
+ * overlap (a band spreads as `spread_levels` spreads it, a grid bin finer than a row lies in one row or two, a row finer than the grid takes its
+ * part). The events of one venue, side and publication that meet in a row are summed, their strength worked out again from the sum. `removed` and
+ * `added` are true when every event that meets in the row says so (for an event with levels, by that row's own old and new USD): for a row of
+ * several bins that is a hint, and the reader looks at the cell; `pair` and `band` are true when any of them is, `seq` is the newest and
  * `prevWall` the earliest. `window` keeps only the rows of that price range; an event never makes more than 4,096 rows.
  */
 export function rowEvents(events: readonly CueEvent[], step: number, scale: number, window?: { lo: number; hi: number }): RowEvent[] {
   if (!(step > 0) || !Number.isFinite(step) || events.length === 0) return [];
   const ref = scale > 0 && Number.isFinite(scale) ? scale : 1e6;
   const out: RowEvent[] = [], at = new Map<string, RowEvent>();
+  // The old and the new USD of each row an event's levels reach (refilled for each event), within the window.
+  const rows = new Map<number, { before: number; after: number }>();
+  const wk0 = window ? Math.floor(window.lo / step) : -Infinity, wk1 = window ? Math.floor(window.hi / step) : Infinity;
+  const addLevels = (list: readonly number[], after: boolean): void => {
+    for (let j = 0; j + 1 < list.length; j += 2) {
+      const price = list[j]!, usd = list[j + 1]!;
+      if (!(price > 0 && price < MAX_VALUE && usd > 0 && usd < MAX_VALUE)) continue;
+      const k = Math.floor(price / step);
+      if (k < wk0 || k > wk1) continue;
+      let cell = rows.get(k);
+      if (cell === undefined) { cell = { before: 0, after: 0 }; rows.set(k, cell); }
+      if (after) cell.after += usd; else cell.before += usd;
+    }
+  };
+  const put = (e: CueEvent, k: number, usd: number, removed: boolean, added: boolean): void => {
+    const key = `${e.id}|${e.side}|${k}|${e.wall}`, held = at.get(key);
+    if (held) {
+      held.usd += usd; held.removed &&= removed; held.added &&= added; held.pair ||= e.pair; held.band ||= e.band;
+      if (e.seq > held.seq) held.seq = e.seq;
+      if (e.prevWall < held.prevWall) held.prevWall = e.prevWall;
+    } else {
+      const row: RowEvent = { id: e.id, side: e.side, row: k, usd, strength: 0, wall: e.wall, prevWall: e.prevWall, seq: e.seq, removed, added, pair: e.pair, band: e.band };
+      at.set(key, row); out.push(row);
+    }
+  };
   for (const e of events) {
     const width = e.hi - e.lo;
     if (!(width > 0) || !Number.isFinite(width)) continue;
+    if (e.lv !== undefined) {
+      rows.clear(); addLevels(e.lv.prev, false); addLevels(e.lv.cur, true);
+      const ks = [...rows.keys()].sort((a, b) => a - b);
+      if (ks.length > MAX_ROWS) ks.length = MAX_ROWS;
+      for (const k of ks) {
+        const { before, after } = rows.get(k)!, d = after - before;
+        // Two levels that cancel in a row leave float dust, not a change.
+        if (!(Math.abs(d) > 1e-9 * (before + after))) continue;
+        put(e, k, d, after === 0 && before > 0, before === 0 && after > 0);
+      }
+      continue;
+    }
     let k0 = binOf(e.lo, step), k1 = binOf(e.hi, step);
     if (window) { k0 = Math.max(k0, binOf(window.lo, step)); k1 = Math.min(k1, binOf(window.hi, step)); }
-    if (k1 - k0 > 4_096) k1 = k0 + 4_096;
+    if (k1 - k0 >= MAX_ROWS) k1 = k0 + MAX_ROWS - 1;
     for (let k = k0; k <= k1; k++) {
       const overlap = Math.min(e.hi, (k + 1) * step) - Math.max(e.lo, k * step);
       if (!(overlap > width * 1e-9)) continue;
-      const usd = e.usd * (overlap / width), key = `${e.id}|${e.side}|${k}|${e.wall}`, held = at.get(key);
-      if (held) {
-        held.usd += usd; held.removed &&= e.removed; held.added &&= e.added; held.pair ||= e.pair; held.band ||= e.band;
-        if (e.seq > held.seq) held.seq = e.seq;
-        if (e.prevWall < held.prevWall) held.prevWall = e.prevWall;
-      } else {
-        const row: RowEvent = { id: e.id, side: e.side, row: k, usd, strength: 0, wall: e.wall, prevWall: e.prevWall, seq: e.seq, removed: e.removed, added: e.added, pair: e.pair, band: e.band };
-        at.set(key, row); out.push(row);
-      }
+      put(e, k, e.usd * (overlap / width), e.removed, e.added);
     }
   }
   for (const r of out) r.strength = 1 - Math.exp(-Math.abs(r.usd) / ref);
