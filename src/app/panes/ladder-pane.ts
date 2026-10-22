@@ -75,7 +75,15 @@ export class LadderPane {
   readonly root = document.createElement('section');
   readonly controls = document.createElement('div');
   #scroller = document.createElement('div');
+  /**
+   * Two canvases laid over each other: the material (the bars, cells, running-total area and what lies under the bars) below, and the ink (every
+   * word, mark, line and box, and the pointer) above. A cue lights the material and the words stay clear above it: a wash laid over the
+   * words would have washed them too (Sol, 2026-10-22), and repainting only a cell's material under still ink costs a fraction of a repaint of
+   * both. Stacked, they look exactly as one canvas drew them: the pointer and the touch handlers are the ink's.
+   */
+  #matCanvas = document.createElement('canvas');
   #canvas = document.createElement('canvas');
+  #mat: CanvasRenderingContext2D;
   #ctx: CanvasRenderingContext2D;
   #w = 0; #h = 0; #dpr = 1; #frame = 0;
   #offsetRows = 0;
@@ -117,9 +125,11 @@ export class LadderPane {
     this.root.className = 'pane ladder';
     this.controls.className = 'pane-head';
     this.#scroller.className = 'ladder-scroll';
-    this.#scroller.append(this.#canvas);
+    this.#canvas.className = 'ink';
+    this.#scroller.append(this.#matCanvas, this.#canvas);
     this.root.append(this.controls, this.#scroller);
     host.append(this.root);
+    this.#mat = this.#matCanvas.getContext('2d')!;
     this.#ctx = this.#canvas.getContext('2d')!;
     new ResizeObserver(() => this.#resize()).observe(this.#scroller);
     this.#bindInput();
@@ -355,10 +365,10 @@ export class LadderPane {
     this.invalidate();
   }
   #setCanvas(width: number): void {
-    if (this.#canvas.width !== Math.round(width * this.#dpr) || this.#canvas.height !== Math.round(this.#h * this.#dpr)) {
-      this.#canvas.width = Math.round(width * this.#dpr); this.#canvas.height = Math.round(this.#h * this.#dpr);
+    for (const c of [this.#matCanvas, this.#canvas]) {
+      if (c.width !== Math.round(width * this.#dpr) || c.height !== Math.round(this.#h * this.#dpr)) { c.width = Math.round(width * this.#dpr); c.height = Math.round(this.#h * this.#dpr); }
+      c.style.width = `${width}px`; c.style.height = `${this.#h}px`;
     }
-    this.#canvas.style.width = `${width}px`; this.#canvas.style.height = `${this.#h}px`;
     // Single mode puts several books side by side: a sideways swipe scrolls them (the browser's job), up and down stays ours.
     const touchAction = width > this.#w + 1 ? 'pan-x' : 'none';
     if (this.#canvas.style.touchAction !== touchAction) this.#canvas.style.touchAction = touchAction;
@@ -372,8 +382,8 @@ export class LadderPane {
     const columns = state.ladderMode === 'single' ? Math.max(1, books.length) : 1;
     const width = Math.max(this.#w, columns * BOOK_MIN_W);
     this.#setCanvas(width);
-    const ctx = this.#ctx, h = this.#h;
-    ctx.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0); ctx.clearRect(0, 0, width, h);
+    const ctx = this.#ctx, mat = this.#mat, h = this.#h;
+    for (const c of [mat, ctx]) { c.setTransform(this.#dpr, 0, 0, this.#dpr, 0, 0); c.clearRect(0, 0, width, h); }
     // The context keeps the last frame's alignment (the columns are right-aligned): a message starts at the left.
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     if (!frame || !(mark > 0) || width < 80) { ctx.fillStyle = p.muted; ctx.fillText(t('Waiting for order book…'), 12, 20); return; }
@@ -409,7 +419,7 @@ export class LadderPane {
       ids.forEach((id, k) => {
         const idx = g.ids.indexOf(id); if (idx < 0) return;
         const own = this.#own(g, idx);
-        this.#drawBook(ctx, state, own, { x: k * colW, w: colW, title: `${venueLabel(id)} ${id.split(':').slice(1).join(':')}`, markId: id, pullIds: [id], cells: null, order: null, cellW: 0, head, balanceH, cover: coverage(frame.books.find(b => b.id === id), mark), totals: withMark, centerBin, rows, markBin, mark, step });
+        this.#drawBook(mat, ctx, state, own, { x: k * colW, w: colW, title: `${venueLabel(id)} ${id.split(':').slice(1).join(':')}`, markId: id, pullIds: [id], cells: null, order: null, cellW: 0, head, balanceH, cover: coverage(frame.books.find(b => b.id === id), mark), totals: withMark, centerBin, rows, markBin, mark, step });
         if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(k * colW + 0.5, 0); ctx.lineTo(k * colW + 0.5, h); ctx.stroke(); }
       });
     } else {
@@ -417,7 +427,7 @@ export class LadderPane {
       const order = state.ladderMode === 'compact' && ids.length > 1 ? this.#venueOrder(g, hiBin - rows + 1, hiBin) : null;
       this.#curvesLeftOut = [];
       const curves = withMark && state.ladderMode === 'compact' && state.ladderShow !== 'levels' && state.ladderCurves > 0 ? this.#curves(state, g, frame, markBin, hiBin - rows + 1, hiBin) : null;
-      this.#drawBook(ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? ids : null, order, curves, cellW, head, balanceH, cover: null, totals: withMark, centerBin, rows, markBin, mark, step });
+      this.#drawBook(mat, ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? ids : null, order, curves, cellW, head, balanceH, cover: null, totals: withMark, centerBin, rows, markBin, mark, step });
     }
   }
 
@@ -479,14 +489,14 @@ export class LadderPane {
    * A Compact bar's pieces: each venue's part in the bar's order, the shade alternating with its place (so neighbours stay apart) and a hair
    * of background between them; the smaller venues' piece at the end lighter. A piece wide enough says whose it is, and its size when it fits.
    */
-  #paintPieces(ctx: CanvasRenderingContext2D, pieces: readonly BarPiece[], y: number, color: string, f: number): void {
+  #paintPieces(mat: CanvasRenderingContext2D, ctx: CanvasRenderingContext2D, pieces: readonly BarPiece[], y: number, color: string, f: number): void {
     const p = this.#palette;
     ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left';
     const measure = (text: string): number => ctx.measureText(text).width;
     for (const piece of pieces) {
       const alpha = Math.min(1, (piece.rank < 0 ? 0.4 : piece.rank % 2 === 0 ? 0.92 : 0.62) * f), w = Math.max(1, piece.w - (piece.w >= 3 ? 1 : 0));
-      ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(piece.x, y + 2, w, ROW_H - 4);
-      ctx.globalAlpha = 1;
+      mat.globalAlpha = alpha; mat.fillStyle = color; mat.fillRect(piece.x, y + 2, w, ROW_H - 4);
+      mat.globalAlpha = 1;
       // A piece wide enough starts with its venue's mark, and says what fits after it.
       const marked = piece.id !== null && w >= 15, MARK = 11, after = marked ? MARK + 4 : 0;
       if (marked) drawVenueMark(ctx, piece.id!, piece.x + 2 + MARK / 2, y + ROW_H / 2, MARK);
@@ -775,7 +785,7 @@ export class LadderPane {
     ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
   }
 
-  #drawBook(ctx: CanvasRenderingContext2D, state: AppState, g: Grouped,
+  #drawBook(mat: CanvasRenderingContext2D, ctx: CanvasRenderingContext2D, state: AppState, g: Grouped,
     o: { x: number; w: number; title: string; markId?: string; pullIds: string[]; cells: string[] | null; order: string[] | null; curves?: Curve[] | null; cellW: number; head: number; balanceH: number; cover: Cover | null; totals: boolean; centerBin: number; rows: number; markBin: number; mark: number; step: number }): void {
     const p = this.#palette, { x: x0, w, rows, markBin, step, centerBin } = o;
     const cum = cumulative(g, o.mark);
@@ -837,13 +847,14 @@ export class LadderPane {
     // With the lines on they are the running totals and the whole book's area is left out: on their scale it filled the width a few rows
     // from the mark (the total is several times the largest venue: Karl, 2026-10-14), and on a scale of its own a venue's line stood beyond
     // the total it is part of (2026-10-13).
-    if (state.ladderShow !== 'levels' && !scale && o.totals) this.#paintCumulative(ctx, g, cum, o, barX, barW, maxCum, weight);
+    if (state.ladderShow !== 'levels' && !scale && o.totals) this.#paintCumulative(mat, g, cum, o, barX, barW, maxCum, weight);
     const ticks = scale ? lineTicks(scale.full).map(v => ({ v, x: Math.round(barX + lineFraction(v, scale.full) * barW) + 0.5 })) : [];
     if (ticks.length) {
       // Solid, like the map's own grid: a dash here would be read as the lines' "past its book" dashes (the key says what those mean).
-      ctx.save(); ctx.strokeStyle = p.line; ctx.globalAlpha = 0.6; ctx.lineWidth = 1;
-      for (const tick of ticks) { ctx.beginPath(); ctx.moveTo(tick.x, o.head); ctx.lineTo(tick.x, o.head + rows * ROW_H); ctx.stroke(); }
-      ctx.restore();
+      // Under the bars, so on the material.
+      mat.save(); mat.strokeStyle = p.line; mat.globalAlpha = 0.6; mat.lineWidth = 1;
+      for (const tick of ticks) { mat.beginPath(); mat.moveTo(tick.x, o.head); mat.lineTo(tick.x, o.head + rows * ROW_H); mat.stroke(); }
+      mat.restore();
     }
     if (o.balanceH > 0) this.#paintBalance(ctx, g, cum, o, x0, w);
     for (let r = 0; r < rows; r++) {
@@ -853,13 +864,13 @@ export class LadderPane {
       const rowLo = (g.bin0 + bin) * step;
       if (o.cover && beyondCover(o.cover, rowLo, step)) {
         // Beyond what this venue's feed reaches: shade the row instead of showing a misleading empty book.
-        ctx.globalAlpha = 0.5; ctx.fillStyle = p.line; ctx.fillRect(x0, y, w, ROW_H); ctx.globalAlpha = 1;
+        mat.globalAlpha = 0.5; mat.fillStyle = p.line; mat.fillRect(x0, y, w, ROW_H); mat.globalAlpha = 1;
         ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(fmtPrice(rowLo, step), x0 + 6, mid);
         continue;
       }
       const bid = g.totalBid[bin]!, ask = g.totalAsk[bin]!, isAsk = bin > markBin || (bin === markBin && ask > bid);
       const value = isAsk ? ask : bid, color = isAsk ? p.ask : p.bid, f = weight(bin, !isAsk);
-      if (bin === markBin) { ctx.fillStyle = p.line; ctx.fillRect(x0, y, w, ROW_H); }
+      if (bin === markBin) { mat.fillStyle = p.line; mat.fillRect(x0, y, w, ROW_H); }
       ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(fmtPrice((g.bin0 + bin) * step, step), x0 + 6, mid);
       ctx.fillStyle = value > 0 ? p.text : p.muted; ctx.textAlign = 'right'; ctx.fillText(value > 0 ? usd(value) : '', x0 + priceW + USD_W, mid);
       if (pullRows) {
@@ -871,19 +882,19 @@ export class LadderPane {
       }
       if (cellIds) cellIds.forEach((_, k) => {
         const vv = (isAsk ? g.ask[k] : g.bid[k])?.[bin] ?? 0;
-        if (vv > 0) { ctx.globalAlpha = Math.min(1, (0.18 + 0.82 * Math.sqrt(vv / maxLevel)) * f); ctx.fillStyle = color; ctx.fillRect(x0 + priceW + usdW + 8 + k * cw, y + 3, Math.max(2, cw - 2), ROW_H - 6); ctx.globalAlpha = 1; }
+        if (vv > 0) { mat.globalAlpha = Math.min(1, (0.18 + 0.82 * Math.sqrt(vv / maxLevel)) * f); mat.fillStyle = color; mat.fillRect(x0 + priceW + usdW + 8 + k * cw, y + 3, Math.max(2, cw - 2), ROW_H - 6); mat.globalAlpha = 1; }
       });
       if (state.ladderShow !== 'cumulative' && value > 0) {
         if (orderIdx && o.order) {
-          this.#paintPieces(ctx, barPieces(o.order, orderIdx.map(i => (isAsk ? g.ask[i] : g.bid[i])?.[bin] ?? 0), maxLevel, barX, barW, PIECE_MIN_PX), y, color, f);
+          this.#paintPieces(mat, ctx, barPieces(o.order, orderIdx.map(i => (isAsk ? g.ask[i] : g.bid[i])?.[bin] ?? 0), maxLevel, barX, barW, PIECE_MIN_PX), y, color, f);
         } else if (cellIds) {
           let x = barX;
           cellIds.forEach((_, k) => {
             const vv = (isAsk ? g.ask[k] : g.bid[k])?.[bin] ?? 0; if (vv <= 0) return;
-            const seg = vv / maxLevel * barW; ctx.globalAlpha = Math.min(1, (0.35 + 0.5 * (VENUE_TINT[k % VENUE_TINT.length] ?? 1)) * f); ctx.fillStyle = color; ctx.fillRect(x, y + 2, Math.max(1, seg - 0.5), ROW_H - 4); x += seg;
+            const seg = vv / maxLevel * barW; mat.globalAlpha = Math.min(1, (0.35 + 0.5 * (VENUE_TINT[k % VENUE_TINT.length] ?? 1)) * f); mat.fillStyle = color; mat.fillRect(x, y + 2, Math.max(1, seg - 0.5), ROW_H - 4); x += seg;
           });
-          ctx.globalAlpha = 1;
-        } else { ctx.globalAlpha = Math.min(1, 0.75 * f); ctx.fillStyle = color; ctx.fillRect(barX, y + 2, Math.max(1, value / maxLevel * barW), ROW_H - 4); ctx.globalAlpha = 1; }
+          mat.globalAlpha = 1;
+        } else { mat.globalAlpha = Math.min(1, 0.75 * f); mat.fillStyle = color; mat.fillRect(barX, y + 2, Math.max(1, value / maxLevel * barW), ROW_H - 4); mat.globalAlpha = 1; }
       }
       // The price row's line in the colour of the map's price line (the candle under way rising or falling).
       if (bin === markBin) { const side = lineSide(state.candles, state.seriesInstrument, state.marketId); ctx.fillStyle = side === 'up' ? p.candleUp : side === 'down' ? p.candleDown : p.ask; ctx.fillRect(x0, y + ROW_H - 1, w, 1); }
