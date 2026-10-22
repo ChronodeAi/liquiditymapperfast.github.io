@@ -307,6 +307,13 @@ function advance(m: number, u: number, a: number, qp: number, qn: number, fresh:
 }
 
 const overlaps = (lo: number, hi: number, spanLo: number, spanHi: number): boolean => spanLo === spanLo && hi > spanLo && lo < spanHi;
+/** Whether two bands cover some of the same prices (a band of no width covers its one price). */
+function sharePrices(alo: number, ahi: number, blo: number, bhi: number): boolean {
+  if (ahi > alo && bhi > blo) return ahi > blo && alo < bhi;
+  if (ahi > alo) return blo >= alo && blo < ahi;
+  if (bhi > blo) return alo >= blo && alo < bhi;
+  return alo === blo;
+}
 
 /**
  * The tracker of a set of books (one per instrument id). `observe` takes every levels frame the page gets; a book that did not change
@@ -345,7 +352,9 @@ export class BookCueTracker {
   /**
    * One levels frame: every book of `ids` that is in it. Returns the events this frame raised (ordered by the books' order in the frame, bids
    * before asks, price ascending; `seq` increases along it). A book unchanged since its last publication raises nothing, confirms nothing
-   * and costs one comparison. A book is forgotten once it has been absent from `ids` or the frames for `forgetMs`.
+   * and costs one comparison. A book that is in `ids` and not in the frame has left the feed (a venue reconnecting does not change the page's own
+   * connection state): what it publishes next is a baseline. One that is not in `ids` (hidden) is kept, and judged by the gap rule when it
+   * returns. A book is forgotten once it has been out of `ids` or the frames for `forgetMs`.
    */
   observe(books: readonly CueBook[], ids: readonly string[], ctx: CueContext): CueEvent[] {
     const out: CueEvent[] = [];
@@ -372,7 +381,13 @@ export class BookCueTracker {
         this.stats.errors++; st.usable = false; st.pub.valid = false;
       }
     }
-    for (const st of this.#books.values()) if (wall - st.seen > this.#t.forgetMs && !this.#done.has(st.id)) this.#books.delete(st.id);
+    for (const st of this.#books.values()) {
+      if (this.#done.has(st.id)) continue;
+      // A book that is asked for and not in the frame is gone from the feed (a reconnect of the venue, which the page's own connection state does not
+      // show): what it publishes next is a baseline. One that is not asked for (the reader hid it) keeps the rule of the gap.
+      if (this.#want.has(st.id) && (st.usable || st.pub.valid)) { st.usable = false; st.pub.valid = false; this.#invalidate(st); }
+      if (wall - st.seen > this.#t.forgetMs) this.#books.delete(st.id);
+    }
     this.#done.clear();
     return out;
   }
@@ -429,6 +444,29 @@ export class BookCueTracker {
       for (const c of st.bands[side === 'bid' ? 0 : 1].cells.values()) take(c.last);
     }
     return best;
+  }
+
+  /**
+   * The events of the NEWEST publication that touched [lo, hi) on one side, all of them: the cells of a display row that changed together, which
+   * `rowEvents` sums into the figure the row was lit with (`recent` gives one cell's, the newest). Price ascending; empty when nothing overlaps.
+   */
+  recentEvents(id: string, side: CueSide, lo: number, hi: number): CueEvent[] {
+    const st = this.#books.get(id), out: CueEvent[] = [];
+    if (!st || !(hi > lo)) return out;
+    let wall = -Infinity, seq = -Infinity;
+    const scan = (e: CueEvent | null): void => { if (e && e.hi > lo && e.lo < hi && e.seq > seq) { seq = e.seq; wall = e.wall; } };
+    const take = (e: CueEvent | null): void => { if (e && e.hi > lo && e.lo < hi && e.wall === wall) out.push(e); };
+    if (st.mode === 'point' && st.fine && st.grid > 0) {
+      const s = st.fine[side === 'bid' ? 0 : 1], from = Math.max(binOf(lo, st.grid), s.base), to = Math.min(binOf(hi, st.grid), s.base + s.n - 1);
+      for (let b = from; b <= to; b++) scan(s.last[b - s.base]!);
+      for (let b = from; b <= to; b++) take(s.last[b - s.base]!);
+    } else if (st.mode === 'band' && st.bands) {
+      const cells = st.bands[side === 'bid' ? 0 : 1].cells;
+      for (const c of cells.values()) scan(c.last);
+      for (const c of cells.values()) take(c.last);
+      out.sort((a, b) => a.lo - b.lo);
+    }
+    return out;
   }
 
   /** One publication of a book that differs from its last: the time rules, then the comparison by the book's kind. */
@@ -677,6 +715,15 @@ export class BookCueTracker {
     const base = Math.max(bs.noise, share), cap = base > 0 ? t.noiseClip * base : Infinity;
     let nSum = 0, nCnt = 0;
     const first = out.length;
+    // A band in one of the two publications only, overlapping a band that is in the other only, is one region the venue grouped differently (it moved
+    // an edge, split a band or joined two): no addition and no pull. The new bands start as unknown and the old ones go without an event.
+    let freshKeys: Set<string> | null = null, goneKeys: Set<string> | null = null;
+    if (!baseline) {
+      const gone: [string, Cell][] = [], fresh: [string, { lo: number; hi: number }][] = [];
+      for (const [key, c] of bs.cells) if (c.q > 0 && !now.has(key)) gone.push([key, c]);
+      if (gone.length) for (const [key, b] of now) if (!bs.cells.has(key)) fresh.push([key, b]);
+      for (const [gk, c] of gone) for (const [fk, b] of fresh) if (sharePrices(c.lo, c.hi, b.lo, b.hi)) { (goneKeys ??= new Set()).add(gk); (freshKeys ??= new Set()).add(fk); }
+    }
     const visit = (cell: Cell, qn: number): void => {
       const qp = cell.q, d = qn - qp, ad = d < 0 ? -d : d;
       advance(cell.m, cell.u, cell.a, qp, qn, fresh, active, !t.freshGated || d >= gate);
@@ -696,6 +743,7 @@ export class BookCueTracker {
     };
     // The bands in this publication.
     for (const [key, b] of now) {
+      if (freshKeys !== null && freshKeys.has(key)) { bs.cells.set(key, { lo: b.lo, hi: b.hi, q: b.usd, m: 0, u: b.usd, a: 0, pend: 0, pre: 0, preWall: 0, zero: 0, last: null }); continue; }
       const held = bs.cells.get(key);
       const cutByTouch = suppressed(b.lo, b.hi);
       if (!baseline && held && !cutByTouch) { visit(held, b.usd); continue; }
@@ -711,9 +759,11 @@ export class BookCueTracker {
     // The bands that are not: inside the range the book reaches now they went empty, outside it they are unknown (a depth limit moving with the price).
     for (const [key, c] of bs.cells) {
       if (now.has(key)) continue;
+      if (goneKeys !== null && goneKeys.has(key)) { if (c.pend !== 0) this.stats.weakDropped++; bs.cells.delete(key); continue; }
       const inside = bid ? c.lo >= reach[0] : c.hi <= reach[1];
       if (!baseline && inside && !suppressed(c.lo, c.hi)) {
-        if (c.q > 0) visit(c, 0);
+        // A band that went empty with a weak removal waiting is visited too: this publication confirms it or drops it.
+        if (c.q > 0 || c.pend !== 0) visit(c, 0);
         if (wall - c.zero > t.ghostMs) bs.cells.delete(key);
       } else { if (c.pend !== 0) this.stats.weakDropped++; bs.cells.delete(key); }
     }
