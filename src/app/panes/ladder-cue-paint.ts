@@ -21,6 +21,10 @@ export const WASH_UP = 0.46, WASH_DOWN = 0.62;
 const CREST_W = 2.2, CREST_GLOW = 3.5;
 /** A cell narrower than this has no room for a crest to cross it: its wash alone speaks. */
 const CREST_MIN_W = 6;
+/** The faintest light a cue paints (its alpha): under it the cell is left alone. A contact's ripple fades to this sooner than a change's body does. */
+const SHOWS_CHANGE = 0.002, SHOWS_CONTACT = 0.01;
+/** A contact's light at `age`: as strong as the order, running out over its short life. */
+const contactLight = (cue: Cue, age: number): number => cue.strength * (1 - age / CONTACT_LIFE_MS) ** 1.4;
 
 /** What the pane must restore under a cue: its cell grown by the crest's reach. */
 export const cueBox = (cell: Cell): Box => ({ x: cell.x - CREST_GLOW - 1, y: cell.y - 1, w: cell.w + 2 * CREST_GLOW + 2, h: cell.h + 2 });
@@ -56,8 +60,8 @@ function crest(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: number, l
  */
 function paintContact(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: number, p: Palette): void {
   if (age < 0 || age > CONTACT_LIFE_MS) return;
-  const k = age / CONTACT_LIFE_MS, a = cue.strength * (1 - k) ** 1.4;
-  if (!(a > 0.01)) return;
+  const k = age / CONTACT_LIFE_MS, a = contactLight(cue, age);
+  if (!(a > SHOWS_CONTACT)) return;
   const tint = cue.buy ? p.bid : p.ask, color = p.dark ? mixHex(tint, '#ffffff', 0.72) : mixHex(tint, '#000000', 0.5);
   const { x, y, w, h } = cell, fx = x + Math.min(1, k * 1.7) * w, strike = Math.max(0, 1 - age / 150);
   m.save(); m.beginPath(); m.rect(x - CREST_GLOW, y, w + 2 * CREST_GLOW, h); m.clip();
@@ -68,12 +72,18 @@ function paintContact(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: nu
   m.restore();
 }
 
+/** Whether the cue paints anything at `age`: the pane neither restores nor repaints the cell of one that does not (the tail of its life). */
+export function cueShows(look: CueLook, cue: Cue, age: number): boolean {
+  if (cue.kind === 'contact') return age >= 0 && age <= CONTACT_LIFE_MS && contactLight(cue, age) > SHOWS_CONTACT;
+  return look !== 'marks' && (bodyLight(cue.strength, age) > SHOWS_CHANGE || crestLight(cue.strength, age) > SHOWS_CHANGE);
+}
+
 /** Paint one cue on `m` (the material, in CSS px) at `age` ms. The cell's own fill is already there; the cue is laid over it and nothing else is touched. */
 export function paintCue(m: CanvasRenderingContext2D, look: CueLook, cue: Cue, cell: Cell, age: number, p: Palette): void {
   if (cue.kind === 'contact') { paintContact(m, cue, cell, age, p); return; }
   if (look === 'marks') return;
   const a = bodyLight(cue.strength, age), c = crestLight(cue.strength, age);
-  if (!(a > 0.002) && !(c > 0.002)) return;
+  if (!(a > SHOWS_CHANGE) && !(c > SHOWS_CHANGE)) return;
   const { x, y, w, h } = cell, up = cue.sign > 0;
   m.save();
   m.beginPath(); m.rect(x - CREST_GLOW, y, w + 2 * CREST_GLOW, h); m.clip();

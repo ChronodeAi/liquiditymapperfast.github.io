@@ -4,8 +4,8 @@ import { scaledUsd } from '../coin.ts';
 import type { TapeRing } from '../tape/ring.ts';
 import { BookCueTracker, rowEvents, type CueEvent } from './book-cues.ts';
 import { CellMap, CueBoard, contactRows, type CueLook } from './ladder-cues.ts';
-import { cueBox, markBox, paintCue, paintMark, type Box } from './ladder-cue-paint.ts';
-import type { CueLookSetting } from './ladder-cue-settings.ts';
+import { cueBox, cueShows, markBox, paintCue, paintMark, type Box } from './ladder-cue-paint.ts';
+import { SENSE_SCALE_USD, type CueLookSetting, type Sense } from './ladder-cue-settings.ts';
 
 /**
  * Everything between the tracker's findings and the pixels: the changes of the last data frames waiting for a draw, the board that decides who
@@ -20,8 +20,8 @@ import type { CueLookSetting } from './ladder-cue-settings.ts';
  * away is not played back (the tracker goes on observing, so its history stays whole).
  */
 
-/** The size a change must be, for the coin on screen, to light fully (the strength is 1 - exp(-|usd| / this)), and the least the tracker takes as a change at all. BTC-sized, scaled by `scaledUsd`. */
-export const CUE_SCALE_USD = 1_000_000, CUE_FLOOR_USD = 10_000;
+/** The least the tracker takes as a change at all (BTC-sized, scaled by `scaledUsd`); the size at which a change is as strong as it gets is the sensitivity's (`SENSE_SCALE_USD`). */
+export const CUE_FLOOR_USD = 10_000;
 /** The least a market order must be (BTC-sized USD, scaled to the coin) to make a ripple, and the size that lights one fully. */
 export const CONTACT_MIN_USD = 25_000, CONTACT_SCALE_USD = 500_000;
 /** An order older than this when it is read is history, not contact (the ring can be filled late). */
@@ -57,6 +57,7 @@ export class CueLayer {
   #layout: CueLayout = { top: 0, rows: 0, head: 0, rowH: 17, step: 0, perVenue: false };
   #raf = 0; #timer = 0;
   #look: CueLookSetting = 'wash';
+  #sense: Sense = 'normal';
   #reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** Whether `#base` holds the resting material of the canvas as it is now. */
   #baseValid = false;
@@ -70,13 +71,16 @@ export class CueLayer {
   /** The look in force: reduced motion keeps only the signed marks (they hold still), whatever was chosen. */
   get look(): CueLook | 'off' { return this.#look === 'off' ? 'off' : this.#reduced ? 'marks' : this.#look; }
   setLook(look: CueLookSetting): void { if (look === this.#look) return; this.#look = look; if (look === 'off') this.clear(); }
+  setSense(sense: Sense): void { this.#sense = sense; }
+  /** What a change must be to be at full strength, for the coin on screen and the sensitivity chosen. */
+  get scale(): number { return scaledUsd(SENSE_SCALE_USD[this.#sense]); }
   /** Whether a gutter for the signed marks is drawn beside the bars. */
   get gutter(): boolean { return this.#look !== 'off'; }
 
   /** A levels frame: let the tracker see the books, and keep what it found for the next draw (when the book is live and a look is asked for). */
   feed(frame: LevelsFrame | null, ids: readonly string[], heat: boolean): void {
     if (!frame || (this.#look === 'off' && !heat)) { this.reset(); return; }
-    const events = this.tracker.observe(frame.books, ids, { wall: Date.now(), scale: scaledUsd(CUE_SCALE_USD), floorUsd: scaledUsd(CUE_FLOOR_USD) });
+    const events = this.tracker.observe(frame.books, ids, { wall: Date.now(), scale: this.scale, floorUsd: scaledUsd(CUE_FLOOR_USD) });
     if (this.#look === 'off' || !this.host.shown()) return;
     for (const e of events) { if (this.#events.length >= MAX_WAITING) this.#events.shift(); this.#events.push(e); }
   }
@@ -102,7 +106,11 @@ export class CueLayer {
     if (!hasWork) { this.#dirty.length = 0; this.#baseValid = false; return; }
     if (!this.#snapshot()) { this.#dirty.length = 0; this.#baseValid = false; return; }
     const now = performance.now();
-    if (this.#events.length) { this.board.push(rowEvents(this.#events, this.#layout.step, scaledUsd(CUE_SCALE_USD))); this.#events.length = 0; }
+    if (this.#events.length) {
+      // Only the rows on screen: a band as wide as the book would make hundreds of rows nobody sees and push the ones that are seen out of the queue.
+      const L = this.#layout, window = { lo: (L.top - L.rows + 1) * L.step, hi: (L.top + 1) * L.step };
+      this.board.push(rowEvents(this.#events, L.step, this.scale, window)); this.#events.length = 0;
+    }
     this.board.admit(now, this.look === 'off' ? 'marks' : this.look, this.cells, this.#layout.perVenue);
     this.#paint(now);
     this.#schedule();
@@ -167,8 +175,10 @@ export class CueLayer {
     for (const box of this.#dirty) this.#restore(box);
     this.#dirty.length = 0;
     for (const cue of this.board.active) {
+      const age = now - cue.t0;
+      if (!cueShows(look, cue, age)) continue;
       const cell = this.cells.cell(cue.id, cue.side, cue.row); if (!cell) continue;
-      this.#dirty.push(cueBox(cell)); paintCue(m, look, cue, cell, now - cue.t0, p);
+      this.#dirty.push(cueBox(cell)); paintCue(m, look, cue, cell, age, p);
     }
     for (const mark of this.board.marks.values()) {
       const r = L.top - mark.row; if (r < 0 || r >= L.rows) continue;
@@ -179,12 +189,12 @@ export class CueLayer {
   }
 
   #schedule(): void {
-    if (this.#raf || this.#timer) return;
     const lit = this.board.active.length > 0, marks = this.board.marks.size > 0;
     if (!lit && !marks) return;
-    if (this.#reduced) { this.#timer = window.setTimeout(this.#slow, STILL_REFRESH_MS); return; }
-    if (lit) this.#raf = requestAnimationFrame(this.#fast);
-    else this.#timer = window.setTimeout(this.#slow, MARK_REFRESH_MS);
+    if (this.#reduced) { if (!this.#timer) this.#timer = window.setTimeout(this.#slow, STILL_REFRESH_MS); return; }
+    // A cue lit while only marks were fading takes the next animation frame, not the marks' slower turn.
+    if (lit) { if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; } if (!this.#raf) this.#raf = requestAnimationFrame(this.#fast); }
+    else if (!this.#raf && !this.#timer) this.#timer = window.setTimeout(this.#slow, MARK_REFRESH_MS);
   }
   #fast = (): void => { this.#raf = 0; this.#frame(); };
   #slow = (): void => { this.#timer = 0; this.#frame(); };

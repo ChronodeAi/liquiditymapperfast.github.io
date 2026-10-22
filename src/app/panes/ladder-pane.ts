@@ -22,7 +22,7 @@ import { gutterLines, levelLines, smallerVenuesLines, venueCellLines, type Chang
 import { CueLayer } from './ladder-cue-layer.ts';
 import type { Cell, CueBoard } from './ladder-cues.ts';
 import { heatTone, paintStrip } from './ladder-cue-paint.ts';
-import type { CueLookSetting, HeatKind } from './ladder-cue-settings.ts';
+import type { CueLookSetting, HeatKind, Sense } from './ladder-cue-settings.ts';
 import { barPieces, pieceAt, pieceLabel, rankVenues, type BarPiece } from './ladder-pieces.ts';
 import { drawVenueMark } from '../venue-marks.ts';
 import { PullHistory, pullBase, readPullWindow, type PullRows } from './pull-stack.ts';
@@ -144,7 +144,7 @@ export class LadderPane {
     this.#mat = this.#matCanvas.getContext('2d')!;
     this.#ctx = this.#canvas.getContext('2d')!;
     this.#cues = new CueLayer({ mat: this.#mat, canvas: this.#matCanvas, dpr: () => this.#dpr, palette: () => this.#palette, shown: () => this.#cueShown() });
-    this.#cues.setLook(this.store.state.ladderCues.look);
+    this.#cues.setLook(this.store.state.ladderCues.look); this.#cues.setSense(this.store.state.ladderCues.sense);
     new ResizeObserver(() => this.#resize()).observe(this.#scroller);
     this.#bindInput();
     this.#buildControls();
@@ -292,7 +292,7 @@ export class LadderPane {
   /** Whether the book is on screen and live, which is when it may light anything: the page is visible, the pane is shown and not covered, no replay runs. */
   #cueShown(): boolean { return !document.hidden && !this.#suspended && !this.root.hidden && !replaying(); }
   /** The cue settings changed (or another coin's book begins): the layer takes the look, and the book is drawn with or without the gutter and the strips. */
-  cuesChanged(): void { this.#cues.setLook(this.store.state.ladderCues.look); this.invalidate(); }
+  cuesChanged(): void { this.#cues.setLook(this.store.state.ladderCues.look); this.#cues.setSense(this.store.state.ladderCues.sense); this.invalidate(); }
   /** The socket closed or opened again: what was seen before is not compared with what comes after (a reconnect is a new book, not a burst of changes). */
   connectionChanged(): void { this.#cues.reset(); }
   /** Market orders arrived (the trade tape): the large ones ripple on the venues' cells they reached, without the book being drawn again. */
@@ -302,10 +302,13 @@ export class LadderPane {
     const ids = new Set(state.ladderMode === 'single' ? this.#singleIds(state) : activeIds(state));
     if (this.#cues.readContacts(this.hub?.tape ?? null, ids) > 0) this.#cues.lightNow();
   }
-  /** What the cues are doing now (read by tests and from the console): cells lit, marks held, changes waiting, the area spent, and what the tracker has counted. */
-  cueState(): { lit: number; marks: number; waiting: number; used: number; board: CueBoard['stats']; tracker: CueLayer['tracker']['stats'] } {
-    const c = this.#cues;
-    return { lit: c.board.active.length, marks: c.board.marks.size, waiting: c.board.waiting, used: c.board.used, board: { ...c.board.stats }, tracker: { ...c.tracker.stats } };
+  /**
+   * What the cues are doing now (read by tests and from the console): cues running, of which showing light (`bright`), marks held, changes waiting,
+   * the area they cost at their peak (`used`) and the area showing now (`light`), and what the tracker has counted.
+   */
+  cueState(): { lit: number; bright: number; light: number; marks: number; waiting: number; used: number; board: CueBoard['stats']; tracker: CueLayer['tracker']['stats'] } {
+    const c = this.#cues, now = performance.now();
+    return { lit: c.board.active.length, bright: c.board.brightCount(now), light: c.board.litArea(now), marks: c.board.marks.size, waiting: c.board.waiting, used: c.board.used, board: { ...c.board.stats, strengths: [...c.board.stats.strengths] }, tracker: { ...c.tracker.stats } };
   }
   /**
    * A new levels frame: the cues' tracker sees it (whatever pull/stack is doing: the two are separate), and pull/stack takes its snapshot here
@@ -371,6 +374,7 @@ export class LadderPane {
     body.append(
       selectRow(t('Flash'), t('What lights when a venue\'s displayed depth at a price changes.'), flash, cues.look, v => this.#setCues({ look: v as CueLookSetting })),
       note(t('Wash lights the venue\'s cell and runs a front through it: outward when depth was added, back inward when it was removed. Rim lights only the cell\'s outer edge. Deposit shows the layer an addition made. Signs lights nothing and leaves a small mark beside each row for a few seconds. Light is limited so that a busy book stays readable: a change that gets none still leaves its mark.')),
+      selectRow(t('Sensitivity'), t('How large a change must be to light a cell.'), [['calm', t('Calm')], ['normal', t('Normal')], ['lively', t('Lively')]] as [Sense, string][], cues.sense, v => this.#setCues({ sense: v as Sense })),
       switchRow(t('Trade contact'), t('A quick ripple on a venue\'s cell when a large market order reaches it.'), cues.contact, on => this.#setCues({ contact: on })),
       note(t('A ripple says an order met the depth at that price. It does not say the depth changed: a change has its own light.')),
       selectRow(t('Heat'), t('A strip under each venue\'s part of a level.'), heat, cues.heat, v => this.#setCues({ heat: v as HeatKind })),

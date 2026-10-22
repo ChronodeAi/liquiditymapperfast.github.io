@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, markKey, bodyLight, crestAt, crestLight, markLight, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
-import { pulseEnvelope } from '../src/app/candle/model.ts';
+import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, markKey, bodyLight, crestAt, crestLight, markLight, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { cueShows } from '../src/app/panes/ladder-cue-paint.ts';
+import { PULSE_ATTACK_MS, pulseEnvelope } from '../src/app/candle/model.ts';
 
 let seq = 0;
 const row = (id: string, side: 'bid' | 'ask', rowIx: number, usd: number, strength: number, extra: Partial<CueRow> = {}): CueRow =>
@@ -119,6 +120,40 @@ test('a cue is over after its life, a mark after its own, and what is over frees
   board.push([row('b:BTC', 'ask', 6, 1e6, 0.5)]); board.admit(1_100, 'wash', flat());
   assert.equal(board.active.length, 1, 'full'); board.push([row('b:BTC', 'ask', 6, 1e6, 0.5)]); board.admit(1_000 + CUE_LIFE_MS + 10, 'wash', flat());
   assert.deepEqual(board.active.map(c => c.id), ['b:BTC'], 'the first cue ended and made room');
+});
+
+test('a cue shows a share of its peak: its envelope, held at full through the attack; a contact\'s ripple runs out sooner', () => {
+  const change = { kind: 'depth' as const, life: CUE_LIFE_MS }, contact = { kind: 'contact' as const, life: CONTACT_LIFE_MS };
+  assert.equal(shareAt(change, 0), 1); assert.equal(shareAt(change, PULSE_ATTACK_MS - 1), 1, 'still rising: the budget does not assume less');
+  for (const age of [PULSE_ATTACK_MS, 200, 600, 1_400]) assert.equal(shareAt(change, age), pulseEnvelope(age));
+  assert.equal(shareAt(change, -1), 0); assert.equal(shareAt(change, CUE_LIFE_MS + 1), 0);
+  assert.ok(shareAt(change, 500) > BRIGHT_SHARE && shareAt(change, 600) < BRIGHT_SHARE, 'a change is a tail after about half a second');
+  assert.equal(shareAt(contact, 0), 1); assert.ok(shareAt(contact, 300) < 0.5 && shareAt(contact, CONTACT_LIFE_MS) === 0 && shareAt(contact, CONTACT_LIFE_MS + 1) === 0);
+});
+
+test('the budget counts the light that shows: a cue running out holds no place and little area, and the caps still hold against those that show', () => {
+  const board = new CueBoard({ maxCues: 1, maxArea: 1_100 });
+  board.push([row('a:BTC', 'ask', 1, 1e6, 1)]); board.admit(1_000, 'wash', flat());
+  board.push([row('b:BTC', 'ask', 2, 1e6, 1)]); board.admit(1_100, 'wash', flat());
+  assert.deepEqual(board.active.map(c => c.id), ['a:BTC'], 'a shows light: the one place is taken'); assert.equal(board.stats.turnedDown, 1);
+  board.push([row('b:BTC', 'ask', 2, 1e6, 1)]); board.admit(1_700, 'wash', flat());
+  assert.deepEqual(board.active.map(c => c.id), ['a:BTC', 'b:BTC'], 'at 700 ms a is a tail, under a tenth of its peak: no place, 5 % of its area');
+  assert.equal(board.brightCount(1_700), 1); assert.ok(board.litArea(1_700) > 1_000 && board.litArea(1_700) < 1_100); assert.equal(board.used, 2_000, 'at their peaks the two cost both');
+});
+
+test('a cue that paints nothing any more is left alone: its cell is neither restored nor repainted', () => {
+  const change = { kind: 'depth' as const, life: CUE_LIFE_MS, strength: 0.6 } as Cue, contact = { kind: 'contact' as const, life: CONTACT_LIFE_MS, strength: 0.6 } as Cue;
+  assert.equal(cueShows('wash', change, 0), true, 'at its first instant the body is still dark but the crest is already there'); assert.equal(cueShows('wash', change, 100), true);
+  assert.equal(cueShows('wash', change, CUE_LIFE_MS - 1), true, 'the crest is the last thing to go'); assert.equal(cueShows('wash', change, CUE_LIFE_MS + 1), false);
+  assert.equal(cueShows('marks', change, 100), false);
+  assert.equal(cueShows('wash', contact, 10), true); assert.equal(cueShows('wash', contact, CONTACT_LIFE_MS - 1), false, 'a ripple is under a hundredth of itself before it ends'); assert.equal(cueShows('marks', contact, 10), true, 'a contact is not a look of the changes');
+});
+
+test('a strong change is lit while faint ones are still running out', () => {
+  const board = new CueBoard({ maxCues: 3, maxArea: 1e9 });
+  board.push([1, 2, 3].map(i => row(`v${i}:BTC`, 'ask', i, 1e6, 0.5))); board.admit(1_000, 'wash', flat());
+  board.push([row('big:BTC', 'ask', 9, 9e6, 1)]); board.admit(1_900, 'wash', flat());
+  assert.equal(board.active.length, 4); assert.equal(board.brightCount(1_900), 1); assert.equal(board.stats.turnedDown, 0);
 });
 
 test('a row\'s mark is the strongest recent change on it, and the look of marks only lights nothing', () => {

@@ -1,4 +1,4 @@
-import { PULSE_LIFE_MS, pulseEnvelope } from '../candle/model.ts';
+import { PULSE_ATTACK_MS, PULSE_LIFE_MS, pulseEnvelope } from '../candle/model.ts';
 import { STRIDE, type TapeRing } from '../tape/ring.ts';
 
 /**
@@ -12,9 +12,13 @@ import { STRIDE, type TapeRing } from '../tape/ring.ts';
  *
  * Why a budget. Per-venue changes with the Tape's own gate come about 20 a second, 25 cells lit at once and 88 in the worst second of
  * 340 (live study, 2026-10-22), and the page flashes more than three times a second over any area. Light is therefore spent from a budget:
- * at most `maxRecords` cells lit at once and a lit area under `maxArea`, the largest changes first and every venue's largest before any
- * venue's second, and nothing bypasses it, however large the change. A change that gets no light is not lost: its row keeps a signed mark
- * for a few seconds (`marks`), the hover names it, and the book itself already moved.
+ * at most `maxCues` cells showing light at once and a lit area under `maxArea`, the largest changes first and every venue's largest before
+ * any venue's second, and nothing bypasses it, however large the change. A change that gets no light is not lost: its row keeps a signed
+ * mark for a few seconds (`marks`), the hover names it, and the book itself already moved.
+ *
+ * What the budget counts. Light, not time: a cue is a place and an area while it shows light, and a tail (the envelope's last second, under a
+ * tenth of its peak) holds almost none. The envelope is monotone after its attack, so the area showing never exceeds what was checked when
+ * the last cue was admitted, and a strong change is not turned down because forty faint ones are still running out.
  */
 
 /** A cue's life: the Tape's envelope (80 ms up, 450 ms release, 1.5 s at most). */
@@ -25,11 +29,21 @@ export const CONTACT_LIFE_MS = 650;
 export const MARK_LIFE_MS = 3_500;
 /** How long a cue's crest takes to cross its cell. */
 export const CREST_MS = 380;
-/** Cues lit at once, and the area they may cover (CSS px squared): under a quarter of W3C's 10-degree flash area (about 21,800 px2) with the Tape and the page's waves besides. */
+/** Cues showing light at once, and the area they may cover at full light (CSS px squared): under a quarter of W3C's 10-degree flash area (about 21,800 px2) with the Tape and the page's waves besides. */
 export const MAX_CUES = 40;
 export const MAX_CUE_AREA = 12_000;
-/** A change lights nothing under this strength (1 - exp(-|usd| / scale)): the mark and the hover still name it. */
-export const MIN_CUE_STRENGTH = 0.04;
+/**
+ * A cue showing under this share of its peak is a tail (a change's body is there after about half a second) and holds no place. It bounds the
+ * cues running, tails included: at most `MAX_CUES` begin in any half second and each runs 1.5 s at the most, so about three times as many.
+ */
+export const BRIGHT_SHARE = 0.1;
+/**
+ * A change lights nothing under this strength (1 - exp(-|usd| / scale)): its mark and the hover still name it. A wash at .1 is a 5 % tint, which nobody
+ * sees, and 4 in 10 of the cues the live book raised (2026-10-22) were under .2: they took places and area from the ones that show.
+ */
+export const MIN_CUE_STRENGTH = 0.1;
+/** A change under this strength leaves no mark either. */
+export const MIN_MARK_STRENGTH = 0.04;
 /** A contact costs this share of what a change of the same size would against the area budget (it is a ripple that lasts a few hundred ms). */
 export const CONTACT_COST = 0.3;
 
@@ -107,6 +121,15 @@ export const crestLight = (strength: number, age: number): number => age < 0 || 
 export const bodyLight = (strength: number, age: number): number => strength * pulseEnvelope(age);
 /** A mark's opacity at `age`: full for a moment, then fading out linearly. */
 export const markLight = (age: number): number => age < 0 || age > MARK_LIFE_MS ? 0 : Math.min(1, 1.6 * (1 - age / MARK_LIFE_MS));
+/**
+ * How much of its peak a cue shows at `age` (1 to 0): a change's envelope (held at 1 through the attack, where it is still rising, so the
+ * budget is never under what is about to show) or a contact's ripple. What the budget counts.
+ */
+export function shareAt(cue: Pick<Cue, 'kind' | 'life'>, age: number): number {
+  if (age < 0 || age > cue.life) return 0;
+  if (cue.kind === 'contact') return (1 - age / cue.life) ** 1.4;
+  return age < PULSE_ATTACK_MS ? 1 : pulseEnvelope(age);
+}
 
 /**
  * The cues lit now, the rows' marks, and the changes waiting for the next draw (the draw knows where the cells are, so it decides who gets
@@ -118,7 +141,7 @@ export class CueBoard {
   #pending: CueRow[] = [];
   #contacts: ContactRow[] = [];
   /** What the budget turned down since the start (for tests and the console). */
-  readonly stats = { pushed: 0, lit: 0, renewed: 0, reversed: 0, turnedDown: 0, off: 0, contacts: 0, contactsLit: 0 };
+  readonly stats = { pushed: 0, lit: 0, renewed: 0, reversed: 0, turnedDown: 0, off: 0, contacts: 0, contactsLit: 0, /** How many cues lit at each strength: under .1, .2, .4, .7, and above. */ strengths: [0, 0, 0, 0, 0] };
   constructor(private readonly caps: { maxCues: number; maxArea: number } = { maxCues: MAX_CUES, maxArea: MAX_CUE_AREA }) {}
 
   /** Changes seen at a data frame; they wait for `admit`. Bounded: a stall cannot pile them up. */
@@ -145,8 +168,12 @@ export class CueBoard {
     return w > 0;
   }
 
-  /** The area the lit cues have cost. */
+  /** The area the running cues cost at their peak. */
   get used(): number { let a = 0; for (const c of this.active) a += c.cost; return a; }
+  /** The area the running cues show at `now`: each one's cost at the share of its peak it has left. This is what the area cap holds. */
+  litArea(now: number): number { let a = 0; for (const c of this.active) a += c.cost * shareAt(c, now - c.t0); return a; }
+  /** How many running cues show light at `now` (a tenth of their peak or more). This is what the count cap holds. */
+  brightCount(now: number): number { let n = 0; for (const c of this.active) if (shareAt(c, now - c.t0) >= BRIGHT_SHARE) n++; return n; }
 
   /**
    * Give the waiting changes light, largest first (the first of every venue before the second of any), within the caps: nothing bypasses them.
@@ -164,7 +191,8 @@ export class CueBoard {
     const order: { r: CueRow; rank: number }[] = [];
     for (const list of byVenue.values()) { list.sort((a, b) => b.strength - a.strength || a.seq - b.seq || a.row - b.row); list.forEach((r, rank) => order.push({ r, rank })); }
     order.sort((a, b) => a.rank - b.rank || b.r.strength - a.r.strength || a.r.seq - b.r.seq || (a.r.id < b.r.id ? -1 : a.r.id > b.r.id ? 1 : 0));
-    let used = this.used;
+    // What the cues show now is what the caps hold; a cell's own cue is given up for its next one (a cell is one cue), so it counts for nothing against it.
+    let area = this.litArea(now), bright = this.brightCount(now);
     for (const { r } of order) {
       if (!geo.rowVisible(r.row) || !(r.usd !== 0) || !Number.isFinite(r.usd)) continue;
       const sign: 1 | -1 = r.usd > 0 ? 1 : -1, cell = geo.cell(r.id, r.side, r.row), key = cueKey(r.id, r.side, r.row);
@@ -172,18 +200,20 @@ export class CueBoard {
       let didLight = false;
       if (lit && cell && r.strength >= MIN_CUE_STRENGTH) {
         const cost = Math.max(1, cell.w) * Math.max(1, cell.h) * (0.25 + 0.75 * r.strength) * weight;
-        const freed = old >= 0 ? this.active[old]!.cost : 0;
-        if (this.active.length - (old >= 0 ? 1 : 0) < this.caps.maxCues && used - freed + cost <= this.caps.maxArea) {
+        const was = old >= 0 ? this.active[old]! : null, wasShare = was ? shareAt(was, now - was.t0) : 0;
+        const freed = was ? was.cost * wasShare : 0, freedPlace = wasShare >= BRIGHT_SHARE ? 1 : 0;
+        if (bright - freedPlace < this.caps.maxCues && area - freed + cost <= this.caps.maxArea) {
           const cue: Cue = { key, id: r.id, side: r.side, row: r.row, sign, strength: r.strength, usd: r.usd, t0: now, removed: r.removed, added: r.added, pair: r.pair, band: r.band, cost, seq: r.seq, kind: 'depth', life: CUE_LIFE_MS, buy: false };
-          if (old >= 0) {
-            const was = this.active[old]!;
+          if (was) {
             if (was.sign === sign) { cue.strength = Math.max(was.strength, r.strength); cue.usd = was.usd + r.usd; this.stats.renewed++; } else this.stats.reversed++;
-            this.active[old] = cue; used += cost - freed;
-          } else { this.active.push(cue); used += cost; }
-          didLight = true; this.stats.lit++;
+            this.active[old] = cue;
+          } else this.active.push(cue);
+          area += cost - freed; bright += 1 - freedPlace;
+          didLight = true; this.stats.lit++; this.stats.strengths[r.strength < 0.1 ? 0 : r.strength < 0.2 ? 1 : r.strength < 0.4 ? 2 : r.strength < 0.7 ? 3 : 4]!++;
         } else this.stats.turnedDown++;
       } else if (!lit) this.stats.off++;
       const mk = markKey(r.side, r.row, perVenue ? r.id : ''), had = this.marks.get(mk);
+      if (r.strength < MIN_MARK_STRENGTH) continue;
       if (!had || r.strength >= had.strength * markLight(now - had.t0) || had.sign !== sign && r.strength >= 0.5 * had.strength) {
         this.marks.set(mk, { id: r.id, side: r.side, row: r.row, sign, strength: r.strength, usd: r.usd, t0: now, lit: didLight, removed: r.removed, pair: r.pair });
       }
@@ -195,10 +225,13 @@ export class CueBoard {
       if (!geo.rowVisible(c.row) || !(c.strength >= MIN_CUE_STRENGTH)) continue;
       const cell = geo.cell(c.id, c.side, c.row); if (!cell) continue;
       const key = `${cueKey(c.id, c.side, c.row)}|contact`, old = this.active.findIndex(x => x.key === key);
-      const cost = Math.max(1, cell.w) * Math.max(1, cell.h) * (0.25 + 0.75 * c.strength) * weight * CONTACT_COST, freed = old >= 0 ? this.active[old]!.cost : 0;
-      if (this.active.length - (old >= 0 ? 1 : 0) >= this.caps.maxCues || used - freed + cost > this.caps.maxArea) { this.stats.turnedDown++; continue; }
+      const cost = Math.max(1, cell.w) * Math.max(1, cell.h) * (0.25 + 0.75 * c.strength) * weight * CONTACT_COST;
+      const was = old >= 0 ? this.active[old]! : null, wasShare = was ? shareAt(was, now - was.t0) : 0;
+      const freed = was ? was.cost * wasShare : 0, freedPlace = wasShare >= BRIGHT_SHARE ? 1 : 0;
+      if (bright - freedPlace >= this.caps.maxCues || area - freed + cost > this.caps.maxArea) { this.stats.turnedDown++; continue; }
       const cue: Cue = { key, id: c.id, side: c.side, row: c.row, sign: c.buy ? 1 : -1, strength: c.strength, usd: c.usd, t0: now, removed: false, added: false, pair: false, band: false, cost, seq: c.seq, kind: 'contact', life: CONTACT_LIFE_MS, buy: c.buy };
-      if (old >= 0) { cue.strength = Math.max(this.active[old]!.strength, c.strength); this.active[old] = cue; used += cost - freed; } else { this.active.push(cue); used += cost; }
+      if (was) { cue.strength = Math.max(was.strength, c.strength); this.active[old] = cue; } else this.active.push(cue);
+      area += cost - freed; bright += 1 - freedPlace;
       this.stats.contactsLit++;
     }
   }
