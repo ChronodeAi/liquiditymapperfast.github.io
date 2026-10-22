@@ -172,12 +172,12 @@ async function main(): Promise<void> {
     document.documentElement.dataset.material = glass.on ? 'glass' : 'solid';
   };
   // On a phone the Tape keeps the market's orders from the page's opening, whichever tab shows, so the ring runs there always.
-  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone();
+  const tapeWanted = (): boolean => (store.state.show.bubbles && store.state.tradeBubbles.live) || candleShown() || store.state.material === 'glass' || isPhone() || (store.state.show.book && store.state.ladderCues.look !== 'off' && store.state.ladderCues.contact);
   // The map and the book are covered while the Candle tab shows: they draw nothing then, and catch up when they show again.
   const coverPanes = (): void => { const covered = candleShown(); heat.setSuspended(covered); ladder.setSuspended(covered); };
   dock.onChange = () => { candle.setShown(candleShown()); coverPanes(); hub.setTape(tapeWanted()); };
   hub.setTape(tapeWanted());
-  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); };
+  hub.onTape = () => { heat.tapeArrived(); candle.tapeArrived(); glass.tapeArrived(); ladder.tapeArrived(); };
   applyMaterial();
   // Trades recovered from a venue's history (the browser engine): no flow burst is sounded over them.
   hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
@@ -262,6 +262,9 @@ async function main(): Promise<void> {
     if (changed.has('sounds')) heat.invalidate();
     if (changed.has('mark') && state.show.book) ladder.markMoved();
     if (changed.has('levels')) { if (state.show.book) ladder.levelsArrived(); ladder.invalidate(); ladder.syncVenues(); heat.invalidate(); }
+    // The cues' look and heat, and a reconnect (what the book showed before it is not compared with what it shows after).
+    if (changed.has('ladderCues')) { ladder.cuesChanged(); hub.setTape(tapeWanted()); }
+    if (changed.has('connected')) ladder.connectionChanged();
     // Replay starting or ending changes what the book, the flow column and the panes show, whether or not new data arrives.
     if (changed.has('replay')) { ladder.invalidate(); cvd.invalidate(); heat.invalidate(); lower(); }
     if (changed.has('layers') || changed.has('layer') || changed.has('candles') || changed.has('mark') || changed.has('heat') || changed.has('show')) heat.invalidate();

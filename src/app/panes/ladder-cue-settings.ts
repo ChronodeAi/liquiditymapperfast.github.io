@@ -4,6 +4,7 @@
  *
  * `look`: Wash lights the cell and runs a crest through it; Rim leaves the cell alone and lights its outer edge; Deposit shows the layer an
  * addition made and the crest of a decrease; Marks lights nothing and keeps only the signed marks beside the rows; Off draws nothing at all.
+ * `contact`: a market order that reached a venue's depth makes a quick ripple on that cell (the trade tape; large orders only).
  * `heat`: the strip under each cell, Added the share of the cell that is estimated recent net increase, Activity the recent change (adds
  * and removes) against the cell's size.
  */
@@ -12,10 +13,10 @@ export type CueLookSetting = (typeof CUE_LOOKS)[number];
 export const HEAT_KINDS = ['off', 'added', 'activity'] as const;
 export type HeatKind = (typeof HEAT_KINDS)[number];
 
-export interface LadderCues { look: CueLookSetting; heat: HeatKind }
+export interface LadderCues { look: CueLookSetting; heat: HeatKind; contact: boolean }
 
 /** Everything on, as the page's new features are (the choice is one click away). A save that holds none gets these; an explicit Off is kept. */
-export const LADDER_CUES_DEFAULT: LadderCues = { look: 'wash', heat: 'added' };
+export const LADDER_CUES_DEFAULT: LadderCues = { look: 'wash', heat: 'added', contact: true };
 
 /** The settings of a save or a layout, field by field: anything missing or not one of the choices gets its default. */
 export function readLadderCues(raw: unknown): LadderCues {
@@ -23,5 +24,6 @@ export function readLadderCues(raw: unknown): LadderCues {
   return {
     look: (CUE_LOOKS as readonly unknown[]).includes(o.look) ? o.look as CueLookSetting : LADDER_CUES_DEFAULT.look,
     heat: (HEAT_KINDS as readonly unknown[]).includes(o.heat) ? o.heat as HeatKind : LADDER_CUES_DEFAULT.heat,
+    contact: typeof o.contact === 'boolean' ? o.contact : LADDER_CUES_DEFAULT.contact,
   };
 }

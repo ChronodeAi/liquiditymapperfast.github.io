@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, bodyLight, crestAt, crestLight, markLight, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, MARK_LIFE_MS, MIN_CUE_STRENGTH, markKey, bodyLight, crestAt, crestLight, markLight, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
 import { pulseEnvelope } from '../src/app/candle/model.ts';
 
 let seq = 0;
@@ -52,7 +52,7 @@ test('a change on a row that is on screen lights its cell and leaves its mark', 
   const cue = board.active[0]!;
   assert.deepEqual([cue.id, cue.side, cue.row, cue.sign, cue.strength, cue.t0], ['a:BTC', 'ask', 5, 1, 0.6, 1_000]);
   assert.ok(cue.cost > 0 && cue.cost <= 100 * 10);
-  const mark = board.marks.get('ask|5')!;
+  const mark = board.marks.get(markKey('ask', 5))!;
   assert.deepEqual([mark.sign, mark.lit, mark.t0], [1, true, 1_000]);
   board.push([row('a:BTC', 'bid', 3, -4e6, 0.9, { removed: true })]); board.admit(1_100, 'wash', flat());
   assert.equal(board.active[1]!.sign, -1); assert.equal(board.active[1]!.removed, true);
@@ -63,9 +63,9 @@ test('a row off screen, a venue with no cell there and a change too small to see
   board.push([row('a:BTC', 'ask', 5, 2e6, 0.6), row('b:BTC', 'ask', 6, 2e6, 0.6), row('c:BTC', 'ask', 7, 2e6, MIN_CUE_STRENGTH / 2)]);
   board.admit(1_000, 'wash', flat(r => r !== 5, (id) => id !== 'b:BTC'));
   assert.equal(board.active.length, 0);
-  assert.equal(board.marks.has('ask|5'), false, 'off screen: nothing');
-  assert.equal(board.marks.get('ask|6')!.lit, false, 'on screen with no cell for that venue: a mark, no light');
-  assert.equal(board.marks.get('ask|7')!.lit, false, 'too small');
+  assert.equal(board.marks.has(markKey('ask', 5)), false, 'off screen: nothing');
+  assert.equal(board.marks.get(markKey('ask', 6))!.lit, false, 'on screen with no cell for that venue: a mark, no light');
+  assert.equal(board.marks.get(markKey('ask', 7))!.lit, false, 'too small');
   board.push([row('a:BTC', 'ask', 8, 0, 0.9), row('a:BTC', 'ask', 9, NaN, 0.9)]); board.admit(1_000, 'wash', flat());
   assert.equal(board.active.length, 0, 'no change, no light');
 });
@@ -76,7 +76,7 @@ test('light is spent from a budget: the cell count and the area are capped and n
   board.admit(1_000, 'wash', flat());
   assert.equal(board.active.length, 3); assert.equal(board.stats.turnedDown, 2);
   board.push([row('big:BTC', 'ask', 20, 5e9, 1)]); board.admit(1_100, 'wash', flat());
-  assert.equal(board.active.length, 3, 'a huge change does not bypass the cap'); assert.ok(board.marks.has('ask|20'), 'but it leaves its mark');
+  assert.equal(board.active.length, 3, 'a huge change does not bypass the cap'); assert.ok(board.marks.has(markKey('ask', 20)), 'but it leaves its mark');
   const area = new CueBoard({ maxCues: 100, maxArea: 2_500 });
   area.push([1, 2, 3, 4, 5, 6].map(i => row(`v${i}:BTC`, 'bid', i, -1e6, 1)));
   area.admit(1_000, 'wash', flat());
@@ -125,14 +125,14 @@ test('a row\'s mark is the strongest recent change on it, and the look of marks 
   const board = new CueBoard();
   board.push([row('a:BTC', 'ask', 5, 1e6, 0.9)]); board.admit(1_000, 'wash', flat());
   board.push([row('b:BTC', 'ask', 5, 1e5, 0.05)]); board.admit(1_100, 'wash', flat());
-  assert.equal(board.marks.get('ask|5')!.id, 'a:BTC', 'a weak change does not replace a strong one');
+  assert.equal(board.marks.get(markKey('ask', 5))!.id, 'a:BTC', 'a weak change does not replace a strong one');
   board.push([row('c:BTC', 'ask', 5, -5e6, 0.8)]); board.admit(1_200, 'wash', flat());
-  assert.equal(board.marks.get('ask|5')!.id, 'c:BTC', 'a comparable change of the other sign does');
+  assert.equal(board.marks.get(markKey('ask', 5))!.id, 'c:BTC', 'a comparable change of the other sign does');
   board.push([row('d:BTC', 'ask', 5, 2e5, 0.9)]); board.admit(1_000 + MARK_LIFE_MS - 50, 'wash', flat());
-  assert.equal(board.marks.get('ask|5')!.id, 'd:BTC', 'a fading mark gives way to a fresh one of the same strength');
+  assert.equal(board.marks.get(markKey('ask', 5))!.id, 'd:BTC', 'a fading mark gives way to a fresh one of the same strength');
   const marks = new CueBoard();
   marks.push([row('a:BTC', 'ask', 5, 1e6, 0.9)]); marks.admit(1_000, 'marks', flat());
-  assert.equal(marks.active.length, 0); assert.equal(marks.marks.get('ask|5')!.lit, false); assert.equal(marks.stats.off, 1);
+  assert.equal(marks.active.length, 0); assert.equal(marks.marks.get(markKey('ask', 5))!.lit, false); assert.equal(marks.stats.off, 1);
 });
 
 test('a look pays for the area it lights: a rim costs a fifth of a wash', () => {

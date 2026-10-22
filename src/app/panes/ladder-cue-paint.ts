@@ -1,5 +1,6 @@
-import { mixHex, type Palette } from '../theme.ts';
-import { bodyLight, crestAt, crestLight, markLight, type Cell, type Cue, type CueLook, type Mark } from './ladder-cues.ts';
+import { contrastRatio, mixHex, type Palette } from '../theme.ts';
+import { nearDirection } from '../cvd/colors.ts';
+import { CONTACT_LIFE_MS, bodyLight, crestAt, crestLight, markLight, type Cell, type Cue, type CueLook, type Mark } from './ladder-cues.ts';
 
 /**
  * How the cues are drawn on the material canvas (the pane's second canvas, under the words: `ladder-pane.ts`). Everything here is a function of
@@ -48,8 +49,28 @@ function crest(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: number, l
   lay(m, fx - CREST_W / 2, cell.y, CREST_W, cell.h, color, light * (up ? 0.95 : 0.8));
 }
 
+/**
+ * A market order's contact with a cell: a quick ripple running out from the cell's inner edge (the end nearest the price, where an order meets
+ * depth first), tinted by the side that took (a buyer's is the buy colour, as the trade bubbles have it) and gone in a few hundred ms. It says an
+ * order reached this venue's depth at this price, not that the depth changed: a change that follows it is drawn by its own cue.
+ */
+function paintContact(m: CanvasRenderingContext2D, cue: Cue, cell: Cell, age: number, p: Palette): void {
+  if (age < 0 || age > CONTACT_LIFE_MS) return;
+  const k = age / CONTACT_LIFE_MS, a = cue.strength * (1 - k) ** 1.4;
+  if (!(a > 0.01)) return;
+  const tint = cue.buy ? p.bid : p.ask, color = p.dark ? mixHex(tint, '#ffffff', 0.72) : mixHex(tint, '#000000', 0.5);
+  const { x, y, w, h } = cell, fx = x + Math.min(1, k * 1.7) * w, strike = Math.max(0, 1 - age / 150);
+  m.save(); m.beginPath(); m.rect(x - CREST_GLOW, y, w + 2 * CREST_GLOW, h); m.clip();
+  // The strike: the whole cell takes the light for an instant (a narrow cell has no room for a ripple to cross), then the spark at the inner edge and the ripple through it.
+  lay(m, x, y, w, h, color, a * (0.12 + 0.55 * strike));
+  lay(m, x, y, Math.min(3, w), h, color, a * 0.95);
+  if (w >= CREST_MIN_W) { lay(m, fx - 3, y, 3, h, color, a * 0.3); lay(m, fx - 1.2, y, 2.4, h, color, a * 0.85); }
+  m.restore();
+}
+
 /** Paint one cue on `m` (the material, in CSS px) at `age` ms. The cell's own fill is already there; the cue is laid over it and nothing else is touched. */
 export function paintCue(m: CanvasRenderingContext2D, look: CueLook, cue: Cue, cell: Cell, age: number, p: Palette): void {
+  if (cue.kind === 'contact') { paintContact(m, cue, cell, age, p); return; }
   if (look === 'marks') return;
   const a = bodyLight(cue.strength, age), c = crestLight(cue.strength, age);
   if (!(a > 0.002) && !(c > 0.002)) return;
@@ -98,4 +119,38 @@ export function paintMark(m: CanvasRenderingContext2D, mark: Mark, box: Box, age
     if (mark.pair) m.stroke(); else m.fill();
   }
   m.restore();
+}
+
+/** The warm tones the heat strip is tried in, in turn: amber first, then others for a theme whose buy or sell is already near one. */
+const HEAT_TONES = ['#f2b134', '#c77dff', '#2ec4b6', '#ff7f50'];
+const tones = new WeakMap<Palette, string>();
+/** Brought toward the text colour until it reads against the panel (a strip a fraction of a cell long on a pale page must still show). */
+const legible = (color: string, p: Pick<Palette, 'panel' | 'text'>): string => {
+  let amount = 0, tone = color;
+  while (amount < 1 && contrastRatio(tone, p.panel) < 3) { amount = Math.min(1, amount + 0.05); tone = mixHex(color, p.text, amount); }
+  return tone;
+};
+/**
+ * The colour of the heat strip for a palette: a warm tone that is not near this theme's buy or sell colours (Amber's, for one, sit where the
+ * usual warm tone does), legible against its panel; the text colour when none is clear.
+ */
+export function heatTone(p: Palette): string {
+  const held = tones.get(p);
+  if (held) return held;
+  let out = p.text;
+  for (const c of HEAT_TONES) { const tone = legible(c, p); if (!nearDirection(tone, p)) { out = tone; break; } }
+  tones.set(p, out);
+  return out;
+}
+
+/** How tall the heat strip is (px) and the least a cell's share must be to show one. */
+export const STRIP_H = 2, STRIP_MIN = 0.02;
+/**
+ * The heat strip under one venue's part of a level: as long as the share of the part that is recent (adds or change, `share` of 0 to 1),
+ * laid along the bottom edge from the outer end inward, the end where material is added. A part too narrow to hold a strip has none.
+ */
+export function paintStrip(m: CanvasRenderingContext2D, cell: Cell, share: number, tone: string, alpha = 0.95): void {
+  if (!(share >= STRIP_MIN) || cell.w < 3) return;
+  const len = Math.max(1, Math.min(cell.w, share * cell.w));
+  lay(m, cell.x + cell.w - len, cell.y + cell.h - STRIP_H, len, STRIP_H, tone, alpha);
 }
