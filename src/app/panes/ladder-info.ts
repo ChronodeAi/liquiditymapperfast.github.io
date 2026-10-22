@@ -70,8 +70,8 @@ export function cueLines(f: Pick<LevelFacts, 'ask' | 'changes' | 'heat'>, limit 
     lines.push(h.kind === 'added' ? { label: t('Recent adds'), text: pct(h.fresh), rule: !changes.length } : { label: t('Recent change'), text: pct(h.activity), rule: !changes.length });
     if (h.unknown > 0.5) lines.push({ text: t('Not known yet: the first snapshot has no history.'), color: 'muted', wrap: true });
   }
-  if (changes.some(c => c.traded !== undefined)) lines.push({ text: t('Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.'), color: 'muted', wrap: true });
   if (changes.length) lines.push({ text: t('The depth this venue showed, compared between two of its own snapshots: not an order, and not known to be cancelled or traded.'), color: 'muted', wrap: true });
+  if (changes.some(c => c.traded !== undefined)) lines.push({ text: t('Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.'), color: 'muted', wrap: true });
   return lines;
 }
 
