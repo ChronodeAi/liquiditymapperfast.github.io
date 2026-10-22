@@ -272,15 +272,17 @@ export abstract class BookConnector {
       this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: true, bids: split.bids, asks: split.asks, ...(split.touch ? { touch: split.touch } : {}) };
       return this.#cached;
     }
+    let merged: number | undefined;
     if (bids.usd.length && asks.usd.length && bids.lo[0]! < asks.lo[0]!) {
       // Far levels merge into buckets that widen with distance, so a deep book keeps its range inside the level cap.
       const mid = (bids.lo[0]! + asks.lo[0]!) / 2, step = gridStep && gridStep > 0 ? gridStep : gridStepFor(mid);
-      bids = mergeByDistance(bids, mid, step, true); asks = mergeByDistance(asks, mid, step, false);
+      bids = mergeByDistance(bids, mid, step, true); asks = mergeByDistance(asks, mid, step, false); merged = step;
     }
     const cap = (s: SideLevels): SideLevels => s.usd.length <= MAX_LEVELS ? s : { lo: s.lo.subarray(0, MAX_LEVELS), hi: s.hi.subarray(0, MAX_LEVELS), usd: s.usd.subarray(0, MAX_LEVELS) };
     bids = cap(bids); asks = cap(asks);
     if (!bids.usd.length || !asks.usd.length || bids.lo[0]! >= asks.lo[0]!) { this.#cached = null; return null; }
-    this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: false, bids, asks };
+    // The step the buckets were made on travels with the book (`ValuedBook.step`), cached with it.
+    this.#cached = { instrumentId: this.instrumentId, venue: this.id, timestamp: this.lastUpdate, coarse: false, bids, asks, ...(merged !== undefined ? { step: merged } : {}) };
     return this.#cached;
   }
 }

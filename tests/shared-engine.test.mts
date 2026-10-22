@@ -70,6 +70,19 @@ test('levels are sent when a book changes and not when nothing did', () => {
   assert.equal(sent.length, 3);
 });
 
+test('levels carry the step each book was merged on: the recorder\'s for the instrument, else the grid for its mid', () => {
+  const { engine, fakes } = setup(['binance', 'bybit']);
+  const sent: ValuedBook[][] = [];
+  engine.onLevels = books => sent.push(books);
+  engine.recorder.steps.set('binance:BTCUSDT', 0.5);
+  engine.select(['binance', 'bybit']);
+  fakes.get('binance')!.book(100, 101);
+  fakes.get('bybit')!.book(100, 101);
+  engine.step();
+  const steps = Object.fromEntries(sent.at(-1)!.map(b => [b.instrumentId, b.step]));
+  assert.deepEqual(steps, { 'binance:BTCUSDT': 0.5, 'bybit:BTCUSDT': 0.02 }, 'the recorder\'s step where it has one, gridStepFor(100.5) where it has not');
+});
+
 test('a venue that is live but gives no usable book says so after a while, and recovers', () => {
   let skew = 0;
   const { engine, fakes } = setup(['binance'], { now: () => Date.now() + skew });
