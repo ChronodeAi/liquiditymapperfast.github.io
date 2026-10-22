@@ -408,7 +408,7 @@ export class LadderPane {
       const colW = width / columns;
       ids.forEach((id, k) => {
         const idx = g.ids.indexOf(id); if (idx < 0) return;
-        const own: Grouped = { ...g, totalBid: g.bid[idx]!, totalAsk: g.ask[idx]! };
+        const own = this.#own(g, idx);
         this.#drawBook(ctx, state, own, { x: k * colW, w: colW, title: `${venueLabel(id)} ${id.split(':').slice(1).join(':')}`, markId: id, pullIds: [id], cells: null, order: null, cellW: 0, head, balanceH, cover: coverage(frame.books.find(b => b.id === id), mark), totals: withMark, centerBin, rows, markBin, mark, step });
         if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(k * colW + 0.5, 0); ctx.lineTo(k * colW + 0.5, h); ctx.stroke(); }
       });
@@ -419,6 +419,14 @@ export class LadderPane {
       const curves = withMark && state.ladderMode === 'compact' && state.ladderShow !== 'levels' && state.ladderCurves > 0 ? this.#curves(state, g, frame, markBin, hiBin - rows + 1, hiBin) : null;
       this.#drawBook(ctx, state, g, { x: 0, w: width, title: '', pullIds: ids, cells: cells ? ids : null, order, curves, cellW, head, balanceH, cover: null, totals: withMark, centerBin, rows, markBin, mark, step });
     }
+  }
+
+  /** One book's grouping for Single mode (its own rows as the totals), made once for a grouping so the running totals made from it are shared too. */
+  #owns = new WeakMap<Grouped, Grouped[]>();
+  #own(g: Grouped, index: number): Grouped {
+    let list = this.#owns.get(g);
+    if (!list) { list = []; this.#owns.set(g, list); }
+    return list[index] ??= { ...g, totalBid: g.bid[index]!, totalAsk: g.ask[index]! };
   }
 
   /**

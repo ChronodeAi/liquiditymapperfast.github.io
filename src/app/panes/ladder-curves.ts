@@ -39,13 +39,25 @@ export function lineTicks(full: number, most = 4): number[] {
  * downward, asks from it upward, the mark's own bin counting for both. Summed over the venues it is the whole book's.
  */
 export function venueCumulative(g: Pick<Grouped, 'nBins' | 'bid' | 'ask'>, index: number, markBin: number): { bid: Float32Array; ask: Float32Array } {
+  // One grouping serves every draw of a frame (a pointer move, a cue's decay): the totals are shared, read and never written.
+  const key = `${index}:${markBin}`;
+  let memo = walked.get(g);
+  const hit = memo?.get(key);
+  if (hit) return hit;
   const { nBins } = g, bid = new Float32Array(nBins), ask = new Float32Array(nBins), b = g.bid[index], a = g.ask[index];
   let run = 0;
   if (b) for (let i = Math.min(nBins - 1, markBin); i >= 0; i--) { run += b[i]!; bid[i] = run; }
   run = 0;
   if (a) for (let i = Math.max(0, markBin); i < nBins; i++) { run += a[i]!; ask[i] = run; }
-  return { bid, ask };
+  const made = { bid, ask };
+  if (!memo) { memo = new Map(); walked.set(g, memo); }
+  if (memo.size >= WALKED_MEMO) memo.delete(memo.keys().next().value!);
+  memo.set(key, made);
+  return made;
 }
+const walked = new WeakMap<object, Map<string, { bid: Float32Array; ask: Float32Array }>>();
+/** Venues the lines are drawn for (at most eight) at the mark's bin now and a bin or two off it. */
+const WALKED_MEMO = 32;
 
 /**
  * A venue the lines are drawn for: its book, its traded volume over the ranking window (null: no trades held for it) and its place.
