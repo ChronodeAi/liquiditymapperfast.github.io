@@ -121,20 +121,25 @@ export function contactRows(ring: Pick<TapeRing, 'data' | 'capacity' | 'at'>, fr
  * the exchange: the interval is looked at a little widely, and no wider. It is a fact about the tape, not an explanation of the change.
  */
 export const MEANWHILE_BEFORE_MS = 1_000, MEANWHILE_AFTER_MS = 500;
-/** A stretch of the tape whose last order is up to this long before the end of an interval still covers it (a quiet market is not a gap). */
+/** The stretch of the tape that is still running may end this long before the end of an interval and still cover it (a quiet market is not a gap); a stretch that ended must cover it whole. */
 const COVER_SLACK_MS = 5_000;
-/** A venue that traded nothing in the minute before the interval is not known to be on the tape at all: its silence says nothing. */
-const ACTIVE_MS = 60_000;
+/** An interval whose end is not yet this much older than the page's clock may still have orders on their way: nothing is said of it yet. */
+const SETTLE_MS = 1_000;
+/** A venue that traded nothing in the quarter minute before the interval is not known to be on the tape at all: its silence says nothing. */
+const ACTIVE_MS = 15_000;
 /** The interval a change between the snapshots at `from` and `to` (the page's clock, ms) is looked at for orders. */
 export const meanwhile = (from: number, to: number): { from: number; to: number } => ({ from: from - MEANWHILE_BEFORE_MS, to: to + MEANWHILE_AFTER_MS });
 
 /**
  * The USD of the market orders of venue `id` that reached [lo, hi) between `from` and `to` (ms) on the side that takes from the depth there (a
- * buyer takes the asks), whole orders: an order that walked through the row counts at its full size. Null when it is not known: the tape does not
- * cover the interval without a gap, or the venue has no orders on it around then.
+ * buyer takes the asks), whole orders: an order that walked through the row counts at its full size. Null when it is not known: the interval does not lie
+ * inside one stretch of the tape without a gap (a short one counts), starts before what the ring still holds, ends too lately for its orders to have all
+ * arrived (`now` is the page's clock), or the venue has no orders on the tape around then.
  */
-export function tradedInRow(ring: Pick<TapeRing, 'data' | 'capacity' | 'segments' | 'runs' | 'ids' | 't0' | 'p0'>, o: { id: string; ask: boolean; lo: number; hi: number; from: number; to: number }): number | null {
-  if (!(o.to >= o.from) || !ring.segments.some(s => s.from <= o.from && s.to + COVER_SLACK_MS >= o.to)) return null;
+export function tradedInRow(ring: Pick<TapeRing, 'data' | 'capacity' | 'segments' | 'runs' | 'ids' | 't0' | 'p0' | 'heldFrom'>, o: { id: string; ask: boolean; lo: number; hi: number; from: number; to: number; now: number }): number | null {
+  if (!(o.to >= o.from) || o.to > o.now - SETTLE_MS || o.from < ring.heldFrom) return null;
+  const last = ring.segments[ring.segments.length - 1];
+  if (!ring.segments.some(s => s.from <= o.from && (s === last ? s.to + COVER_SLACK_MS >= o.to : s.to >= o.to))) return null;
   const local = ring.ids.indexOf(o.id);
   if (local < 0) return null;
   const d = ring.data, cap = ring.capacity;
@@ -175,8 +180,9 @@ export function pushStrongest<T extends { strength: number }>(list: T[], item: T
  * Bring a list down to `cap`: the weakest item of the venue with the most items goes, again and again, so a venue that floods the list gives up its faint
  * ones before a quiet venue loses its only one (a global cut by strength could leave a venue with neither light nor a mark).
  */
-export function evictFairly<T extends { id: string; strength: number }>(list: T[], cap: number): void {
-  if (list.length <= cap) return;
+export function evictFairly<T extends { id: string; strength: number }>(list: T[], cap: number): T[] {
+  const dropped: T[] = [];
+  if (list.length <= cap) return dropped;
   const by = new Map<string, number[]>();
   list.forEach((e, i) => { let l = by.get(e.id); if (!l) { l = []; by.set(e.id, l); } l.push(i); });
   for (const l of by.values()) l.sort((a, b) => list[a]!.strength - list[b]!.strength);
@@ -188,7 +194,22 @@ export function evictFairly<T extends { id: string; strength: number }>(list: T[
     const k = next.get(pick) ?? 0; next.set(pick, k + 1); drop.add(by.get(pick)![k]!); n--;
   }
   let w = 0;
-  for (let i = 0; i < list.length; i++) if (!drop.has(i)) list[w++] = list[i]!;
+  for (let i = 0; i < list.length; i++) if (drop.has(i)) dropped.push(list[i]!); else list[w++] = list[i]!;
+  list.length = w;
+  return dropped;
+}
+
+/**
+ * A queue of tracker events brought down to `cap` fairly (`evictFairly`); and a cell whose newer change was let go loses its older ones too, so that
+ * what stays at a cell is never an older direction than what was dropped (it would be painted and marked as the latest).
+ */
+export function shedEvents<T extends { id: string; side: string; lo: number; hi: number; seq: number; strength: number }>(list: T[], cap: number): void {
+  const dropped = evictFairly(list, cap);
+  if (!dropped.length) return;
+  const newest = new Map<string, number>();
+  for (const d of dropped) { const k = `${d.id}|${d.side}|${d.lo}|${d.hi}`; if ((newest.get(k) ?? -1) < d.seq) newest.set(k, d.seq); }
+  let w = 0;
+  for (const e of list) { const s = newest.get(`${e.id}|${e.side}|${e.lo}|${e.hi}`); if (s === undefined || e.seq > s) list[w++] = e; }
   list.length = w;
 }
 
@@ -261,6 +282,8 @@ export class CueBoard {
   dim(): void { this.active.length = 0; this.#contacts.length = 0; }
   /** The area cap for the ladder as it is on screen now (`maxAreaFor`); what is lit already is checked against it at the next `reprice`. */
   setMaxArea(px2: number): void { this.caps.maxArea = px2; }
+  /** The area cap in force (CSS px squared). */
+  get maxArea(): number { return this.caps.maxArea; }
   /** The mark in the gutter box of `row` (of venue `scope` in Single mode), if there is one. */
   markAt(row: number, scope = ''): Mark | undefined { return this.marks.get(markKey(row, scope)); }
 
@@ -324,6 +347,8 @@ export class CueBoard {
     for (const { r } of order) {
       if (!geo.rowVisible(r.row)) continue;
       const sign: 1 | -1 = r.usd > 0 ? 1 : -1, cell = geo.cell(r.id, r.side, r.row), key = cueKey(r.id, r.side, r.row);
+      // A cell that is drawn still holds something: the row is not emptied, whatever this change took out of it (the change is the part of the row it touched).
+      const removed = r.removed && !cell;
       const old = this.active.findIndex(c => c.key === key);
       let didLight = false;
       if (lit && cell && r.strength >= MIN_CUE_STRENGTH) {
@@ -332,7 +357,7 @@ export class CueBoard {
         const strength = was && was.sign === sign ? Math.max(was.strength, r.strength) : r.strength, cost = cueCost(cell, strength, weight);
         const freed = was ? was.cost * wasShare : 0, freedPlace = wasShare >= BRIGHT_SHARE ? 1 : 0;
         if (bright - freedPlace < this.caps.maxCues && area - freed + cost <= this.caps.maxArea) {
-          const cue: Cue = { key, id: r.id, side: r.side, row: r.row, sign, strength, usd: r.usd, t0: now, removed: r.removed, added: r.added, pair: r.pair, band: r.band, cost, seq: r.seq, kind: 'depth', life: CUE_LIFE_MS, buy: false };
+          const cue: Cue = { key, id: r.id, side: r.side, row: r.row, sign, strength, usd: r.usd, t0: now, removed, added: r.added, pair: r.pair, band: r.band, cost, seq: r.seq, kind: 'depth', life: CUE_LIFE_MS, buy: false };
           if (was) {
             if (was.sign === sign) { cue.usd = was.usd + r.usd; this.stats.renewed++; } else this.stats.reversed++;
             this.active[old] = cue;
@@ -344,7 +369,7 @@ export class CueBoard {
       const mk = markKey(r.row, perVenue ? r.id : ''), had = this.marks.get(mk);
       if (r.strength < MIN_MARK_STRENGTH) continue;
       if (!had || r.strength >= had.strength * markLight(now - had.t0) || had.sign !== sign && r.strength >= 0.5 * had.strength) {
-        this.marks.set(mk, { id: r.id, side: r.side, row: r.row, sign, strength: r.strength, usd: r.usd, t0: now, lit: didLight, removed: r.removed, pair: r.pair });
+        this.marks.set(mk, { id: r.id, side: r.side, row: r.row, sign, strength: r.strength, usd: r.usd, t0: now, lit: didLight, removed, pair: r.pair });
       }
     }
     // The contacts come after every change: the largest first, within what is left of the same budget, and they leave no mark of their own.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, evictFairly, MARK_LIFE_MS, MAX_CUE_AREA, MIN_CUE_AREA, MIN_CUE_STRENGTH, markKey, maxAreaFor, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
+import { BRIGHT_SHARE, CONTACT_LIFE_MS, CREST_MS, CUE_LIFE_MS, CellMap, CueBoard, evictFairly, shedEvents, MARK_LIFE_MS, MAX_CUE_AREA, MIN_CUE_AREA, MIN_CUE_STRENGTH, markKey, maxAreaFor, bodyLight, crestAt, crestLight, markLight, pushStrongest, shareAt, type Cue, type CueRow, type Geometry } from '../src/app/panes/ladder-cues.ts';
 import { cueShows, heatTone, paintCue } from '../src/app/panes/ladder-cue-paint.ts';
 import { PALETTES, contrastRatio } from '../src/app/theme.ts';
 import { nearDirection } from '../src/app/cvd/colors.ts';
@@ -58,7 +58,10 @@ test('a change on a row that is on screen lights its cell and leaves its mark', 
   const mark = board.marks.get(markKey(5))!;
   assert.deepEqual([mark.sign, mark.lit, mark.t0], [1, true, 1_000]);
   board.push([row('a:BTC', 'bid', 3, -4e6, 0.9, { removed: true })]); board.admit(1_100, 'wash', flat());
-  assert.equal(board.active[1]!.sign, -1); assert.equal(board.active[1]!.removed, true);
+  assert.equal(board.active[1]!.sign, -1); assert.equal(board.active[1]!.removed, false, 'the cell is still drawn: the row holds something, so it is not emptied');
+  const gone = new CueBoard();
+  gone.push([row('a:BTC', 'bid', 3, -4e6, 0.9, { removed: true })]); gone.admit(1_000, 'wash', flat(() => true, () => false));
+  assert.equal(gone.marks.get(markKey(3))!.removed, true, 'no cell is drawn for the row any more: it is emptied');
 });
 
 test('a row off screen, a venue with no cell there and a change too small to see light nothing; only a visible row keeps a mark', () => {
@@ -275,9 +278,22 @@ test('a newer change is never behind an older one in a full queue, and a quiet v
   fair.admit(1_000, 'wash', flat());
   assert.ok(fair.active.some(c => c.id === 'quiet:BTC') && fair.marks.has(markKey(1)), 'a weaker quiet venue survives a flood of stronger changes: it gets light and a mark');
   const list = [...Array.from({ length: 6 }, (_, i) => ({ id: 'busy', strength: 0.5 + i / 100 })), { id: 'quiet', strength: 0.01 }];
-  evictFairly(list, 4);
+  const dropped = evictFairly(list, 4);
+  assert.equal(dropped.length, 3); assert.ok(dropped.every(x => x.id === 'busy'), 'what it let go is what it returns');
   assert.deepEqual(list.map(x => x.id).sort(), ['busy', 'busy', 'busy', 'quiet'], 'the busy venue gave up three of its faintest, the quiet one kept its only');
   assert.ok(list.filter(x => x.id === 'busy').every(x => x.strength >= 0.53), 'its three strongest stayed');
+});
+
+test('a shed event queue keeps no older direction of a cell whose newer change it let go', () => {
+  const ev = (id: string, lo: number, usd: number, seq: number, strength: number) => ({ id, side: 'ask' as const, lo, hi: lo + 20, seq, strength, usd });
+  const queue = [ev('a:BTC', 81_000, -3e6, 1, 0.9), ...Array.from({ length: 511 }, (_, i) => ev(`v${i % 11}:BTC`, 82_000 + 20 * i, -4e6, 2 + i, 0.95))];
+  queue.push(ev('a:BTC', 81_000, 3e5, 700, 0.2));   // the cell's newer change: weak, and in the busiest venue's company, so it is the first to go
+  shedEvents(queue, 512);
+  assert.ok(queue.length <= 512);
+  assert.ok(!queue.some(e => e.id === 'a:BTC' && e.lo === 81_000 && e.seq < 700) || queue.some(e => e.id === 'a:BTC' && e.lo === 81_000 && e.seq === 700), 'the older -$3M is not left standing as the cell\'s latest');
+  const small = [ev('x:BTC', 1, 1e6, 1, 0.5), ev('x:BTC', 1, -1e6, 2, 0.1), ev('y:BTC', 2, 1e6, 3, 0.9)];
+  shedEvents(small, 2);
+  assert.deepEqual(small.map(e => [e.id, e.seq]), [['y:BTC', 3]], 'x lost its weakest (the newer one, seq 2): its older one goes with it, and y keeps its own');
 });
 
 test('the crest is part of the light a cue holds a place by: both are under a tenth of their peak after about half a second', () => {

@@ -3,7 +3,7 @@ import type { LevelsFrame } from '../wire.ts';
 import { scaledUsd } from '../coin.ts';
 import type { TapeRing } from '../tape/ring.ts';
 import { BookCueTracker, rowEvents, type CueEvent } from './book-cues.ts';
-import { CellMap, CueBoard, MAX_PENDING, contactRows, evictFairly, maxAreaFor, type CueLook, type Geometry } from './ladder-cues.ts';
+import { CellMap, CueBoard, MAX_PENDING, contactRows, maxAreaFor, shedEvents, type CueLook, type Geometry } from './ladder-cues.ts';
 import { cueBox, cueShows, markBox, paintCue, paintMark, type Box } from './ladder-cue-paint.ts';
 import { SENSE_SCALE_USD, type CueLookSetting, type Sense } from './ladder-cue-settings.ts';
 
@@ -96,7 +96,7 @@ export class CueLayer {
     // the tracker goes on, its history is what the heat strip reads.
     if (this.#look === 'off' || !this.host.shown()) { this.#events.length = 0; return; }
     this.#events.push(...events);
-    evictFairly(this.#events, MAX_PENDING);
+    shedEvents(this.#events, MAX_PENDING);
   }
 
   /** Forget everything: a reconnect, a venue that went, a replay, another coin. */
@@ -129,7 +129,10 @@ export class CueLayer {
       this.board.clear(); this.#dirty.length = 0; this.#baseValid = false;
     }
     this.#layout = layout; this.cells.begin(layout.top, layout.rows); this.#gutters.length = 0;
+    this.#syncCap();
   }
+  /** The area cap for the ladder as it is on screen (a share of it: a phone's book is small): set at every draw, before anything idles, and before a contact is admitted. */
+  #syncCap(): void { const L = this.#layout, v = this.host.view(); this.board.setMaxArea(maxAreaFor(v.x1 - v.x0, L.head + L.rows * L.rowH)); }
   /** A book's gutter (the column of signed marks before its bars) at `x`; `id` is its venue in Single mode, null for the one shared gutter. */
   addGutter(id: string | null, x: number, w: number): void { this.#gutters.push({ id, x, w }); }
 
@@ -141,9 +144,8 @@ export class CueLayer {
     if (!this.#snapshot()) { this.#dirty.length = 0; this.#baseValid = false; return; }
     const now = performance.now(), look = this.look === 'off' ? 'marks' : this.look;
     // The cells were laid out again: what is lit is charged for the cells it lights now.
-    const geo = this.#geometry(), L0 = this.#layout, view = this.host.view();
-    // No more light than a share of the ladder that is on screen: a phone's book is small, and the same lit area would be far busier there.
-    this.board.setMaxArea(maxAreaFor(view.x1 - view.x0, L0.head + L0.rows * L0.rowH));
+    const geo = this.#geometry();
+    this.#syncCap();
     this.board.prune(now); this.board.reprice(now, look, geo);
     if (this.#events.length) {
       // Only the rows on screen: a band as wide as the book would make hundreds of rows nobody sees and push the ones that are seen out of the queue.
@@ -193,6 +195,7 @@ export class CueLayer {
     if (this.#look === 'off' || !this.host.shown() || !this.board.waiting) return;
     if (!this.#baseValid && !this.#snapshot()) return;
     const now = performance.now(), look = this.look === 'off' ? 'marks' : this.look, geo = this.#geometry();
+    this.#syncCap();
     // What the book scrolled out of view lit gives its places back before a contact asks for one (nothing redraws the book on a scroll).
     this.board.prune(now); this.board.reprice(now, look, geo);
     this.board.admit(now, look, geo, this.#layout.perVenue);

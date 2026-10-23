@@ -318,9 +318,9 @@ export class LadderPane {
    * What the cues are doing now (read by tests and from the console): cues running, of which showing light (`bright`), marks held, changes waiting,
    * the area they cost at their peak (`used`) and the area showing now (`light`), and what the tracker has counted.
    */
-  cueState(): { lit: number; bright: number; light: number; marks: number; waiting: number; used: number; board: CueBoard['stats']; tracker: CueLayer['tracker']['stats'] } {
+  cueState(): { lit: number; bright: number; light: number; marks: number; waiting: number; used: number; maxArea: number; board: CueBoard['stats']; tracker: CueLayer['tracker']['stats'] } {
     const c = this.#cues, now = performance.now();
-    return { lit: c.board.active.length, bright: c.board.brightCount(now), light: c.board.litArea(now), marks: c.board.marks.size, waiting: c.board.waiting, used: c.board.used, board: { ...c.board.stats, strengths: [...c.board.stats.strengths] }, tracker: { ...c.tracker.stats } };
+    return { lit: c.board.active.length, bright: c.board.brightCount(now), light: c.board.litArea(now), marks: c.board.marks.size, waiting: c.board.waiting, used: c.board.used, maxArea: c.board.maxArea, board: { ...c.board.stats, strengths: [...c.board.stats.strengths] }, tracker: { ...c.tracker.stats } };
   }
   /**
    * A new levels frame: the cues' tracker sees it (whatever pull/stack is doing: the two are separate), and pull/stack takes its snapshot here
@@ -600,7 +600,7 @@ export class LadderPane {
     if (k.gut > 0 && hv.x >= k.barX - k.gut && hv.x < k.barX) {
       // The mark in the box is what is pointed at, and it says the side it was made on (the row may show the other side by now); a box with none answers for the side the row shows.
       const mark = this.#cues.board.markAt(g.bin0 + bin, o.markId ?? ''), markAsk = mark ? mark.side === 'ask' : isAsk;
-      const changes = this.#changesAt(rowIds, markAsk, rowLo, rowLo + step);
+      const changes = this.#changesAt(rowIds, markAsk, rowLo, rowLo + step, g, bin);
       return changes.length ? { lines: gutterLines({ low: rowLo, step, mark: o.mark, ask: markAsk, changes, ...(o.title ? { title: o.title } : {}) }), x: k.barX - k.gut, y: head + r * ROW_H, w: k.gut, h: ROW_H } : null;
     }
     if (!(size > 0)) return null;
@@ -609,13 +609,13 @@ export class LadderPane {
     const venues = ids ? ids.map((id, i) => ({ name: bookName(id), usd: at(i), id })) : order && orderIdx ? order.map((id, n) => ({ name: bookName(id), usd: at(orderIdx[n]!), id })) : [];
     const change = k.pull ? (isAsk ? k.pull.ask[bin]! : k.pull.bid[bin]!) : NaN;
     const facts: LevelFacts = { low: rowLo, step, mark: o.mark, ask: isAsk, size, cumulative: (isAsk ? cum.ask : cum.bid)[bin] ?? size, venues: venues.filter(v => v.usd > 0), ...(o.title ? { title: o.title } : {}),
-      ...(change === change && k.pull ? { pull: { usd: change, touched: k.pull.touched[bin] === 1, window: windowText(state.pullStack) } } : {}), changes: this.#changesAt(rowIds, isAsk, rowLo, rowLo + step) };
+      ...(change === change && k.pull ? { pull: { usd: change, touched: k.pull.touched[bin] === 1, window: windowText(state.pullStack) } } : {}), changes: this.#changesAt(rowIds, isAsk, rowLo, rowLo + step, g, bin) };
     // A venue's part of the level says its own changes and its heat.
     const heatKind = state.ladderCues.heat;
     const cellFacts = (id: string): LevelFacts => {
       const h = heatKind === 'off' ? null : this.#cues.tracker.heat(id, isAsk ? 'ask' : 'bid', rowLo, rowLo + step, Date.now());
       const heat: HeatFact | null = h && heatKind !== 'off' ? { kind: heatKind, ...h } : null;
-      return { ...facts, changes: this.#changesAt([id], isAsk, rowLo, rowLo + step), ...(heat ? { heat } : {}) };
+      return { ...facts, changes: this.#changesAt([id], isAsk, rowLo, rowLo + step, g, bin), ...(heat ? { heat } : {}) };
     };
     const cellsX = x0 + k.priceW + k.usdW + 8;
     if (ids && hv.x >= cellsX && hv.x < cellsX + ids.length * k.cw) {
@@ -628,7 +628,7 @@ export class LadderPane {
     if (order && orderIdx) {
       const piece = pieceAt(barPieces(order, orderIdx.map(i => at(i)), k.maxLevel, k.barX, k.barW, PIECE_MIN_PX), hv.x);
       if (!piece) return null;
-      const lines = piece.id ? venueCellLines(cellFacts(piece.id), { name: bookName(piece.id), usd: piece.usd, id: piece.id }) : smallerVenuesLines({ ...facts, changes: this.#changesAt(piece.merged.map(m => m.id), isAsk, rowLo, rowLo + step) }, piece.merged.map(m => ({ name: bookName(m.id), usd: m.usd, id: m.id })));
+      const lines = piece.id ? venueCellLines(cellFacts(piece.id), { name: bookName(piece.id), usd: piece.usd, id: piece.id }) : smallerVenuesLines({ ...facts, changes: this.#changesAt(piece.merged.map(m => m.id), isAsk, rowLo, rowLo + step, g, bin) }, piece.merged.map(m => ({ name: bookName(m.id), usd: m.usd, id: m.id })));
       return { lines, x: piece.x, y: y + 2, w: Math.max(1, piece.w - 0.5), h: ROW_H - 4 };
     }
     if (ids) {
@@ -650,14 +650,16 @@ export class LadderPane {
    * Each is the row's change as the light made it (`rowEvents` over the events of the newest publication that touched the row: shared over the row
    * and added up), so the figure the pointer reads is the one the cell was lit with, and a row of several bins that changed together says their sum.
    */
-  #changesAt(ids: readonly string[], ask: boolean, lo: number, hi: number): ChangeFact[] {
+  #changesAt(ids: readonly string[], ask: boolean, lo: number, hi: number, g: Grouped, bin: number): ChangeFact[] {
     const now = Date.now(), out: ChangeFact[] = [], step = hi - lo, scale = this.#cues.scale;
+    // What a venue shows in the row now: a row is emptied only if it holds nothing (the change is the part of the row that it touched).
+    const held = (id: string): number => { const i = g.ids.indexOf(id); return (ask ? g.ask[i] : g.bid[i])?.[bin] ?? 0; };
     for (const id of ids) {
       const events = this.#cues.tracker.recentEvents(id, ask ? 'ask' : 'bid', lo, hi);
       const r = events.length ? rowChange(events, lo, step, scale) : null;
       if (!r || now - r.wall > CHANGE_HOVER_MS) continue;
       const traded = this.#tradedMeanwhile(id, ask, lo, hi, r.prevWall, r.wall);
-      out.push({ name: bookName(id), id, usd: r.usd, ageMs: Math.max(0, now - r.wall), removed: r.removed, pair: r.pair, ...(traded !== null ? { traded } : {}) });
+      out.push({ name: bookName(id), id, usd: r.usd, ageMs: Math.max(0, now - r.wall), removed: r.removed && held(id) === 0, pair: r.pair, ...(traded !== null ? { traded } : {}) });
     }
     return out.sort((a, b) => a.ageMs - b.ageMs);
   }
@@ -669,7 +671,7 @@ export class LadderPane {
     const key = `${id}|${ask ? 1 : 0}|${lo}|${hi}|${prevWall}|${wall}`, now = performance.now(), held = this.#traded.get(key);
     if (held && now - held.at < 1_000) return held.usd;
     if (this.#traded.size > 64) this.#traded.clear();
-    const usd = tradedInRow(ring, { id, ask, lo, hi, ...meanwhile(prevWall, wall) });
+    const usd = tradedInRow(ring, { id, ask, lo, hi, ...meanwhile(prevWall, wall), now: Date.now() });
     this.#traded.set(key, { at: now, usd });
     return usd;
   }
