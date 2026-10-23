@@ -1724,6 +1724,9 @@ test('a newer event of a bin that did not touch a row leaves that row\'s change 
   assert.ok(hover[0] === second && hover[1] === first, 'both publications, the newest first');
   assert.equal(rowEventAt([hover[0]!], 8_103, 10, 1_000_000), null, 'the newest did not touch the row');
   assert.equal(walk(hover, 8_103, 10), -500_000, 'so the hover goes on to the one before: its -$500k, seconds old');
+  // The pane's present `rowChange` (`rowEvents(...).find(row)`) lands on the same one unwalked: the first row event for a row is the newest publication that reached it.
+  const found = rowEvents(hover, 10, 1_000_000).find(r => r.row === 8_103);
+  assert.deepEqual([found?.usd, found?.wall], [-500_000, 2_000]);
   assert.equal(walk(tr.recentEvents(ID, 'bid', 81_020, 81_030), 8_102, 10), 1_000_000, 'the row the newest touched reads the newest');
   assert.equal(tr.recent(ID, 'bid', 81_030, 81_040), second, 'recent is the single newest');
 });
