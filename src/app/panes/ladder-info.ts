@@ -3,10 +3,10 @@ import { price as fmtPrice, usd } from '../format.ts';
 import { t, tn } from '../i18n.ts';
 import { rowEventAt, type CueEvent, type RowEvent } from './book-cues.ts';
 
-/** The events a venue's cells raised, grouped by the publication that raised them (the events of one `wall` together, in the order given: newest publication first). */
+/** The events a venue's cells raised, grouped by the publication that raised them (the events of one `pub` together, in the order given: newest publication first). */
 export function byPublication(events: readonly CueEvent[]): CueEvent[][] {
   const out: CueEvent[][] = [];
-  for (const e of events) { const last = out[out.length - 1]; if (last && last[0]!.wall === e.wall) last.push(e); else out.push([e]); }
+  for (const e of events) { const last = out[out.length - 1]; if (last && last[0]!.pub === e.pub) last.push(e); else out.push([e]); }
   return out;
 }
 

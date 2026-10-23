@@ -93,6 +93,17 @@ test('what the ring overwrote is lost through the greatest time it lost, whateve
   tapeOf(orders, 1, ring);
   assert.equal(ring.written, 4_097); assert.equal(ring.lostThrough, T0 + 1_000); assert.equal(ring.heldFrom, T0 + 900, 'the oldest in arrival order is older than what was lost');
   assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 950, to: T0 + 2_700 })), null, 'its interval reaches the overwritten trade: unknown, not 0');
-  assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 1_001, to: T0 + 2_700 })), 0, 'after what was lost it is known');
+  assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 1_010, to: T0 + 2_700 })), 0, 'a little after what was lost it is known');
   ring.clear(); assert.equal(ring.lostThrough, -Infinity);
+});
+
+test('after the ring moves its time base the times it stores are exact only to a millisecond or two: what it lost is taken a couple of milliseconds later', () => {
+  const ring = new TapeRing(4096);
+  // batch one: a $500K buyer stamped T0 + 1 (the first write: it will be overwritten), and an order of the same venue outside the row at T0 + 1,500 (the venue is on the tape then)
+  tapeOf([{ id: 'a:BTC', t: T0 + 1, price: 81_010, usd: 500_000 }, { id: 'a:BTC', t: T0 + 1_500, price: 82_000, usd: 1_000 }], 1, ring);
+  // batch two, more than 2^24 ms later: the ring moves its time base and every stored offset is rounded again; 4,095 writes in all fill it and overwrite the first
+  tapeOf(Array.from({ length: 4_095 }, (_, k) => ({ id: 'a:BTC', t: T0 + 17_000_000 + k, price: 82_000, usd: 1_000 })), 2, ring);
+  assert.ok(ring.lostThrough >= T0 - 3 && ring.lostThrough <= T0 + 3, `lost through T0 + ${ring.lostThrough - T0}: the stored time of the overwritten order`);
+  assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 1, to: T0 + 2_000, now: T0 + 20_000_000 })), null, 'its own millisecond is still reaching the overwritten trade');
+  assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 6, to: T0 + 2_000, now: T0 + 20_000_000 })), 0, 'a few milliseconds on, known');
 });

@@ -4,7 +4,7 @@ import { agoText, byPublication, cueLines, gutterLines, latestRowChange, levelLi
 import { rowEvents, type CueEvent } from '../src/app/panes/book-cues.ts';
 
 let seq = 0;
-const event = (lo: number, usd: number, extra: Partial<CueEvent> = {}): CueEvent => ({ id: 'binance:BTCUSDT', side: 'ask', lo, hi: lo + 20, grid: 20, sign: usd > 0 ? 1 : -1, usd, before: 5e6, after: 5e6 + usd, strength: 0.5, wall: 10_000, seq: ++seq, prevWall: 9_000,
+const event = (lo: number, usd: number, extra: Partial<CueEvent> = {}): CueEvent => ({ id: 'binance:BTCUSDT', side: 'ask', lo, hi: lo + 20, grid: 20, sign: usd > 0 ? 1 : -1, usd, before: 5e6, after: 5e6 + usd, strength: 0.5, wall: 10_000, seq: ++seq, pub: 1, prevWall: 9_000,
   removed: false, added: false, pair: false, approx: false, band: false, confirmed: false, ...extra });
 
 const facts = (extra: Partial<LevelFacts> = {}): LevelFacts => ({ low: 81_000, step: 50, mark: 81_040, ask: false, size: 12e6, cumulative: 30e6, venues: [{ name: 'Binance BTCUSDT', usd: 8e6, id: 'binance:BTCUSDT' }, { name: 'OKX BTC-USDT', usd: 4e6, id: 'okx:BTC-USDT' }], ...extra });
@@ -37,10 +37,10 @@ test('what traded around a change is said beside it where the tape says, and not
 
 test('a newer publication that changed only a neighbouring row of the bin does not erase a row\'s last change', () => {
   // two $10 rows in one bin: the older publication changed both (+$2M and -$500K at their prices), the newer only the first (+$1M)
-  const older = event(81_020, 1.5e6, { wall: 10_000, seq: 1, lv: { prev: [81_021, 1e6, 81_031, 1e6], cur: [81_021, 3e6, 81_031, 0.5e6] } });
-  const newer = event(81_020, 1e6, { wall: 12_000, seq: 2, lv: { prev: [81_021, 3e6, 81_031, 0.5e6], cur: [81_021, 4e6, 81_031, 0.5e6] } });
+  const older = event(81_020, 1.5e6, { wall: 10_000, seq: 1, pub: 1, lv: { prev: [81_021, 1e6, 81_031, 1e6], cur: [81_021, 3e6, 81_031, 0.5e6] } });
+  const newer = event(81_020, 1e6, { wall: 12_000, seq: 2, pub: 2, lv: { prev: [81_021, 3e6, 81_031, 0.5e6], cur: [81_021, 4e6, 81_031, 0.5e6] } });
   const groups = byPublication([newer, older]);
-  assert.equal(groups.length, 2); assert.deepEqual(byPublication([older, event(81_040, 1e5, { wall: 10_000, seq: 3 })]).map(g => g.length), [2], 'events of one publication stay together');
+  assert.equal(groups.length, 2); assert.deepEqual(byPublication([older, event(81_040, 1e5, { wall: 10_000, seq: 3, pub: 1 })]).map(g => g.length), [2], 'events of one publication stay together');
   assert.equal(latestRowChange(groups, 8_102, 10, 1.5e6)!.usd, 1e6, 'the first row: its newest change');
   assert.equal(latestRowChange(groups, 8_103, 10, 1.5e6)!.usd, -0.5e6, 'the second row was not touched by the newer publication: the older one\'s change stands');
 });

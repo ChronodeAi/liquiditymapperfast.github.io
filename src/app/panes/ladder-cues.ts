@@ -123,6 +123,8 @@ export function contactRows(ring: Pick<TapeRing, 'data' | 'capacity' | 'at'>, fr
 export const MEANWHILE_BEFORE_MS = 1_000, MEANWHILE_AFTER_MS = 500;
 /** The stretch of the tape that is still running may end this long before the end of an interval and still cover it (a quiet market is not a gap); a stretch that ended must cover it whole. */
 const COVER_SLACK_MS = 5_000;
+/** The times the ring stores are exact to the millisecond only until it moves its time base: what it has lost is taken a couple of milliseconds later than it says. */
+const LOST_SLACK_MS = 2;
 /** An interval whose end is not yet this much older than the page's clock may still have orders on their way: nothing is said of it yet. */
 const SETTLE_MS = 1_000;
 /** A venue that traded nothing in the quarter minute before the interval is not known to be on the tape at all: its silence says nothing. */
@@ -137,7 +139,7 @@ export const meanwhile = (from: number, to: number): { from: number; to: number 
  * arrived (`now` is the page's clock), or the venue has no orders on the tape around then.
  */
 export function tradedInRow(ring: Pick<TapeRing, 'data' | 'capacity' | 'segments' | 'runs' | 'ids' | 't0' | 'p0' | 'lostThrough'>, o: { id: string; ask: boolean; lo: number; hi: number; from: number; to: number; now: number }): number | null {
-  if (!(o.to >= o.from) || o.to > o.now - SETTLE_MS || o.from <= ring.lostThrough) return null;
+  if (!(o.to >= o.from) || o.to > o.now - SETTLE_MS || o.from <= ring.lostThrough + LOST_SLACK_MS) return null;
   const last = ring.segments[ring.segments.length - 1];
   if (!ring.segments.some(s => s.from <= o.from && (s === last ? s.to + COVER_SLACK_MS >= o.to : s.to >= o.to))) return null;
   const local = ring.ids.indexOf(o.id);

@@ -154,6 +154,8 @@ export interface CueEvent {
   strength: number;
   /** `Date.now()` of the publication that raised it, and an increasing id over every event of the tracker. */
   wall: number; seq: number;
+  /** The publication that raised it: a number that increases over the tracker's publications (the events of one share it). The page's clock may step back, so `wall` neither orders publications nor tells two apart. */
+  pub: number;
   /**
    * `Date.now()` of the publication the change is measured from (of the one before the weak change, once confirmed): a trade that explains it
    * happened in [prevWall, wall].
@@ -471,6 +473,8 @@ export class BookCueTracker {
   #frame = 0;
   readonly #sq: Float64Array; readonly #sa: Float64Array;
   #seq = 0;
+  /** The number of the publication being read (`CueEvent.pub`). */
+  #pub = 0;
   #bins: number[] = [];
   /** What `#scan` found: the usable levels of a side, its best price and its reach, how many of them are bands, and which way its prices run. */
   readonly #sc = { valid: 0, best: 0, reach: 0, bands: 0, dir: 0 };
@@ -618,12 +622,11 @@ export class BookCueTracker {
     } else if (st.mode === 'band' && st.bands) {
       for (const c of st.bands[side === 'bid' ? 0 : 1].cells.values()) for (const e of c.hist) take(e);
     }
-    // One publication's events share its `wall`; publications go by the order they were made in (the greatest `seq` of each), not by the page's clock: the clock may step back a little (inside `backToleranceMs`) and still be the same run.
+    // One publication's events share its number, and publications go by it (the order they were made in), not by the page's clock: the clock may step back a little (inside `backToleranceMs`) and a wall may come round again.
     const groups = new Map<number, CueEvent[]>();
-    for (const e of found) { let g = groups.get(e.wall); if (!g) { g = []; groups.set(e.wall, g); } g.push(e); }
-    const newest = (g: CueEvent[]): number => { let n = -Infinity; for (const e of g) if (e.seq > n) n = e.seq; return n; };
+    for (const e of found) { let g = groups.get(e.pub); if (!g) { g = []; groups.set(e.pub, g); } g.push(e); }
     const out: CueEvent[] = [];
-    for (const g of [...groups.values()].sort((a, b) => newest(b) - newest(a)).slice(0, CUE_HISTORY)) { g.sort((a, b) => a.lo - b.lo || a.seq - b.seq); out.push(...g); }
+    for (const pub of [...groups.keys()].sort((a, b) => b - a).slice(0, CUE_HISTORY)) { const g = groups.get(pub)!; g.sort((a, b) => a.lo - b.lo || a.seq - b.seq); out.push(...g); }
     return out;
   }
 
@@ -634,7 +637,7 @@ export class BookCueTracker {
     // again (Hyperliquid: about three of these to each real refresh in the live check): it says nothing new of its bands, so it neither confirms
     // nor drops a waiting change and is no step of its rhythm. What it holds is kept, so it is not looked at again.
     if (mode === 'band' && st.mode === 'band' && st.usable && Number.isFinite(book.timestamp) && book.timestamp === st.lastStamp) { this.stats.hints++; st.pub.store(book); return; }
-    this.stats.distinct++;
+    this.stats.distinct++; this.#pub++;
     let baseline = !st.usable || st.mode !== mode;
     let dt = 0;
     if (st.observations > 0) {
@@ -879,7 +882,7 @@ export class BookCueTracker {
   #event(id: string, side: CueSide, lo: number, hi: number, grid: number, usd: number, before: number, after: number, ctx: CueContext, band: boolean, approx: boolean, confirmed: boolean, prevWall: number): CueEvent {
     this.stats.events++;
     const ref = ctx.scale > 0 && Number.isFinite(ctx.scale) ? ctx.scale : 1e6;
-    return { id, side, lo, hi, grid, sign: usd > 0 ? 1 : -1, usd, before, after, strength: 1 - Math.exp(-Math.abs(usd) / ref), wall: ctx.wall, prevWall, seq: ++this.#seq,
+    return { id, side, lo, hi, grid, sign: usd > 0 ? 1 : -1, usd, before, after, strength: 1 - Math.exp(-Math.abs(usd) / ref), wall: ctx.wall, prevWall, seq: ++this.#seq, pub: this.#pub,
       removed: after === 0 && before > 0, added: before === 0 && after > 0, pair: false, approx, band, confirmed };
   }
 

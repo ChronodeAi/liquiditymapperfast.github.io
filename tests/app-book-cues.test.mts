@@ -794,7 +794,7 @@ test('recent finds the newest event on a side that overlaps the interval, and no
 
 // ---- Events on display rows ----
 
-const ev = (o: Partial<CueEvent>): CueEvent => ({ id: ID, side: 'bid', lo: 0, hi: 0, grid: G, sign: 1, usd: 0, before: 0, after: 0, strength: 0, wall: 1_000, prevWall: 0, seq: 1, removed: false, added: false, pair: false, approx: false, band: false, confirmed: false, ...o });
+const ev = (o: Partial<CueEvent>): CueEvent => ({ id: ID, side: 'bid', lo: 0, hi: 0, grid: G, sign: 1, usd: 0, before: 0, after: 0, strength: 0, wall: 1_000, prevWall: 0, seq: 1, pub: 1, removed: false, added: false, pair: false, approx: false, band: false, confirmed: false, ...o });
 
 test('a cell on rows coarser than the grid: whole in one row, or shared between two by overlap, the USD kept', () => {
   const e = ev({ lo: 81_280, hi: 81_300, usd: 1_000_000, seq: 7 });
@@ -1812,4 +1812,19 @@ test('which change is the latest follows the order the publications were made in
   assert.equal(tr.stats.baselines, 1);
   const events = tr.recentEvents(ID, 'bid', (MID - 3) * G, (MID - 2) * G);
   assert.deepEqual(events.map(e => [e.usd, e.wall]), [[-4_000_000, 10_150], [4_000_000, 10_250]], 'the removal was made last: it is first, with the age of its own wall');
+});
+
+test('publications are told apart by their own number, not by the page\'s clock: a wall that comes round again does not merge two of them', () => {
+  const tr = new BookCueTracker(open), l = ladder();
+  tr.observe([book(ID, 1_000, l)], [ID], tiny(10_000));
+  const a = copy(l); a.bids.set(MID - 3, 5_000_000);
+  tr.observe([book(ID, 2_000, a)], [ID], tiny(10_250));      // +$4M
+  const b = copy(a); b.bids.set(MID - 3, 1_000_000);
+  tr.observe([book(ID, 3_000, b)], [ID], tiny(10_500));      // -$4M
+  const c = copy(b); c.bids.set(MID - 3, 3_000_000);
+  tr.observe([book(ID, 4_000, c)], [ID], tiny(10_250));      // +$2M, and the clock is back at the wall of the first: inside the tolerance, still one run
+  assert.equal(tr.stats.baselines, 1);
+  const events = tr.recentEvents(ID, 'bid', (MID - 3) * G, (MID - 2) * G);
+  assert.deepEqual(events.map(e => e.usd), [2_000_000, -4_000_000, 4_000_000], 'three publications, the latest first: the +$2M is not added to the older +$4M that has its wall');
+  assert.equal(new Set(events.map(e => e.pub)).size, 3); assert.ok(events[0]!.pub > events[1]!.pub && events[1]!.pub > events[2]!.pub);
 });
