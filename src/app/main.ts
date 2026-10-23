@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     { id: 'oi', root: oi.root, height: 150, min: 60, head: oi.header },
     { id: 'delta', root: delta.root, height: 150, min: 60, head: delta.header },
     { id: 'tof', root: tof.root, height: 130, min: 60, head: tof.header },
-    { id: 'swing', root: swing.root, height: 150, min: 80, head: swing.header },
+    { id: 'swing', root: swing.root, height: 200, min: 110, head: swing.header },
     { id: 'ls', root: ls.root, height: 120, min: 60, head: ls.header },
     { id: 'lt', root: lt.root, height: 128, min: 70, head: lt.header },
   ], flowCol);

@@ -2,17 +2,19 @@
  * The Swing pane's two readings, per candle of the chart's timeframe:
  *
  * - **Swing**: where price sits in its last `SWING_LENGTH` candles, as a fast line (`SWING_FAST` candles' average) and a slow one (the fast
- *   line's `SWING_SLOW`-candle average), 0 at the bottom of the range and 100 at the top. Price is each candle's average of open, high, low and
- *   close (what a Heikin-Ashi chart calls its close), so a wick alone moves it a quarter as much. The bar between the two lines is coloured by
- *   the trend: a Kalman estimate of that price (a steady gain of `SWING_GAIN`) higher than `SWING_TREND` candles before is up.
+ *   line's `SWING_SLOW`-candle average), 0 at the bottom of the range and 100 at the top. Price is a Kalman estimate (a steady gain of
+ *   `SWING_PRICE_GAIN`) of each candle's average of open, high, low and close (what a Heikin-Ashi chart calls its close), so a wick alone
+ *   moves it a quarter as much and one candle's jump is taken in part. The bar between the two lines is coloured by the trend: a slower
+ *   Kalman estimate of that average (a steady gain of `SWING_GAIN`) higher than `SWING_TREND` candles before is up.
  * - **Cheap/hot**: 100 less a slow stochastic of `VALUE_LENGTH` candles (close against their highest high and lowest low, averaged over
  *   `VALUE_SMOOTH`), smoothed by an EMA of `VALUE_EMA`: high when price has fallen to the bottom of its last month or so of candles (cheap),
  *   low when it has run to the top (hot).
  *
- * Fitted to a reference chart's readings (Research_Findings.md): the slow lines followed it to 8 to 10 points in 100, the cheap/hot reading
- * to under 1. They say where price sits in its range, not where it goes next.
+ * Fitted to a reference chart's readings (Research_Findings.md): the Swing lines followed it to 9 to 11 points in 100 and reached its floor
+ * and ceiling zones in 18 of its 20 visits, the cheap/hot reading to under 1 point. They say where price sits in its range, not where it
+ * goes next.
  */
-export const SWING_LENGTH = 29, SWING_FAST = 5, SWING_SLOW = 8, SWING_GAIN = 0.1, SWING_TREND = 5;
+export const SWING_LENGTH = 28, SWING_FAST = 3, SWING_SLOW = 9, SWING_PRICE_GAIN = 0.68, SWING_GAIN = 0.1, SWING_TREND = 5;
 /** Swing zones: a bar reaching under `SWING_LOW` is at the floor of the range, one reaching over `SWING_HIGH` at its ceiling. */
 export const SWING_LOW = 15, SWING_HIGH = 92;
 export const VALUE_LENGTH = 34, VALUE_SMOOTH = 3, VALUE_EMA = 22;
@@ -39,7 +41,8 @@ const position = (x: number, lo: number, hi: number): number => hi > lo ? 100 * 
 
 /** Each candle's readings; a reading is null until the candles before it are enough to make it. */
 export function swingRows(candles: readonly SwingCandle[]): SwingRow[] {
-  const n = candles.length, price = candles.map(c => (c.o + c.h + c.l + c.c) / 4);
+  const n = candles.length, average = candles.map(c => (c.o + c.h + c.l + c.c) / 4), price: number[] = [];
+  for (let i = 0; i < n; i++) price.push(i === 0 ? average[0]! : price[i - 1]! + SWING_PRICE_GAIN * (average[i]! - price[i - 1]!));
   const raw: (number | null)[] = new Array(n).fill(null), fast: (number | null)[] = new Array(n).fill(null), slow: (number | null)[] = new Array(n).fill(null);
   for (let i = SWING_LENGTH - 1; i < n; i++) {
     let lo = Infinity, hi = -Infinity;
@@ -54,7 +57,7 @@ export function swingRows(candles: readonly SwingCandle[]): SwingRow[] {
   for (let i = 0; i < n; i++) fast[i] = mean(raw, i, SWING_FAST);
   for (let i = 0; i < n; i++) slow[i] = mean(fast, i, SWING_SLOW);
   const estimate: number[] = [];
-  for (let i = 0; i < n; i++) estimate.push(i === 0 ? price[0]! : estimate[i - 1]! + SWING_GAIN * (price[i]! - estimate[i - 1]!));
+  for (let i = 0; i < n; i++) estimate.push(i === 0 ? average[0]! : estimate[i - 1]! + SWING_GAIN * (average[i]! - estimate[i - 1]!));
   // Cheap/hot: a slow stochastic of the closes against the highs and lows, turned over and smoothed.
   const k: (number | null)[] = new Array(n).fill(null);
   for (let i = VALUE_LENGTH - 1; i < n; i++) {

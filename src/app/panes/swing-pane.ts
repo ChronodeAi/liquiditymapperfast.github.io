@@ -107,7 +107,12 @@ export class SwingPane extends TimePane {
     // The value axes: each strip's zone edges.
     ctx.fillStyle = p.muted; ctx.textAlign = 'left';
     const ax = this.w - AXIS_W + 6;
-    for (const [value, y] of [[SWING_HIGH, y1(SWING_HIGH)], [SWING_LOW, y1(SWING_LOW)], [VALUE_CHEAP, y2(VALUE_CHEAP)], [VALUE_HOT, y2(VALUE_HOT)]] as const) ctx.fillText(String(value), ax, y + 4);
+    // The zone edges each strip is read against, those with room: a label within 12 px of the one above it is left out.
+    let above = -Infinity;
+    for (const [value, y] of [[SWING_HIGH, y1(SWING_HIGH)], [SWING_LOW, y1(SWING_LOW)], [VALUE_CHEAP, y2(VALUE_CHEAP)], [VALUE_HOT, y2(VALUE_HOT)]] as const) {
+      if (y - above < 12) continue;
+      ctx.fillText(String(value), ax, y + 4); above = y;
+    }
     // Readout and popup: the candle under the pointer, else the newest in view; past the newest, the newest, and the cursor there.
     const time = state.hover ? state.hover.t : Math.min(now, v.t1), newest = rows[rows.length - 1]!;
     const row = [...rows].reverse().find(r => r.t <= time) ?? newest;
