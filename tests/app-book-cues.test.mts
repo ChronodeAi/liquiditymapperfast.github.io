@@ -1801,3 +1801,15 @@ test('the history moves with its cell when the window follows the mid, up or dow
   down.observe([venue(4_000, fillBids(80_865, 50), { ...fillAsks(80_885, 100), 81_081: 3_000_000 })], [ID], ctx(4_000));
   assert.deepEqual(down.recentEvents(ID, 'ask', 81_080, 81_100).map(e => [e.wall, e.usd]), [[3_000, 1_000_000], [2_000, 1_000_000]]);
 });
+
+test('which change is the latest follows the order the publications were made in, not the page\'s clock: a small step back of the clock does not reverse it', () => {
+  const tr = new BookCueTracker(open), l = ladder();
+  tr.observe([book(ID, 1_000, l)], [ID], tiny(10_000));
+  const up = copy(l); up.bids.set(MID - 3, 5_000_000);
+  tr.observe([book(ID, 2_000, up)], [ID], tiny(10_250));
+  const down = copy(up); down.bids.set(MID - 3, 1_000_000);
+  tr.observe([book(ID, 3_000, down)], [ID], tiny(10_150)); // the page's clock went back 100 ms: inside the tolerance, the same run, not a baseline
+  assert.equal(tr.stats.baselines, 1);
+  const events = tr.recentEvents(ID, 'bid', (MID - 3) * G, (MID - 2) * G);
+  assert.deepEqual(events.map(e => [e.usd, e.wall]), [[-4_000_000, 10_150], [4_000_000, 10_250]], 'the removal was made last: it is first, with the age of its own wall');
+});

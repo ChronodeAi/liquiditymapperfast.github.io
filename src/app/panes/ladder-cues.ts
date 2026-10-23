@@ -133,11 +133,11 @@ export const meanwhile = (from: number, to: number): { from: number; to: number 
 /**
  * The USD of the market orders of venue `id` that reached [lo, hi) between `from` and `to` (ms) on the side that takes from the depth there (a
  * buyer takes the asks), whole orders: an order that walked through the row counts at its full size. Null when it is not known: the interval does not lie
- * inside one stretch of the tape without a gap (a short one counts), starts before what the ring still holds, ends too lately for its orders to have all
+ * inside one stretch of the tape without a gap (a short one counts), reaches back to an order the ring has overwritten (`lostThrough`), ends too lately for its orders to have all
  * arrived (`now` is the page's clock), or the venue has no orders on the tape around then.
  */
-export function tradedInRow(ring: Pick<TapeRing, 'data' | 'capacity' | 'segments' | 'runs' | 'ids' | 't0' | 'p0' | 'heldFrom'>, o: { id: string; ask: boolean; lo: number; hi: number; from: number; to: number; now: number }): number | null {
-  if (!(o.to >= o.from) || o.to > o.now - SETTLE_MS || o.from < ring.heldFrom) return null;
+export function tradedInRow(ring: Pick<TapeRing, 'data' | 'capacity' | 'segments' | 'runs' | 'ids' | 't0' | 'p0' | 'lostThrough'>, o: { id: string; ask: boolean; lo: number; hi: number; from: number; to: number; now: number }): number | null {
+  if (!(o.to >= o.from) || o.to > o.now - SETTLE_MS || o.from <= ring.lostThrough) return null;
   const last = ring.segments[ring.segments.length - 1];
   if (!ring.segments.some(s => s.from <= o.from && (s === last ? s.to + COVER_SLACK_MS >= o.to : s.to >= o.to))) return null;
   const local = ring.ids.indexOf(o.id);

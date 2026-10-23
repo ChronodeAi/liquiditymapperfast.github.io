@@ -603,7 +603,7 @@ export class BookCueTracker {
   }
 
   /**
-   * The events kept for [lo, hi) on one side, those of the newest `CUE_HISTORY` publications (by `wall`) that touched it: newest publication first, the
+   * The events kept for [lo, hi) on one side, those of the newest `CUE_HISTORY` publications (by the order they were made in) that touched it: newest publication first, the
    * events of one publication together, price ascending in it. A newer event of a bin need not have touched every display row the bin holds (with levels
    * it moves one row and not the next), so a reader tries each publication from the newest (`rowEventAt` over its events, or `rowEvents` for the figure
    * a row was lit with) until a row has a change. `recent` is the single newest. Empty when nothing overlaps.
@@ -618,13 +618,12 @@ export class BookCueTracker {
     } else if (st.mode === 'band' && st.bands) {
       for (const c of st.bands[side === 'bid' ? 0 : 1].cells.values()) for (const e of c.hist) take(e);
     }
-    found.sort((a, b) => b.wall - a.wall || a.lo - b.lo || a.seq - b.seq);
+    // One publication's events share its `wall`; publications go by the order they were made in (the greatest `seq` of each), not by the page's clock: the clock may step back a little (inside `backToleranceMs`) and still be the same run.
+    const groups = new Map<number, CueEvent[]>();
+    for (const e of found) { let g = groups.get(e.wall); if (!g) { g = []; groups.set(e.wall, g); } g.push(e); }
+    const newest = (g: CueEvent[]): number => { let n = -Infinity; for (const e of g) if (e.seq > n) n = e.seq; return n; };
     const out: CueEvent[] = [];
-    let publications = 0, wall = NaN;
-    for (const e of found) {
-      if (e.wall !== wall) { if (++publications > CUE_HISTORY) break; wall = e.wall; }
-      out.push(e);
-    }
+    for (const g of [...groups.values()].sort((a, b) => newest(b) - newest(a)).slice(0, CUE_HISTORY)) { g.sort((a, b) => a.lo - b.lo || a.seq - b.seq); out.push(...g); }
     return out;
   }
 

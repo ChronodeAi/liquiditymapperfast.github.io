@@ -83,3 +83,16 @@ test('an interval whose orders may still be on their way is not read yet', () =>
   assert.equal(tradedInRow(ring, ask('a:BTC', { now: win.to + 500 })), null, 'half a second after its end');
   assert.equal(tradedInRow(ring, ask('a:BTC', { now: win.to + 1_500 })), 300_000, 'a second and a half after: read');
 });
+
+test('what the ring overwrote is lost through the greatest time it lost, whatever order the orders came in: nothing at or before it is read as "none traded"', () => {
+  const ring = new TapeRing(4096);
+  assert.equal(ring.lostThrough, -Infinity, 'a ring that has not wrapped has lost nothing');
+  // arrival order: a $500K buyer stamped T0 + 1,000 (the first write: the 4,097th overwrites it), then an order stamped earlier (the first the ring keeps, T0 + 900), then fillers of the same venue outside the row
+  const orders: Order[] = [{ id: 'a:BTC', t: T0 + 1_000, price: 81_010, usd: 500_000 }, { id: 'a:BTC', t: T0 + 900, price: 82_000, usd: 1_000 }];
+  for (let k = 0; k < 4_095; k++) orders.push({ id: 'a:BTC', t: T0 + 2_000 + k, price: 82_000, usd: 1_000 });
+  tapeOf(orders, 1, ring);
+  assert.equal(ring.written, 4_097); assert.equal(ring.lostThrough, T0 + 1_000); assert.equal(ring.heldFrom, T0 + 900, 'the oldest in arrival order is older than what was lost');
+  assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 950, to: T0 + 2_700 })), null, 'its interval reaches the overwritten trade: unknown, not 0');
+  assert.equal(tradedInRow(ring, ask('a:BTC', { from: T0 + 1_001, to: T0 + 2_700 })), 0, 'after what was lost it is known');
+  ring.clear(); assert.equal(ring.lostThrough, -Infinity);
+});

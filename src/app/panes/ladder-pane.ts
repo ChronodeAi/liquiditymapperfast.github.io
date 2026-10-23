@@ -651,7 +651,8 @@ export class LadderPane {
    * and added up), so the figure the pointer reads is the one the cell was lit with, and a row of several bins that changed together says their sum.
    */
   #changesAt(ids: readonly string[], ask: boolean, lo: number, hi: number, g: Grouped, bin: number): ChangeFact[] {
-    const now = Date.now(), out: ChangeFact[] = [], step = hi - lo, scale = this.#cues.scale;
+    // The grouping's own step, never `hi - lo` (the difference of two products is not the step at a decimal one: 0.10000000000582077 for 0.1).
+    const now = Date.now(), out: ChangeFact[] = [], step = g.step, scale = this.#cues.scale;
     // What a venue shows in the row now: a row is emptied only if it holds nothing (the change is the part of the row that it touched).
     const held = (id: string): number => { const i = g.ids.indexOf(id); return (ask ? g.ask[i] : g.bid[i])?.[bin] ?? 0; };
     for (const id of ids) {
