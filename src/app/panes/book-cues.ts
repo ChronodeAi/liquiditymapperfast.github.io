@@ -23,14 +23,21 @@ import { binOf } from '../../shared/footprint.ts';
  *    exactly: a property test (`Research_Files/order_book_physics_20261022/merge-bin-invariance.mjs`, repeated in the tests of this
  *    module) found 0 bins changed on grids that are multiples of the merge step and 13 to 54 % on a $50 or $25 row grid beyond $500 from
  *    the mid. So the comparison is made on the grid, within `ZONE_STEPS` of the mid, and `rowEvents` puts a cell on the rows afterwards.
- *  - A cell keeps the levels it is made of (`CueEvent.lv`: the price and USD of each point level of the bin, in both publications). The merge
- *    keeps the touch at a twentieth of the grid step (a lone level keeps its exact price; widths grow through step / 10, / 5, / 4, / 2 to one
- *    whole step at 250 steps from the mid), so a bin holds up to twenty prices where the ladder's rows are finer than the grid ($10 or $5
- *    zoomed in) or straddle its edge (the default $50 rows over a $20 grid: one bin in five), and the ladder's own bars are built from those
- *    prices. A bin's net says nothing of which row moved which way: +$2M at 81,021 and -$500K at 81,031 in one bin read as +$750K on both $10
- *    rows when the net was shared by overlap (Sol, 2026-10-22), where the bars show +$2M and -$500K. `rowEvents` places each level in its row as
- *    the kernel does (`spread_levels`: the floor of price / step), so a row's change is the bar's change. A band level (a share of a bin, not a
- *    price) in either publication of a side, or a weak change whose first publication was not kept, leaves the event to the share by overlap.
+ *  - Near the mid, a cell keeps the levels it is made of (`CueEvent.lv`: the price and USD of each point level of the bin, in both publications).
+ *    The merge keeps the touch at a twentieth of the grid step: out to `LV_STEPS` (12.5) grid steps from the mid a lone level keeps its exact
+ *    price and a bucket is a twentieth of a step wide, aligned to multiples of that width (`FINEST` and `DISTANCE_SHARE` of `shared/merge.ts`,
+ *    mirrored here as `MERGE_FINEST` and `MERGE_DISTANCE_SHARE`, and pinned against `bucketWidth` by the tests, so a change there fails them). So
+ *    a bin holds up to twenty prices where the ladder's rows are finer than the grid ($10 or $5 zoomed in) or straddle its edge (the default $50
+ *    rows over a $20 grid: one bin in five), the ladder's own bars are built from those prices, and a bucket never straddles a row edge whose
+ *    step is a multiple of its width (every nice step: $1, $2, $5, $10, $25, $50 at a $20 grid). A bin's net says nothing of which row moved
+ *    which way: +$2M at 81,021 and -$500K at 81,031 in one bin read as +$750K on both $10 rows when the net was shared by overlap (Sol,
+ *    2026-10-22), where the bars show +$2M and -$500K. `rowEvents` places each level in its row as the kernel does (`spread_levels`: the floor
+ *    of price / step), so there a row's change is the bar's change. Beyond that distance the buckets widen and a bucket is reported at its
+ *    farthest member, so a member that goes moves the whole bucket, and its bar, across a row edge: a $60K cancellation in a $5M bucket that
+ *    hops reads as -$5M on one row and +$4.94M on the next, two cues at full strength for a change of $60K. So there the event is a share of
+ *    the bin's net by overlap, never the wrong way by more than the change (`CueTuning.lvSteps` moves the limit; 0 keeps no levels). A band
+ *    level (a share of a bin, not a price) in either publication of a side, or a weak change whose first publication was not kept, leaves the
+ *    event to the share too.
  *  - A cell counts only where the book covers it in BOTH publications (a depth limit moving with the price is not a pull): a bin past the
  *    lowest bid level or the highest ask level is unknown, not empty, and so is the edge bin that holds that level and may be cut; the
  *    bins in the spread are known to be empty. Bins that enter the zone or the book's reach start again, with no event.
@@ -43,21 +50,32 @@ import { binOf } from '../../shared/footprint.ts';
  * the merge guarantee does not hold, and the cells there are not compared or are flagged. Banded books (Hyperliquid) are compared band
  * by band where the same band exists in both publications, never inside their touch span (a split that moves with the trades is not
  * liquidity coming or going). A change that nets to zero inside one bin (a level moving between two prices of the bin) raises no event, however
- * far it moves the bar between two rows finer than the grid; and where the merge widens its buckets (from $250 away at BTC) a bucket is reported
- * at its farthest member, so its price can hop between two such rows when its members change: the bar shows that hop, and so does the cue.
+ * far it moves the bar between two rows finer than the grid. Within `lvSteps` of the mid a row finer than the merge's bucket (below $1 at a $20
+ * grid) hops with the bucket's price, and so does the cue: the bar's own truth. Beyond it the bar hops with a bucket's reported price and the
+ * cue does not: the row is a share of the bin's net, by overlap. The limit is a bin's far edge from the mid, in the publication that holds the
+ * levels, so it can be off by the finest width (the mid is worked out from the merged book, not the native one): a bucket there may be twice as wide.
  *
  * Pure: no DOM, no WASM (the step costs 0.07 ms for 12 books x 120 bins, and JavaScript matched or beat a Rust kernel in the study, which
  * copies across the boundary), no text. State is typed arrays of 2 x `ZONE_STEPS` + 20 cells (518) a side a book, reused; once a book is
  * warm a frame allocates the events it returns, the short lists of levels they keep, the array that holds them and a few iterators, nothing
  * sized by the books. Measured in Node (`Research_Files/order_book_physics_20261022/tracker-bench.mts`, synthetic books that raise about three
- * times the events the live ones do): the eleven default books at about 430 levels a side with four new publications a frame take 0.26 ms (a
- * frame that repeats them all, 0.07 ms), of which keeping the levels is 0.035 ms (1.5 us an event); 25 books at 500 levels with eight, 0.62 ms.
+ * times the events the live ones do, 79 % of them near the mid as the live ones were): the eleven default books at about 430 levels a side with
+ * four new publications a frame take 0.24 ms without levels (`lvSteps` 0) and 0.28 ms with them near the mid (a frame that repeats them all,
+ * 0.07 ms); 25 books at 500 levels with eight, 0.51 and 0.63 ms. A bin beyond `lvSteps` is told apart by two comparisons, before anything is listed.
  */
 
 /** Estimated recent net increase cools with this time constant; recent activity (adds and removes) with the second. */
 export const TAU_FRESH_MS = 45_000, TAU_ACTIVITY_MS = 20_000;
 /** Grid steps either side of a book's mid inside which the merged book holds the native USD per grid bin (`shared/merge.ts`: width <= step to 250 steps). */
 export const ZONE_STEPS = 249;
+/**
+ * The merge's finest bucket, a twentieth of the grid step, holds while a level's distance from the mid times 0.4 % is no more than that width
+ * (`bucketWidth` in `shared/merge.ts`, which exports neither constant): so out to `LV_STEPS` = 1 / 20 / 0.004 = 12.5 grid steps from the mid (about
+ * $250 at BTC's $20 grid) a lone level keeps its exact price and a bucket is aligned to multiples of its width. The two are mirrored here, and the
+ * tests pin the distance they give against `bucketWidth` itself, so a change there fails them instead of leaving the tracker behind.
+ */
+export const MERGE_FINEST = 20, MERGE_DISTANCE_SHARE = 0.004;
+export const LV_STEPS = 1 / MERGE_FINEST / MERGE_DISTANCE_SHARE;
 /** Opposite changes within this many bins whose sum is under this share of the larger are flagged as one re-quote. */
 export const PAIR_BINS = 2, PAIR_TOLERANCE = 0.15;
 /** A change of this many gates or more is raised at once; a weaker one waits for the next publication to agree. */
@@ -88,11 +106,19 @@ export interface CueTuning {
    * as it was.
    */
   freshGated: boolean;
+  /**
+   * Grid steps from the book's mid within which an event keeps the levels it is made of (`CueEvent.lv`): a bin counts only when all of it is that near, in
+   * the publication that holds the levels (and so in both, for a change measured from the one before). Beyond, the merge's buckets are wider than a
+   * twentieth of the grid step and a bucket is reported at its farthest member, so a member that goes moves the whole bucket, and its bar, across a row
+   * edge: levels would show that as two cues of the bucket's size for a change of the member's, where the share by overlap is never the wrong way by
+   * more than the change. `LV_STEPS` (12.5) is where the merge's buckets are at their finest; 0 keeps no levels, a large number keeps them everywhere.
+   */
+  lvSteps: number;
 }
 export const DEFAULT_TUNING: CueTuning = {
   tauFreshMs: TAU_FRESH_MS, tauActivityMs: TAU_ACTIVITY_MS, zoneSteps: ZONE_STEPS, pairBins: PAIR_BINS, pairTolerance: PAIR_TOLERANCE, confirmRatio: CONFIRM_RATIO,
   noiseHalfLifeMs: NOISE_HALF_LIFE_MS, minGapMs: MIN_GAP_MS, gapCadences: GAP_CADENCES, forgetMs: FORGET_MS, meanShare: MEAN_SHARE, noiseMultiple: NOISE_MULTIPLE,
-  noiseClip: NOISE_CLIP, backToleranceMs: BACK_TOLERANCE_MS, ghostMs: GHOST_MS, freshGated: false,
+  noiseClip: NOISE_CLIP, backToleranceMs: BACK_TOLERANCE_MS, ghostMs: GHOST_MS, freshGated: false, lvSteps: LV_STEPS,
 };
 
 /** What the tracker reads of a `LiveBook` (structural: a `LiveBook` is one). `step` is the grid the server merged the book on (`ValuedBook.step`). */
@@ -137,8 +163,10 @@ export interface CueEvent {
   confirmed: boolean;
   /**
    * The point levels the cell is made of, in the two publications it rests on (the one before the weak change, once confirmed), so `rowEvents` can
-   * place the change on the rows the way the ladder's bars were: a bin's net says nothing of which of two finer rows moved which way. Absent on a
-   * band, on a side that has a band level in either publication, and on a confirmed change whose first publication was not kept.
+   * place the change on the rows the way the ladder's bars were: a bin's net says nothing of which of two finer rows moved which way. Kept only
+   * for a bin that lies wholly within `CueTuning.lvSteps` grid steps of the book's mid, in both publications (where the merge has not widened its
+   * buckets). Absent on a band, on a side that has a band level in either publication, on a bin farther than that, and on a confirmed change whose
+   * first publication was not kept.
    */
   lv?: CueLevels;
 }
@@ -304,6 +332,8 @@ interface Book {
   grid: number; approx: boolean;
   lastWall: number; lastStamp: number; cadence: number; observations: number;
   zoneLo: number; zoneHi: number;
+  /** The mid of the last publication compared from, in grid steps (NaN when there is none): where the levels of that publication were merged around. */
+  midSteps: number;
   fine: [Fine, Fine] | null;
   bands: [Bands, Bands] | null;
   touchLo: number; touchHi: number;
@@ -359,9 +389,10 @@ function sharePrices(alo: number, ahi: number, blo: number, bhi: number): boolea
 
 /**
  * What `#fineSide` reads of one side of the publication: the frame's arrays and how many levels of them count, whether any level is a band, which way
- * the prices run (`dir`: 1 rising, -1 falling, 0 neither), the previous publication's copy.
+ * the prices run (`dir`: 1 rising, -1 falling, 0 neither), the previous publication's copy, and the mid of this publication and of the previous one in
+ * grid steps (where each was merged around).
  */
-interface SideNow { arrays: SideArrays; len: number; bands: number; dir: number; prev: SideCopy }
+interface SideNow { arrays: SideArrays; len: number; bands: number; dir: number; prev: SideCopy; mid: number; prevMid: number }
 /** The levels a cell needs listed: those of the previous publication (`LV_PREV`), those of this one (`LV_CUR`). */
 const LV_PREV = 1, LV_CUR = 2;
 
@@ -426,7 +457,7 @@ export class BookCueTracker {
   /** What `#scan` found: the usable levels of a side, its best price and its reach, how many of them are bands, and which way its prices run. */
   readonly #sc = { valid: 0, best: 0, reach: 0, bands: 0, dir: 0 };
   /** The side `#fineSide` is reading (refilled for each side, never allocated). */
-  readonly #now: SideNow = { arrays: { lo: new Float64Array(0), hi: new Float64Array(0), usd: new Float64Array(0) }, len: 0, bands: 0, dir: 0, prev: new SideCopy() };
+  readonly #now: SideNow = { arrays: { lo: new Float64Array(0), hi: new Float64Array(0), usd: new Float64Array(0) }, len: 0, bands: 0, dir: 0, prev: new SideCopy(), mid: NaN, prevMid: NaN };
   /** The cells of the side being read whose levels are being listed: what is wanted of each, and the lists (by window cell, each null unless wanted). */
   readonly #lvFlag: Uint8Array;
   readonly #lvPrev: (number[] | null)[]; readonly #lvCur: (number[] | null)[];
@@ -474,7 +505,7 @@ export class BookCueTracker {
       this.stats.observations++;
       if (!st) {
         st = { id: book.id, seen: wall, frame, pub: new Publication(), usable: false, mode: null, grid: 0, approx: false, lastWall: wall, lastStamp: NaN, cadence: 0, observations: 0,
-          zoneLo: NaN, zoneHi: NaN, fine: null, bands: null, touchLo: NaN, touchHi: NaN };
+          zoneLo: NaN, zoneHi: NaN, midSteps: NaN, fine: null, bands: null, touchLo: NaN, touchHi: NaN };
         this.#books.set(book.id, st);
       }
       st.seen = wall;
@@ -609,7 +640,7 @@ export class BookCueTracker {
   #invalidate(st: Book): void {
     if (st.fine) for (const s of st.fine) this.stats.weakDropped += s.wipe();
     if (st.bands) for (const s of st.bands) this.stats.weakDropped += s.wipe();
-    st.zoneLo = NaN; st.zoneHi = NaN;
+    st.zoneLo = NaN; st.zoneHi = NaN; st.midSteps = NaN;
   }
 
   /** A point book: its levels binned on the merge grid inside the zone, each side compared cell by cell where both publications cover it. */
@@ -635,6 +666,7 @@ export class BookCueTracker {
     if (!(z1 >= z0) || z1 - z0 + 1 > n - 2 * PAD) return false;
     if (baseline) this.stats.baselines++;
     st.grid = g; st.approx = !published; st.zoneLo = z0 * g; st.zoneHi = (z1 + 1) * g;
+    const prevMid = st.midSteps; st.midSteps = m;
     const fine = st.fine ??= [new Fine(n), new Fine(n)];
     const binned = spec && g === gSpec && z0 >= baseSpec && z1 < baseSpec + n;
     for (const s of fine) {
@@ -647,6 +679,7 @@ export class BookCueTracker {
     const bidFrom = binOf(bidLo, g) + 1, bidTo = binOf(bestAsk, g), askFrom = binOf(bestBid, g), askTo = binOf(askHi, g) - 1;
     // The previous publication is still the one `st.pub` holds (it is stored once this returns), which is where the levels behind a cell's old value are.
     const now = this.#now;
+    now.mid = m; now.prevMid = prevMid;
     now.arrays = bids; now.len = nb; now.bands = bandsB; now.dir = dirB; now.prev = st.pub.bids;
     this.#fineSide(st, fine[0], sq, Math.max(bidFrom, z0), Math.min(bidTo, z1), 'bid', ctx, baseline, dt, out, now);
     now.arrays = asks; now.len = na; now.bands = bandsA; now.dir = dirA; now.prev = st.pub.asks;
@@ -707,6 +740,10 @@ export class BookCueTracker {
     // told by) and, for the previous publication's, had none then.
     const prevBand = s.hadBand, prevDir = s.dir; s.hadBand = now.bands > 0; s.dir = now.dir;
     const lvNow = now.bands === 0, lvPrev = lvNow && !prevBand;
+    // And only for a bin that lies wholly within `lvSteps` grid steps of the book's mid in the publication that holds the levels, [mid - lvSteps, mid +
+    // lvSteps - 1] in bins: farther, the merge's buckets are wider and a bucket's price hops with its members. Far bins are told apart here, before
+    // anything is listed or searched for.
+    const reach = t.lvSteps, nearLo = now.mid - reach, nearHi = now.mid + reach - 1, backLo = now.prevMid - reach, backHi = now.prevMid + reach - 1;
     const fl = this.#lvFlag, lp = this.#lvPrev, lc = this.#lvCur, cells = this.#lvCells; cells.length = 0;
     const iLo = from - s.base, iHi = to - s.base;
     const has = iHi >= iLo, known = s.known, pend = s.pend;
@@ -733,23 +770,23 @@ export class BookCueTracker {
         s.m[i] = est.m; s.u[i] = est.u; s.a[i] = est.a;
         if (qp > 0 || qn > 0) { nSum += ad < cap ? ad : cap; nCnt++; }
         // A change measured from the value before a weak one rests on the publication that value was in, and on the levels it listed then.
-        const waiting = s.pend[i] !== 0, prevWall = waiting ? s.preWall[i]! : st.lastWall;
+        const waiting = s.pend[i] !== 0, prevWall = waiting ? s.preWall[i]! : st.lastWall, bin = s.base + i;
         const dropped = judge(gate, qp, qn, s.pend[i]!, s.pre[i]!, t.confirmRatio);
         if (dropped) this.stats.weakDropped++;
         s.pend[i] = 0;
         if (verdict.kind === WEAK) {
           s.pend[i] = verdict.usd > 0 ? 1 : -1; s.pre[i] = verdict.before; s.preWall[i] = prevWall;
           // The levels of the publication before the change wait on the cell for the one that confirms it (a change that waits already has them). They
-          // are the previous publication's alone, whatever this one holds: the event measures from them to the confirming publication's.
-          if (!waiting && !prevBand) { fl[i] = LV_PREV; lp[i] = []; cells.push(i); }
+          // are the previous publication's alone, whatever this one holds: the event measures from them to the confirming publication's. A bin that
+          // was not near the mid then keeps none.
+          if (!waiting && !prevBand && bin >= backLo && bin <= backHi) { fl[i] = LV_PREV; lp[i] = []; cells.push(i); }
         } else if (verdict.kind !== NONE) {
-          const bin = s.base + i;
           const ev = this.#event(st.id, side, bin * g, (bin + 1) * g, g, verdict.usd, verdict.before, qn, ctx, false, st.approx, verdict.kind === CONFIRMED, prevWall);
           s.last[i] = ev; out.push(ev); bins.push(bin);
           if (waiting) {
             const kept = s.preLv[i]!; s.preLv[i] = null;
-            if (kept !== null && lvNow) { fl[i] = LV_CUR; lp[i] = kept; lc[i] = []; cells.push(i); }
-          } else if (lvPrev) { fl[i] = LV_PREV | LV_CUR; lp[i] = []; lc[i] = []; cells.push(i); }
+            if (kept !== null && lvNow && bin >= nearLo && bin <= nearHi) { fl[i] = LV_CUR; lp[i] = kept; lc[i] = []; cells.push(i); }
+          } else if (lvPrev && bin >= nearLo && bin <= nearHi && bin >= backLo && bin <= backHi) { fl[i] = LV_PREV | LV_CUR; lp[i] = []; lc[i] = []; cells.push(i); }
         } else if (waiting) s.preLv[i] = null;
       } else {
         if (s.pend[i] !== 0) { this.stats.weakDropped++; s.pend[i] = 0; s.preLv[i] = null; }
