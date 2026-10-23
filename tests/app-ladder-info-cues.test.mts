@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agoText, cueLines, gutterLines, levelLines, rowChange, smallerVenuesLines, venueCellLines, type ChangeFact, type LevelFacts } from '../src/app/panes/ladder-info.ts';
+import { agoText, byPublication, cueLines, gutterLines, latestRowChange, levelLines, smallerVenuesLines, venueCellLines, type ChangeFact, type LevelFacts } from '../src/app/panes/ladder-info.ts';
 import { rowEvents, type CueEvent } from '../src/app/panes/book-cues.ts';
 
 let seq = 0;
@@ -12,16 +12,16 @@ const change = (extra: Partial<ChangeFact> = {}): ChangeFact => ({ name: 'Binanc
 
 test('the figure the pointer reads for a row is the one its cell was lit with: the sum of what changed together in it, shared as the light shared it', () => {
   const together = [event(81_000, 1e6, { seq: 1 }), event(81_020, 2e6, { seq: 2 }), event(81_040, -0.5e6, { seq: 3 })];
-  const row = rowChange(together, 81_000, 100, 1.5e6)!;
+  const row = latestRowChange([together], 810, 100, 1.5e6)!;
   assert.equal(row.usd, 2.5e6, 'three bins of one publication in one $100 row: their sum, not the newest one');
   assert.deepEqual(row, rowEvents(together, 100, 1.5e6).find(r => r.row === 810)!, 'the very row the cue was made from');
   assert.equal(row.wall, 10_000); assert.equal(row.prevWall, 9_000);
-  const half = rowChange([event(81_020, 1e6)], 81_020, 10, 1.5e6)!;
+  const half = latestRowChange([[event(81_020, 1e6)]], 8_102, 10, 1.5e6)!;
   assert.equal(half.usd, 0.5e6, 'a $20 bin under $10 rows lights both rows with half, as the ladder itself shows it');
-  assert.equal(rowChange([event(81_020, 1e6)], 81_040, 10, 1.5e6), null, 'a row the event did not reach');
-  assert.equal(rowChange([], 81_000, 100, 1.5e6), null);
+  assert.equal(latestRowChange([[event(81_020, 1e6)]], 8_104, 10, 1.5e6), null, 'a row the event did not reach');
+  assert.equal(latestRowChange([], 810, 100, 1.5e6), null);
   const band = event(80_000, 1e6, { hi: 81_000, grid: 0, band: true });
-  const fine = rowChange([band], 80_900, 0.1, 1.5e6)!;
+  const fine = latestRowChange([[band]], 809_000, 0.1, 1.5e6)!;
   assert.ok(fine && Math.abs(fine.usd - 1e6 * 0.1 / 1_000) < 1e-6, 'a band a thousand dollars wide at Group $0.1: the row asked about gets its share, not null from a projection cut short');
 });
 
@@ -33,6 +33,16 @@ test('what traded around a change is said beside it where the tape says, and not
   assert.equal(none[0]!.text, '−$1.5M · 1 s ago · none traded');
   const unknown = cueLines({ ask: true, changes: [change({ usd: -1.5e6 })] });
   assert.equal(unknown[0]!.text, '−$1.5M · 1 s ago'); assert.ok(!unknown.some(l => /^Traded:/.test(l.text)), 'the tape does not say: nothing said, not "none"');
+});
+
+test('a newer publication that changed only a neighbouring row of the bin does not erase a row\'s last change', () => {
+  // two $10 rows in one bin: the older publication changed both (+$2M and -$500K at their prices), the newer only the first (+$1M)
+  const older = event(81_020, 1.5e6, { wall: 10_000, seq: 1, lv: { prev: [81_021, 1e6, 81_031, 1e6], cur: [81_021, 3e6, 81_031, 0.5e6] } });
+  const newer = event(81_020, 1e6, { wall: 12_000, seq: 2, lv: { prev: [81_021, 3e6, 81_031, 0.5e6], cur: [81_021, 4e6, 81_031, 0.5e6] } });
+  const groups = byPublication([newer, older]);
+  assert.equal(groups.length, 2); assert.deepEqual(byPublication([older, event(81_040, 1e5, { wall: 10_000, seq: 3 })]).map(g => g.length), [2], 'events of one publication stay together');
+  assert.equal(latestRowChange(groups, 8_102, 10, 1.5e6)!.usd, 1e6, 'the first row: its newest change');
+  assert.equal(latestRowChange(groups, 8_103, 10, 1.5e6)!.usd, -0.5e6, 'the second row was not touched by the newer publication: the older one\'s change stands');
 });
 
 test('how long ago reads as a person says it', () => {

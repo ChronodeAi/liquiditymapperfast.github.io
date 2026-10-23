@@ -18,7 +18,7 @@ import { currentCoin } from '../coin.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type Pt } from '../touch.ts';
 import { dimOutside, mirrorLines, mirrorStats, paintBand, paintMirrorBox, percentText, type MirrorStats } from '../mirror.ts';
 import { paintInfoBox, type InfoLine } from '../infobox.ts';
-import { gutterLines, levelLines, rowChange, smallerVenuesLines, venueCellLines, type ChangeFact, type HeatFact, type LevelFacts } from './ladder-info.ts';
+import { byPublication, gutterLines, latestRowChange, levelLines, smallerVenuesLines, venueCellLines, type ChangeFact, type HeatFact, type LevelFacts } from './ladder-info.ts';
 import { CueLayer } from './ladder-cue-layer.ts';
 import { meanwhile, tradedInRow, type Cell, type CueBoard } from './ladder-cues.ts';
 import { heatTone, paintStrip } from './ladder-cue-paint.ts';
@@ -656,7 +656,7 @@ export class LadderPane {
     const held = (id: string): number => { const i = g.ids.indexOf(id); return (ask ? g.ask[i] : g.bid[i])?.[bin] ?? 0; };
     for (const id of ids) {
       const events = this.#cues.tracker.recentEvents(id, ask ? 'ask' : 'bid', lo, hi);
-      const r = events.length ? rowChange(events, lo, step, scale) : null;
+      const r = events.length ? latestRowChange(byPublication(events), g.bin0 + bin, step, scale) : null;
       if (!r || now - r.wall > CHANGE_HOVER_MS) continue;
       const traded = this.#tradedMeanwhile(id, ask, lo, hi, r.prevWall, r.wall);
       out.push({ name: bookName(id), id, usd: r.usd, ageMs: Math.max(0, now - r.wall), removed: r.removed && held(id) === 0, pair: r.pair, ...(traded !== null ? { traded } : {}) });

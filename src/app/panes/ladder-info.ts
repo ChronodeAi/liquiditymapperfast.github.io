@@ -1,18 +1,23 @@
 import type { InfoLine } from '../infobox.ts';
 import { price as fmtPrice, usd } from '../format.ts';
 import { t, tn } from '../i18n.ts';
-import { binOf } from '../../shared/footprint.ts';
-import { rowEvents, type CueEvent, type RowEvent } from './book-cues.ts';
+import { rowEventAt, type CueEvent, type RowEvent } from './book-cues.ts';
+
+/** The events a venue's cells raised, grouped by the publication that raised them (the events of one `wall` together, in the order given: newest publication first). */
+export function byPublication(events: readonly CueEvent[]): CueEvent[][] {
+  const out: CueEvent[][] = [];
+  for (const e of events) { const last = out[out.length - 1]; if (last && last[0]!.wall === e.wall) last.push(e); else out.push([e]); }
+  return out;
+}
 
 /**
- * The change a price row's light was made from: the events of one publication that fell in [lo, lo + step) shared over the row and added up as the
- * cue's were (`rowEvents`), so the figure the pointer reads is the figure the cell was lit with, whether the row holds several bins that changed
- * together or one bin shared with the row next to it. Null when no event reached the row.
+ * The change a price row's light was made from, by the row's own index: the events of the newest publication that changed this row, shared over it and
+ * added up as the cue's were (`rowEventAt`), so the figure the pointer reads is the figure the cell was lit with. Publications are tried from the newest
+ * back: a newer one that changed only a neighbouring row of the same bin does not erase this row's last change. Null when none changed it.
  */
-export function rowChange(events: readonly CueEvent[], lo: number, step: number, scale: number): RowEvent | null {
-  const row = binOf(lo, step);
-  // Only this row is projected: a band across thousands of rows (a fine Group) or a bin across many would otherwise be cut short, or made into rows nobody asked about.
-  return rowEvents(events, step, scale, { lo, hi: lo }).find(r => r.row === row) ?? null;
+export function latestRowChange(publications: readonly (readonly CueEvent[])[], row: number, step: number, scale: number): RowEvent | null {
+  for (const events of publications) { const r = rowEventAt(events, row, step, scale); if (r && r.usd !== 0) return r; }
+  return null;
 }
 
 /** What is known about one price level of the order book, to say what the pointer is on. */
