@@ -11,7 +11,7 @@ import { t } from './i18n.ts';
  * button opens (Trades, Absorption, Highlights, Sounds) has it in its panel's tool strip; a settings window opened from a pane's header
  * shares that pane's. Windows that only do a job (About, Install, the venue menu, the venue and coin pickers) explain themselves and have none.
  */
-export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'tof' | 'tofPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
+export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'tof' | 'tofPane' | 'swing' | 'swingPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane';
 
 export interface HelpTopic {
   title: string;
@@ -91,6 +91,19 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
       t('A burst says how hard the market was hit, not which way it goes next. Measured on Binance BTCUSDT from 2024 to 2026, a burst while price was quiet was followed by a 2σ move within 6 candles 55 to 67 % of the time against about 22 % for other quiet candles (the Signals panel\'s amber rings), and the buying or selling in it said nothing about the side.'),
       t('On the map, with Levels on, each candle leaves a dot at its open, sized by its reading, until a later candle trades through that price; From chooses which candles leave one. The dots still there are where moves went on and price has not come back. That is why they sit so neatly at the starts of moves: the ones whose move failed were taken. Taken shows those too, faint. By price adds up the untapped levels\' reading by price along the right edge of the map.'),
       t('It needs the chart\'s own candles (their range weighs the volume) and the flow the page holds: a day a second at a time, and older minutes where the server keeps them (a week).')],
+  },
+  swing: {
+    title: t('Swing'), guide: 'lower-panes',
+    tip: t('A pane under the map: where price sits in its recent range, fast and slow, coloured by its trend; and under it how cheap or hot price is.'),
+    body: [],
+  },
+  swingPane: {
+    title: t('Swing'), guide: 'lower-panes',
+    tip: t('Where price sits in its recent range, fast and slow, coloured by its trend; and under it how cheap or hot price is.'),
+    body: [t('Swing, the bars: where price sits in its last 29 candles, 0 at the lowest and 100 at the highest, with price taken as each candle\'s average of open, high, low and close. The fast line averages the last 5 candles of it, the slow line the fast one\'s last 8, and the bar spans the two. A bar is green while a Kalman estimate of price (a steady gain of 0.1) is higher than 5 candles before, red while it is lower. A bar reaching into the shaded floor (15 and under) is at the bottom of the range, into the ceiling (92 and over) at its top.'),
+      t('Cheap/hot, the dark area: 100 less a slow stochastic of the last 34 candles (each close against their highest high and lowest low, averaged over 3), smoothed over about 22 candles. From 50 up price is cheap against its last month or so of candles, under 17.5 hot, between neutral.'),
+      t('Both say where price sits in its range, not where it goes next: a floor or a cheap reading can stay one through a falling market. They have not been tested here as signals. Their lengths were chosen to follow a published pair of such readings on BTC, which they track to about 8 to 10 points in 100 (the bars) and under 1 (the area).'),
+      t('The candles are the public price history\'s at the chart\'s timeframe (Binance\'s market of the coin), up to 2,000 of them, so the pane reaches back before the page recorded anything and works on every timeframe; where the chart shows that market, the candle under way is the chart\'s own. The first readings need about 40 candles before them.')],
   },
   ls: {
     title: t('Long/Short'), guide: 'lower-panes',

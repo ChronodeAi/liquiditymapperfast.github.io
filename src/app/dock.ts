@@ -10,7 +10,7 @@ import { t } from './i18n.ts';
  * A tab exists only while its pane is switched on in Settings.
  * A handle between the map and the pane resizes it, and the size is remembered per tab and orientation.
  */
-export type DockTab = 'map' | 'candle' | 'flow' | 'book' | 'depth' | 'oi' | 'delta' | 'tof' | 'ls' | 'lt' | 'stats';
+export type DockTab = 'map' | 'candle' | 'flow' | 'book' | 'depth' | 'oi' | 'delta' | 'tof' | 'swing' | 'ls' | 'lt' | 'stats';
 
 interface TabSpec { id: DockTab; label: string; tip: string; icon: string; /** The `show` switch that must be on; absent when the pane is always available. */ needs?: keyof AppState['show'] }
 const svg = (body: string): string => `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -32,6 +32,8 @@ export const DOCK_TABS: readonly TabSpec[] = [
     icon: svg('<path d="M5 20V12M9.7 20V8M14.3 20v-6M19 20V5"/><path d="M3.5 12h17" stroke-dasharray="2 2.5"/>') },
   { id: 'tof', label: 'TOF', tip: t('Toxic flow: how hard takers hit each exchange in each candle, against its own recent candles.'), needs: 'tof',
     icon: svg('<path d="M3.5 20h17"/><path d="M3.5 16c2.5 0 3-3 5-3s2 5 4 5 2.5-12 4.5-12 2 8 3.5 8"/>') },
+  { id: 'swing', label: t('Swing'), tip: t('Where price sits in its recent range, fast and slow, coloured by its trend; and under it how cheap or hot price is.'), needs: 'swing',
+    icon: svg('<path d="M4 6v5M8 9v7M12 13v6M16 10v6M20 5v6"/><path d="M3.5 20h17" stroke-dasharray="2 2.5"/>') },
   { id: 'ls', label: t('L/S'), tip: t('The share of each exchange\'s accounts that is net long, as the exchange publishes it.'), needs: 'ls',
     icon: svg('<path d="M3.5 12h17" stroke-dasharray="2 2.5"/><path d="M3.5 9h5v-2h5v3h7"/><path d="M3.5 16h6v1.5h4v-2h7"/>') },
   { id: 'lt', label: 'LT', tip: t('The Liquidity Tracker: bid and ask liquidity near the price as two lines.'), needs: 'lt',
@@ -63,8 +65,8 @@ export const resolveTab = (wanted: DockTab, show: AppState['show']): DockTab => 
  * or the pixels the person dragged it to. The result is a CSS length for `--dock-size`.
  */
 export const DEFAULT_SHARE: Readonly<Record<Axis, Readonly<Record<Exclude<DockTab, 'map' | 'candle'>, number>>>> = {
-  portrait: { flow: 0.5, book: 0.46, depth: 0.38, oi: 0.38, delta: 0.38, tof: 0.38, ls: 0.34, lt: 0.38, stats: 0.3 },
-  landscape: { flow: 0.46, book: 0.46, depth: 0.42, oi: 0.42, delta: 0.42, tof: 0.42, ls: 0.4, lt: 0.42, stats: 0.38 },
+  portrait: { flow: 0.5, book: 0.46, depth: 0.38, oi: 0.38, delta: 0.38, tof: 0.38, swing: 0.4, ls: 0.34, lt: 0.38, stats: 0.3 },
+  landscape: { flow: 0.46, book: 0.46, depth: 0.42, oi: 0.42, delta: 0.42, tof: 0.42, swing: 0.44, ls: 0.4, lt: 0.42, stats: 0.38 },
 };
 export const clampSize = (px: number, available: number, axis: Axis): number => Math.round(Math.max(axis === 'portrait' ? 120 : 220, Math.min(available - (axis === 'portrait' ? 150 : 200), px)));
 
