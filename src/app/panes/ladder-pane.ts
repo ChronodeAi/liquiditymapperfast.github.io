@@ -11,7 +11,7 @@ import { price as fmtPrice, usd } from '../format.ts';
 import { LADDER_CURVES, type Store, type AppState } from '../store.ts';
 import type { Hub } from '../hub.ts';
 import { RANK_MS } from '../cvd/settings.ts';
-import { CurveRanking, curveColors, curveLines, lineFraction, lineTicks, nearestCurve, rankCurveVenues, reachRows, reachText, venueCumulative, CURVE_HIT_PX, CURVE_MIN_ROWS, type CurveVenue } from './ladder-curves.ts';
+import { CurveRanking, curveColors, curveLines, cutAtBars, lineFraction, lineTicks, nearestCurve, rankCurveVenues, reachRows, reachText, venueCumulative, CURVE_HIT_PX, CURVE_MIN_ROWS, CURVE_OVER_BAR_SHARE, type CurveVenue, type LineStep } from './ladder-curves.ts';
 import { beyondCover, coverage, cumulative, pastReach, dominanceWeight, groupLevels, groupSpan, imbalanceByDistance, liquidityInView, type Cover, type Grouped } from './levels-data.ts';
 import { GROUPS, groupsFor, holdsMark, ladderWheel, offsetKeepingPrice, priceAtRow, stepBy } from './ladder-zoom.ts';
 import { currentCoin } from '../coin.ts';
@@ -56,6 +56,8 @@ const stepText = (step: number): string => step >= 1e-4 ? String(step) : fmtPric
 const VENUE_TINT = [1, 0.62, 0.38, 0.8, 0.5, 0.7, 0.3, 0.9];
 /** A Compact bar's piece narrower than this joins the smaller venues' piece at the end of the bar. */
 const PIECE_MIN_PX = 3;
+/** No bars at all: a line cut against it is all in the clear. */
+const NO_BARS: readonly number[] = [];
 /** How long the Compact bar keeps its venue order while the venues stay the same (it is made again when they change). */
 const ORDER_HOLD_MS = 300_000;
 /** The venue a book belongs to, as a popup names it: "Binance BTCUSDT". */
@@ -132,6 +134,8 @@ export class LadderPane {
   #curvesControl: HTMLLabelElement | null = null;
   /** The venue line under the pointer in the last frame (its place in the ranking), read by tests. */
   hoveredCurve: number | null = null;
+  /** The share of its strength a venue line keeps over a bar (`CURVE_OVER_BAR_SHARE`; 1 draws it as strong over the bars as in the clear, for a comparison). */
+  curveOverBars = CURVE_OVER_BAR_SHARE;
   /** The line that was under the pointer in the frame before this one (`hoveredCurve` is cleared as a frame starts): its dashes are drawn, so they answer the pointer. */
   #heldCurve: number | null = null;
 
@@ -801,40 +805,53 @@ export class LadderPane {
   }
 
   /**
-   * The venue lines, over the bars: each a crisp step outline in its colour; with one under the pointer, that one stronger and the rest faded.
-   * Where its book stops reaching, a short bar across marks the end; the line under the pointer goes on dashed and fainter at the total it
-   * reached (so does one with no book of its own in view on that side, where nothing else of it would show).
+   * The venue lines: each a crisp step outline in its colour; with one under the pointer, that one stronger and the rest faded. Where a line lies over
+   * a bar (`ends`: where each row's bar ends) it is a faint trace on the material, under the labels, so the bars stay readable; in the clear it is whole,
+   * on the ink, and the line under the pointer is whole everywhere. Where its book stops reaching, a short bar across marks the end; the line under
+   * the pointer goes on dashed and fainter at the total it reached (so does one with no book of its own in view on that side, where nothing else of it
+   * would show).
    */
-  #paintCurves(ctx: CanvasRenderingContext2D, g: Grouped, curves: readonly Curve[], o: { head: number; rows: number; centerBin: number; markBin: number }, barX: number, scale: CurveScale, hovered: number | null): void {
+  #paintCurves(mat: CanvasRenderingContext2D, ctx: CanvasRenderingContext2D, g: Grouped, curves: readonly Curve[], o: { head: number; rows: number; centerBin: number; markBin: number }, barX: number, scale: CurveScale, hovered: number | null, ends: ArrayLike<number>): void {
     const xAt = scale.x;
     const half = Math.floor(o.rows / 2), top = o.centerBin + half - g.bin0, bottom = top - o.rows + 1;
     const markAsk = (g.totalAsk[o.markBin] ?? 0) > (g.totalBid[o.markBin] ?? 0), askFrom = markAsk ? o.markBin : o.markBin + 1, bidFrom = markAsk ? o.markBin - 1 : o.markBin;
     const yOf = (bin: number): number => o.head + (top - bin) * ROW_H;
-    ctx.save(); ctx.lineJoin = 'miter';
+    const strokeRuns = (c: CanvasRenderingContext2D, runs: readonly number[][]): void => {
+      if (!runs.length) return;
+      c.beginPath();
+      for (const run of runs) { c.moveTo(run[0]!, run[1]!); for (let i = 2; i < run.length; i += 2) c.lineTo(run[i]!, run[i + 1]!); }
+      c.stroke();
+    };
+    ctx.save(); mat.save(); ctx.lineJoin = 'miter'; mat.lineJoin = 'miter';
     // The hovered line last, so it lies on top.
     const order = curves.map((_, k) => k).sort((a, b) => (a === hovered ? 1 : 0) - (b === hovered ? 1 : 0));
     for (const k of order) {
       const c = curves[k]!;
       const alpha = hovered === null || k === hovered ? 0.95 : 0.22, width = k === hovered ? 2.5 : 1.5;
       ctx.strokeStyle = c.color; ctx.lineWidth = width; ctx.globalAlpha = alpha;
+      mat.strokeStyle = c.color; mat.lineWidth = width; mat.globalAlpha = alpha * this.curveOverBars;
       for (const up of [true, false]) {
-        ctx.beginPath(); let started = false, end: { x: number; y: number; cap: boolean } | null = null;
+        const steps: LineStep[] = []; let axis: number | null = null, end: { x: number; y: number; cap: boolean } | null = null;
         for (let bin = up ? Math.max(askFrom, bottom) : Math.min(bidFrom, top); up ? bin <= top : bin >= bottom; bin += up ? 1 : -1) {
           // Rows its book does not reach before the line starts are passed over (a shallow book can begin above or below the mark).
-          const x = xAt(c, bin); if (x === null) { if (started) break; continue; }
+          const x = xAt(c, bin); if (x === null) { if (steps.length) break; continue; }
           const y = yOf(bin), near = up ? y + ROW_H : y, far = up ? y : y + ROW_H;
           // Scrolled past the reach, the view holds only the dashed part (no end mark: the end is off screen).
-          if (scale.carried(c, bin)) { end = { x, y: near, cap: started }; break; }
+          if (scale.carried(c, bin)) { end = { x, y: near, cap: steps.length > 0 }; break; }
           // From the axis at the mark; from its own place when the mark is scrolled out of view.
-          if (!started) { ctx.moveTo(bin === (up ? askFrom : bidFrom) ? barX : x, near); started = true; }
-          ctx.lineTo(x, near); ctx.lineTo(x, far);
+          if (!steps.length && bin === (up ? askFrom : bidFrom)) axis = barX;
+          steps.push({ r: top - bin, x, near, far });
         }
-        if (started) ctx.stroke();
+        if (steps.length) {
+          // Over a bar a trace on the material (under the labels), in the clear the line on the ink; the line under the pointer meets no bar.
+          const cut = cutAtBars(steps, axis, k === hovered ? NO_BARS : ends, up ? -1 : 1);
+          strokeRuns(mat, cut.over); strokeRuns(ctx, cut.free);
+        }
         // Past the reach: the end of the book across the line, always. The total it reached, held, dashed, to the edge of the view, only for the
         // line under the pointer (a dashed line from every shallow venue's cap, over the bars and in no place on the scale, read as unexplained
         // dashes, Karl 2026-10-19), or when the end is off screen and the dashes are all of the line there is.
         if (end) {
-          if (end.cap) { ctx.beginPath(); ctx.moveTo(end.x - 4, end.y); ctx.lineTo(end.x + 4, end.y); ctx.lineWidth = width + 0.5; ctx.stroke(); }
+          if (end.cap) { ctx.beginPath(); ctx.moveTo(end.x - 4, end.y); ctx.lineTo(end.x + 4, end.y); ctx.lineWidth = width + 0.5; ctx.stroke(); ctx.lineWidth = width; }
           if (k === hovered || !end.cap) {
             ctx.save(); ctx.setLineDash([3, 3]); ctx.lineWidth = Math.max(1, width - 0.5); ctx.globalAlpha = alpha * 0.55;
             ctx.beginPath(); ctx.moveTo(end.x, end.y); ctx.lineTo(end.x, up ? o.head : o.head + o.rows * ROW_H); ctx.stroke();
@@ -843,7 +860,7 @@ export class LadderPane {
         }
       }
     }
-    ctx.restore();
+    mat.restore(); ctx.restore();
   }
 
   /** The lines' key in the header row: a stroke of each colour and its venue's mark, as many as fit in `room`. Each entry's span across, for the pointer. */
@@ -967,6 +984,8 @@ export class LadderPane {
     if (pullRows) for (let i = shownLo; i <= shownHi; i++) if (!pullRows.touched[i]) for (const v of [pullRows.bid[i]!, pullRows.ask[i]!]) if (v === v) maxPull = Math.max(maxPull, Math.abs(v));
     // The venue lines' scale, and round values on it as faint gridlines behind the bars (it is not the bars' scale, so it needs its own).
     const curves = o.curves ?? [], scale = curves.length ? this.#curveX(g, curves, o, barX, barW) : null, xAt = scale?.x ?? null;
+    // Where each row's bar ends (NaN: none), for the lines to fade over: a faint trace over a bar, whole in the clear.
+    const ends = scale ? new Float32Array(rows).fill(Number.NaN) : null;
     // With the lines on they are the running totals and the whole book's area is left out: on their scale it filled the width a few rows
     // from the mark (the total is several times the largest venue: Karl, 2026-10-14), and on a scale of its own a venue's line stood beyond
     // the total it is part of (2026-10-13).
@@ -1002,6 +1021,7 @@ export class LadderPane {
       }
       const bid = g.totalBid[bin]!, ask = g.totalAsk[bin]!, isAsk = bin > markBin || (bin === markBin && ask > bid);
       const value = isAsk ? ask : bid, color = isAsk ? p.ask : p.bid, f = weight(bin, !isAsk);
+      if (ends && value > 0 && state.ladderShow !== 'cumulative') ends[r] = barX + Math.max(1, value / maxLevel * barW);
       if (bin === markBin) { mat.fillStyle = p.line; mat.fillRect(x0, y, w, ROW_H); }
       ctx.fillStyle = p.muted; ctx.textAlign = 'left'; ctx.fillText(fmtPrice((g.bin0 + bin) * step, step), x0 + 6, mid);
       ctx.fillStyle = value > 0 ? p.text : p.muted; ctx.textAlign = 'right'; ctx.fillText(value > 0 ? usd(value) : '', x0 + priceW + USD_W, mid);
@@ -1073,7 +1093,7 @@ export class LadderPane {
     }
     this.hoveredCurve = curveHit?.k ?? null;
     if (xAt) {
-      this.#paintCurves(ctx, g, curves, o, barX, scale!, this.hoveredCurve);
+      this.#paintCurves(mat, ctx, g, curves, o, barX, scale!, this.hoveredCurve, ends!);
       // The gridlines' values on the bottom row, each on a patch of the background so the bars under it do not hide it.
       ctx.save(); ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace'; ctx.textAlign = 'center';
       const ly = o.head + rows * ROW_H - ROW_H / 2;

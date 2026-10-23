@@ -172,6 +172,51 @@ export function nearestCurve(xs: readonly (number | null)[], x: number, tol = CU
   return best;
 }
 
+/**
+ * How much of its strength a venue line keeps where it lies over a bar. What is read there is the bar (its pieces carry the venues' names and
+ * sizes), and a line across them made the labels unreadable (Karl, 2026-10-23): over a bar the line is a faint trace under the labels, in the
+ * clear it is whole, and the line under the pointer is whole everywhere.
+ */
+export const CURVE_OVER_BAR_SHARE = 0.35;
+
+/** One row a venue line stands on: its screen row `r`, its x there, and the y of the row's edge nearer the mark and of the edge farther from it. */
+export interface LineStep { r: number; x: number; near: number; far: number }
+
+/** A venue line's strokes cut at the bars: those over a bar and those in the clear, each a run of x, y pairs (consecutive strokes of one kind are one run). */
+export interface CutLine { over: number[][]; free: number[][] }
+
+/**
+ * One side of a venue line (its rows from the mark outward, as the pane draws it: from the axis `axis` to the first row's x when the line starts at
+ * the mark, then along each row's edge to its x and across the row) cut into the strokes that lie over a bar and those that do not. `ends[r]` is where
+ * the bar of screen row `r` ends (NaN or absent: no bar), `dr` the way `r` runs outward (-1 up the screen for the asks, 1 down for the bids). A stroke
+ * across a row is over its bar when its x falls short of the bar's end; one along the edge between two rows is over where either of them has a bar
+ * (a seam between rows is no clearer than its clearer side is).
+ */
+export function cutAtBars(steps: readonly LineStep[], axis: number | null, ends: ArrayLike<number>, dr: 1 | -1): CutLine {
+  const over: number[][] = [], free: number[][] = [];
+  let run: number[] | null = null, runOver = false;
+  const line = (x0: number, y0: number, x1: number, y1: number, isOver: boolean): void => {
+    if (run && runOver === isOver && run[run.length - 2] === x0 && run[run.length - 1] === y0) { run.push(x1, y1); return; }
+    run = [x0, y0, x1, y1]; runOver = isOver; (isOver ? over : free).push(run);
+  };
+  const endOf = (r: number): number => { const e = ends[r]; return e === undefined || Number.isNaN(e) ? -Infinity : e; };
+  // Along the edge between rows `ra` and `rb`, at height `y`: over a bar short of the farther end of the two bars, in the clear beyond it.
+  const along = (xa: number, xb: number, y: number, ra: number, rb: number): void => {
+    if (xa === xb) return;
+    const e = Math.max(endOf(ra), endOf(rb)), lo = Math.min(xa, xb), hi = Math.max(xa, xb);
+    if (e <= lo) { line(xa, y, xb, y, false); return; }
+    if (e >= hi) { line(xa, y, xb, y, true); return; }
+    if (xa < xb) { line(xa, y, e, y, true); line(e, y, xb, y, false); } else { line(xa, y, e, y, false); line(e, y, xb, y, true); }
+  };
+  steps.forEach((s, j) => {
+    const prev = j > 0 ? steps[j - 1]! : null;
+    if (prev) along(prev.x, s.x, s.near, prev.r, s.r);
+    else if (axis !== null) along(axis, s.x, s.near, s.r - dr, s.r);
+    line(s.x, s.near, s.x, s.far, s.x < endOf(s.r));
+  });
+  return { over, free };
+}
+
 /** What is known about one venue's line at one row, to say it. */
 export interface CurveFacts {
   id: string; name: string; rank: number;
