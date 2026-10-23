@@ -997,15 +997,34 @@ const MAX_ROWS = 4_096;
  * part). The events of one venue, side and publication that meet in a row are summed, their strength worked out again from the sum. `removed` and
  * `added` are true when every event that meets in the row says so (for an event with levels, by that row's own old and new USD): for a row of
  * several bins that is a hint, and the reader looks at the cell; `pair` and `band` are true when any of them is, `seq` is the newest and
- * `prevWall` the earliest. `window` keeps only the rows of that price range; an event never makes more than 4,096 rows.
+ * `prevWall` the earliest. `window` keeps the rows of that price range and one row beyond it each side, by the same integer bounds for both rules
+ * (the floor of price / step): a row that the rule of whoever asks (`binOf` forgives a division that comes out a hair under a whole number) gives an
+ * edge price is never lost, and whoever asks cuts the rest; an event never makes more than 4,096 rows.
  */
 export function rowEvents(events: readonly CueEvent[], step: number, scale: number, window?: { lo: number; hi: number }): RowEvent[] {
-  if (!(step > 0) || !Number.isFinite(step) || events.length === 0) return [];
+  if (!(step > 0) || !Number.isFinite(step)) return [];
+  return project(events, step, scale, window ? Math.floor(window.lo / step) - 1 : -Infinity, window ? Math.floor(window.hi / step) + 1 : Infinity);
+}
+
+/**
+ * What `rowEvents` gives for ONE display row, from the row's own integer index (`[row x step, (row + 1) x step)`): nothing is worked out from a price, so
+ * a decimal step cannot move the row (65,536.2 / 0.1 is 655,361.9999999999: the kernel's floor puts a level at that price in row 655,361, and `binOf`
+ * in 655,362). A level is in the row if its price floors to it, an event without levels shares its USD by its overlap with the row; the events of one
+ * venue, side and publication are summed as `rowEvents` sums them, and with several of those mixed in, the first in the order of `events` is the one
+ * returned, as `rowEvents(...).find(...)` would. Null where no event reaches the row.
+ */
+export function rowEventAt(events: readonly CueEvent[], row: number, step: number, scale: number): RowEvent | null {
+  if (!Number.isInteger(row) || !(step > 0) || !Number.isFinite(step)) return null;
+  return project(events, step, scale, row, row)[0] ?? null;
+}
+
+/** The rows of `step` from `wk0` to `wk1` (integers, inclusive) that `events` reach, as `rowEvents` explains. */
+function project(events: readonly CueEvent[], step: number, scale: number, wk0: number, wk1: number): RowEvent[] {
+  if (events.length === 0) return [];
   const ref = scale > 0 && Number.isFinite(scale) ? scale : 1e6;
   const out: RowEvent[] = [], at = new Map<string, RowEvent>();
   // The old and the new USD of each row an event's levels reach (refilled for each event), within the window.
   const rows = new Map<number, { before: number; after: number }>();
-  const wk0 = window ? Math.floor(window.lo / step) : -Infinity, wk1 = window ? Math.floor(window.hi / step) : Infinity;
   const addLevels = (list: readonly number[], after: boolean): void => {
     for (let j = 0; j + 1 < list.length; j += 2) {
       const price = list[j]!, usd = list[j + 1]!;
@@ -1043,8 +1062,9 @@ export function rowEvents(events: readonly CueEvent[], step: number, scale: numb
       }
       continue;
     }
-    let k0 = binOf(e.lo, step), k1 = binOf(e.hi, step);
-    if (window) { k0 = Math.max(k0, binOf(window.lo, step)); k1 = Math.min(k1, binOf(window.hi, step)); }
+    // The rows the interval can reach, as the kernel counts them, inside the bounds; the overlap decides which it does.
+    const k0 = Math.max(Math.floor(e.lo / step), wk0);
+    let k1 = Math.min(Math.floor(e.hi / step), wk1);
     if (k1 - k0 >= MAX_ROWS) k1 = k0 + MAX_ROWS - 1;
     for (let k = k0; k <= k1; k++) {
       const overlap = Math.min(e.hi, (k + 1) * step) - Math.max(e.lo, k * step);

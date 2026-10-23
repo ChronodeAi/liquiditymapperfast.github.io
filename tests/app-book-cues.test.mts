@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BookCueTracker, DEFAULT_TUNING, FORGET_MS, GAP_CADENCES, LV_STEPS, MERGE_DISTANCE_SHARE, MERGE_FINEST, MIN_GAP_MS, PAIR_BINS, TAU_ACTIVITY_MS, TAU_FRESH_MS, ZONE_STEPS, rowEvents, type CueBook, type CueContext, type CueEvent, type CueTuning } from '../src/app/panes/book-cues.ts';
+import { BookCueTracker, DEFAULT_TUNING, FORGET_MS, GAP_CADENCES, LV_STEPS, MERGE_DISTANCE_SHARE, MERGE_FINEST, MIN_GAP_MS, PAIR_BINS, TAU_ACTIVITY_MS, TAU_FRESH_MS, ZONE_STEPS, rowEventAt, rowEvents, type CueBook, type CueContext, type CueEvent, type CueTuning } from '../src/app/panes/book-cues.ts';
 import { bucketWidth, mergeByDistance } from '../src/shared/merge.ts';
 import { binOf } from '../src/shared/footprint.ts';
 import { gridStepFor } from '../src/shared/grid.ts';
@@ -841,7 +841,11 @@ test('a band is shared over the rows it covers in proportion, as the spreader sh
 
 test('rows can be limited to a window, an event never makes more than 4,096, and bad steps or sizes make none', () => {
   const band = ev({ lo: 81_000, hi: 81_400, grid: 0, usd: 400_000, band: true });
-  assert.deepEqual(rowEvents([band], 100, 1_000_000, { lo: 81_100, hi: 81_299 }).map(r => r.row), [811, 812]);
+  // A window keeps its rows and one more either side (whoever asks cuts the rest): [811, 812] and 810 and 813.
+  assert.deepEqual(rowEvents([band], 100, 1_000_000, { lo: 81_100, hi: 81_299 }).map(r => r.row), [810, 811, 812, 813]);
+  assert.deepEqual(rowEvents([band], 100, 1_000_000, { lo: 81_200, hi: 81_299 }).map(r => r.row), [811, 812, 813], 'row 810 is two rows from the window');
+  assert.deepEqual(rowEvents([band], 100, 1_000_000, { lo: 81_300, hi: 81_399 }).map(r => r.row), [812, 813], 'and the band ends at 813');
+  assert.deepEqual(rowEvents([band], 100, 1_000_000, { lo: 81_500, hi: 81_599 }).map(r => r.row), [], 'a window the band does not reach, with its margin, has none');
   assert.equal(rowEvents([ev({ lo: 0, hi: 1e6, usd: 1 })], 1, 1_000_000).length, 4_096);
   for (const step of [0, -5, Number.NaN, Infinity]) assert.deepEqual(rowEvents([ev({ lo: 0, hi: 20, usd: 1 })], step, 1_000_000), []);
   assert.deepEqual(rowEvents([ev({ lo: 20, hi: 20, usd: 1 }), ev({ lo: 30, hi: 10, usd: 1 })], 10, 1_000_000), [], 'no width, no rows');
@@ -1383,14 +1387,17 @@ test('rows of an event with levels: a window keeps only its rows, at most 4,096 
   const lv = (prev: number[], cur: number[]): CueEvent => ev({ lo: 81_020, hi: 81_040, usd: 0, lv: { prev, cur } });
   const moved = lv([81_021, 1_000_000], [81_031, 2_000_000]);                      // a level that moved to the next row, and doubled
   assert.deepEqual(rowEvents([moved], 10, 1_000_000).map(r => [r.row, r.usd, r.removed, r.added]), [[8_102, -1_000_000, true, false], [8_103, 2_000_000, false, true]]);
-  assert.deepEqual(rowsOf([moved], 10, { lo: 81_030, hi: 81_039 }), [[8_103, 2_000_000]]);
-  assert.deepEqual(rowsOf([moved], 10, { lo: 81_000, hi: 81_025 }), [[8_102, -1_000_000]]);
+  // A window keeps its rows and one more either side: the row before the window's, not two before; the row after, not two after.
+  assert.deepEqual(rowsOf([moved], 10, { lo: 81_030, hi: 81_039 }), [[8_102, -1_000_000], [8_103, 2_000_000]]);
+  assert.deepEqual(rowsOf([moved], 10, { lo: 81_040, hi: 81_049 }), [[8_103, 2_000_000]]);
+  assert.deepEqual(rowsOf([moved], 10, { lo: 81_010, hi: 81_019 }), [[8_102, -1_000_000]]);
+  assert.deepEqual(rowsOf([moved], 10, { lo: 81_050, hi: 81_059 }), []);
   assert.deepEqual(rowsOf([moved], 10, { lo: 90_000, hi: 91_000 }), []);
   assert.deepEqual(rowsOf([lv([100.5, 0.1, 100.7, 0.2], [100.6, 0.3])], 1), [], 'levels that cancel to float dust leave no row');
   const many = lv([], Array.from({ length: 5_000 }, (_, i) => [200_000 + i, 1]).flat());
   const capped = rowEvents([many], 1, 1_000_000);
   assert.equal(capped.length, 4_096); assert.equal(capped[0]!.row, 200_000);
-  assert.equal(rowEvents([many], 1, 1_000_000, { lo: 200_000, hi: 200_099 }).length, 100, 'the cap is after the window');
+  assert.equal(rowEvents([many], 1, 1_000_000, { lo: 200_000, hi: 200_099 }).length, 101, 'the cap is after the window: its hundred rows and the one after (the one before holds no level)');
   assert.deepEqual(rowsOf([lv([81_021, 1_000_000, 5], [81_031, Number.NaN, 81_035, -3, 0, 4])], 10), [[8_102, -1_000_000]], 'a stray element, NaN and non-positive figures are passed over');
   // An event with levels and one without meet in a row: summed.
   assert.deepEqual(rowsOf([moved, ev({ lo: 81_030, hi: 81_050, usd: 400_000 })], 10), [[8_102, -1_000_000], [8_103, 2_200_000], [8_104, 200_000]]);
@@ -1640,4 +1647,54 @@ test('a bin keeps its levels only if it was near the mid in the publication that
   const farThen = weak(80_819), nearThen = weak(80_839);
   assert.ok(farThen); assert.equal(farThen.lv, undefined);
   assert.ok(nearThen); assert.deepEqual(nearThen.lv, { prev: [80_839, 1_000_000], cur: [80_839, 1_200_000] });
+});
+
+// ---- One row by its own index (Sol's round C) ----
+
+test('a decimal step puts a level in the row the kernel puts it in, and rowEventAt reads that row by its index, not by a price', () => {
+  // 65,536.2 / 0.1 is 655,361.9999999999, 65,536.25 / 0.1 is 655,362.5 and 65,536.3 / 0.1 is 655,363: the floor puts the three levels in rows 655,361,
+  // 655,362 and 655,363 (`binOf`, which forgives the hair, would put the first in 655,362: the row of the price's neighbour).
+  const at = (...levels: [number, number][]): CueEvent => ev({ lo: 65_536, hi: 65_537, usd: levels.reduce((sum, l) => sum + l[1], 0), lv: { prev: [], cur: levels.flat() } });
+  const all = at([65_536.2, 100_000], [65_536.25, 200_000], [65_536.3, 300_000]);
+  assert.deepEqual(rowsOf([all], 0.1), [[655_361, 100_000], [655_362, 200_000], [655_363, 300_000]]);
+  for (const [row, usd] of [[655_361, 100_000], [655_362, 200_000], [655_363, 300_000]] as const) {
+    const r = rowEventAt([all], row, 0.1, 1_000_000);
+    assert.ok(r, `row ${row}`); assert.deepEqual([r.row, r.usd], [row, usd]);
+  }
+  assert.equal(rowEventAt([all], 655_360, 0.1, 1_000_000), null);
+  assert.equal(rowEventAt([all], 655_364, 0.1, 1_000_000), null);
+  // Each alone, the middle one with a neighbour's price for a window: the window's row by the floor is 655,361, and the level's is the next, which the margin keeps.
+  const middle = at([65_536.25, 200_000]);
+  assert.deepEqual(rowsOf([middle], 0.1, { lo: 65_536.2, hi: 65_536.2 }), [[655_362, 200_000]]);
+  assert.deepEqual(rowsOf([middle], 0.1, { lo: 65_536.3, hi: 65_536.3 }), [[655_362, 200_000]]);
+  assert.deepEqual(rowsOf([middle], 0.1, { lo: 65_536.5, hi: 65_536.5 }), [], 'two rows above the window\'s is out');
+  assert.deepEqual(rowsOf([middle], 0.1, { lo: 65_536, hi: 65_536 }), [], 'and two rows below');
+  // An event without levels shares its USD by its overlap with the row, from the row's index alone.
+  const share = ev({ lo: 65_536, hi: 65_537, usd: 1_000_000 });
+  for (const row of [655_360, 655_362, 655_369]) assert.ok(Math.abs(rowEventAt([share], row, 0.1, 1_000_000)!.usd - 100_000) < 0.01, `row ${row}: a tenth of the $1M, to the dust of prices near 65,536`);
+  assert.equal(rowEventAt([share], 655_359, 0.1, 1_000_000), null);
+  assert.equal(rowEventAt([share], 655_370, 0.1, 1_000_000), null);
+});
+
+test('rowEventAt is the row rowEvents gives for the same events, at every step, for events with levels, without them, bands, and another publication\'s', () => {
+  const events: CueEvent[] = [
+    ev({ lo: 81_020, hi: 81_040, usd: 1_500_000, seq: 1, lv: { prev: [81_031, 1_500_000], cur: [81_031, 1_000_000, 81_021, 2_000_000] } }),
+    ev({ lo: 81_040, hi: 81_060, usd: -400_000, seq: 2 }),
+    ev({ lo: 81_060, hi: 81_100, grid: 0, usd: 2_000_000, seq: 3, band: true }),
+    ev({ lo: 81_100, hi: 81_120, usd: 300_000, seq: 4, lv: { prev: [81_105.5, 100_000], cur: [81_105.5, 200_000, 81_119.9, 200_000] } }),
+    ev({ lo: 81_020, hi: 81_040, usd: 10_000, seq: 5, wall: 2_000 }),
+  ];
+  for (const step of [0.1, 0.5, 1, 5, 10, 25, 50]) {
+    const all = rowEvents(events, step, 1_000_000);
+    let seen = 0;
+    for (let row = Math.floor(81_000 / step); row <= Math.floor(81_200 / step); row++) {
+      const got = rowEventAt(events, row, step, 1_000_000);
+      assert.deepEqual(got, all.find(r => r.row === row) ?? null, `$${step} row ${row}`);
+      if (got) seen++;
+    }
+    assert.equal(seen, new Set(all.map(r => r.row)).size, `$${step}: every row rowEvents makes is found, none else`);
+  }
+  assert.equal(rowEventAt([], 5, 10, 1_000_000), null);
+  assert.equal(rowEventAt(events, 8_102.5, 10, 1_000_000), null, 'a row is a whole number');
+  for (const step of [0, -1, Number.NaN, Infinity]) assert.equal(rowEventAt(events, 8_102, step, 1_000_000), null);
 });
