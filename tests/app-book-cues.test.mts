@@ -825,6 +825,7 @@ test('events of one book, side and publication that meet in a row are one: summe
   near(rows[0]!.strength, 1 - Math.exp(-0.3));
   // Not one when the publication, the side or the book differs.
   assert.equal(rowEvents([a, { ...b, wall: 2_000 }], 100, 1_000_000).length, 2);
+  assert.equal(rowEvents([a, { ...b, pub: 2 }], 100, 1_000_000).length, 2, 'the wall of another publication may come round to the same value');
   assert.equal(rowEvents([a, { ...b, side: 'ask' }], 100, 1_000_000).length, 2);
   assert.equal(rowEvents([a, { ...b, id: 'other' }], 100, 1_000_000).length, 2);
   const mixed = rowEvents([ev({ lo: 81_260, hi: 81_280, usd: 100, removed: true }), ev({ lo: 81_280, hi: 81_300, usd: 100, removed: false })], 100, 1_000_000);

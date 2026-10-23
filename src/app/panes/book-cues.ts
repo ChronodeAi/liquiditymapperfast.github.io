@@ -1063,7 +1063,8 @@ function project(events: readonly CueEvent[], step: number, scale: number, wk0: 
     }
   };
   const put = (e: CueEvent, k: number, usd: number, removed: boolean, added: boolean): void => {
-    const key = `${e.id}|${e.side}|${k}|${e.wall}`, held = at.get(key);
+    // One publication's events share its number; its wall alone does not tell it from another (the page's clock may come back to it).
+    const key = `${e.id}|${e.side}|${k}|${e.pub}|${e.wall}`, held = at.get(key);
     if (held) {
       held.usd += usd; held.removed &&= removed; held.added &&= added; held.pair ||= e.pair; held.band ||= e.band;
       if (e.seq > held.seq) held.seq = e.seq;
