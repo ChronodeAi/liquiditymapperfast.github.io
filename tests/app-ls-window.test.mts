@@ -13,13 +13,44 @@ test('the first look asks for a view more on each side than the view needs', () 
   assert.equal(ask.to, NOW + TF, 'a live view is read up to now, not into the future');
 });
 
+const VENUES = ['binance', 'bybit', 'okx', 'bitget', 'gateio'];
+
 test('zooming and panning inside what is held ask nothing, until the minute refresh', () => {
-  const ask = lsWindow(null, false, 'k', view, TF, NOW)!, held: LsHeld = { ident: 'k', ...ask, at: NOW };
+  const ask = lsWindow(null, false, 'k', view, TF, NOW, VENUES)!, held: LsHeld = { ident: 'k', ...ask, at: NOW };
   const zoomedIn = { t0: NOW - 12 * HOUR, t1: NOW + HOUR }, zoomedOut = { t0: NOW - 30 * HOUR, t1: NOW + HOUR };
-  assert.equal(lsWindow(held, false, 'k', zoomedIn, TF, NOW + 1_000), null);
-  assert.equal(lsWindow(held, false, 'k', zoomedOut, TF, NOW + 1_000), null, 'a step out stays inside the margin');
-  assert.equal(lsWindow(held, false, 'k', view, TF, NOW + 30_000), null, 'a live end moving on is not a new question');
-  assert.notEqual(lsWindow(held, false, 'k', view, TF, NOW + MIN + 1), null, 'a minute on, the refresh');
+  assert.equal(lsWindow(held, false, 'k', zoomedIn, TF, NOW + 1_000, VENUES), null, 'every venue is read in hourly readings either way');
+  assert.equal(lsWindow(held, false, 'k', zoomedOut, TF, NOW + 1_000, VENUES), null, 'a step out stays inside the margin');
+  assert.equal(lsWindow(held, false, 'k', view, TF, NOW + 30_000, VENUES), null, 'a live end moving on is not a new question');
+  assert.notEqual(lsWindow(held, false, 'k', view, TF, NOW + MIN + 1, VENUES), null, 'a minute on, the refresh');
+});
+
+test('a zoom back in from a wider view asks at once where the venues would be read in finer readings', () => {
+  const DAY = 24 * HOUR;
+  // A month-long view is read in daily readings (from a 30-day window); back to 22 days, the window asked is under 30 days again, and every
+  // venue's readings finer: the held daily steps once stayed drawn until the minute refresh (2026-10-23).
+  const month = lsWindow(null, false, 'k', { t0: NOW - 40 * DAY, t1: NOW + 2 * DAY }, TF, NOW, VENUES)!, monthHeld: LsHeld = { ident: 'k', ...month, at: NOW };
+  const back = { t0: NOW - 20 * DAY, t1: NOW + 2 * DAY }, ask = lsWindow(monthHeld, false, 'k', back, TF, NOW + 1_000, VENUES);
+  assert.ok(monthHeld.from <= back.t0 - 11 * DAY && monthHeld.to >= NOW, 'the month-long window covers the narrower view');
+  assert.ok(ask && ask.to - ask.from < 30 * DAY, 'asked at once, under 30 days');
+  assert.equal(lsWindow(monthHeld, false, 'k', back, TF, NOW + 1_000), null, 'without the venues, coverage alone (as before)');
+  assert.equal(lsWindow(monthHeld, true, 'k', back, TF, NOW + 1_000, VENUES), null, 'a round under way is waited for: the view is looked at again when it lands');
+  // On five-minute candles a two-day view reads Bitget every 30 minutes (its 30 readings a page keep its windows short) and Gate every five;
+  // ten hours read Bitget every 15 minutes and Gate every five still.
+  const days = lsWindow(null, false, 'k', { t0: NOW - 2 * DAY, t1: NOW + HOUR }, 5 * MIN, NOW, ['bitget'])!, daysHeld: LsHeld = { ident: 'k', ...days, at: NOW };
+  const hours = { t0: NOW - 10 * HOUR, t1: NOW + HOUR };
+  assert.notEqual(lsWindow(daysHeld, false, 'k', hours, 5 * MIN, NOW + 1_000, ['bitget']), null, 'Bitget alone finer is enough');
+  assert.equal(lsWindow(daysHeld, false, 'k', hours, 5 * MIN, NOW + 1_000, ['gateio']), null, 'a venue read in the same period either way asks nothing');
+});
+
+test('right after a round, the same view asks nothing, nor does a live view a minute short of the refresh', () => {
+  const DAY = 24 * HOUR;
+  for (const [v, tf] of [[{ t0: NOW - 20 * DAY, t1: NOW + 2 * DAY }, TF], [{ t0: NOW - 10 * HOUR, t1: NOW + HOUR }, 5 * MIN], [view, TF]] as const) {
+    const ask = lsWindow(null, false, 'k', v, tf, NOW, VENUES)!, held: LsHeld = { ident: 'k', ...ask, at: NOW };
+    assert.equal(lsWindow(held, false, 'k', v, tf, NOW + 1_000, VENUES), null, 'the window just asked is the one this view asks');
+    // The live window's end moves on with now: its readings can only stay as they are or turn coarser, never a reason to ask.
+    const crept = { t0: v.t0 + 30_000, t1: v.t1 + 30_000 };
+    assert.equal(lsWindow(held, false, 'k', crept, tf, NOW + 30_000, VENUES), null, 'a live view half a minute on');
+  }
 });
 
 test('a view beyond what is held or other markets ask again; a round under way holds the next back until it ends', () => {
@@ -62,4 +93,28 @@ test('with no line to draw the pane says why: still reading, a venue that could 
   assert.equal(lsMessage([S('binance:BTCUSDT', 'empty', 0), S('okx:BTC-USDT-SWAP', 'serverOnly', 0)], false), 'none');
   assert.equal(lsMessage([S('binance:BTCUSDT', 'stale', 3)], false), 'failed', 'readings held for another time, the update for this one failed');
   assert.equal(lsMessage([S('binance:BTCUSDT', 'ok', 3)], false), 'none', 'readings for another time, none for this one');
+});
+
+test('a view shorter than a month asks a window under 30 days, so the venues are read as finely as the candles', () => {
+  const DAY = 24 * HOUR;
+  for (const days of [12, 25]) {
+    const wide = { t0: NOW - days * DAY, t1: NOW + HOUR }, ask = lsWindow(null, false, 'k', wide, TF, NOW)!;
+    assert.ok(ask.to - ask.from < 30 * DAY, `${days} days in view: a window of ${(ask.to - ask.from) / DAY} days (from 30 the cache reads daily)`);
+    assert.ok(ask.from <= wide.t0, 'the view itself is always asked');
+    const held: LsHeld = { ident: 'k', ...ask, at: NOW };
+    assert.equal(lsWindow(held, false, 'k', wide, TF, NOW + 1_000), null, 'what is held is enough for it: asked again only with the minute refresh');
+  }
+  const month = { t0: NOW - 40 * DAY, t1: NOW + HOUR }, ask = lsWindow(null, false, 'k', month, TF, NOW)!;
+  assert.ok(ask.from <= month.t0 && ask.to >= NOW, 'a month-long view is read whole (in daily readings)');
+});
+
+test('up to 29 days in view, at any timeframe finer than daily, the window and its rounding stay under 30 days', () => {
+  const DAY = 24 * HOUR;
+  for (const tf of [MIN, 5 * MIN, 15 * MIN, 30 * MIN, HOUR, 4 * HOUR]) for (const days of [1, 7, 19, 20, 21, 28, 29]) {
+    const live = { t0: NOW - days * DAY, t1: NOW + tf }, back = { t0: NOW - 40 * DAY - days * DAY, t1: NOW - 40 * DAY };
+    for (const v of [live, back]) {
+      const ask = lsWindow(null, false, 'k', v, tf, NOW)!;
+      assert.ok(ask.to - ask.from < 30 * DAY && ask.from <= v.t0, `${days} days on ${tf / MIN}-minute candles: ${(ask.to - ask.from) / HOUR} hours`);
+    }
+  }
 });

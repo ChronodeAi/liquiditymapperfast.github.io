@@ -32,7 +32,9 @@ export const webGet: Fetcher = async (url, init) => {
   if (url.startsWith('wss://')) return socketRequest(url, init?.body ?? '', 15_000);
   const timeout = AbortSignal.timeout(15_000);
   const response = await fetch(url, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  // The status and the start of the answer go with the error: a venue may say why in it (Gate answers a contract it does not list with a
+  // 400 that says `CONTRACT_NOT_FOUND`).
+  if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status, body: (await response.text().catch(() => '')).slice(0, 500) });
   return response.json();
 };
 
@@ -55,13 +57,22 @@ const takerBuy = (buy: unknown, volume: number): number | null => {
   const n = typeof buy === 'number' ? buy : typeof buy === 'string' && buy.trim() !== '' ? Number(buy) : NaN;
   return Number.isFinite(n) && n >= 0 && Number.isFinite(volume) && n <= volume * (1 + 1e-9) ? n : null;
 };
-const row = (start: unknown, open: unknown, high: unknown, low: unknown, close: unknown, volume: unknown, buy?: unknown): CandleRow => {
+/** A number, or a numeric string that is not empty; anything else NaN (`Number` would read null, '' and false as 0). */
+const figure = (value: unknown): number => typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+const row = (start: unknown, open: unknown, high: unknown, low: unknown, close: unknown, volume: unknown, buy?: unknown, quote?: unknown, trades?: unknown, buyQuote?: unknown): CandleRow => {
   const v = num(volume), b = buy === undefined ? null : takerBuy(buy, v);
-  return { start: num(start), open: num(open), high: num(high), low: num(low), close: num(close), volume: v, ...(b === null ? {} : { buy: b }) };
+  // The trades and the quote volume with its part bought at market, together or not at all: a figure that is not one (null, '', false, a
+  // word) leaves all three out, never reads as 0.
+  const q = figure(quote), n = figure(trades), bq = buyQuote === undefined || !(q >= 0) ? null : takerBuy(buyQuote, q);
+  const detail = q >= 0 && Number.isSafeInteger(n) && n >= 0 && bq !== null ? { trades: n, quote: q, buyQuote: bq } : {};
+  return { start: num(start), open: num(open), high: num(high), low: num(low), close: num(close), volume: v, ...(b === null ? {} : { buy: b }), ...detail };
 };
 
-/** Binance's klines, the perpetual's and the spot market's alike: the tenth field is the taker buy volume, the part bought at market. */
-const binanceRows = (json: unknown): CandleRow[] => list(json).map(r => row(at(r, 0), at(r, 1), at(r, 2), at(r, 3), at(r, 4), at(r, 5), at(r, 9)));
+/**
+ * Binance's klines, the perpetual's and the spot market's alike: the tenth field is the taker buy volume, the part bought at market; the
+ * eighth the quote volume, the ninth the number of trades and the eleventh the taker buy quote volume.
+ */
+const binanceRows = (json: unknown): CandleRow[] => list(json).map(r => row(at(r, 0), at(r, 1), at(r, 2), at(r, 3), at(r, 4), at(r, 5), at(r, 9), at(r, 7), at(r, 8), at(r, 10)));
 const BINANCE = { 60_000: '1m', 300_000: '5m', 900_000: '15m', 1_800_000: '30m', 3_600_000: '1h', 14_400_000: '4h', 86_400_000: '1d' } as const;
 
 const SPECS: Readonly<Record<string, CandleSpec>> = {
@@ -244,31 +255,46 @@ export async function fetchOiSample(venue: string, get: Fetcher, listing?: Histo
 
 /**
  * The same reading with, for an inverse market (Deribit's BTC and ETH perpetuals, counted in USD), its own USD as `quote`: its coins are
- * the USD at the mark of the moment, and only the USD tells contracts opened or closed apart from the price moving.
+ * the USD at the mark of the moment, and only the USD tells contracts opened or closed apart from the price moving. Where the venue's
+ * answer carries its own clock (Binance's and Bybit's `time`, OKX's row `ts`), it is kept as `sourceTimestamp`, so the reading is placed by the
+ * exchange's time, not by when it arrived here.
  */
-export async function fetchOiReading(venue: string, get: Fetcher, listing?: HistoryListing): Promise<{ base: number; quote?: number } | null> {
+export async function fetchOiReading(venue: string, get: Fetcher, listing?: HistoryListing): Promise<{ base: number; quote?: number; sourceTimestamp?: number } | null> {
   const value = await readOiSample(venue, get, listing);
   return value === null ? null : typeof value === 'number' ? { base: value } : value;
 }
 
-async function readOiSample(venue: string, get: Fetcher, listing?: HistoryListing): Promise<number | { base: number; quote: number } | null> {
+async function readOiSample(venue: string, get: Fetcher, listing?: HistoryListing): Promise<number | { base: number; quote?: number; sourceTimestamp?: number } | null> {
   const market = listingOf(venue, listing); if (!market) return null;
   const coins = (v: number): number | null => v > 0 && Number.isFinite(v) ? v * market.unit : null;
-  if (venue === 'binance') return coins(num(at(await get(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${market.symbol}`), 'openInterest')));
+  const exchangeTime = (value: unknown): number | null => { const t = num(value); return Number.isFinite(t) && t > 0 ? t : null; };
+  if (venue === 'binance') {
+    const answer = await get(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${market.symbol}`);
+    const base = coins(num(at(answer, 'openInterest'))), sourceTimestamp = exchangeTime(at(answer, 'time'));
+    return base === null ? null : { base, ...(sourceTimestamp === null ? {} : { sourceTimestamp }) };
+  }
   if (venue === 'hyperliquid') {
     const result = await get('https://api.hyperliquid.xyz/info', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'metaAndAssetCtxs' }) });
     const universe = list(at(result, 0, 'universe')), index = universe.findIndex(u => at(u, 'name') === market.symbol);
     return index >= 0 ? coins(num(at(result, 1, index, 'openInterest'))) : null;
   }
   if (venue === 'bybit') {
-    const ticker = at(await get(`https://api.bybit.com/v5/market/tickers?category=${market.inverse ? 'inverse' : 'linear'}&symbol=${market.symbol}`), 'result', 'list', 0);
+    const answer = await get(`https://api.bybit.com/v5/market/tickers?category=${market.inverse ? 'inverse' : 'linear'}&symbol=${market.symbol}`);
+    const ticker = at(answer, 'result', 'list', 0);
+    const sourceTimestamp = exchangeTime(at(answer, 'time'));
+    const stamped = sourceTimestamp === null ? {} : { sourceTimestamp };
     // One side, as every other venue reports (Bybit's `openInterest` counts both: `singleOpenInterest` is half of it).
-    if (!market.inverse) return coins(bybitSingle(ticker, 'openInterest'));
+    if (!market.inverse) { const base = coins(bybitSingle(ticker, 'openInterest')); return base === null ? null : { base, ...stamped }; }
     // An inverse perpetual: open interest in USD, and its value in coins at the mark of the moment.
     const usd = bybitSingle(ticker, 'openInterest'), base = coins(bybitSingle(ticker, 'openInterestValue'));
-    return base !== null && usd > 0 ? { base, quote: usd * market.unit } : null;
+    return base !== null && usd > 0 ? { base, quote: usd * market.unit, ...stamped } : null;
   }
-  if (venue === 'okx') return coins(num(at(await get(`https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=${market.symbol}`), 'data', 0, 'oiCcy')));
+  if (venue === 'okx') {
+    const answer = await get(`https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId=${market.symbol}`);
+    const sourceTimestamp = exchangeTime(at(answer, 'data', 0, 'ts'));
+    const base = coins(num(at(answer, 'data', 0, 'oiCcy')));
+    return base === null ? null : { base, ...(sourceTimestamp === null ? {} : { sourceTimestamp }) };
+  }
   if (venue === 'bitget') return coins(num(at(await get(`https://api.bitget.com/api/v2/mix/market/open-interest?symbol=${market.symbol}&productType=usdt-futures`), 'data', 'openInterestList', 0, 'size')));
   if (venue === 'deribit') {
     const summary = at(await get(`https://www.deribit.com/api/v2/public/get_book_summary_by_instrument?instrument_name=${market.symbol}`), 'result', 0);
