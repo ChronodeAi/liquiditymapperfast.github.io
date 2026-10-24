@@ -11,7 +11,7 @@ import { venueLabel } from '../venues.ts';
 import { AXIS_W } from './heat-pane.ts';
 import { TimePane, setHtml } from './lower-panes.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
-import { SWING_FAST_LENGTH, SWING_HIGH, SWING_LOW, SWING_SLOW_LENGTH, VALUE_CHEAP, VALUE_HOT, VALUE_LENGTH, swingZone, valueZone, type SwingRow } from '../swing/model.ts';
+import { SWING_FAST_LENGTH, SWING_HIGH, SWING_LOW, SWING_SLOW_LENGTH, VALUE_CHEAP, VALUE_HIGH_LENGTH, VALUE_HOT, VALUE_LOW_LENGTH, swingZone, valueZone, type SwingRow } from '../swing/model.ts';
 import type { SwingBook } from '../swing/book.ts';
 
 /** The cheap/hot strip's middle zone: amber, neither side's colour. */
@@ -32,14 +32,14 @@ export function swingCardLines(row: SwingRow, tf: string, market: string): InfoL
   if (row.up !== null) lines.push({ label: t('Trend'), text: row.up ? t('Up') : t('Down'), color: row.up ? 'buy' : 'sell' });
   const zone = zoneWord(row); if (zone) lines.push({ label: t('Zone'), text: zone, color: swingZone(row) === 'floor' ? 'buy' : 'sell' });
   if (row.value !== null) lines.push({ label: t('Cheap/hot'), text: `${row.value.toFixed(1)} · ${valueWord(row.value)}`, color: valueZone(row.value) === 'cheap' ? 'buy' : valueZone(row.value) === 'hot' ? 'sell' : 'text', rule: true });
-  lines.push({ text: t('Swing: where the close sits among its last {n} closes (slow) and where a Kalman estimate of it sits among its last {f} (fast), 0 at the bottom and 100 at the top; the bar is green while a Kalman estimate of price rises. Cheap/hot: 100 less a slow {m}-candle stochastic, smoothed, so high is cheap and low is hot. Both say where price sits in its range, not where it goes next. Candles: {market}.', { n: String(SWING_SLOW_LENGTH), f: String(SWING_FAST_LENGTH), m: String(VALUE_LENGTH), market }), color: 'muted', wrap: true, rule: true });
+  lines.push({ text: t('Swing: where the close sits among its last {n} closes (slow) and where a Kalman estimate of it sits among its last {f} (fast), 0 at the bottom and 100 at the top; the bar is green while a Kalman estimate of price rises. Cheap/hot: 100 less where the close sits between the lowest low of {lo} candles and the highest high of {hi}, smoothed, so high is cheap and low is hot. Both say where price sits in its range, not where it goes next. Candles: {market}.', { n: String(SWING_SLOW_LENGTH), f: String(SWING_FAST_LENGTH), lo: String(VALUE_LOW_LENGTH), hi: String(VALUE_HIGH_LENGTH), market }), color: 'muted', wrap: true, rule: true });
   return lines;
 }
 
 /**
  * The Swing pane: per candle of the chart's timeframe (swing/model.ts), a bar between the fast and slow Swing lines (where price sits in its
  * recent range) coloured by the Kalman trend, over the floor and ceiling zones; and under it the cheap/hot reading as a dark area over its
- * zones (cheap from 50, hot under 17.5). Its candles are the public price history's (swing/book.ts), so it reaches back before the
+ * zones (cheap from 50, hot under 18.2). Its candles are the public price history's (swing/book.ts), so it reaches back before the
  * recording and on every timeframe.
  */
 export class SwingPane extends TimePane {
