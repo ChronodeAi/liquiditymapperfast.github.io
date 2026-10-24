@@ -25,6 +25,13 @@ export function priceOverviewNeeded(candles: readonly CandleRow[], tfMs: number,
   return true;
 }
 
+/** The lowest low and the highest high of the candles that touch [t0, t1), or null where there are none or they are flat: what a fit to the chart's own candles takes. */
+export function candlePriceRange(candles: readonly CandleRow[], tfMs: number, t0: number, t1: number): { lo: number; hi: number } | null {
+  let lo = Infinity, hi = -Infinity;
+  for (const c of candles) if (c[0] + tfMs > t0 && c[0] < t1) { lo = Math.min(lo, c[3]); hi = Math.max(hi, c[2]); }
+  return hi > lo ? { lo, hi } : null;
+}
+
 /** At most a few hundred native bars: daily for month-scale context, never finer than the selected candles; retain a resolution near its changeover. */
 export function priceWindow(view: Window, width: number, now: number, previousMs = 0, chartMs = 0): PriceWindow | null {
   const span = view.t1 - view.t0;

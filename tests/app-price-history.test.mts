@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChartPriceHistory, candleCoverage, isCovered, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type PriceReader, type PriceWindow } from '../src/app/price-history.ts';
+import { ChartPriceHistory, candleCoverage, candlePriceRange, isCovered, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type PriceReader, type PriceWindow } from '../src/app/price-history.ts';
 import { priceListing, type PriceHistoryAnswer, type PriceTarget } from '../src/shared/price-history.ts';
 import { BTC } from '../src/shared/coins.ts';
 import type { CandleRow } from '../src/app/store.ts';
@@ -253,4 +253,13 @@ test('a time is covered where a candle holds it: ranges are half-open, and the g
   assert.equal(isCovered(covered, T0 + 4 * HOUR), true);
   assert.equal(isCovered(covered, T0 - 1), false);
   assert.equal(isCovered([], T0), false);
+});
+
+test('a fit to the candles on screen takes their lowest low and highest high, and nothing where there are none or they are flat', () => {
+  const bars = [candle(0), candle(1), candle(2)].map((c, i): CandleRow => [c[0], 100, 110 + i, 90 - i, 101, 1, 1]);
+  assert.deepEqual(candlePriceRange(bars, HOUR, T0, T0 + 3 * HOUR), { lo: 88, hi: 112 });
+  assert.deepEqual(candlePriceRange(bars, HOUR, T0 + HOUR / 2, T0 + 1.5 * HOUR), { lo: 89, hi: 111 }, 'the two candles that touch the view');
+  assert.equal(candlePriceRange(bars, HOUR, T0 + 10 * HOUR, T0 + 11 * HOUR), null, 'none on screen');
+  assert.equal(candlePriceRange([[T0, 100, 100, 100, 100, 1, 1]], HOUR, T0, T0 + HOUR), null, 'a flat price has no range to fit');
+  assert.equal(candlePriceRange([], HOUR, T0, T0 + HOUR), null);
 });

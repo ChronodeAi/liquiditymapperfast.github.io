@@ -410,9 +410,9 @@ test('a candle estimate becomes the answer the column reads: rows on its step, b
 });
 type CandleRowLike = readonly number[];
 
-test('where the recording begins for the column does not depend on the window an answer was asked for', () => {
+test('where the recording begins for the column does not depend on the window an answer was asked for, nor on instruments it does not count', () => {
   const MIN = 60_000, DAY = 86_400_000, to = 1_000 * DAY, from = to - 30 * DAY, asked = to - 8 * DAY, win = { from, to };
-  const held = (...earliest: (number | null)[]): { earliest: number | null }[] => earliest.map(e => ({ earliest: e }));
+  const held = (...earliest: (number | null)[]): { id: string; earliest: number | null }[] => earliest.map((e, i) => ({ id: `v${i}:BTC`, earliest: e }));
   // A month on the map: the recording can be asked about eight days at most, and that is where it begins whatever answer is held.
   assert.equal(recordingStart(win, asked, held(from - DAY, from - 2 * DAY), 0), asked, 'the asked span, from venues recorded long before');
   assert.equal(recordingStart(win, asked, held(to - 3 * DAY, from - DAY), 0), to - 3 * DAY, 'the latest venue to start recording');
@@ -420,13 +420,18 @@ test('where the recording begins for the column does not depend on the window an
   // Nothing recorded at all: the recording begins after the window ends, and the candles are wanted wherever they hold it.
   assert.equal(recordingStart(win, asked, held(null, null), 0), to);
   assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, held(null), 0), to, 'a short window too');
-  // No venue at all, or no answer held yet and nothing known of the recording: nothing to decide on.
-  assert.equal(recordingStart(win, asked, [], 0), null);
-  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, null, 0), null);
-  // No answer held yet: where the hub knows the recording began.
+  // No answer held yet (or none for what is counted): where the hub knows the recording began, else the asked span alone.
   assert.equal(recordingStart(win, asked, null, to - 2 * DAY), to - 2 * DAY);
+  assert.equal(recordingStart(win, asked, [], 0), asked, 'an answer with no instruments says nothing');
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, null, 0), null);
   assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, null, to - 5 * DAY), null, 'the recording holds all of the day');
   // The minute's slack the column has always had: a start within a minute of the window's is its start.
   assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, held(to - DAY + 30_000), 0), null);
   assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, held(to - DAY + 2 * MIN), 0), to - DAY + 2 * MIN);
+  // After a scope or a chip changed, the held answer is for the old instruments until the new one lands: only the ones counted now speak.
+  const old = [{ id: 'old:BTC', earliest: to - 2 * DAY }, { id: 'kept:BTC', earliest: from - DAY }];
+  assert.equal(recordingStart(win, asked, old, 0, ['kept:BTC']), asked, 'the old venue that is no longer counted does not set the start');
+  assert.equal(recordingStart(win, asked, old, 0, ['old:BTC', 'kept:BTC']), to - 2 * DAY, 'counted again, it does');
+  assert.equal(recordingStart(win, asked, old, to - 3 * DAY, ['new:BTC']), to - 3 * DAY, 'none of the answer counted: as if none were held, the hub says');
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, [{ id: 'old:BTC', earliest: to - 2 * MIN }], 0, ['new:BTC']), null, 'and without the hub: the recording is taken to hold the day');
 });

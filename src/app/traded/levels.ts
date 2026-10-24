@@ -144,15 +144,18 @@ export function loadedColumnWanted(since: number | null, from: number, to: numbe
  * the start it can be asked from (`asked`, `askedSpan`) and the first minute of each venue it counts (`earliest` is the first minute recorded
  * at all, so the answer of another window says the same), or, while no answer is held, where the hub knows the recording began. An answer
  * whose venues never recorded anything leaves `since` at the window's end: the recording holds none of it (a page that has only just started,
- * a scope the server does not record), so the candles' estimate is wanted wherever they hold the window. It does not depend on the window
+ * a scope the server does not record), so the candles' estimate is wanted wherever they hold the window. Only the instruments of `ids` (those
+ * the column counts now) are read from the held answer. It does not depend on the window
  * the held answer was asked for: a zoom out that has not been answered yet does not flash the estimate on for a window the recording holds.
  */
-export function recordingStart(window: { from: number; to: number }, asked: number, held: readonly { earliest: number | null }[] | null, hubSince: number): number | null {
+export function recordingStart(window: { from: number; to: number }, asked: number, held: readonly { id: string; earliest: number | null }[] | null, hubSince: number, ids?: readonly string[]): number | null {
+  // An answer for other instruments (a scope or a chip changed, and the answer for the new ones has not come) says nothing about these: none of
+  // its instruments counted, it is as if none were held.
+  const mine = held && ids ? held.filter(inst => ids.includes(inst.id)) : held;
   let since = asked;
-  if (held) {
-    if (!held.length) return null;
+  if (mine && mine.length) {
     let any = false;
-    for (const inst of held) if (inst.earliest !== null) { any = true; if (inst.earliest > since) since = inst.earliest; }
+    for (const inst of mine) if (inst.earliest !== null) { any = true; if (inst.earliest > since) since = inst.earliest; }
     if (!any) since = window.to;
   } else if (hubSince > since) since = hubSince;
   return since > window.from + 60_000 ? since : null;
