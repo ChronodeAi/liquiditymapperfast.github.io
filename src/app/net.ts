@@ -200,13 +200,13 @@ export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs
   const lsReadyWaiters = new Set<(ok: boolean) => void>();
   /** Whether this socket's server answers Liquidity Tracker questions (its hello says so), and the ones waiting: frames in, the last one resolves. */
   let ltOk = false, ltNext = 0;
-  const ltWaiting = new Map<number, { onFrame(frame: LtFrame): void; resolve(): void; reject(error: Error): void; timer: number; given?: boolean; off(): void }>();
+  const ltWaiting = new Map<number, { onFrame(frame: LtFrame): void; resolve(): void; reject(error: Error): void; timer: number; off(): void }>();
   const lsSettle = (known: 'yes' | 'no'): void => { lsKnown = known; lsReady = known === 'yes'; for (const w of lsReadyWaiters) w(lsReady); lsReadyWaiters.clear(); };
   const lsDrop = (why: string): void => {
     lsSettle('no'); ltOk = false;
     for (const w of lsWaiting.values()) { window.clearTimeout(w.timer); w.off(); w.reject(new Error(why)); }
     lsWaiting.clear();
-    for (const w of ltWaiting.values()) { window.clearTimeout(w.timer); w.off(); if (!w.given) w.reject(new Error(why)); }
+    for (const w of ltWaiting.values()) { window.clearTimeout(w.timer); w.off(); w.reject(new Error(why)); }
     ltWaiting.clear();
   };
   /** Tell the server whether to send the trade dust (again on every new connection). */
@@ -231,7 +231,7 @@ export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs
           else if (message.t === 'lt') {
             // A tracker question's refusal (its frames are binary): the question fails, and the caller reads the columns instead.
             const m = message as { id?: unknown; error?: unknown }, w = typeof m.id === 'number' ? ltWaiting.get(m.id) : undefined;
-            if (w) { ltWaiting.delete(m.id as number); window.clearTimeout(w.timer); w.off(); if (!w.given) w.reject(new Error(String(m.error ?? 'lt-refused'))); }
+            if (w) { ltWaiting.delete(m.id as number); window.clearTimeout(w.timer); w.off(); w.reject(new Error(String(m.error ?? 'lt-refused'))); }
           }
           else if (message.t === 'ls') {
             const m = message as { id?: unknown; series?: unknown; error?: unknown }, w = typeof m.id === 'number' ? lsWaiting.get(m.id) : undefined;
@@ -251,8 +251,8 @@ export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs
           if (kind === 'tape') { const batch = decodeTape(event.data as ArrayBuffer); if (batch && tapeOn) handlers.onTape?.(batch); }
           else if (kind === 'lt') {
             const frame = decodeLt(event.data as ArrayBuffer), w = ltWaiting.get(frame.id);
-            if (w && !w.given) { w.onFrame(frame); if (frame.done) { ltWaiting.delete(frame.id); window.clearTimeout(w.timer); w.off(); w.resolve(); } }
-            else if (w && frame.done) { ltWaiting.delete(frame.id); window.clearTimeout(w.timer); w.off(); }
+            // A frame for a question given up, timed out or refused finds no waiter and is let go.
+            if (w) { w.onFrame(frame); if (frame.done) { ltWaiting.delete(frame.id); window.clearTimeout(w.timer); w.off(); w.resolve(); } }
           }
           else handlers.onLevels(decodeLevels(event.data as ArrayBuffer));
         }
@@ -285,10 +285,11 @@ export function connectLive(handlers: LiveHandlers, { silenceMs = 20_000, pollMs
       if (signal?.aborted) return Promise.reject(new Error('cancelled'));
       const id = ++ltNext;
       return new Promise<void>((resolve, reject) => {
-        // Given up by its asker: the server is told to stop, and the question stays here, ignored, until its last frame or the socket's end.
-        const onAbort = (): void => { const w = ltWaiting.get(id); if (w && !w.given) { w.given = true; reject(new Error('cancelled')); if (live.readyState === WebSocket.OPEN) live.send(JSON.stringify({ t: 'lt', id, cancel: true })); window.clearTimeout(w.timer); ltWaiting.delete(id); } };
+        // Given up by its asker, or timed out: the server is told to stop (it frees the slot at once), and a late frame for it finds no waiter.
+        const stop = (): void => { if (live.readyState === WebSocket.OPEN) live.send(JSON.stringify({ t: 'lt', id, cancel: true })); };
+        const onAbort = (): void => { const w = ltWaiting.get(id); if (w) { ltWaiting.delete(id); window.clearTimeout(w.timer); reject(new Error('cancelled')); stop(); } };
         const off = (): void => signal?.removeEventListener('abort', onAbort);
-        const timer = window.setTimeout(() => { ltWaiting.delete(id); off(); reject(new Error('live-timeout')); }, LT_SOCKET_TIMEOUT_MS);
+        const timer = window.setTimeout(() => { ltWaiting.delete(id); off(); reject(new Error('live-timeout')); stop(); }, LT_SOCKET_TIMEOUT_MS);
         ltWaiting.set(id, { onFrame, resolve, reject, timer, off });
         signal?.addEventListener('abort', onAbort, { once: true });
         live.send(JSON.stringify({ t: 'lt', id, inst: ids, from: Math.floor(from), to: Math.ceil(to), stepMs, half }));

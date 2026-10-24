@@ -253,7 +253,7 @@ test('tracker questions go on the live socket once its server says it answers th
     await answered;
     assert.deepEqual(frames.map(f => [f.from, f.to, f.done]), [[5_000_000, 9_000_000, false], [1_000, 5_000_000, true]], 'a part for a question it does not hold is let go');
     assert.deepEqual(Array.from(frames[0]!.instruments[0]!.values), [1, 2, 3, 4]);
-    // A refusal fails it; a levels frame between the parts is no part of it.
+    // A refusal fails it.
     const refused = ask(live, [])!;
     socket.receive(JSON.stringify({ t: 'lt', id: (JSON.parse(socket.sent.at(-1)!) as { id: number }).id, error: 'too many tracker questions at once' }));
     await assert.rejects(refused, /too many tracker questions/);

@@ -54,17 +54,23 @@ export class SqliteColumnStore implements ColumnStore {
   rangeLt(instrumentId: string, fromMs: number, toMs: number): LtMinute[] {
     if (!(toMs > fromMs)) return [];
     const rows = this.#rangeLt.all(instrumentId, Math.floor(fromMs), Math.ceil(toMs)) as { t: number; n: number; ltN: number | null; lt: Uint8Array | null }[];
-    // The trackers of the minutes are views of one buffer: kept for a week of markets (the recorder keeps what it reads back), a buffer of their own
-    // each would be more than twice the memory.
-    const slab = new Float32Array(rows.length * LT_LENGTH), out: LtMinute[] = [];
-    rows.forEach((row, k) => {
+    // The trackers of an hour are views of one buffer of its own: kept for a week of markets (the recorder keeps what it reads back, by the hour), a
+    // buffer each would be more than twice the memory, and one buffer for the whole read would stay while any hour of it was kept.
+    const HOUR = 3_600_000, perHour = new Map<number, number>();
+    const kept = (row: (typeof rows)[number]): boolean => !!row.lt && !!row.ltN && row.ltN > 0 && row.lt.byteLength === LT_LENGTH * 4;
+    for (const row of rows) if (kept(row)) { const h = Math.floor(row.t / HOUR); perHour.set(h, (perHour.get(h) ?? 0) + 1); }
+    const slabs = new Map<number, { slab: Float32Array; used: number }>(), out: LtMinute[] = [];
+    for (const row of rows) {
       const minute: LtMinute = { t: row.t, n: row.n };
-      if (row.lt && row.ltN && row.ltN > 0 && row.lt.byteLength === LT_LENGTH * 4) {
-        new Uint8Array(slab.buffer, k * LT_LENGTH * 4, LT_LENGTH * 4).set(row.lt);
-        minute.lt = slab.subarray(k * LT_LENGTH, (k + 1) * LT_LENGTH); minute.ltN = row.ltN;
+      if (kept(row)) {
+        const h = Math.floor(row.t / HOUR);
+        let own = slabs.get(h);
+        if (!own) { own = { slab: new Float32Array(perHour.get(h)! * LT_LENGTH), used: 0 }; slabs.set(h, own); }
+        new Uint8Array(own.slab.buffer, own.used * LT_LENGTH * 4, LT_LENGTH * 4).set(row.lt!);
+        minute.lt = own.slab.subarray(own.used * LT_LENGTH, (own.used + 1) * LT_LENGTH); minute.ltN = row.ltN!; own.used++;
       }
       out.push(minute);
-    });
+    }
     return out;
   }
   /**

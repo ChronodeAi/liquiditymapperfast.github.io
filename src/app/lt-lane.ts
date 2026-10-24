@@ -18,6 +18,10 @@ const MINUTE = 60_000;
 export const LT_REFRESH_MS = 15_000;
 /** How long after a failed question the next is asked (the pane reads the columns meanwhile, unless the lane has data). */
 export const LT_RETRY_MS = 10_000;
+/** How long after the server refused a question for its limit (a burst of questions given up and asked again) the next is asked. */
+export const LT_BUSY_MS = 2_000;
+/** A market the pane has not asked about for this long is let go. */
+export const LT_FORGET_MS = 10 * 60_000;
 /** The windows of a market: their starts, and LT_FIELDS numbers each. */
 interface Windows { times: number[]; values: number[] }
 /** What the lane holds of a market: the span it was asked for, how far its windows are final, and when it was last asked. */
@@ -44,13 +48,15 @@ export class LtLane {
   stepMs = MINUTE; half = -1; version = 0;
   readonly #series = new Map<string, Windows>();
   readonly #cover = new Map<string, Cover>();
+  /** When the pane last asked about each market: one it has not asked about for `LT_FORGET_MS` is let go (another coin's markets would pile up). */
+  readonly #seen = new Map<string, number>();
   #key = '';
   #loading: AbortController | null = null;
   #retryAt = 0; #failures = 0;
 
   /**
    * `ask`: where the answers come from (a source whose socket answers them; none, and the lane is not there). `publish`: hands the series held to
-   * whoever computes with them. `now`: the source's clock. `changed`: something new was held.
+   * whoever computes with them. `now`: the source's clock. `changed`: something new was held, or a wait for another try has ended.
    */
   constructor(private readonly ask: LaneAsk | undefined, private readonly publish: (stepMs: number, half: number, instruments: LaneInstrument[]) => void,
     private readonly now: () => number, private readonly changed: () => void) {}
@@ -63,22 +69,37 @@ export class LtLane {
   get holds(): boolean { return this.#series.size > 0; }
 
   /**
-   * Make sure the lane holds the tracker of `ids` over `view` (with half a view of margin each side) at the step the pane's width gives, for
-   * the half-life `halfLifeBp`. Safe to call at every frame: it does nothing while a question runs, or when everything asked for is held.
+   * What the pane does at every frame: see that the lane holds what the view needs (`ensure`), and say where the pane reads from, the lane (true)
+   * or the recorded columns (false). The columns where there is no lane, where a size filter is set (the lane has the unfiltered tracker only),
+   * where the half-life is not one the tracker is kept for, and while the lane has failed and holds nothing. The lane is asked at every frame in
+   * every case it can be, so a failure is tried again when its wait is over: it must not depend on being read.
+   */
+  serve(ids: readonly string[], view: { t0: number; t1: number }, widthPx: number, halfLifeBp: number, filtered: boolean): boolean {
+    if (!this.ask || filtered || !(LT_HALF_LIVES as readonly number[]).includes(halfLifeBp)) return false;
+    this.ensure(ids, view, widthPx, halfLifeBp);
+    return this.usable;
+  }
+
+  /**
+   * Make sure the lane holds the tracker of `ids` over `view` (with a view of margin on the left, half a one on the right) at the step the
+   * pane's width gives, for the half-life `halfLifeBp`. Safe to call at every frame: it does nothing while a question runs or its wait after a
+   * failure lasts, or when everything asked for is held.
    */
   ensure(ids: readonly string[], view: { t0: number; t1: number }, widthPx: number, halfLifeBp: number): void {
     const half = (LT_HALF_LIVES as readonly number[]).indexOf(halfLifeBp), span = view.t1 - view.t0;
     if (!this.ask || half < 0 || !(span > 0)) return;
-    const stepMs = laneStepMs(span, widthPx), key = `${half}|${stepMs}`;
+    const stepMs = laneStepMs(span, widthPx), key = `${half}|${stepMs}`, now = this.now();
     if (key !== this.#key) {
-      // Another step or half-life: what is held means something else. The question under way is given up (the server is told).
+      // Another step or half-life: what is held means something else. The question under way is given up (the server is told). A failure stays
+      // known (a server that cannot answer would otherwise show an empty lane at every step of a zoom before failing again), but is tried at once.
       this.#loading?.abort(); this.#loading = null;
-      this.#key = key; this.stepMs = stepMs; this.half = half; this.#series.clear(); this.#cover.clear(); this.#failures = 0; this.#retryAt = 0;
+      this.#key = key; this.stepMs = stepMs; this.half = half; this.#series.clear(); this.#cover.clear(); this.#retryAt = 0;
       this.version++; this.publish(stepMs, half, []);
     }
-    if (this.#loading || this.now() < this.#retryAt || !ids.length) return;
+    this.#forget(ids, now);
+    if (this.#loading || now < this.#retryAt || !ids.length) return;
     // A view of margin on the left (a pan or a zoom out is mostly held already), half a one on the right, which never reaches past the open minute.
-    const now = this.now(), reachFrom = Math.floor((view.t0 - span) / stepMs) * stepMs;
+    const reachFrom = Math.floor((view.t0 - span) / stepMs) * stepMs;
     const wantTo = Math.min(Math.ceil((view.t1 + span * 0.5) / stepMs) * stepMs, now), reachTo = Math.min(wantTo, now + MINUTE);
     const live = view.t1 >= now - 2 * Math.max(stepMs, MINUTE);
     let from = Infinity, to = -Infinity;
@@ -98,19 +119,43 @@ export class LtLane {
     void this.ask(asked, from, to, stepMs, half, frame => this.#take(asking, frame), controller.signal).then(() => {
       if (this.#loading !== controller) return;
       this.#loading = null; this.#failures = 0;
-      const settled = Math.floor((this.now() - 2 * MINUTE) / stepMs) * stepMs, at = this.now();
+      const at = this.now(), settledNow = Math.floor((at - 2 * MINUTE) / stepMs) * stepMs;
       for (const id of asked) {
         const c = this.#cover.get(id);
-        this.#cover.set(id, { from: Math.min(c?.from ?? from, from), to: Math.max(c?.to ?? to, to), settled: Math.min(Math.max(settled, c?.settled ?? -Infinity), to), at });
+        // A question that did not reach the right end of what is held (a pan left) says nothing new of its newest windows: they are as final, and as
+        // fresh, as they were, or the next refresh would ask for everything held again.
+        const right = !c || to >= c.to;
+        this.#cover.set(id, { from: Math.min(c?.from ?? from, from), to: Math.max(c?.to ?? to, to),
+          settled: right ? Math.min(Math.max(settledNow, c?.settled ?? -Infinity), to) : c.settled, at: right ? at : c.at });
       }
       this.changed();
     }, (error: unknown) => {
       if (this.#loading !== controller) return;
       this.#loading = null;
       if (error instanceof Error && error.message === 'cancelled') return;
-      this.#failures++; this.#retryAt = this.now() + LT_RETRY_MS;
+      // The server's own limit (a burst of questions given up and asked again) is a short wait and no failure; anything else is one.
+      const busy = error instanceof Error && error.message.includes('too many');
+      if (!busy) this.#failures++;
+      this.#retryAt = this.now() + (busy ? LT_BUSY_MS : LT_RETRY_MS);
+      this.#wake();
       this.changed();
     });
+  }
+
+  /** The pane draws when something happens to it, and a view that stands still would never try again: say when the wait is over. */
+  #wake(): void {
+    const timer = setTimeout(() => this.changed(), Math.max(0, this.#retryAt - this.now()) + 20);
+    (timer as unknown as { unref?: () => void }).unref?.();
+  }
+
+  /** Note the markets asked about now, and let go of those not asked about for a long while. */
+  #forget(ids: readonly string[], now: number): void {
+    for (const id of ids) this.#seen.set(id, now);
+    if (this.#seen.size === ids.length) return;
+    for (const [id, at] of this.#seen) {
+      if (now - at <= LT_FORGET_MS) continue;
+      this.#seen.delete(id); this.#series.delete(id); this.#cover.delete(id);
+    }
   }
 
   /** A part of an answer: its windows replace the ones held over its span, and are handed on. */

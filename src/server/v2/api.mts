@@ -555,7 +555,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (typeof id !== 'number' || !Number.isSafeInteger(id)) return;
     const running = ltRunning.get(client) ?? new Map<number, { cancelled: boolean }>();
     ltRunning.set(client, running);
-    if (m.cancel === true) { const one = running.get(id); if (one) one.cancelled = true; return; }
+    // A question given up frees its slot at once (its loop still stops at its next market): the page counts only the questions it has not given up.
+    if (m.cancel === true) { const one = running.get(id); if (one) { one.cancelled = true; running.delete(id); } return; }
     const fail = (error: string): void => { if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ t: 'lt', id, error })); };
     const { inst, from, to, half } = m;
     if (!Array.isArray(inst) || !inst.length || inst.length > MAX_LT_INSTRUMENTS || !inst.every(i => typeof i === 'string' && i.length > 0 && i.length <= 120)) return fail(BAD_SERIES);
@@ -563,6 +564,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (!validHalf(half)) return fail('half must name one of the half-lives the tracker is kept for');
     const stepMs = typeof m.stepMs === 'number' && Number.isSafeInteger(m.stepMs) ? Math.max(COLUMN_MS, Math.round(m.stepMs / COLUMN_MS) * COLUMN_MS) : NaN;
     if (!(stepMs > 0) || stepMs > MAX_COLUMN_SPAN_MS) return fail(BAD_WINDOW);
+    if (running.has(id)) return fail('question id in use');
     if (running.size >= LT_SOCKET_BUSY) return fail('too many tracker questions at once');
     const ids = [...new Set(inst as string[])], one = { cancelled: false };
     running.set(id, one);
@@ -578,10 +580,12 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           await new Promise<void>(resolve => setImmediate(resolve));
         }
         if (closed || one.cancelled || client.readyState !== WebSocket.OPEN) return;
+        // A client that is far behind is let go as the rest of the socket does (it reconnects and asks again), not sent more.
+        if (sendVerdict('event', client.bufferedAmount) === 'drop') { client.terminate(); return; }
         client.send(encodeLt(id, start, hi, stepMs, half, start <= lo, results), { binary: true });
         hi = start;
       }
-    })().catch(error => { console.error('v2 tracker question failed:', error); fail('internal error'); }).finally(() => running.delete(id));
+    })().catch(error => { console.error('v2 tracker question failed:', error); fail('internal error'); }).finally(() => { if (running.get(id) === one) running.delete(id); });
   };
   const footprintRoute = (url: URL, res: ServerResponse) => {
     // One instrument, or several (comma separated) added together: the aggregated footprint.

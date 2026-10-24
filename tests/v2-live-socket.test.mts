@@ -181,3 +181,47 @@ test('the live socket answers a tracker question in frames of a day, the newest 
     app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve())); await app.close();
   }
 });
+
+test('a socket runs four tracker questions at once: the fifth, a reused id and a question over a given-up one are told apart, and a cancel frees its slot at once', async () => {
+  const app = createLocalServer({ history: new HistoryStore({ filePath: ':memory:' }), quota: new QuotaLedger({ filePath: ':memory:' }), persistFixture: false });
+  const v2 = installV2(app, { dataDir: '', persist: false, liveMs: 20 });
+  await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
+  const port = (app.server.address() as AddressInfo).port;
+  const HOUR = 3_600_000, MIN = 60_000;
+  const end = Math.floor((Date.now() - HOUR) / HOUR) * HOUR, start = end - 50 * HOUR;
+  // Sixty-four markets of fifty hours: a question takes sixty-four turns of the loop for each of its days, long enough to still run when the next arrives.
+  const columns = [];
+  for (let t = start; t < end; t += MIN) columns.push({ t, n: 4, bins: Int32Array.of(1), bid: Float32Array.of(1), ask: Float32Array.of(1), lt: new Float32Array(LT_LENGTH).fill(1000), ltN: 4 });
+  const ids = Array.from({ length: 64 }, (_, i) => `seed${i}:BTC`);
+  for (const id of ids) { v2.recorder.columns.set(id, columns); v2.recorder.steps.set(id, 20); }
+  const texts: Record<string, unknown>[] = [], frames: LtFrame[] = [];
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/api/v2/ws`);
+  socket.on('message', (data: unknown) => {
+    try { texts.push(JSON.parse(Buffer.isBuffer(data) ? data.toString('utf8') : String(data)) as Record<string, unknown>); return; } catch { /* a binary frame */ }
+    if (!Buffer.isBuffer(data)) return;
+    const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+    if (frameType(buffer) === 'lt') frames.push(decodeLt(buffer));
+  });
+  const until = async (ok: () => boolean): Promise<void> => { for (let i = 0; i < 300 && !ok(); i++) await new Promise<void>(resolve => setTimeout(resolve, 20)); };
+  const ask = (id: number) => socket.send(JSON.stringify({ t: 'lt', id, inst: ids, from: start, to: end, stepMs: HOUR, half: 2 }));
+  try {
+    await until(() => texts.some(m => m.t === 'hello'));
+    for (const id of [1, 2, 3, 4, 5]) ask(id);
+    ask(2);
+    await until(() => texts.filter(m => m.t === 'lt').length >= 2);
+    const refused = new Map(texts.filter(m => m.t === 'lt').map(m => [m.id, String(m.error)]));
+    assert.match(refused.get(5) ?? '', /too many tracker questions/, 'the fifth at once');
+    assert.match(refused.get(2) ?? '', /question id in use/, 'an id still running is not taken again');
+    // A cancel frees its slot at once: a new question is accepted before the cancelled one has stopped.
+    socket.send(JSON.stringify({ t: 'lt', id: 1, cancel: true })); ask(6);
+    await until(() => frames.some(f => f.id === 6));
+    assert.ok(frames.some(f => f.id === 6), 'the sixth is answered');
+    assert.equal(texts.filter(m => m.t === 'lt' && m.id === 6).length, 0, 'and not refused');
+    // The cancelled question stops (it may have sent a frame before the cancel reached it, never a last one).
+    await until(() => frames.some(f => f.id === 3 && f.done));
+    assert.equal(frames.some(f => f.id === 1 && f.done), false, 'a cancelled question is not finished');
+  } finally {
+    socket.terminate(); v2.close();
+    app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve())); await app.close();
+  }
+});

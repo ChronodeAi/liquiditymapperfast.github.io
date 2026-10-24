@@ -55,7 +55,8 @@ export function decodeLt(buffer: ArrayBuffer): LtFrame {
   const frame = { id: Number(header.id), from: Number(header.from), to: Number(header.to), stepMs: Number(header.stepMs), half: Number(header.half), done: header.done === true };
   if (![frame.id, frame.from, frame.to, frame.stepMs, frame.half].every(Number.isFinite) || !Array.isArray(raw)) throw new Error('Malformed tracker frame');
   return { ...frame, instruments: raw.map((item, i) => {
-    const times = part(i * 2) as Float64Array, values = part(i * 2 + 1) as Float32Array;
+    const times = part(i * 2), values = part(i * 2 + 1);
+    if (!(times instanceof Float64Array) || !(values instanceof Float32Array)) throw new Error('Malformed tracker frame');
     if (typeof item.id !== 'string' || times.length !== item.windows || values.length !== times.length * LT_FIELDS) throw new Error('Malformed tracker frame');
     return { id: item.id, times, values };
   }) };

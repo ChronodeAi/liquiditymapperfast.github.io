@@ -574,15 +574,15 @@ export class LtPane extends TimePane {
     const t0 = Math.floor(v.t0 / MINUTE) * MINUTE, t1 = Math.ceil(v.t1 / MINUTE) * MINUTE;
     // Where the trackers come from: the lane (the tracker alone, asked for by this pane: lt-lane.ts) where the source has one and no size filter is
     // set; the recorded columns (the books the map is drawn from, which a size filter needs, and which the browser engine has at hand) otherwise.
-    const lane = this.hub.ltLane, useLane = !(lt.minUsd > 0 || lt.maxUsd > 0) && lane.usable;
-    if (useLane) lane.ensure(ids, v, pw, lt.halfLifeBp);
+    const lane = this.hub.ltLane, useLane = lane.serve(ids, v, pw, lt.halfLifeBp, lt.minUsd > 0 || lt.maxUsd > 0);
     const key = useLane ? `lane|${ids.join(',')}|${t0}|${t1}|${lane.version}|${lt.halfLifeBp}|${lt.average}`
       : `${ids.join(',')}|${t0}|${t1}|${this.hub.columnsVersion}|${lt.halfLifeBp}|${lt.minUsd}|${lt.maxUsd}|${lt.average}`;
     const liveTail = v.t1 > Date.now() - 2 * MINUTE;
     if (ids.length && !this.#busy && (key !== this.#key || (liveTail && performance.now() - this.#lastAt > 1_500))) {
       this.#key = key; this.#busy = true; this.#lastAt = performance.now();
       const params = { halfLifeBp: lt.halfLifeBp, minUsd: scaledUsd(lt.minUsd), maxUsd: scaledUsd(lt.maxUsd), average: lt.average };
-      void this.hub.lt(ids, t0, t1, params, useLane).then(r => { this.#series = { ...r, stepMs: r.stepMs ?? this.hub.columnStepMs }; this.#busy = false; this.invalidate(); }, () => { this.#busy = false; });
+      // While the lane holds nothing for the step or half-life just chosen, the series on screen stays (it carries its own step) rather than a blank.
+      void this.hub.lt(ids, t0, t1, params, useLane).then(r => { if (!(useLane && !lane.holds && this.#series)) this.#series = { ...r, stepMs: r.stepMs ?? this.hub.columnStepMs }; this.#busy = false; this.invalidate(); }, () => { this.#busy = false; });
     }
     const s = this.#series, readout = this.head.querySelector('.readout')!;
     if (!s || !s.times.length) { ctx.fillStyle = p.muted; ctx.fillText(t('Liquidity tracker is collecting…'), 12, ph / 2); setText(readout, ''); return; }

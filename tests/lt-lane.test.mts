@@ -12,7 +12,7 @@ import { packLt } from '../src/shared/columns.ts';
 import { LT_FIELDS, LT_HALF_LIVES, LT_LENGTH } from '../src/shared/lt-sample.ts';
 import { ltWindows, validHalf, type LtMinute } from '../src/shared/lt-windows.ts';
 import { decodeLt, type LtFrame } from '../src/app/wire.ts';
-import { LT_REFRESH_MS, LT_RETRY_MS, LtLane, laneStepMs, mergeWindows, type LaneInstrument } from '../src/app/lt-lane.ts';
+import { LT_BUSY_MS, LT_FORGET_MS, LT_REFRESH_MS, LT_RETRY_MS, LtLane, laneStepMs, mergeWindows, type LaneInstrument } from '../src/app/lt-lane.ts';
 import { ltSeries, type LtStore } from '../src/app/lt.ts';
 
 /**
@@ -32,7 +32,7 @@ const columnAt = (t: number, base: number): Column => {
   for (let i = 0, bin = base + Math.floor(rnd() * 10); i < count; i++, bin += 1 + Math.floor(rnd() * 3)) { bins[i] = bin; bid[i] = Math.round(rnd() * 5e5); ask[i] = Math.round(rnd() * 5e5); }
   const column: Column = { t, n: 1 + Math.floor(rnd() * 12), bins, bid, ask };
   const kind = rnd();
-  if (kind < 0.75) { column.lt = Float32Array.from({ length: LT_LENGTH }, () => Math.round(rnd() * 1e6) / 8); column.ltN = column.n; }
+  if (kind < 0.75) { column.lt = Float32Array.from({ length: LT_LENGTH }, () => rnd() * 1e6); column.ltN = column.n; }
   else if (kind < 0.88 && column.n > 1) { column.lt = Float32Array.from({ length: LT_LENGTH }, () => Math.round(rnd() * 1e6)); column.ltN = 1 + Math.floor(rnd() * (column.n - 1)); }
   return column;
 };
@@ -127,27 +127,34 @@ test('read back again, the trackers of an hour already read are not read from th
 test('the SQLite store reads the trackers alone as it reads the columns: the same minutes, the same trackers, a broken row left out', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-lane-'));
   const file = path.join(dir, 'depth.sqlite');
+  let store: SqliteColumnStore | null = null;
   try {
-    const store = new SqliteColumnStore(file);
+    store = new SqliteColumnStore(file);
     seed = 13;
-    for (let i = 0; i < 40; i++) store.save('a:BTC', columnAt(T0 + i * MIN, 4_000), 20);
+    for (let i = 0; i < 70; i++) store.save('a:BTC', columnAt(T0 + i * MIN, 4_000), 20);
     // A row whose books are not whole (neither `range` nor `rangeLt` takes it), and a tracker of another length (taken as no tracker).
     const raw = new DatabaseSync(file);
-    raw.prepare('INSERT INTO depth_columns (inst, t, n, step, data) VALUES (?, ?, ?, ?, ?)').run('a:BTC', T0 + 40 * MIN, 3, 20, new Uint8Array(13));
-    raw.prepare('INSERT INTO depth_columns (inst, t, n, step, data) VALUES (?, ?, ?, ?, ?)').run('a:BTC', T0 + 41 * MIN, 3, 20, new Uint8Array(12));
-    raw.prepare('INSERT INTO depth_lt (inst, t, n, data) VALUES (?, ?, ?, ?)').run('a:BTC', T0 + 41 * MIN, 3, new Uint8Array(8));
+    raw.prepare('INSERT INTO depth_columns (inst, t, n, step, data) VALUES (?, ?, ?, ?, ?)').run('a:BTC', T0 + 70 * MIN, 3, 20, new Uint8Array(13));
+    raw.prepare('INSERT INTO depth_columns (inst, t, n, step, data) VALUES (?, ?, ?, ?, ?)').run('a:BTC', T0 + 71 * MIN, 3, 20, new Uint8Array(12));
+    raw.prepare('INSERT INTO depth_lt (inst, t, n, data) VALUES (?, ?, ?, ?)').run('a:BTC', T0 + 71 * MIN, 3, new Uint8Array(8));
     raw.close();
-    const columns = store.range('a:BTC', T0, T0 + 50 * MIN), minutes = store.rangeLt('a:BTC', T0, T0 + 50 * MIN);
+    const columns = store.range('a:BTC', T0, T0 + 80 * MIN), minutes = store.rangeLt('a:BTC', T0, T0 + 80 * MIN);
     assert.equal(minutes.length, columns.length);
-    assert.equal(minutes.length, 41, 'the broken row is not among them');
+    assert.equal(minutes.length, 71, 'the broken row is not among them');
+    // The trackers of an hour share a buffer of their own: an hour let go of lets go of its bytes, whichever of the others is kept.
+    const inHour = (h: number) => minutes.filter(m => m.lt && Math.floor((m.t - T0) / HOUR) === h);
+    assert.ok(inHour(0).length > 10 && inHour(1).length > 3);
+    assert.equal(new Set(inHour(0).map(m => m.lt!.buffer)).size, 1);
+    assert.equal(new Set(inHour(1).map(m => m.lt!.buffer)).size, 1);
+    assert.notEqual(inHour(0)[0]!.lt!.buffer, inHour(1)[0]!.lt!.buffer);
+    assert.equal(inHour(0)[0]!.lt!.buffer.byteLength, inHour(0).length * LT_LENGTH * 4, 'the buffer holds that hour and no more');
     columns.forEach((c, k) => {
       const m = minutes[k]!;
       assert.deepEqual([m.t, m.n, m.ltN], [c.t, c.n, c.ltN], `minute ${k}`);
       assert.deepEqual(m.lt ? Array.from(m.lt) : undefined, c.lt ? Array.from(c.lt) : undefined, `tracker ${k}`);
     });
     assert.deepEqual(store.rangeLt('a:BTC', T0 + 10 * MIN, T0 + 10 * MIN), []);
-    store.close();
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally { store?.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a window is NaN unless its tracker covers every sample of its minutes, and the half-life picks its four numbers', () => {
@@ -334,4 +341,82 @@ test('the tracker alone adds up as the columns do, a gap draws nothing, and a ve
   assert.deepEqual(Array.from(gapOnly.times), [MIN], 'a window nobody covers is not a zero');
   const averaged = ltSeries([lane([100, 50, 2, 1, 300, 70, 3, 2])], 0, 2 * MIN, MIN, { ...params, average: true });
   assert.deepEqual(Array.from(averaged.bid), [50, 100]);
+});
+
+test('a frame whose parts are not the kinds its header promises is refused, not read as other numbers', () => {
+  const good = encodeLt(1, 0, MIN, MIN, 0, true, [{ instrumentId: 'a:BTC', windows: { times: [0], values: Float32Array.of(1, 2, 3, 4) } }]);
+  const view = new DataView(good.buffer, good.byteOffset, good.byteLength);
+  const json = new TextDecoder().decode(good.subarray(4, 4 + view.getUint32(0, true)));
+  assert.match(json, /"kind":"f64"/);
+  // The same bytes with the times declared f32 (twice the length of numbers) and the same header length: a decoder that trusts lengths alone reads garbage.
+  const swapped = Buffer.from(good); const at = 4 + json.indexOf('"kind":"f64"') + '"kind":"'.length;
+  swapped.write('f32', at);
+  assert.throws(() => decodeLt(swapped.buffer.slice(swapped.byteOffset, swapped.byteOffset + swapped.byteLength) as ArrayBuffer), /Malformed tracker frame/);
+});
+
+test('the pane reads the lane unless it cannot, and a lane that failed holding nothing is asked again when its wait is over, without anyone reading it', async () => {
+  // The pane's own call (`serve`) is what runs at every frame: a lane read only where it was usable could never be tried again (reviewed 2026-10-24).
+  const rig = laneRig(), view = { t0: T0 + 5 * DAY, t1: T0 + 6 * DAY };
+  assert.equal(rig.lane.serve(['a'], view, 1500, 10, true), false, 'a size filter: the columns');
+  assert.equal(rig.lane.serve(['a'], view, 1500, 7, false), false, 'a half-life the tracker is not kept for: the columns');
+  assert.equal(rig.calls.length, 0, 'and nothing is asked for either');
+  assert.equal(new LtLane(undefined, () => {}, () => 0, () => {}).serve(['a'], view, 1500, 10, false), false, 'a source with no lane');
+  assert.equal(rig.lane.serve(['a'], view, 1500, 10, false), true, 'asked: the lane, while it has not failed');
+  rig.calls[0]!.reject(new Error('unsupported')); await settle();
+  assert.equal(rig.lane.serve(['a'], view, 1500, 10, false), false, 'failed with nothing held: the columns');
+  assert.equal(rig.calls.length, 1, 'its wait is not over');
+  rig.clock += LT_RETRY_MS + 1;
+  assert.equal(rig.lane.serve(['a'], view, 1500, 10, false), false, 'asked again at once, not yet answered: still the columns');
+  assert.equal(rig.calls.length, 2, 'the pane asked it again, though it was not being read');
+  rig.calls[1]!.onFrame(frameOf(rig.calls[1]!, ['a'], false));
+  assert.equal(rig.lane.serve(['a'], view, 1500, 10, false), true, 'it holds something: the lane');
+  // A failure is known across a zoom: the pane does not show an empty lane at every step on a server that cannot answer.
+  const old = laneRig();
+  old.lane.serve(['a'], view, 1500, 10, false); old.calls[0]!.reject(new Error('unsupported')); await settle();
+  const zoomed = { t0: view.t0, t1: view.t0 + 6 * DAY };
+  assert.equal(old.lane.serve(['a'], zoomed, 1500, 10, false), false, 'another step: the columns still, and it is asked at once');
+  assert.equal(old.calls.length, 2);
+});
+
+test('the server limit is a short wait and no failure; a wait that ends is announced, so a view that stands still tries again', async () => {
+  const rig = laneRig(), view = { t0: T0 + 5 * DAY, t1: T0 + 6 * DAY };
+  rig.lane.serve(['a'], view, 1500, 10, false);
+  const before = rig.changed;
+  rig.calls[0]!.reject(new Error('too many tracker questions at once')); await settle();
+  assert.equal(rig.lane.usable, true, 'not a failure');
+  rig.clock += LT_BUSY_MS - 1; rig.lane.serve(['a'], view, 1500, 10, false);
+  assert.equal(rig.calls.length, 1, 'a short wait');
+  rig.clock += 2; rig.lane.serve(['a'], view, 1500, 10, false);
+  assert.equal(rig.calls.length, 2);
+  assert.ok(rig.changed > before, 'the pane was told');
+});
+
+test('filling a gap on the left leaves the newest windows as final, and as fresh, as they were: the next refresh asks for the tail only', async () => {
+  const rig = laneRig(), view = () => ({ t0: rig.clock - DAY, t1: rig.clock + HOUR });
+  rig.lane.serve(['a'], view(), 1500, 10, false);
+  const first = rig.calls[0]!; first.onFrame(frameOf(first, ['a'])); first.resolve(); await settle();
+  rig.clock += 5_000;
+  // A pan left within the same step: only the gap is asked.
+  const left = { t0: view().t0 - DAY / 2, t1: view().t1 - DAY / 2 };
+  rig.lane.serve(['a'], left, 1500, 10, false);
+  const gap = rig.calls[1]!;
+  assert.equal(gap.to, first.from, 'the gap on the left only');
+  gap.resolve(); await settle();
+  rig.clock += LT_REFRESH_MS;
+  rig.lane.serve(['a'], view(), 1500, 10, false);
+  const tail = rig.calls[2]!;
+  assert.ok(tail.from > rig.clock - 3 * HOUR, `the refresh asks for the newest windows, not the whole held span: from ${(rig.clock - tail.from) / MIN} min ago`);
+});
+
+test('markets the pane has not asked about for a long while are let go, and a venue that comes back soon costs nothing', async () => {
+  const rig = laneRig(), view = { t0: T0 + 5 * DAY, t1: T0 + 6 * DAY };
+  rig.lane.ensure(['a', 'b'], view, 1500, 10);
+  rig.calls[0]!.onFrame(frameOf(rig.calls[0]!, ['a', 'b'])); rig.calls[0]!.resolve(); await settle();
+  rig.clock += LT_FORGET_MS - 1_000; rig.lane.ensure(['a'], view, 1500, 10);
+  assert.deepEqual(rig.published.at(-1)!.instruments.map(i => i.id).sort(), ['a', 'b'], 'b is held still');
+  rig.lane.ensure(['a', 'b'], view, 1500, 10);
+  assert.equal(rig.calls.length, 1, 'b back within the time: not asked again');
+  rig.clock += LT_FORGET_MS + 1_000; rig.lane.ensure(['a'], view, 1500, 10);
+  rig.lane.ensure(['a', 'b'], view, 1500, 10);
+  assert.deepEqual(rig.calls[1]!.ids, ['b'], 'b was let go and is asked for again');
 });
