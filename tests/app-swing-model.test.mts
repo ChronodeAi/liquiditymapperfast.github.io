@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SWING_FAST, SWING_HIGH, SWING_LENGTH, SWING_LOW, SWING_SLOW, VALUE_CHEAP, VALUE_HOT, VALUE_LENGTH, VALUE_SMOOTH, swingRows, swingZone, valueZone, type SwingCandle } from '../src/app/swing/model.ts';
+import { SWING_FAST_LENGTH, SWING_HIGH, SWING_LOW, SWING_SLOW_AVERAGE, SWING_SLOW_LENGTH, VALUE_CHEAP, VALUE_HOT, VALUE_LENGTH, VALUE_SMOOTH, swingRows, swingZone, valueZone, type SwingCandle } from '../src/app/swing/model.ts';
 
 const candle = (t: number, o: number, c: number, wick = 0.2): SwingCandle => ({ t, o, h: Math.max(o, c) + wick, l: Math.min(o, c) - wick, c });
 /** A walk of `n` candles from 100, each moving by `step(i)`. */
@@ -12,7 +12,7 @@ function walk(n: number, step: (i: number) => number): SwingCandle[] {
 
 test('a reading is null until the candles before it are enough to make it, and only then', () => {
   const rows = swingRows(walk(80, i => Math.sin(i / 3)));
-  const firstFast = SWING_LENGTH + SWING_FAST - 2, firstSlow = firstFast + SWING_SLOW - 1, firstValue = VALUE_LENGTH + VALUE_SMOOTH - 2;
+  const firstFast = SWING_FAST_LENGTH - 1, firstSlow = SWING_SLOW_LENGTH + SWING_SLOW_AVERAGE - 2, firstValue = VALUE_LENGTH + VALUE_SMOOTH - 2;
   assert.equal(rows[firstFast - 1]!.fast, null); assert.notEqual(rows[firstFast]!.fast, null);
   assert.equal(rows[firstSlow - 1]!.slow, null); assert.notEqual(rows[firstSlow]!.slow, null);
   assert.equal(rows[firstValue - 1]!.value, null); assert.notEqual(rows[firstValue]!.value, null);
@@ -33,11 +33,11 @@ test('a range with no width reads the middle, never a division by zero', () => {
   assert.equal(row.fast, 50); assert.equal(row.slow, 50); assert.equal(row.value, 50); assert.equal(row.up, false);
 });
 
-test('after a climb, a turn down takes the fast line under the slow one before the slow line follows', () => {
-  const rows = swingRows(walk(150, i => i < 120 ? 1 : -2));
-  const turned = rows[126]!;
-  assert.ok(turned.fast! < turned.slow!, `fast ${turned.fast} under slow ${turned.slow}`);
-  assert.ok(turned.slow! > SWING_LOW, 'the slow line is still on its way down');
+test('after a climb, a fall takes the bar from the ceiling to the floor, turning it red on the way', () => {
+  const rows = swingRows(walk(170, i => i < 120 ? 1 : -2));
+  assert.equal(swingZone(rows[119]!), 'ceiling');
+  const firstRed = rows.findIndex((r, i) => i > 120 && r.up === false), firstFloor = rows.findIndex((r, i) => i > 120 && swingZone(r) === 'floor');
+  assert.ok(firstRed > 120 && firstRed < firstFloor, `red at ${firstRed}, floor at ${firstFloor}`);
   assert.equal(swingZone(rows.at(-1)!), 'floor');
 });
 

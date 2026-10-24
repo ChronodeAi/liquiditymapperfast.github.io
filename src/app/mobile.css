@@ -212,6 +212,8 @@ html[data-layout^="phone"] main[data-tab="book"] .pane.ladder:not([hidden]),
 html[data-layout^="phone"] main[data-tab="depth"] .pane.depth:not([hidden]),
 html[data-layout^="phone"] main[data-tab="oi"] .pane.oi:not([hidden]),
 html[data-layout^="phone"] main[data-tab="delta"] .pane.delta:not([hidden]),
+html[data-layout^="phone"] main[data-tab="tof"] .pane.tof:not([hidden]),
+html[data-layout^="phone"] main[data-tab="swing"] .pane.swing:not([hidden]),
 html[data-layout^="phone"] main[data-tab="ls"] .pane.ls:not([hidden]),
 html[data-layout^="phone"] main[data-tab="lt"] .pane.lt:not([hidden]),
 html[data-layout^="phone"] main[data-tab="stats"] .pane.bars:not([hidden]) { display: flex; flex: 0 0 var(--dock-size, 40%) !important; min-height: 0 !important; }
@@ -266,6 +268,10 @@ html[data-layout="phone-landscape"] main[data-tab="flow"] .pane.cvd:not([hidden]
 html[data-layout="phone-landscape"] main[data-tab="book"] .pane.ladder:not([hidden]),
 html[data-layout="phone-landscape"] main[data-tab="depth"] .pane.depth:not([hidden]),
 html[data-layout="phone-landscape"] main[data-tab="oi"] .pane.oi:not([hidden]),
+html[data-layout="phone-landscape"] main[data-tab="delta"] .pane.delta:not([hidden]),
+html[data-layout="phone-landscape"] main[data-tab="tof"] .pane.tof:not([hidden]),
+html[data-layout="phone-landscape"] main[data-tab="swing"] .pane.swing:not([hidden]),
+html[data-layout="phone-landscape"] main[data-tab="ls"] .pane.ls:not([hidden]),
 html[data-layout="phone-landscape"] main[data-tab="lt"] .pane.lt:not([hidden]),
 html[data-layout="phone-landscape"] main[data-tab="stats"] .pane.bars:not([hidden]) { display: flex; grid-column: 3; grid-row: 1; flex: none !important; }
 html[data-layout="phone-landscape"] .dock { grid-column: 2; grid-row: 2; flex-direction: column; justify-content: flex-start; width: 60px; border-top: 0; border-left: 1px solid var(--line); padding-right: env(safe-area-inset-right); overflow-y: auto; }
