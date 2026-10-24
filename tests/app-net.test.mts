@@ -179,3 +179,36 @@ test('a long/short question the socket drops or refuses is asked over HTTP; one 
     live.close();
   } finally { Object.assign(globalThis, saved); }
 });
+
+test('the white price line is read by the page from the exchange, the server only where that fails', async () => {
+  // The line's request through the server ran 25 s behind the page's other history requests; from Binance it takes 0.4 s (2026-10-24).
+  const saved = { fetch: globalThis.fetch };
+  const urls: string[] = [];
+  let binanceDown = false;
+  const HOUR = 3_600_000, from = Date.UTC(2026, 0, 1), kline = (i: number) => [from + i * HOUR, '100', '102', '99', '101', '5', from + (i + 1) * HOUR - 1, '505', 10, '2', '202', '0'];
+  Object.assign(globalThis, {
+    fetch: async (input: string | URL | Request) => {
+      const url = String(input); urls.push(url);
+      if (url.includes('/api/v2/price-history')) {
+        const u = new URL(url, 'http://localhost');
+        return { ok: true, status: 200, json: async () => ({ instrumentId: 'binance:BTCUSDT', tfMs: HOUR, from: Number(u.searchParams.get('from')), to: Number(u.searchParams.get('to')), asOf: Date.now(), status: 'ok', candles: [[Number(u.searchParams.get('from')), 100, 102, 99, 101, 5, 10]] }) } as unknown as Response;
+      }
+      if (binanceDown) throw new TypeError('network down');
+      return { ok: true, status: 200, json: async () => Array.from({ length: 6 }, (_, i) => kline(i)) } as unknown as Response;
+    },
+  });
+  try {
+    const source = new ServerSource();
+    const answer = await source.priceHistory('binance:BTCUSDT', '1h', from, from + 6 * HOUR);
+    assert.equal(answer.status, 'ok'); assert.equal(answer.candles.length, 6);
+    assert.ok(urls.some(u => u.includes('fapi.binance.com')), 'read from the exchange');
+    assert.ok(!urls.some(u => u.includes('/api/v2/price-history')), 'not through the server');
+    urls.length = 0; binanceDown = true;
+    const other = await source.priceHistory('binance:BTCUSDT', '1h', from + 10 * 24 * HOUR, from + 10 * 24 * HOUR + 6 * HOUR);
+    assert.ok(urls.some(u => u.includes('/api/v2/price-history')), 'the exchange could not be read: the server route is asked');
+    assert.equal(other.status, 'ok');
+    urls.length = 0;
+    await source.priceHistory('notavenue:XYZ', '1h', from, from + 6 * HOUR).catch(() => undefined);
+    assert.ok(urls.every(u => !u.includes('klines')), 'an instrument the page cannot read goes to the server');
+  } finally { Object.assign(globalThis, saved); }
+});

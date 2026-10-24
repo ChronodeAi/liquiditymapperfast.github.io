@@ -1,6 +1,10 @@
 import { connectLive, type LiveConnection, getAbsorption, getAbsorptionProfile, getBootstrap, getCandles, getColumns, getCoverage, getFlow, getFlowMinutes, getFootprint, getLiquidations, getLongShort, getOi, getOiProfile, getPriceHistory, getPrintSums, getPrints, getProfile, getRange, getSizes, getValueAreas } from './net.ts';
 import type { BootstrapState, DataSource, VenueCatalog, VenueControl, VenueEntry } from './source.ts';
 import { stateOfStatus } from './venue-notice.ts';
+import { currentCoin } from './coin.ts';
+import { PriceHistoryCache, priceListing, type PriceHistoryAnswer } from '../shared/price-history.ts';
+import { webGet } from '../shared/history.ts';
+import { TIMEFRAMES } from '../shared/series.ts';
 
 interface FeedCatalog { maxSelected: number; selectedVenues: string[]; venues: { id: string; name: string; supported: boolean; default?: boolean; status: string }[] }
 interface ExtraVenueInfo { id: string; name: string; enabled: boolean; default?: boolean; state: string; lastError: string | null; reconnects: number }
@@ -74,7 +78,24 @@ export class ServerSource implements DataSource {
   readonly #connected = new Promise<LiveConnection>(resolve => { this.#setConnected = resolve; });
   connect: DataSource['connect'] = handlers => { const live = this.#live = connectLive(handlers); this.#setConnected(live); return live; };
   candles = getCandles;
-  priceHistory = getPriceHistory;
+  readonly #price = new PriceHistoryCache(webGet);
+  /**
+   * The white price line's history, read by the page from the exchange itself (as the VWAP's and the profiles' candles are), the server's
+   * route only where that cannot (a venue it cannot read, a read that failed). Through the server it waited behind the page's other history
+   * requests for one of the browser's six connections to it: a zoom out set off a burst of them and the line's request ran 25 s and gave
+   * up, where the same window read from Binance takes 0.4 s (measured 2026-10-24; the VWAP's candles, which go straight there, were
+   * all in within 0.5 s of the same zoom).
+   */
+  priceHistory = async (inst: string, tf: string, from: number, to: number, signal?: AbortSignal): Promise<PriceHistoryAnswer> => {
+    const target = priceListing(currentCoin(), inst), tfMs = Object.hasOwn(TIMEFRAMES, tf) ? TIMEFRAMES[tf] : undefined;
+    if (target && tfMs) {
+      try {
+        const answer = await this.#price.series(target, tfMs, from, to);
+        if (answer.status !== 'failed') return answer;
+      } catch { /* the server's route below */ }
+    }
+    return getPriceHistory(inst, tf, from, to, signal);
+  };
   oi = getOi;
   /**
    * On the live socket where the server answers there: a page's HTTP requests to the server wait behind its history requests for one of the

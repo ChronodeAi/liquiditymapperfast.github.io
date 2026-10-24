@@ -71,7 +71,7 @@ import { TapeGL, type DustStyle } from '../tape/gl.ts';
 import { TraceIndex, gapMarks, secondsPath, traceGapColumns } from '../tape/trace.ts';
 import { curveColors } from './ladder-curves.ts';
 import { priceInstrument, priceTarget, type PriceHistoryAnswer, type PriceTarget } from '../../shared/price-history.ts';
-import { priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, type PricePoint, type PriceWindow } from '../price-history.ts';
+import { candleCoverage, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type PricePoint, type PriceWindow } from '../price-history.ts';
 
 /** The colour of a flag on a candle's wick: amber reads on every theme and is neither side's colour. */
 const TRAP_COLOR = '#f5a524';
@@ -214,6 +214,8 @@ export class HeatPane {
   #overviewTarget: PriceTarget | null = null;
   #overviewContext: { key: string; candles: readonly CandleRow[]; window: PriceWindow | null } | null = null;
   #overviewPoints: { answer: PriceHistoryAnswer; cut: number; runs: PricePoint[][] } | null = null;
+  /** The line as drawn: the runs without the parts the chart's candles cover, worked out again only when the answer or what the candles cover changes. */
+  #overviewDrawn: { runs: PricePoint[][]; key: string; drawn: { t: number; price: number }[][] } | null = null;
   /** A Go to needing price history may fit it on arrival, only while time and price stay where that action put them. */
   #priceFit: Bounds | null = null;
   #dataVersion = 0; #rasteredVersion = -1; #rasteredKey = ''; #lastRasterAt = 0;
@@ -933,6 +935,18 @@ export class HeatPane {
     return this.#overviewPoints.runs;
   }
 
+  /**
+   * The line without the parts where the chart draws candles (Karl, 2026-10-24: the line across the candles was noise; it is for where the
+   * chart has none): cut at the candles' edge, taken up after a gap in them. The candles that count are the ones drawn, `state.candles`.
+   */
+  #overviewLine(state: AppState): { t: number; price: number }[][] {
+    const runs = this.#overviewRuns(), candles = state.candles, tfMs = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    // The candles' coverage changes when one starts or the series is replaced, never when the forming one moves: the key names those.
+    const key = `${candles.length}|${candles[0]?.[0] ?? 0}|${candles[candles.length - 1]?.[0] ?? 0}|${tfMs}`;
+    if (this.#overviewDrawn?.runs !== runs || this.#overviewDrawn.key !== key) this.#overviewDrawn = { runs, key, drawn: uncoveredRuns(runs, candleCoverage(candles, tfMs)) };
+    return this.#overviewDrawn.drawn;
+  }
+
   #fitOverview(): void {
     const pending = this.#priceFit, v = this.view, answer = this.hub.priceHistory.answer;
     if (!pending || !answer || !this.#overviewTarget) return;
@@ -961,7 +975,7 @@ export class HeatPane {
   /** A true price series; separate paths preserve exchange gaps and never splice a reference market into the selected market's live trades. */
   #paintOverview(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
     const answer = this.hub.priceHistory.answer; if (!this.#overview || !answer) return;
-    const runs = this.#overviewRuns(), v = this.view, p = this.#palette;
+    const runs = this.#overviewLine(state), v = this.view, p = this.#palette;
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineJoin = 'round';
     ctx.globalAlpha = 0.9 * (1 - 0.85 * this.#lodFrame.barAlpha);
     if (priceInstrument(state.marketId) !== answer.instrumentId) ctx.setLineDash([5, 3]);

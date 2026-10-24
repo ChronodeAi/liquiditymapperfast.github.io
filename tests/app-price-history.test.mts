@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChartPriceHistory, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, type PriceReader, type PriceWindow } from '../src/app/price-history.ts';
+import { ChartPriceHistory, candleCoverage, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type PriceReader, type PriceWindow } from '../src/app/price-history.ts';
 import { priceListing, type PriceHistoryAnswer, type PriceTarget } from '../src/shared/price-history.ts';
 import { BTC } from '../src/shared/coins.ts';
 import type { CandleRow } from '../src/app/store.ts';
@@ -91,17 +91,34 @@ test('a gesture burst asks once for its final window and settled repeats ask not
   h.stop();
 });
 
-test('range and resolution changes keep the previous line while the latest view waits behind the request in flight', async () => {
+test('a range change keeps the previous line while the latest view waits behind the request in flight', async () => {
+  const { read, asks } = reader(), h = new ChartPriceHistory(read, () => NOW, 0);
+  h.ensure(target, window(0, 10), () => {}); await pause(); asks[0]!.resolve(answer(asks[0]!.w)); await pause();
+  const first = h.answer;
+  h.ensure(target, window(5, 20), () => {}); await pause();
+  h.ensure(target, window(8, 24), () => {}); await pause();
+  assert.equal(asks.length, 2, 'the same resolution: its read is not dropped, the view waits'); assert.ok(!asks[1]!.signal.aborted);
+  assert.equal(h.answer, first);
+  asks[1]!.resolve(answer(asks[1]!.w)); await pause(10);
+  assert.equal(asks.length, 3); assert.equal(asks[2]!.w.from, window(8, 24).from);
+  h.stop();
+});
+
+test('a view that needs another resolution drops the read in flight and asks for its own at once, with no failure and no cool-down', async () => {
+  // A zoom out passes through several resolutions; the line's request for the one the zoom left held up the one the view needed (2026-10-24).
   const { read, asks } = reader(), h = new ChartPriceHistory(read, () => NOW, 0);
   h.ensure(target, window(0, 10), () => {}); await pause(); asks[0]!.resolve(answer(asks[0]!.w)); await pause();
   const first = h.answer;
   h.ensure(target, window(5, 20), () => {}); await pause();
   const coarse = { tf: '4h', tfMs: 4 * HOUR, from: T0, to: T0 + 40 * HOUR };
-  h.ensure(target, coarse, () => {}); await pause();
-  assert.equal(asks.length, 2); assert.equal(h.answer, first); assert.equal(h.answer!.tfMs, HOUR);
-  asks[1]!.resolve(answer(asks[1]!.w)); await pause(10);
-  assert.equal(asks.length, 3); assert.equal(asks[2]!.w.tf, '4h');
-  asks[2]!.resolve(answer(coarse)); await pause(); assert.equal(h.answer!.tfMs, 4 * HOUR);
+  h.ensure(target, coarse, () => {}); await pause(10);
+  assert.ok(asks[1]!.signal.aborted, 'the read for the old resolution is dropped');
+  assert.equal(asks.length, 3); assert.equal(asks[2]!.w.tf, '4h', 'the resolution the view needs is asked for at once');
+  assert.equal(h.answer, first, 'the previous line stays drawn meanwhile'); assert.notEqual(h.status, 'failed'); assert.notEqual(h.status, 'stale');
+  // The dropped read answering late changes nothing.
+  asks[1]!.resolve(answer(asks[1]!.w)); await pause();
+  assert.equal(h.answer, first);
+  asks[2]!.resolve(answer(coarse)); await pause(); assert.equal(h.answer!.tfMs, 4 * HOUR); assert.equal(h.status, 'ok');
   h.stop();
 });
 
@@ -192,4 +209,35 @@ test('the recent-window cache is bounded across instruments and never reuses a c
   live.ensure(target, w, () => {}); await pause();
   assert.equal(asks.length, 3, 'a cached partial hour is fetched again after it closes');
   asks[2]!.resolve({ ...answer(w), asOf: now, candles: [candle(100)] }); await pause(); live.stop();
+});
+
+test('candles cover their intervals, merged where they follow one another', () => {
+  const bars = [candle(0), candle(1), candle(2), candle(5), candle(6)];
+  assert.deepEqual(candleCoverage(bars, HOUR), [[T0, T0 + 3 * HOUR], [T0 + 5 * HOUR, T0 + 7 * HOUR]]);
+  assert.deepEqual(candleCoverage([], HOUR), []);
+});
+
+test('the price line is cut where the candles are drawn: it ends against the first candle, takes up after a gap, and a line with no candles is whole', () => {
+  // Karl, 2026-10-24: the white line over the candles was noise; it is for where there are none.
+  const pt = (hour: number, price: number) => ({ t: T0 + hour * HOUR, price });
+  const run = [pt(0, 100), pt(10, 200), pt(20, 100), pt(30, 300)];
+  const whole = uncoveredRuns([run], []);
+  assert.deepEqual(whole, [run], 'nothing covered: the line as it is');
+  // Candles from hour 14 to 24 (a range of the chart), the rest uncovered.
+  const cut = uncoveredRuns([run], [[T0 + 14 * HOUR, T0 + 24 * HOUR]]);
+  assert.equal(cut.length, 2);
+  assert.deepEqual(cut[0]!.map(p => [(p.t - T0) / HOUR, p.price]), [[0, 100], [10, 200], [14, 160]], 'ends at the first candle edge, on the straight line between the points around it');
+  assert.deepEqual(cut[1]!.map(p => [(p.t - T0) / HOUR, p.price]), [[24, 180], [30, 300]], 'takes up where they stop');
+  // The candles cover the start: the line begins at their end.
+  const startCovered = uncoveredRuns([run], [[T0 - 5 * HOUR, T0 + 5 * HOUR]]);
+  assert.deepEqual(startCovered[0]!.map(p => [(p.t - T0) / HOUR, p.price]), [[5, 150], [10, 200], [20, 100], [30, 300]]);
+  // The candles cover all of it: nothing drawn. A point inside a range is dropped.
+  assert.deepEqual(uncoveredRuns([run], [[T0 - HOUR, T0 + 31 * HOUR]]), []);
+  assert.deepEqual(uncoveredRuns([[pt(3, 100)]], [[T0, T0 + 5 * HOUR]]), [], 'a lone point inside');
+  assert.deepEqual(uncoveredRuns([[pt(8, 100)]], [[T0, T0 + 5 * HOUR]]).map(r => r.length), [1], 'a lone point outside');
+  // A candle's interval is half-open: a close at its end is not covered by it.
+  const edge = uncoveredRuns([[pt(0, 100), pt(5, 110), pt(9, 120)]], [[T0, T0 + 5 * HOUR]]);
+  assert.deepEqual(edge[0]!.map(p => (p.t - T0) / HOUR), [5, 9]);
+  // Separate runs (a real gap in the exchange's history) stay separate.
+  assert.equal(uncoveredRuns([[pt(0, 1), pt(1, 2)], [pt(40, 3), pt(41, 4)]], [[T0 + 20 * HOUR, T0 + 30 * HOUR]]).length, 2);
 });
