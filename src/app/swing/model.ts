@@ -13,7 +13,8 @@
  *
  * Fitted to published charts' readings (Research_Findings.md): the Swing lines follow them to about 7 to 14 points in 100 and reach their
  * floor and ceiling zones in 54 of their 58 visits there; the cheap/hot reading follows them to under 1 point on average on every timeframe
- * from 1 hour to 1 day, and to 0.2 on fourteen values the charts printed. They say where price sits in its range, not where it goes next.
+ * from 1 hour to 1 day, and fifteen values the charts printed to 0.2 on average (0.8 at most). They say where price sits in its range, not
+ * where it goes next.
  */
 export const SWING_SLOW_LENGTH = 31, SWING_SLOW_AVERAGE = 8, SWING_FAST_LENGTH = 16, SWING_FAST_EMA = 4, SWING_FAST_GAIN = 0.0985;
 export const SWING_GAIN = 0.1, SWING_TREND = 5;
