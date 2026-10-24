@@ -1362,10 +1362,10 @@ export class HeatPane {
    */
   #loadedColumn(metric: ProfileMetric): { answer: ProfileAnswer; split: boolean } | null {
     if (metric !== 'volume' || replaying()) return null;
-    const state = this.store.state, held = this.hub.profile(metric)?.answer;
-    if (!held || !state.show.traded) return null;
+    const state = this.store.state;
+    if (!state.show.traded) return null;
     const win = this.#tradedWindow();
-    if (!loadedColumnWanted(this.#recordedSince(held), win.from, win.to)) return null;
+    if (!loadedColumnWanted(this.#volumeSince(), win.from, win.to)) return null;
     const step = requestStep(this.#tradedStep(), this.#levelStep(), this.#gridStep() / 40), now = Date.now(), c = this.#loadedCol;
     // A drag or a zoom moves the window every frame: what was worked out stands for a moment, and the pane is drawn again when it is due.
     if (c && c.step === step && (c.from !== win.from || c.to !== win.to) && now - c.at < LOADED_COLUMN_MS) {
@@ -1380,11 +1380,22 @@ export class HeatPane {
     }
     return this.#loadedCol;
   }
+  /**
+   * Where the recording behind the traded-volume column begins inside the window (null: it holds all of it): by its answer once one is held,
+   * before that (a source busy with other questions, a window no answer has come for yet) by where the hub knows the recording began, so a slow
+   * source does not keep the column blank when it is the estimate that would fill it.
+   */
+  #volumeSince(): number | null {
+    const held = this.hub.profile('volume')?.answer;
+    if (held) return this.#recordedSince(held);
+    const since = this.hub.recordedSince;
+    return since > this.#tradedWindow().from + 60_000 ? since : null;
+  }
   /** Ask for the candles the column's estimate is read from, only while the recording holds too little of the window to be the column. */
   #ensureLoadedColumn(state: AppState): void {
-    const held = this.hub.profile('volume')?.answer; if (!held || replaying()) return;
+    if (replaying()) return;
     const win = this.#tradedWindow();
-    if (!loadedColumnWanted(this.#recordedSince(held), win.from, win.to)) return;
+    if (!loadedColumnWanted(this.#volumeSince(), win.from, win.to)) return;
     const { target, spot, barMs } = this.#profileCandles(state, 'day');
     for (const [market, which] of [[target, 'main'], [spot, 'spot']] as const) {
       if (market) this.hub.profileHistory(barMs, which).ensure(market, Math.floor(win.from / barMs) * barMs, barMs, () => this.invalidate());
