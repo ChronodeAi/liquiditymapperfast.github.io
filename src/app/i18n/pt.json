@@ -1673,5 +1673,5 @@
  "Hide the controls": "Ocultar os controles",
  "Show the controls": "Mostrar os controles",
  "≈ from candles": "≈ das velas",
- "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Uma estimativa a partir das velas da corretora, com o volume de cada uma distribuído pela sua amplitude: não é a gravação."
+ "An estimate from the candles of {market}, the volume of each spread over its range: not the recording.": "Uma estimativa a partir das velas de {market}, com o volume de cada uma distribuído pela sua amplitude: não é a gravação."
 }

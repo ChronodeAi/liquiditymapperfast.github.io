@@ -1656,5 +1656,5 @@
  "Hide the controls": "Bedienleiste ausblenden",
  "Show the controls": "Bedienleiste einblenden",
  "≈ from candles": "≈ aus Kerzen",
- "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Eine Schätzung aus den Kerzen der Börse, das Volumen jeder Kerze über ihre Spanne verteilt: nicht die Aufzeichnung."
+ "An estimate from the candles of {market}, the volume of each spread over its range: not the recording.": "Eine Schätzung aus den Kerzen von {market}, das Volumen jeder Kerze über ihre Spanne verteilt: nicht die Aufzeichnung."
 }

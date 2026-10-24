@@ -1695,5 +1695,5 @@
  "Hide the controls": "Сховати панель керування",
  "Show the controls": "Показати панель керування",
  "≈ from candles": "≈ за свічками",
- "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Оцінка за свічками біржі: обсяг кожної свічки розподілено по її діапазону. Це не запис."
+ "An estimate from the candles of {market}, the volume of each spread over its range: not the recording.": "Оцінка за свічками {market}: обсяг кожної свічки розподілено по її діапазону. Це не запис."
 }

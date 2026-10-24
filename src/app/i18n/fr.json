@@ -1673,5 +1673,5 @@
  "Hide the controls": "Masquer les commandes",
  "Show the controls": "Afficher les commandes",
  "≈ from candles": "≈ des bougies",
- "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Une estimation à partir des bougies de la bourse, le volume de chacune réparti sur son étendue : ce n’est pas l’enregistrement."
+ "An estimate from the candles of {market}, the volume of each spread over its range: not the recording.": "Une estimation à partir des bougies de {market}, le volume de chacune réparti sur son étendue : ce n’est pas l’enregistrement."
 }

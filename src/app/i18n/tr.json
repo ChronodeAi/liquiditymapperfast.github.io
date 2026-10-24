@@ -1656,5 +1656,5 @@
  "Hide the controls": "Kontrolleri gizle",
  "Show the controls": "Kontrolleri göster",
  "≈ from candles": "≈ mumlardan",
- "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Borsa mumlarından bir tahmin: her mumun hacmi fiyat aralığına yayılmıştır. Kayıt değildir."
+ "An estimate from the candles of {market}, the volume of each spread over its range: not the recording.": "{market} mumlarından bir tahmin: her mumun hacmi fiyat aralığına yayılmıştır. Kayıt değildir."
 }

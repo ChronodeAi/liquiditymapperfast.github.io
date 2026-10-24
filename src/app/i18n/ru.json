@@ -1690,5 +1690,5 @@
  "Hide the controls": "Скрыть панель управления",
  "Show the controls": "Показать панель управления",
  "≈ from candles": "≈ по свечам",
- "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Оценка по свечам биржи: объём каждой свечи распределён по её диапазону. Это не запись."
+ "An estimate from the candles of {market}, the volume of each spread over its range: not the recording.": "Оценка по свечам {market}: объём каждой свечи распределён по её диапазону. Это не запись."
 }
