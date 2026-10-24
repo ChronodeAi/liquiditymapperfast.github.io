@@ -184,12 +184,13 @@ test('the white price line is read by the page from the exchange, the server onl
   // The line's request through the server ran 25 s behind the page's other history requests; from Binance it takes 0.4 s (2026-10-24).
   const saved = { fetch: globalThis.fetch };
   const urls: string[] = [];
-  let binanceDown = false;
+  let binanceDown = false, serverDown = false;
   const HOUR = 3_600_000, from = Date.UTC(2026, 0, 1), kline = (i: number) => [from + i * HOUR, '100', '102', '99', '101', '5', from + (i + 1) * HOUR - 1, '505', 10, '2', '202', '0'];
   Object.assign(globalThis, {
     fetch: async (input: string | URL | Request) => {
       const url = String(input); urls.push(url);
       if (url.includes('/api/v2/price-history')) {
+        if (serverDown) return { ok: false, status: 500, json: async () => ({}) } as unknown as Response;
         const u = new URL(url, 'http://localhost');
         return { ok: true, status: 200, json: async () => ({ instrumentId: 'binance:BTCUSDT', tfMs: HOUR, from: Number(u.searchParams.get('from')), to: Number(u.searchParams.get('to')), asOf: Date.now(), status: 'ok', candles: [[Number(u.searchParams.get('from')), 100, 102, 99, 101, 5, 10]] }) } as unknown as Response;
       }
@@ -209,6 +210,18 @@ test('the white price line is read by the page from the exchange, the server onl
     assert.equal(other.status, 'ok');
     urls.length = 0;
     await source.priceHistory('notavenue:XYZ', '1h', from, from + 6 * HOUR).catch(() => undefined);
-    assert.ok(urls.every(u => !u.includes('klines')), 'an instrument the page cannot read goes to the server');
+    assert.ok(urls.every(u => !u.includes('klines')), 'an instrument the page cannot read is not read from the exchange');
+    assert.ok(urls.some(u => u.includes('/api/v2/price-history')), 'an instrument the page cannot read goes to the server');
+    // A window the page holds only some of (the exchange refusing the rest) is asked of the server too, and what the page holds stands where the server fails as well.
+    const fresh = new ServerSource();
+    urls.length = 0; binanceDown = false; serverDown = false;
+    assert.equal((await fresh.priceHistory('binance:BTCUSDT', '1h', from, from + 6 * HOUR)).status, 'ok');
+    urls.length = 0; binanceDown = true;
+    const some = await fresh.priceHistory('binance:BTCUSDT', '1h', from, from + 12 * HOUR);
+    assert.ok(urls.some(u => u.includes('/api/v2/price-history')), 'a stale direct answer is checked against the server');
+    assert.equal(some.status, 'ok'); assert.equal(some.candles.length, 1, 'the server answered');
+    urls.length = 0; serverDown = true;
+    const held = await fresh.priceHistory('binance:BTCUSDT', '1h', from, from + 12 * HOUR);
+    assert.equal(held.status, 'stale'); assert.equal(held.candles.length, 6, 'the server failed too: what the page holds stands');
   } finally { Object.assign(globalThis, saved); }
 });

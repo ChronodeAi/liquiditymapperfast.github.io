@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ChartPriceHistory, candleCoverage, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type PriceReader, type PriceWindow } from '../src/app/price-history.ts';
+import { ChartPriceHistory, candleCoverage, isCovered, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type PriceReader, type PriceWindow } from '../src/app/price-history.ts';
 import { priceListing, type PriceHistoryAnswer, type PriceTarget } from '../src/shared/price-history.ts';
 import { BTC } from '../src/shared/coins.ts';
 import type { CandleRow } from '../src/app/store.ts';
@@ -35,11 +35,12 @@ test('a small zoom around a resolution boundary retains its interval', () => {
   assert.equal(priceWindow({ t0: NOW - 500 * HOUR, t1: NOW }, 1_500, NOW, HOUR)!.tf, '4h');
 });
 
-test('a readable complete candle series takes precedence; missing dates, interior gaps and compressed candles need an overview', () => {
+test('an overview is needed only where the candles leave a gap: complete candles need none, however compressed', () => {
   const bars: CandleRow[] = Array.from({ length: 20 }, (_, i) => candle(i));
   const view = { t0: T0 + HOUR / 2, t1: T0 + 20 * HOUR };
   assert.equal(priceOverviewNeeded(bars, HOUR, view, 1_000, NOW), false);
-  assert.equal(priceOverviewNeeded(bars, HOUR, view, 10, NOW), true);
+  // The line is cut at the candles, so candles that cover the view leave nothing to draw, readable or squeezed to a smear.
+  assert.equal(priceOverviewNeeded(bars, HOUR, view, 10, NOW), false);
   assert.equal(priceOverviewNeeded(bars.slice(1), HOUR, view, 1_000, NOW), true);
   assert.equal(priceOverviewNeeded(bars.filter((_, i) => i !== 5), HOUR, view, 1_000, NOW), true);
   assert.equal(priceOverviewNeeded(bars, HOUR, { t0: NOW + HOUR, t1: NOW + 2 * HOUR }, 1_000, NOW), false);
@@ -240,4 +241,16 @@ test('the price line is cut where the candles are drawn: it ends against the fir
   assert.deepEqual(edge[0]!.map(p => (p.t - T0) / HOUR), [5, 9]);
   // Separate runs (a real gap in the exchange's history) stay separate.
   assert.equal(uncoveredRuns([[pt(0, 1), pt(1, 2)], [pt(40, 3), pt(41, 4)]], [[T0 + 20 * HOUR, T0 + 30 * HOUR]]).length, 2);
+});
+
+test('a time is covered where a candle holds it: ranges are half-open, and the gaps between them are not covered', () => {
+  const covered = candleCoverage([candle(0), candle(1), candle(4)], HOUR);
+  assert.deepEqual(covered, [[T0, T0 + 2 * HOUR], [T0 + 4 * HOUR, T0 + 5 * HOUR]]);
+  assert.equal(isCovered(covered, T0), true);
+  assert.equal(isCovered(covered, T0 + 2 * HOUR - 1), true);
+  assert.equal(isCovered(covered, T0 + 2 * HOUR), false);
+  assert.equal(isCovered(covered, T0 + 3 * HOUR), false);
+  assert.equal(isCovered(covered, T0 + 4 * HOUR), true);
+  assert.equal(isCovered(covered, T0 - 1), false);
+  assert.equal(isCovered([], T0), false);
 });

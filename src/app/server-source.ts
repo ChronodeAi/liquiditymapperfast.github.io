@@ -88,13 +88,17 @@ export class ServerSource implements DataSource {
    */
   priceHistory = async (inst: string, tf: string, from: number, to: number, signal?: AbortSignal): Promise<PriceHistoryAnswer> => {
     const target = priceListing(currentCoin(), inst), tfMs = Object.hasOwn(TIMEFRAMES, tf) ? TIMEFRAMES[tf] : undefined;
+    let held: PriceHistoryAnswer | null = null;
     if (target && tfMs) {
       try {
         const answer = await this.#price.series(target, tfMs, from, to);
-        if (answer.status !== 'failed') return answer;
+        if (answer.status === 'ok' || answer.status === 'empty') return answer;
+        held = answer;
       } catch { /* the server's route below */ }
     }
-    return getPriceHistory(inst, tf, from, to, signal);
+    // A read that failed (a window the page's cache holds only some of, the exchange refusing): the server's cache may hold the whole of it. What
+    // the page holds still stands, marked stale, where the server cannot answer either.
+    try { return await getPriceHistory(inst, tf, from, to, signal); } catch (error) { if (held?.status === 'stale') return held; throw error; }
   };
   oi = getOi;
   /**

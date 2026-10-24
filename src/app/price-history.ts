@@ -8,11 +8,13 @@ export type PriceReader = (id: string, tf: string, from: number, to: number, sig
 const MINUTE = 60_000, DAY = 86_400_000;
 const priceKey = (target: PriceTarget, tfMs: number): string => `${target.id}|${target.listing.symbol}|${target.listing.unit}|${tfMs}`;
 
-/** The overview is useful for compressed candles or any missing part of the visible price history. */
+/**
+ * The overview is needed where the chart's own candles leave a part of the visible price history missing: it is drawn only there (the
+ * line is cut at the candles, `uncoveredRuns`), so a view the candles cover whole, compressed to a smear or not, needs none and asks for none.
+ */
 export function priceOverviewNeeded(candles: readonly CandleRow[], tfMs: number, view: Window, width: number, now: number): boolean {
   const to = Math.min(view.t1, now), from = Math.max(0, view.t0);
   if (!(width > 0 && to > from && tfMs > 0)) return false;
-  if (width * tfMs / (view.t1 - view.t0) < 2) return true;
   let end = Math.floor(from / tfMs) * tfMs;
   for (const c of candles) {
     if (c[0] + tfMs <= end) continue;
@@ -167,6 +169,13 @@ export function candleCoverage(candles: readonly { readonly 0: number }[], tfMs:
   return out;
 }
 
+/** Whether `t` is inside a range the candles cover (`candleCoverage`: sorted, not overlapping, each [from, to)). */
+export function isCovered(covered: readonly Covered[], t: number): boolean {
+  let lo = 0, hi = covered.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (covered[mid]![1] <= t) lo = mid + 1; else hi = mid; }
+  return lo < covered.length && covered[lo]![0] <= t;
+}
+
 /**
  * The price line without the parts where the chart draws its own candles (Karl, 2026-10-24: the line over the candles was noise; it is for
  * where there are none). A line is cut where it meets a covered range, at that range's edge, at the price on the straight line between the two
@@ -191,11 +200,7 @@ export function uncoveredRuns(runs: readonly (readonly { t: number; price: numbe
     if (cursor < x1) out.push([cursor, x1]);
     return out;
   };
-  const inside = (t: number): boolean => {
-    let lo = 0, hi = covered.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (covered[mid]![1] <= t) lo = mid + 1; else hi = mid; }
-    return lo < covered.length && covered[lo]![0] <= t;
-  };
+  const inside = (t: number): boolean => isCovered(covered, t);
   for (const run of runs) {
     let out: { t: number; price: number }[] | null = null;
     for (let i = 0; i < run.length; i++) {
