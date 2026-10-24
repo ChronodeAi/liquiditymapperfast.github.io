@@ -1669,5 +1669,7 @@
  "{usd} traded": "{usd} échangés",
  "none traded": "rien d'échangé",
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "Échangé : ordres au marché qui ont atteint cette ligne sur cette plateforme à peu près au même moment. Le carnet ne dit pas quelle part du changement ils expliquent.",
- "being read": "en lecture"
+ "being read": "en lecture",
+ "Hide the controls": "Masquer les commandes",
+ "Show the controls": "Afficher les commandes"
 }

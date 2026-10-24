@@ -1691,5 +1691,7 @@
  "{usd} traded": "{usd} в угодах",
  "none traded": "угод не було",
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "Угоди: ринкові ордери, що дійшли до цього рядка на цій біржі приблизно в той самий час. Стакан не каже, яку частину зміни вони пояснюють.",
- "being read": "читається"
+ "being read": "читається",
+ "Hide the controls": "Сховати панель керування",
+ "Show the controls": "Показати панель керування"
 }

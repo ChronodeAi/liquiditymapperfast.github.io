@@ -1652,5 +1652,7 @@
  "{usd} traded": "{usd} işlem gördü",
  "none traded": "işlem yok",
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "İşlem: o borsada aynı sıralarda bu satıra ulaşan piyasa emirleri. Emir defteri, değişikliğin ne kadarını açıkladıklarını söylemez.",
- "being read": "okunuyor"
+ "being read": "okunuyor",
+ "Hide the controls": "Kontrolleri gizle",
+ "Show the controls": "Kontrolleri göster"
 }
