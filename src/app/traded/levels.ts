@@ -140,6 +140,25 @@ export function loadedColumnWanted(since: number | null, from: number, to: numbe
 }
 
 /**
+ * Where the recording behind the traded-volume column begins inside `window` (null: it holds all of it, or nothing is known yet): the later of
+ * the start it can be asked from (`asked`, `askedSpan`) and the first minute of each venue it counts (`earliest` is the first minute recorded
+ * at all, so the answer of another window says the same), or, while no answer is held, where the hub knows the recording began. An answer
+ * whose venues never recorded anything leaves `since` at the window's end: the recording holds none of it (a page that has only just started,
+ * a scope the server does not record), so the candles' estimate is wanted wherever they hold the window. It does not depend on the window
+ * the held answer was asked for: a zoom out that has not been answered yet does not flash the estimate on for a window the recording holds.
+ */
+export function recordingStart(window: { from: number; to: number }, asked: number, held: readonly { earliest: number | null }[] | null, hubSince: number): number | null {
+  let since = asked;
+  if (held) {
+    if (!held.length) return null;
+    let any = false;
+    for (const inst of held) if (inst.earliest !== null) { any = true; if (inst.earliest > since) since = inst.earliest; }
+    if (!any) since = window.to;
+  } else if (hubSince > since) since = hubSince;
+  return since > window.from + 60_000 ? since : null;
+}
+
+/**
  * A candle estimate (`candleLevels`) as the answer a column reads, so its bars, levels, header and boxes are drawn by the same code as the
  * recording's: one instrument whose rows are on `step`, each `[low price, bought, sold]`. Where the candles do not say what was bought
  * (`buys` null) a row's whole volume is in `bought` and `split` is false: the column draws it unsplit, in grey. The instrument says it

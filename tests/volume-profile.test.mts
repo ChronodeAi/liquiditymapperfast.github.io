@@ -9,7 +9,7 @@ import { levelsOf, pointOfControl, valueArea } from '../src/shared/profile.ts';
 import { FootprintRecorder, parseProfile, parseValueAreas } from '../src/shared/footprint.ts';
 import { dayWindows, fromWall, lastWindows, offsetMs, sessionWindows, weekWindows, type SessionDef } from '../src/app/traded/sessions.ts';
 import { TRADED_DEFAULTS, chartKinds, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
-import { answerLevels, candleAnswer, candleBarMs, candleLevels, linesWindows, loadedColumnWanted, mergeCandleProfiles, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
+import { answerLevels, candleAnswer, candleBarMs, candleLevels, linesWindows, loadedColumnWanted, mergeCandleProfiles, recordedShare, recordedWindows, recordingStart, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
 import { TradeCoverage, recordedMinutes } from '../src/shared/coverage.ts';
 import { tradedRows } from '../src/app/traded.ts';
 import { initialState } from '../src/app/store.ts';
@@ -409,3 +409,24 @@ test('a candle estimate becomes the answer the column reads: rows on its step, b
   assert.deepEqual(candleAnswer(new Map(), null, step, 0, 600_000).answer.instruments[0]!.rows, []);
 });
 type CandleRowLike = readonly number[];
+
+test('where the recording begins for the column does not depend on the window an answer was asked for', () => {
+  const MIN = 60_000, DAY = 86_400_000, to = 1_000 * DAY, from = to - 30 * DAY, asked = to - 8 * DAY, win = { from, to };
+  const held = (...earliest: (number | null)[]): { earliest: number | null }[] => earliest.map(e => ({ earliest: e }));
+  // A month on the map: the recording can be asked about eight days at most, and that is where it begins whatever answer is held.
+  assert.equal(recordingStart(win, asked, held(from - DAY, from - 2 * DAY), 0), asked, 'the asked span, from venues recorded long before');
+  assert.equal(recordingStart(win, asked, held(to - 3 * DAY, from - DAY), 0), to - 3 * DAY, 'the latest venue to start recording');
+  assert.equal(recordingStart(win, asked, held(to - 3 * DAY, null), 0), to - 3 * DAY, 'a venue with nothing recorded is not a start');
+  // Nothing recorded at all: the recording begins after the window ends, and the candles are wanted wherever they hold it.
+  assert.equal(recordingStart(win, asked, held(null, null), 0), to);
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, held(null), 0), to, 'a short window too');
+  // No venue at all, or no answer held yet and nothing known of the recording: nothing to decide on.
+  assert.equal(recordingStart(win, asked, [], 0), null);
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, null, 0), null);
+  // No answer held yet: where the hub knows the recording began.
+  assert.equal(recordingStart(win, asked, null, to - 2 * DAY), to - 2 * DAY);
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, null, to - 5 * DAY), null, 'the recording holds all of the day');
+  // The minute's slack the column has always had: a start within a minute of the window's is its start.
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, held(to - DAY + 30_000), 0), null);
+  assert.equal(recordingStart({ from: to - DAY, to }, to - DAY, held(to - DAY + 2 * MIN), 0), to - DAY + 2 * MIN);
+});
