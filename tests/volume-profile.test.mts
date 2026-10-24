@@ -9,7 +9,7 @@ import { levelsOf, pointOfControl, valueArea } from '../src/shared/profile.ts';
 import { FootprintRecorder, parseProfile, parseValueAreas } from '../src/shared/footprint.ts';
 import { dayWindows, fromWall, lastWindows, offsetMs, sessionWindows, weekWindows, type SessionDef } from '../src/app/traded/sessions.ts';
 import { TRADED_DEFAULTS, chartKinds, linesCount, linesSource, readTraded, recordedCount, resolveZone } from '../src/app/traded/settings.ts';
-import { answerLevels, candleBarMs, candleLevels, linesWindows, mergeCandleProfiles, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
+import { answerLevels, candleAnswer, candleBarMs, candleLevels, linesWindows, loadedColumnWanted, mergeCandleProfiles, recordedShare, recordedWindows, requestStep, touchedAt, windowKind, windowLabel, windowZone } from '../src/app/traded/levels.ts';
 import { TradeCoverage, recordedMinutes } from '../src/shared/coverage.ts';
 import { tradedRows } from '../src/app/traded.ts';
 import { initialState } from '../src/app/store.ts';
@@ -373,3 +373,39 @@ test('the minutes recorded come from the coverage record: a quiet minute listene
   assert.equal(recordedMinutes(coverage, 'b:BTC', T0, T0 + HOUR, () => false), 0);
   assert.equal(recordedMinutes(coverage, 'a:BTC', T0 + HOUR, T0, () => true), 0);
 });
+
+test('the column shows the candles instead of the recording when the recording holds under nine tenths of its window, never both added', () => {
+  // Karl, 2026-10-24: zoomed out to months, the column showed only the last days, with nothing for the rest that the page had loaded.
+  const from = 1_000 * DAY, to = from + 100 * DAY;
+  assert.equal(loadedColumnWanted(null, from, to), false, 'the recording holds all of the window');
+  assert.equal(loadedColumnWanted(from - DAY, from, to), false, 'it began before the window');
+  assert.equal(loadedColumnWanted(from + 5 * DAY, from, to), false, 'it misses 5 % of the window: still the recording, which says "since"');
+  assert.equal(loadedColumnWanted(from + 10 * DAY + MIN, from, to), true, 'it misses more than a tenth');
+  assert.equal(loadedColumnWanted(to - 8 * DAY, from, to), true, 'eight days of a hundred: the candles');
+  assert.equal(loadedColumnWanted(to + DAY, from, to), true, 'it begins after the window ends: nothing recorded in it');
+  assert.equal(loadedColumnWanted(from, to, to), false, 'an empty window asks for nothing');
+});
+
+test('a candle estimate becomes the answer the column reads: rows on its step, buys and sells, one instrument there for the whole window', () => {
+  const step = 10, bars = [[0, 100, 120, 100, 110, 5, 0, 2], [300_000, 110, 130, 110, 125, 5, 0, 5]] as unknown as CandleRowLike[];
+  const profile = candleLevels(bars as never, 0, 600_000, 300_000, step, 0.7, 600_000);
+  const { answer, split } = candleAnswer(profile.rows, profile.buys, step, 0, 600_000);
+  assert.equal(split, true);
+  const inst = answer.instruments[0]!;
+  assert.deepEqual([answer.from, answer.to, inst.step, inst.first, inst.earliest], [0, 600_000, step, 0, 0], 'there for the whole window');
+  const total = inst.rows.reduce((a, [, b, s]) => a + b + s, 0), spread = [...profile.rows.values()].reduce((a, v) => a + v, 0);
+  assert.ok(Math.abs(total - spread) < 1e-6, 'every dollar of the estimate is in the rows');
+  assert.ok(inst.rows.every(([low]) => low % step === 0), 'rows start on the step');
+  assert.deepEqual(inst.rows.map(r => r[0]), [...inst.rows.map(r => r[0])].sort((a, b) => a - b), 'in order of price');
+  // The column's own readers take it: rows on its display grid, and levels over every price.
+  const rows = tradedRows(answer, 20, 90, 140);
+  assert.ok(Math.abs(rows.total - spread) < 1e-6);
+  assert.equal(rows.partial, false, 'it is not read as a recording that began late');
+  assert.ok(answerLevels(answer, step, 0.7) !== null);
+  // Without taker buys a row's volume is whole on one side, said by `split`.
+  const noSplit = candleAnswer(profile.rows, null, step, 0, 600_000);
+  assert.equal(noSplit.split, false); assert.ok(noSplit.answer.instruments[0]!.rows.every(([, , sold]) => sold === 0));
+  // Nothing traded: an instrument with no rows, not a crash.
+  assert.deepEqual(candleAnswer(new Map(), null, step, 0, 600_000).answer.instruments[0]!.rows, []);
+});
+type CandleRowLike = readonly number[];

@@ -1605,5 +1605,7 @@
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "約定: 同じころ、その取引所でこの行に届いた成行注文。変化のうちどれだけがそれによるものかは、板からは分かりません。",
  "being read": "読み込み中",
  "Hide the controls": "コントロールを隠す",
- "Show the controls": "コントロールを表示"
+ "Show the controls": "コントロールを表示",
+ "≈ from candles": "≈ ローソク足から",
+ "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "取引所のローソク足からの推定です。各足の出来高をその値幅に配分したもので、記録ではありません。"
 }

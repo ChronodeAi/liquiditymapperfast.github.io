@@ -72,9 +72,9 @@ export const VOLUME_WORDS: ColumnWords = { buy: t('Bought at market'), sell: t('
  * What the pointer is told on one row: its prices, buys, sells and the difference, its share of the window, the market orders that began at
  * these prices, where the row stands against the point of control and the value area (`levels`), and how far back the recording goes.
  */
-export function tradedLines(rows: TradedRows, index: number, levels: ValueLevels | null = null, words: ColumnWords = VOLUME_WORDS): InfoLine[] {
+export function tradedLines(rows: TradedRows, index: number, levels: ValueLevels | null = null, words: ColumnWords = VOLUME_WORDS, note: string | null = null): InfoLine[] {
   const low = (rows.bin0 + index) * rows.step, high = low + rows.step;
-  return [{ text: `${fmtPrice(low, rows.step)} – ${fmtPrice(high, rows.step)}`, bold: true }, ...rowBody(rows, index, words, whereIn(levels, low, high))];
+  return [{ text: `${fmtPrice(low, rows.step)} – ${fmtPrice(high, rows.step)}`, bold: true }, ...rowBody(rows, index, words, whereIn(levels, low, high)), ...(note ? [{ text: note, color: 'muted' as const, wrap: true, rule: true }] : [])];
 }
 
 /** Where the prices [low, high) stand against a profile's point of control and value area, in words (null without levels). */
@@ -152,7 +152,7 @@ export const tradedNetLine = (rows: TradedRows): string => { const net = tradedN
  * the price `mark` is now. Numbers only: the shape of the distribution is read from them (most of it above the point of control: it built
  * upward), not named. `title` names the window.
  */
-export function tradedFigures(rows: TradedRows, levels: ValueLevels | null, mark: number, title: string, words: ColumnWords = VOLUME_WORDS): InfoLine[] {
+export function tradedFigures(rows: TradedRows, levels: ValueLevels | null, mark: number, title: string, words: ColumnWords = VOLUME_WORDS, note: string | null = null): InfoLine[] {
   const lines: InfoLine[] = [{ text: title, bold: true }];
   if (!(rows.total > 0)) { lines.push({ text: words.none, color: 'muted', wrap: true }); return lines; }
   const mid = (i: number): number => (rows.bin0 + i + 0.5) * rows.step, at = (price: number): string => fmtPrice(price, rows.step);
@@ -181,5 +181,6 @@ export function tradedFigures(rows: TradedRows, levels: ValueLevels | null, mark
     const where = !levels ? '' : Math.abs(mark - levels.poc) < rows.step / 2 ? t('Point of control') : mark > levels.vah ? t('Above the value area') : mark < levels.val ? t('Below the value area') : t('In the value area');
     lines.push({ label: t('Price now'), text: where ? `${fmtPrice(mark)} · ${where}` : fmtPrice(mark), rule: true });
   }
+  if (note) lines.push({ text: note, color: 'muted', wrap: true, rule: true });
   return lines;
 }

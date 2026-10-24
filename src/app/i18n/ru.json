@@ -1688,5 +1688,7 @@
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "Сделки: рыночные ордера, дошедшие до этой строки на этой бирже примерно в то же время. Стакан не говорит, какую часть изменения они объясняют.",
  "being read": "читается",
  "Hide the controls": "Скрыть панель управления",
- "Show the controls": "Показать панель управления"
+ "Show the controls": "Показать панель управления",
+ "≈ from candles": "≈ по свечам",
+ "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Оценка по свечам биржи: объём каждой свечи распределён по её диапазону. Это не запись."
 }

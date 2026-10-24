@@ -1605,5 +1605,7 @@
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "成交:大致同一时间在该交易所触及此行的市价单。订单簿并不说明它们占这次变化的多少。",
  "being read": "读取中",
  "Hide the controls": "隐藏控制栏",
- "Show the controls": "显示控制栏"
+ "Show the controls": "显示控制栏",
+ "≈ from candles": "≈ 来自K线",
+ "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "根据交易所K线估算，每根K线的成交量按其价格区间分摊，并非录制数据。"
 }

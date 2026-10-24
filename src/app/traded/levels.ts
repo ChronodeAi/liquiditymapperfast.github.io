@@ -127,6 +127,35 @@ export function mergeCandleProfiles(a: CandleProfile, b: CandleProfile, step: nu
   return { levels: levelsOf(rows, step, share), covered: Math.min(a.covered, b.covered), rows, buys };
 }
 
+/**
+ * Whether a column should show the candles' estimate of its window in place of the recording: when the recording holds less than
+ * `DRAWN_SHARE` of the window (`since` is where it begins, the later of the start it was asked from and every venue's first minute: null
+ * when it holds all of it). One source for the whole column, never the two added: the recording counts every venue, a candle one market, so
+ * a sum would be a mixture of two scales, and its point of control and value area a reading of neither (AGENTS.md: no setting may claim to
+ * work out what can no longer be worked out). Karl, 2026-10-24: zoomed out to months, the column showed only the last days.
+ */
+export function loadedColumnWanted(since: number | null, from: number, to: number): boolean {
+  if (since === null || !(to > from)) return false;
+  return (to - Math.max(from, Math.min(since, to))) / (to - from) < DRAWN_SHARE;
+}
+
+/**
+ * A candle estimate (`candleLevels`) as the answer a column reads, so its bars, levels, header and boxes are drawn by the same code as the
+ * recording's: one instrument whose rows are on `step`, each `[low price, bought, sold]`. Where the candles do not say what was bought
+ * (`buys` null) a row's whole volume is in `bought` and `split` is false: the column draws it unsplit, in grey. The instrument says it
+ * was there for the whole window (`earliest` = `from`), so nothing reads it as a recording that began late.
+ */
+export function candleAnswer(rows: ReadonlyMap<number, number>, buys: ReadonlyMap<number, number> | null, step: number, from: number, to: number): { answer: ProfileAnswer; split: boolean } {
+  const out: [number, number, number][] = [];
+  for (const [row, usd] of [...rows].sort((a, b) => a[0] - b[0])) {
+    if (!(usd > 0)) continue;
+    const bought = buys ? Math.min(usd, Math.max(0, buys.get(row) ?? 0)) : usd;
+    out.push([row * step, bought, usd - bought]);
+  }
+  const minutes = Math.max(0, Math.round((to - from) / 60_000));
+  return { answer: { from, to, instruments: [{ id: 'candles', step, rows: out, minutes, first: from, earliest: from }] }, split: buys !== null };
+}
+
 /** The zone a window's dates are read in: a session's own (its start is a date there), else the zone days and weeks start in. */
 export function windowZone(w: ProfileWindow, s: TradedSettings, pageZone: 'local' | 'utc'): string {
   if (w.key.startsWith('session|')) {

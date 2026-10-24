@@ -1671,5 +1671,7 @@
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "Scambiato: ordini a mercato che hanno raggiunto questa riga su quella sede più o meno nello stesso momento. Il book non dice quanta parte della variazione spiegano.",
  "being read": "in lettura",
  "Hide the controls": "Nascondi i comandi",
- "Show the controls": "Mostra i comandi"
+ "Show the controls": "Mostra i comandi",
+ "≈ from candles": "≈ dalle candele",
+ "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Una stima dalle candele dell’exchange, con il volume di ciascuna distribuito sul suo intervallo: non è la registrazione."
 }

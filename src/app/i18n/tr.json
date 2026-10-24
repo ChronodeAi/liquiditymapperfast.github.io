@@ -1654,5 +1654,7 @@
  "Traded: market orders that reached this row on that venue around the same time. The book does not say how much of the change they account for.": "İşlem: o borsada aynı sıralarda bu satıra ulaşan piyasa emirleri. Emir defteri, değişikliğin ne kadarını açıkladıklarını söylemez.",
  "being read": "okunuyor",
  "Hide the controls": "Kontrolleri gizle",
- "Show the controls": "Kontrolleri göster"
+ "Show the controls": "Kontrolleri göster",
+ "≈ from candles": "≈ mumlardan",
+ "An estimate from the exchange candles, the volume of each spread over its range: not the recording.": "Borsa mumlarından bir tahmin: her mumun hacmi fiyat aralığına yayılmıştır. Kayıt değildir."
 }
