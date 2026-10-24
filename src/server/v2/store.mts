@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { Column, ColumnStore } from './recorder.mts';
 import { LT_LENGTH } from '../../shared/lt-sample.ts';
+import type { LtMinute } from '../../shared/lt-windows.ts';
 
 /**
  * A stored row as a column, as `load` reads it: the blob is bins | bid | ask (one that is not whole is left out), and a tracker of another
@@ -25,6 +26,7 @@ export class SqliteColumnStore implements ColumnStore {
   readonly #insert;
   readonly #insertLt;
   readonly #range;
+  readonly #rangeLt;
   constructor(path: string) {
     this.#db = new DatabaseSync(path);
     this.#db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
@@ -34,6 +36,9 @@ export class SqliteColumnStore implements ColumnStore {
     this.#insertLt = this.#db.prepare('INSERT OR REPLACE INTO depth_lt (inst, t, n, data) VALUES (?, ?, ?, ?)');
     this.#range = this.#db.prepare(`SELECT c.t, c.n, c.data, l.n AS ltN, l.data AS lt FROM depth_columns c LEFT JOIN depth_lt l ON l.inst = c.inst AND l.t = c.t
       WHERE c.inst = ? AND c.t >= ? AND c.t < ? ORDER BY c.t`);
+    // The same minutes without their books: a blob that is not whole is left out here as it is in `range` (length() reads no more than its size).
+    this.#rangeLt = this.#db.prepare(`SELECT c.t, c.n, l.n AS ltN, l.data AS lt FROM depth_columns c LEFT JOIN depth_lt l ON l.inst = c.inst AND l.t = c.t
+      WHERE c.inst = ? AND c.t >= ? AND c.t < ? AND length(c.data) % 12 = 0 ORDER BY c.t`);
   }
   /** One instrument's columns in [fromMs, toMs), oldest first, each with its tracker when one was kept. */
   range(instrumentId: string, fromMs: number, toMs: number): Column[] {
@@ -43,6 +48,23 @@ export class SqliteColumnStore implements ColumnStore {
       const column = columnOf(row.t, row.n, row.data, row.lt && row.ltN ? { n: row.ltN, data: row.lt } : null);
       if (column) out.push(column);
     }
+    return out;
+  }
+  /** One instrument's minutes in [fromMs, toMs), oldest first, each with its samples and the tracker kept with it (its books are not read: the Liquidity Tracker lane). */
+  rangeLt(instrumentId: string, fromMs: number, toMs: number): LtMinute[] {
+    if (!(toMs > fromMs)) return [];
+    const rows = this.#rangeLt.all(instrumentId, Math.floor(fromMs), Math.ceil(toMs)) as { t: number; n: number; ltN: number | null; lt: Uint8Array | null }[];
+    // The trackers of the minutes are views of one buffer: kept for a week of markets (the recorder keeps what it reads back), a buffer of their own
+    // each would be more than twice the memory.
+    const slab = new Float32Array(rows.length * LT_LENGTH), out: LtMinute[] = [];
+    rows.forEach((row, k) => {
+      const minute: LtMinute = { t: row.t, n: row.n };
+      if (row.lt && row.ltN && row.ltN > 0 && row.lt.byteLength === LT_LENGTH * 4) {
+        new Uint8Array(slab.buffer, k * LT_LENGTH * 4, LT_LENGTH * 4).set(row.lt);
+        minute.lt = slab.subarray(k * LT_LENGTH, (k + 1) * LT_LENGTH); minute.ltN = row.ltN;
+      }
+      out.push(minute);
+    });
     return out;
   }
   /**

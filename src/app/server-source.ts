@@ -119,6 +119,16 @@ export class ServerSource implements DataSource {
       return getLongShort(inst, metric, tf, from, to, signal, budgetMs);
     });
   };
+  /** On the live socket where the server answers it there (a page's HTTP requests wait behind its history requests); otherwise it rejects, and the pane reads the columns. */
+  ltLane: NonNullable<DataSource['ltLane']> = async (ids, from, to, stepMs, half, onFrame, signal) => {
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const live = this.#live ?? await Promise.race([this.#connected, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LS_SOCKET_WAIT_MS); })]);
+    clearTimeout(timer);
+    const asked = live && await live.lsReadyWithin(Math.max(0, LS_SOCKET_WAIT_MS - (Date.now() - started))) ? live.ltLane(ids, from, to, stepMs, half, onFrame, signal) : null;
+    if (!asked) throw new Error('unsupported');
+    return asked;
+  };
   prints = getPrints;
   liquidations = getLiquidations;
   printSums = getPrintSums;
