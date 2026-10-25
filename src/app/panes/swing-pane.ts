@@ -39,8 +39,8 @@ export function swingCardLines(row: SwingRow, tf: string, market: string): InfoL
 /**
  * The Swing pane: per candle of the chart's timeframe (swing/model.ts), a bar between the fast and slow Swing lines (where price sits in its
  * recent range) coloured by the Kalman trend, over the floor and ceiling zones; and under it the cheap/hot reading as a dark area over its
- * zones (cheap from 50, hot under 18.2). Its candles are the public price history's (swing/book.ts), so it reaches back before the
- * recording and on every timeframe.
+ * zones (cheap from 50, hot under 18.2). Its candles are the average of every venue's public price history the page reads (swing/book.ts),
+ * so it reaches back before the recording and on every timeframe.
  */
 export class SwingPane extends TimePane {
   #card = new HoverCard();
@@ -117,7 +117,8 @@ export class SwingPane extends TimePane {
     const time = state.hover ? state.hover.t : Math.min(now, v.t1), newest = rows[rows.length - 1]!;
     const row = [...rows].reverse().find(r => r.t <= time) ?? newest;
     if (state.hover && this.pointer && time >= newest.t + tf) this.cursorT = newest.t + tf / 2;
-    const market = `${venueLabel(model.target.id)} ${model.target.listing.symbol}`;
+    const one = model.venues.length === 1 ? model.venues[0]! : null;
+    const market = one ? `${venueLabel(one.id)} ${one.listing.symbol}` : t('the average of {n} venues: {list}', { n: String(model.venues.length), list: model.venues.map(v => venueLabel(v.id)).join(', ') });
     if (state.hover && this.pointer) this.#lines = swingCardLines(row, state.timeframe, market);
     const zone = swingZone(row), value = row.value;
     const swingText = row.fast === null || row.slow === null ? `<span class="muted">${t('Swing')} –</span>`
