@@ -929,9 +929,12 @@ export class Hub {
     // About two pixels a column, in minutes that double from one level to the next: zooming moves between a few steps the server has merged before.
     const stepMs = MINUTE * 2 ** Math.max(0, Math.round(Math.log2(span / Math.max(1, widthPx) * 2 / MINUTE)));
     const holds = this.#columns;
+    // The view is one object the pane moves on: what an answer is judged against below is the view it was asked for.
+    const seen: Bounds = { t0: view.t0, t1: view.t1, p0: view.p0, p1: view.p1 };
     this.#columnsWanted = stepMs;
+    holds.touch(stepMs);
     // A step held for every book is read at once, whatever else is under way.
-    if (holds.covers(ids, view, stepMs)) this.#readColumns(stepMs);
+    if (holds.covers(ids, seen, stepMs)) this.#readColumns(stepMs);
     if (this.#columnsLoading) return;
     const clock = Date.now();
     // What is asked from here on answers every refresh mark made so far; one made while it is under way is answered by the next.
@@ -940,13 +943,14 @@ export class Hub {
     this.#forgetColumns(holds.sweep(clock, stepMs, this.#columnsDrawn, new Set(ids)));
     // The source's clock: a page whose clock runs ahead would otherwise count the source's open minutes as settled and never ask for them again.
     const now = clock - this.#sourceSkew, settled = settledBefore(now, stepMs);
-    holds.touch(stepMs);
-    const asks = holds.plan(ids, view, stepMs, now, clock, stale);
+    const asks = holds.plan(ids, seen, stepMs, now, clock, stale);
     if (!asks.length) return;
-    const reach = columnReach(view, stepMs);
+    const reach = columnReach(seen, stepMs);
     this.#columnsLoading = true;
     try {
       for (const ask of asks) {
+        // A zoom to another step since the load began: that step's own load follows, and the rest of this one would only hold it up.
+        if (stepMs !== this.#columnsWanted) break;
         const frame = await this.source.columns(ask.ids, ask.from, ask.to, stepMs);
         let whole = frame.instruments, wholeIds = ask.ids;
         if (ask.tail) {
@@ -957,17 +961,29 @@ export class Hub {
           whole = []; wholeIds = [...other];
           holds.recordTail(stepMs, answered(tails, ask.ids.filter(id => !other.has(id))), settled, clock);
           if (tails.length) this.#postColumns({ type: 'columnsTail', stepMs, from: ask.from, instruments: tails }, stepMs);
+          // What the other steps hold for these markets was recorded on the old grid too.
+          if (other.size) this.#forgetColumns(holds.forgetElsewhere(stepMs, wholeIds));
           if (other.size) whole = (await this.source.columns(wholeIds, reach.from, Math.min(Date.now() - this.#sourceSkew + MINUTE, reach.to), stepMs)).instruments;
         }
-        // Every instrument asked for is held from here on, answered or not: one a source leaves out is not asked for again on every frame.
-        if (wholeIds.length) holds.recordWhole(stepMs, answered(whole, wholeIds), reach, settled, clock);
+        // Every instrument asked for is held from here on, answered or not: one a source leaves out is not asked for again on every frame
+        // (and has nothing in the worker: what it held for it is forgotten).
+        if (wholeIds.length) {
+          const got = new Set(whole.map(set => set.id)), had = holds.at(stepMs), left = wholeIds.filter(id => !got.has(id) && had.has(id));
+          holds.recordWhole(stepMs, answered(whole, wholeIds), reach, settled, clock);
+          if (left.length) this.#forgetColumns([{ stepMs, ids: left }]);
+        }
         if (whole.length) this.#postColumns({ type: 'columns', stepMs, instruments: whole }, stepMs);
-        this.#forgetColumns(holds.evict(stepMs, this.#columnsDrawn));
+        this.#forgetColumns(holds.evict(stepMs, this.#columnsDrawn, this.#columnsWanted));
         // Once every book is held at the step the view wants, that is the step to read (a step wanted since is read by its own load).
-        if (stepMs === this.#columnsWanted && holds.covers(ids, view, stepMs)) this.#readColumns(stepMs);
+        if (stepMs === this.#columnsWanted && holds.covers(ids, seen, stepMs)) this.#readColumns(stepMs);
       }
+      // A load for a step nobody wants any more reads nothing and changes nothing the page would draw: say so, so that the frame that waits for this load to end comes.
+      if (stepMs !== this.#columnsWanted) this.onColumns();
     } finally { this.#columnsLoading = false; }
   }
+
+  /** The steps the page holds recorded columns for, and the books at each (what it has told the worker to keep). */
+  heldColumns(): { stepMs: number; ids: string[] }[] { return this.#columns.steps().map(stepMs => ({ stepMs, ids: [...this.#columns.at(stepMs).keys()] })); }
 
   /** Hand columns to the worker. The instruments are views onto a few fetch buffers that nothing on this thread reads again: hand the buffers over instead of copying tens of MB. */
   #postColumns(message: Extract<WorkerIn, { type: 'columns' | 'columnsTail' }>, stepMs: number): void {

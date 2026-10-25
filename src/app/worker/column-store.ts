@@ -27,6 +27,10 @@ export class RecordedColumns {
   /** The instruments' columns at that step (none while it holds nothing). */
   get current(): ReadonlyMap<string, ColumnStore> { return this.#steps.get(this.#current) ?? EMPTY; }
 
+  /** The steps held, and the instruments held at one (what the page's record is checked against). */
+  steps(): number[] { return [...this.#steps.keys()]; }
+  ids(stepMs: number): string[] { return [...(this.#steps.get(stepMs)?.keys() ?? [])]; }
+
   /** These instruments' columns at `stepMs` as they are now, each replacing what was held for it; the other instruments are left as they were. */
   set(stepMs: number, sets: readonly ColumnSet[]): void {
     const held = this.#at(stepMs);

@@ -98,6 +98,21 @@ export class ColumnHolds {
     return sets.filter(set => { const grid = held?.get(set.id)?.grid ?? 0; return set.step > 0 && grid > 0 && grid !== set.step; }).map(set => set.id);
   }
 
+  /**
+   * These markets' price grid has changed (the answers at `stepMs` say so): what is held for them at every other step was recorded on the old
+   * one and would be read as it is when that step comes back. Forgets it, and returns what to tell the worker to forget.
+   */
+  forgetElsewhere(stepMs: number, ids: readonly string[]): ColumnDrop[] {
+    const drops: ColumnDrop[] = [];
+    for (const [step, held] of this.#steps) {
+      if (step === stepMs) continue;
+      const gone = ids.filter(id => held.delete(id));
+      if (gone.length) drops.push({ stepMs: step, ids: gone });
+      if (!held.size) { this.#steps.delete(step); this.#used.delete(step); }
+    }
+    return drops;
+  }
+
   /** The whole window `reach` was answered for these instruments (up to `settled` it was complete). */
   recordWhole(stepMs: number, sets: readonly { id: string; step: number }[], reach: { from: number; to: number }, settled: number, clock: number): void {
     const held = this.#at(stepMs);
@@ -136,12 +151,15 @@ export class ColumnHolds {
     return drops;
   }
 
-  /** Forget the steps beyond `COLUMN_STEPS_HELD`, least recently wanted first, never the wanted one or the one drawn. Returns what to tell the worker to forget. */
-  evict(wanted: number, drawn: number): ColumnDrop[] {
+  /**
+   * Forget the steps beyond `COLUMN_STEPS_HELD`, least recently wanted first, never the one being loaded, the one drawn or the one the view
+   * wants now (a zoom since the load began). Returns what to tell the worker to forget.
+   */
+  evict(loading: number, drawn: number, wanted: number): ColumnDrop[] {
     const drops: ColumnDrop[] = [];
     while (this.#steps.size > COLUMN_STEPS_HELD) {
       let oldest = -1, at = Infinity;
-      for (const stepMs of this.#steps.keys()) { const used = this.#used.get(stepMs) ?? 0; if (stepMs !== wanted && stepMs !== drawn && used < at) { oldest = stepMs; at = used; } }
+      for (const stepMs of this.#steps.keys()) { const used = this.#used.get(stepMs) ?? 0; if (stepMs !== loading && stepMs !== drawn && stepMs !== wanted && used < at) { oldest = stepMs; at = used; } }
       if (oldest < 0) break;
       this.#steps.delete(oldest); this.#used.delete(oldest);
       drops.push({ stepMs: oldest, ids: null });
