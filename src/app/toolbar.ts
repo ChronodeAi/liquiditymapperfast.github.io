@@ -6,7 +6,7 @@ import type { VenueEntry } from './source.ts';
 import { clock, usd, zoneName } from './format.ts';
 import { venueLabel } from './panes/ladder-pane.ts';
 import { el } from './dom.ts';
-import { fitBar, type BarFit } from './bar-fit.ts';
+import { BAR_ZOOM_FLOOR, fitBar, type BarFit } from './bar-fit.ts';
 import { lazy } from './lazy.ts';
 import { setTip } from './tip.ts';
 import { InstallButton } from './install.ts';
@@ -537,13 +537,16 @@ export class Toolbar {
    */
   #fit(): void {
     const bar = this.root;
-    if (!bar.classList.contains('cockpit') || !bar.isConnected) return;
+    // A bar folded away has no decks to measure (they are not laid out): its fit stays, and is right again the moment it unfolds.
+    if (!bar.classList.contains('cockpit') || !bar.isConnected || bar.classList.contains('collapsed')) return;
     bar.classList.add('fitting');
     const decks = [...bar.querySelectorAll<HTMLElement>(':scope > .deck')], style = getComputedStyle(bar);
     const widths = decks.map(d => d.getBoundingClientRect().width), available = bar.getBoundingClientRect().width;
     const gap = parseFloat(style.columnGap) || 0, pad = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
     bar.classList.remove('fitting');
-    const fit = fitBar(widths, gap, pad, available), was = this.#fitted;
+    // The bevel frame is not scaled: held, a button's borders go from 1 + 1 px to 2 + 0, and under a fractional zoom those snap apart (1 + 1 px, then 1 + 0:
+    // the box loses a pixel when it is pressed or switched on). It takes the two balanced rows at its own size instead.
+    const fit = fitBar(widths, gap, pad, available, document.documentElement.dataset.frame === 'bevel' ? 1 : BAR_ZOOM_FLOOR), was = this.#fitted;
     if (was && was.zoom === fit.zoom && was.breakBefore === fit.breakBefore) return;
     this.#fitted = fit;
     bar.style.setProperty('--bar-zoom', String(fit.zoom));

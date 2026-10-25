@@ -51,6 +51,14 @@ test('a window too narrow even for two rows scales them, to the floor at most', 
   assert.deepEqual(fitBar(DECKS, GAP, PAD, 600), { zoom: BAR_ZOOM_FLOOR, breakBefore: 3 }, 'the rest wraps as whole decks, as it always did');
 });
 
+test('a floor of 1 (the bevel frame, whose pressed borders snap apart under a fractional zoom) never scales: two balanced rows at its own size', () => {
+  for (const width of [1500, 1440, 1366, 1280]) {
+    const fit = fitBar(DECKS, GAP, PAD, width, 1);
+    assert.deepEqual(fit, { zoom: 1, breakBefore: 3 }, `${width}`);
+  }
+  assert.deepEqual(fitBar(DECKS, GAP, PAD, 1600, 1), { zoom: 1, breakBefore: null });
+});
+
 test('degenerate inputs leave the bar alone', () => {
   assert.deepEqual(fitBar([], GAP, PAD, 1000), { zoom: 1, breakBefore: null });
   assert.deepEqual(fitBar([500], GAP, PAD, 100), { zoom: 1, breakBefore: null });
