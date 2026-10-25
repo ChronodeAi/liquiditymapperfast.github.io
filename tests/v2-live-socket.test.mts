@@ -194,6 +194,9 @@ test('a socket runs four tracker questions at once: the fifth, a reused id and a
   for (let t = start; t < end; t += MIN) columns.push({ t, n: 4, bins: Int32Array.of(1), bid: Float32Array.of(1), ask: Float32Array.of(1), lt: new Float32Array(LT_LENGTH).fill(1000), ltN: 4 });
   const ids = Array.from({ length: 64 }, (_, i) => `seed${i}:BTC`);
   for (const id of ids) { v2.recorder.columns.set(id, columns); v2.recorder.steps.set(id, 20); }
+  // A market costs two milliseconds more, so a question runs for several turns of the loop (it lets go after sixty): still running when the next arrives, and when it is cancelled.
+  const queryLt = v2.recorder.queryLt.bind(v2.recorder);
+  v2.recorder.queryLt = (...args: Parameters<typeof queryLt>) => { const t = performance.now(); while (performance.now() - t < 2) { /* a slower store */ } return queryLt(...args); };
   const texts: Record<string, unknown>[] = [], frames: LtFrame[] = [];
   const socket = new WebSocket(`ws://127.0.0.1:${port}/api/v2/ws`);
   socket.on('message', (data: unknown) => {

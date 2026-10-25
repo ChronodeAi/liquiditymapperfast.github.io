@@ -52,6 +52,12 @@ const MAX_COLUMN_SPAN_MS = MAX_PROFILE_SPAN_MS;
 const LT_QUESTION_BYTES = 4_096, MAX_LT_INSTRUMENTS = 64;
 /** The stretch one frame of a tracker answer covers. */
 const LT_SLICE_MS = 24 * 3_600_000;
+/**
+ * How long a tracker question works before it lets the loop go. The server has one thread, and a page loading the map asks it for tens of megabytes of
+ * columns in 0.5-second steps: a question that let go after every market waited behind those steps 27 times for its first frame (47 s, measured on the
+ * restarted server, 2026-10-25), and one that answers from what memory and the kept hours hold needs only a few milliseconds a market.
+ */
+const LT_TURN_MS = 60;
 /** The stretch of prints one turn of the event loop fills the footprint's lists from (see `fillLists` below). */
 const FILL_STEP_MS = 10 * 60_000;
 /** The most flow history one request may ask for: what the recorder keeps in memory, and a few thousand seconds per instrument cost 8 bytes each. */
@@ -66,7 +72,7 @@ const HEARTBEAT_MS = 5_000;
  * How long after starting the days the store holds beyond memory are read once for the Liquidity Tracker (`warmLt`): a few milliseconds at a time, so that the
  * first question a page asks is answered as fast as the next (a week of every market is some six seconds of reading, 2026-10-24).
  */
-const LT_WARM_AFTER_MS = 20_000;
+const LT_WARM_AFTER_MS = 8_000;
 /** How long after starting the stored absorption hours are packed (`AbsorptionRecorder.warm`). */
 const ABSORPTION_WARM_AFTER_MS = 3_000;
 /** Books with at least this many raw levels are re-valued no more often than the interval below. */
@@ -571,13 +577,15 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     // Windows from the step's own grid, so each is whole whichever part of the question it falls in; no more than the days that are kept.
     const lo = Math.floor(Math.max(from, to - MAX_COLUMN_SPAN_MS) / stepMs) * stepMs, slice = Math.ceil(LT_SLICE_MS / stepMs) * stepMs;
     void (async () => {
+      let turnStart = performance.now();
       for (let hi = to; hi > lo;) {
         const start = Math.max(lo, (Math.ceil(hi / slice) - 1) * slice);
         const results: { instrumentId: string; windows: ReturnType<typeof recorder.queryLt> }[] = [];
         for (const instrumentId of ids) {
           if (closed || one.cancelled || client.readyState !== WebSocket.OPEN) return;
           results.push({ instrumentId, windows: recorder.queryLt(instrumentId, start, hi, stepMs, half) });
-          await new Promise<void>(resolve => setImmediate(resolve));
+          // The loop is let go once a turn has had its share, not after every market.
+          if (performance.now() - turnStart > LT_TURN_MS) { await new Promise<void>(resolve => setImmediate(resolve)); turnStart = performance.now(); }
         }
         if (closed || one.cancelled || client.readyState !== WebSocket.OPEN) return;
         // A client that is far behind is let go as the rest of the socket does (it reconnects and asks again), not sent more.
