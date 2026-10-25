@@ -2010,9 +2010,11 @@ export class HeatPane {
     const carries: { x0: number; x1: number; lines: CarriedLine[]; name: string; estimate: boolean; kind: LineKind; source: string; key: string }[] = [];
     for (const c of s.poc || s.va ? this.#carries(state) : []) {
       const drawn = this.#windowLevels(state, ids, c.source, step, share, now); if (!drawn) continue;
-      const x0 = v.xOf(c.current.from, pw), x1 = v.xOf(c.current.to, pw);
+      // To the end of the window under way; in a replay only to its moment (what is right of it is masked, and a name there would be cut off).
+      const over = { from: c.current.from, to: replaying() ? Math.min(c.current.to, now) : c.current.to };
+      const x0 = v.xOf(over.from, pw), x1 = v.xOf(over.to, pw);
       if (x1 < 0 || x0 > pw) continue;
-      carries.push({ x0, x1, lines: carriedLines(drawn.levels, c.current, s), name: t('Previous {name}', { name: this.#windowName(state, c.source) }), estimate: this.#windowSource(state, c.source) === 'candles', kind: windowKind(c.source), source: c.source.key, key: c.current.key });
+      carries.push({ x0, x1, lines: carriedLines(drawn.levels, over, s), name: t('Previous {name}', { name: this.#windowName(state, c.source) }), estimate: this.#windowSource(state, c.source) === 'candles', kind: windowKind(c.source), source: c.source.key, key: c.current.key });
     }
     if (!segments.length && !carries.length) return [];
     // A source's own untouched run is the carry's line over the period under way (the same level, from where its window ended), so the carry draws
@@ -2069,7 +2071,7 @@ export class HeatPane {
         ctx.globalAlpha = LABEL_FLOOR;
         if (s.labels && shown) label(`${c.estimate ? '≈ ' : ''}${c.name} ${CARRY_WORDS[l.what]} ${fmtPrice(l.price, step)}`, c.x1, l.price, l.what === 'poc' ? 0.5 : 1.5);
         // Outlined on the axis, as any level of a period that is over: after the current window's tags and before an older window's untouched run's.
-        if (c.x1 >= pw - 1) tag(`${c.key}|prev-${l.what}`, l.price, code(c.kind, t('p{what}', { what: CARRY_WORDS[l.what] }), c.estimate), 5 - (heavy - 1) + (l.what === 'poc' ? 0 : 1), true);
+        if (c.x1 >= pw - 1 || replaying()) tag(`${c.key}|prev-${l.what}`, l.price, code(c.kind, t('p{what}', { what: CARRY_WORDS[l.what] }), c.estimate), 5 - (heavy - 1) + (l.what === 'poc' ? 0 : 1), true);
       }
     }
     ctx.globalAlpha = 1;
