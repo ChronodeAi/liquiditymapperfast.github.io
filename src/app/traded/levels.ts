@@ -3,7 +3,7 @@ import { levelsOf, rowOf, type ValueLevels } from '../../shared/profile.ts';
 import type { CandleRow } from '../store.ts';
 import { carryPairs, type Carry } from './carry.ts';
 import { dayWindows, lastWindows, minutesOf, monthWindows, sessionWindows, weekWindows, type ProfileWindow } from './sessions.ts';
-import { resolveZone, type KindSettings, type LineKind, type TradedSettings } from './settings.ts';
+import { linesSource, recordedCount, resolveZone, type KindSettings, type LineKind, type TradedSettings } from './settings.ts';
 
 /**
  * The step the traded column asks its rows on: one that both its display rows and the point of control's rows are whole multiples of (and
@@ -70,6 +70,22 @@ export function carriesOf(s: Pick<KindSettings, 'period' | 'zone' | 'sessions'>,
   return carryPairs(periodWindows(s, pageZone, now - CARRY_BACK[s.period], now + 1), now);
 }
 
+/**
+ * The carries to draw at `now` for the kinds whose lines are on (`s.lines`): each kind's pairs (`carriesOf`) kept only where the source can
+ * still be worked out. From the recording that is a kind it can hold two windows of at all (`recordedCount`: a week never, it holds the one
+ * under way; a page that keeps a day no previous day) and a source that began inside what it keeps (`recordedWindows`, on the real clock
+ * `real`); from candles always (a month's too). A source that fails is dropped and nothing takes its place.
+ */
+export function gatedCarries(s: Pick<TradedSettings, 'lines' | 'source' | 'zone' | 'sessions'>, pageZone: 'local' | 'utc', now: number, real: number, keepsMs: number): Carry[] {
+  const out: Carry[] = [];
+  for (const period of s.lines) {
+    const k = { ...s, period }, recorded = linesSource(k) === 'recorded';
+    if (recorded && recordedCount(period, keepsMs) < 2) continue;
+    for (const c of carriesOf(k, pageZone, now)) if (!recorded || recordedWindows([c.source], real, keepsMs).length) out.push(c);
+  }
+  return out;
+}
+
 /** What a value-area answer of the recording says of a window, as the lines draw it. */
 export interface HeldValueArea { from: number; to: number; minutes: number; covered?: number; poc: number | null; vah: number | null; val: number | null; asOf: number }
 /**
@@ -125,8 +141,11 @@ export function candleBarMs(s: Pick<KindSettings, 'period' | 'sessions'>): numbe
  * buys spread as its volume is, or null where a bar with volume did not say (a venue that does not report them).
  */
 export interface CandleProfile { levels: ValueLevels | null; covered: number; rows: Map<number, number>; buys: Map<number, number> | null }
-/** The most rows one bar may be spread over: a step far finer than the prices (before the first price is known the grid step is a billionth) would make millions of rows a bar. */
-export const MAX_BAR_ROWS = 20_000;
+/**
+ * The most rows one bar may be spread over, and one window may hold: a step far finer than the prices (before the first price is known the grid
+ * step is a billionth) would make millions of rows a bar. A bar a coin that fell 99 % has in its history is 20 times today's price high at most.
+ */
+export const MAX_BAR_ROWS = 100_000, MAX_WINDOW_ROWS = 4_000_000;
 export function candleLevels(bars: readonly CandleRow[], from: number, to: number, barMs: number, step: number, share: number, heldTo: number): CandleProfile {
   const rows = new Map<number, number>(), buys = new Map<number, number>(), end = Math.min(to, Math.floor(heldTo / barMs) * barMs);
   let n = 0, split = true, any = false;
@@ -140,7 +159,7 @@ export function candleLevels(bars: readonly CandleRow[], from: number, to: numbe
     if (taker === undefined || !Number.isFinite(taker)) split = false;
     const bought = split ? usd * Math.min(1, Math.max(0, taker! / volume)) : 0;
     const a = rowOf(low, step), z = rowOf(high, step);
-    if (!(z - a <= MAX_BAR_ROWS)) return { levels: null, covered: 0, rows: new Map(), buys: null };
+    if (!(z - a <= MAX_BAR_ROWS) || rows.size > MAX_WINDOW_ROWS) return { levels: null, covered: 0, rows: new Map(), buys: null };
     if (a === z) { rows.set(a, (rows.get(a) ?? 0) + usd); if (split) buys.set(a, (buys.get(a) ?? 0) + bought); continue; }
     for (let k = a; k <= z; k++) {
       const part = (Math.min(high, (k + 1) * step) - Math.max(low, k * step)) / (high - low);

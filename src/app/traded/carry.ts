@@ -39,6 +39,20 @@ export function carryPairs(windows: readonly ProfileWindow[], now: number): Carr
   return out.sort((a, b) => a.current.from - b.current.from || a.current.key.localeCompare(b.current.key));
 }
 
+/**
+ * The stretches of a source's untouched run (dotted, from `from` to `to`) still drawn beside its carry, which draws that level over `hide`
+ * (the window under way): the run is hidden only there, so the gap before a session that began later, and what is left of the run past the
+ * window's end, keep their dots. Any coordinate, as long as the three are in the same one.
+ */
+export function runPieces(from: number, to: number, hide: { from: number; to: number } | null): [number, number][] {
+  if (!(to > from)) return [];
+  if (!hide) return [[from, to]];
+  const out: [number, number][] = [], before = Math.min(to, hide.from), after = Math.max(from, hide.to);
+  if (before > from) out.push([from, before]);
+  if (to > after) out.push([after, to]);
+  return out;
+}
+
 /** One carried line, as the time it is drawn over and the price: a level of the source across the whole of the window under way. */
 export interface CarriedLine { what: 'poc' | 'vah' | 'val'; price: number; from: number; to: number }
 

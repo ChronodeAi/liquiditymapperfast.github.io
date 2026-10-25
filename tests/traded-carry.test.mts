@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AGE_FLOOR, LABEL_FLOOR, ageAlpha, ageRanks, carriedLines, carryPairs, seriesOf } from '../src/app/traded/carry.ts';
-import { DRAWN_SHARE, MAX_BAR_ROWS, candleLevels, carriesOf, linesWindows, periodWindows, recordedWindowLevels, recordedWindows, touchedAt, type HeldValueArea } from '../src/app/traded/levels.ts';
+import { AGE_FLOOR, LABEL_FLOOR, ageAlpha, ageRanks, carriedLines, carryPairs, runPieces, seriesOf } from '../src/app/traded/carry.ts';
+import { DRAWN_SHARE, MAX_BAR_ROWS, candleLevels, carriesOf, gatedCarries, linesWindows, periodWindows, recordedWindowLevels, touchedAt, type HeldValueArea } from '../src/app/traded/levels.ts';
 import type { CandleRow } from '../src/app/store.ts';
 import { dayWindows, type ProfileWindow, type SessionDef } from '../src/app/traded/sessions.ts';
 import { TRADED_DEFAULTS, readTraded } from '../src/app/traded/settings.ts';
@@ -35,13 +35,20 @@ test('the immediate predecessor or nothing: an older window is never put in its 
   // The oldest window held has no predecessor.
   assert.deepEqual(carryPairs(days.filter(w => w.from === at(14)), now), []);
   // A source from the recording must have begun inside what it keeps: pairing is on the whole calendar and the gate comes after, so a source
-  // that fails it leaves nothing at all (the week before it is not offered).
-  const keeps = 7 * DAY, weeks = carriesOf(kind('week'), 'utc', now);
-  assert.equal(weeks.length, 1);
-  assert.equal(recordedWindows([weeks[0]!.source], now, keeps).length, 0, 'the previous week began 9 days ago: no longer recorded');
-  const day = carriesOf(kind('day'), 'utc', now)[0]!;
-  assert.equal(recordedWindows([day.source], now, keeps).length, 1, 'yesterday is');
-  assert.equal(recordedWindows([day.source], now, DAY).length, 0, 'a page that keeps a day has no previous day');
+  // that fails it leaves nothing at all (the window before it is not offered).
+  const lines = (...ks: ('day' | 'week' | 'month' | 'sessions')[]) => ({ lines: ks, source: 'recorded' as const, zone: 'UTC', sessions: [def('london', '07:00', '16:00')] });
+  const found = (s: ReturnType<typeof lines>, keeps: number, at = now): string[] => gatedCarries(s, 'utc', at, at, keeps).map(c => seriesOf(c.source) + ' ' + iso(c.source.from));
+  assert.deepEqual(found(lines('day'), 7 * DAY), ['day|UTC 2026-10-13T00:00'], 'a server holds yesterday');
+  assert.deepEqual(found(lines('day'), DAY), [], 'a page that keeps a day has no previous day');
+  assert.deepEqual(found(lines('week'), 7 * DAY), [], 'a server holds the week under way alone: no previous week');
+  assert.deepEqual(found(lines('sessions'), 7 * DAY), ['session|london 2026-10-13T07:00']);
+  assert.deepEqual(found(lines('sessions'), DAY), []);
+  // The first hour after a 23-hour day would let a day through a one-day retention by the window test alone; the kind's count does not.
+  const berlin = { ...lines('day'), zone: 'Europe/Berlin' }, hourAfter = Date.UTC(2026, 2, 29, 22, 30);
+  assert.deepEqual(found(berlin, DAY, hourAfter), []);
+  // Months are always candles; candles carry whatever the recording keeps.
+  assert.deepEqual(found(lines('month'), DAY), ['month|UTC 2026-09-01T00:00']);
+  assert.deepEqual(found({ ...lines('week', 'day'), source: 'candles' as never }, DAY), ['week|UTC 2026-10-05T00:00', 'day|UTC 2026-10-13T00:00']);
 });
 
 test('a carry draws the source\'s levels across the whole period under way, the same whether or not price has traded through them', () => {
@@ -54,7 +61,21 @@ test('a carry draws the source\'s levels across the whole period under way, the 
   assert.deepEqual(carriedLines(levels, c!.current, { poc: false, va: true }).map(l => l.what), ['vah', 'val']);
   assert.deepEqual(carriedLines(levels, c!.current, { poc: false, va: false }), []);
   // Nothing in a carry reads a price: whether the level was touched is not a question it asks (the untouched run of older windows is another line).
-  assert.deepEqual(carriesOf(kind('day'), 'utc', now), carriesOf(kind('day'), 'utc', now));
+});
+
+test('the source\'s untouched run is hidden only over the window under way, so what lies outside it keeps its dots', () => {
+  // Days: the run starts where the carry does and goes on to the right edge; the carry runs to the window's end, which can be before the edge.
+  assert.deepEqual(runPieces(100, 300, { from: 100, to: 250 }), [[250, 300]], 'what is left of the run past the window\'s end');
+  assert.deepEqual(runPieces(100, 300, { from: 100, to: 400 }), [], 'the carry covers it all');
+  // Sessions: the next one began later, so the run crosses the gap before it.
+  assert.deepEqual(runPieces(100, 300, { from: 180, to: 400 }), [[100, 180]], 'the gap between two sessions');
+  assert.deepEqual(runPieces(100, 300, { from: 180, to: 250 }), [[100, 180], [250, 300]]);
+  // A run that ended before the window under way, or begins after it.
+  assert.deepEqual(runPieces(100, 150, { from: 180, to: 250 }), [[100, 150]]);
+  assert.deepEqual(runPieces(260, 300, { from: 180, to: 250 }), [[260, 300]]);
+  // No carry: the whole run; no run: nothing.
+  assert.deepEqual(runPieces(100, 300, null), [[100, 300]]);
+  assert.deepEqual(runPieces(100, 100, null), []);
 });
 
 test('a touch is read only from candles that were over at the moment a replay shows', () => {
@@ -159,7 +180,7 @@ test('replay: the windows are those at the moment shown, and a window that has n
   assert.notDeepEqual(live, then);
   // The calendar is laid out from the replay's moment: the same pairs as when it was live then.
   assert.deepEqual(carryPairs(periodWindows(kind('day'), 'utc', at(1), at(20)), replay).map(pair), then.map(pair));
-  // A weekly source from before the moment is final: the current week at the moment has begun, the next has not.
+  // The week at the moment has begun, the next has not.
   assert.deepEqual(carriesOf(kind('week'), 'utc', at(18, 23, 59)).map(pair), [['2026-10-05T00:00', '2026-10-12T00:00', '2026-10-12T00:00', '2026-10-19T00:00']]);
   assert.deepEqual(carriesOf(kind('week'), 'utc', at(19)).map(pair), [['2026-10-12T00:00', '2026-10-19T00:00', '2026-10-19T00:00', '2026-10-26T00:00']]);
 });
@@ -203,6 +224,9 @@ test('rows far finer than the prices (no price known yet) draw nothing instead o
   const bars: CandleRow[] = [[at(14), 80_000, 80_100, 79_900, 80_050, 10]];
   const fine = candleLevels(bars, at(14), at(14) + 5 * MIN, 5 * MIN, 1e-9, 0.7, at(15));
   assert.deepEqual([fine.levels, fine.covered, fine.rows.size], [null, 0, 0]);
-  assert.ok(200 / 20 < MAX_BAR_ROWS);
   assert.ok(candleLevels(bars, at(14), at(14) + 5 * MIN, 5 * MIN, 20, 0.7, at(15)).levels, 'rows of the usual size are worked out');
+  // A bar of a coin that fell ninety-odd per cent is many times today's price high: 90,000 rows of a step of 0.0022 is still worked out, a million is not.
+  assert.ok(candleLevels(bars, at(14), at(14) + 5 * MIN, 5 * MIN, 200 / 90_000, 0.7, at(15)).levels);
+  assert.ok(MAX_BAR_ROWS > 90_000 && MAX_BAR_ROWS < 1_000_000);
+  assert.equal(candleLevels(bars, at(14), at(14) + 5 * MIN, 5 * MIN, 200 / 1_000_000, 0.7, at(15)).levels, null);
 });
