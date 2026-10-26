@@ -3,7 +3,7 @@ import type { OiPart } from './oi-change.ts';
 import type { TimeZone } from './format.ts';
 import { HEAT_STYLES, type HeatStyleId } from './heatmap/lut.ts';
 import { clampContrast } from './heatmap/window.ts';
-import { LT_DEFAULTS, LT_PHONE_HALF_LIFE_BP, type LtParams } from './lt.ts';
+import { LT_DEFAULTS, LT_OLD_HALF_LIFE_BP, type LtParams } from './lt.ts';
 import { resolveThemeId } from './theme.ts';
 import { readStatOptions, type StatOptions } from './stat-options.ts';
 import { readHighlight, type HighlightOptions } from './anomaly.ts';
@@ -260,11 +260,11 @@ export const DEFAULT_THEME = 'light';
  * the profile along the top by `readSettings` (saved layouts too; traded/profiles.ts since): its switch as it was, Delta as traded volume, OI change as open interest, and the
  * Volume profile switched on where the strip showed, or the strip would be gone. A save from before revision 2, and a first visit, had the
  * strip on (on a desktop): they get the profile along the top, and with it the Volume profile.
- * Revision 4 (2026-10-26, Karl: the phone's tab bar and "the liquidity tracker is very useful ... set it to 100 basis points by default"): on a
- * phone the Flow and LT tabs are always there at first, and the Liquidity Tracker's half-life is 100 bp. A touch screen's save from before it
- * has the Flow and LT panes on once (the tab bar hides a tab whose pane is off, and a Flow saved off was never found again), and a half-life
- * of 10 bp, the desktop's default that every save wrote down, reads as 100 once (any other, and any chosen since, is kept). A desktop, and a
- * desktop window that happens to be narrow, is not touched.
+ * Revision 4 (2026-10-26, Karl: the phone's tab bar and "the liquidity tracker is very useful ... set it to 100 basis points by default", then
+ * "set desktop to the same 100 bp as well"): the Liquidity Tracker's half-life is 100 bp on every screen, and on a phone the Flow and LT tabs are
+ * always there at first. A save from before it holds a half-life of 10 bp, the old default that every save wrote down: it reads as 100 once
+ * (any other, and any chosen since, is kept). A touch screen's save from before it also has the Flow and LT panes on once (the tab bar hides
+ * a tab whose pane is off, and a Flow saved off was never found again); a desktop, and a desktop window that happens to be narrow, keeps its panes.
  */
 export const DEFAULTS_REV = 4;
 
@@ -294,11 +294,10 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
     // The strip revision 2 turned on is the profile along the top now, which shows with the Volume profile.
     if (!phone) { state.traded = { ...state.traded, placements: withTopOn(state.traded.placements) }; state.show = { ...state.show, traded: true }; }
   }
-  // A touch screen only: a desktop browser window that was narrow once is not a phone, and its panes stay as it chose them.
-  if (rev < 4 && phone && touch) {
-    state.show = { ...state.show, cvd: true, lt: true };
-    if (state.lt.halfLifeBp === LT_DEFAULTS.halfLifeBp) state.lt = { ...state.lt, halfLifeBp: LT_PHONE_HALF_LIFE_BP };
-  }
+  // The panes: a touch screen only (a desktop browser window that was narrow once is not a phone, and its panes stay as it chose them).
+  if (rev < 4 && phone && touch) state.show = { ...state.show, cvd: true, lt: true };
+  // The half-life: every screen. The old default is not a choice (every save wrote it down); another value is.
+  if (rev < 4 && state.lt.halfLifeBp === LT_OLD_HALF_LIFE_BP) state.lt = { ...state.lt, halfLifeBp: LT_DEFAULTS.halfLifeBp };
   state.defaultsRev = DEFAULTS_REV;
   state.theme = resolveThemeId(state.theme);
   if (!state.themePicked && state.theme === 'terminal') state.theme = DEFAULT_THEME;

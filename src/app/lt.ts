@@ -27,9 +27,9 @@ export interface LtParams {
   /** Divide by the sum of weights over the non-empty bins, as if each had size 1 (pooled over the venues). */
   average: boolean;
 }
-export const LT_DEFAULTS: LtParams = { halfLifeBp: 10, minUsd: 0, maxUsd: 0, average: false };
-/** The half-life a phone starts with (Karl, 2026-10-26: "the best setting"): a book's weight reaches far enough to read on a small screen without the touch dominating it. A desktop keeps `LT_DEFAULTS`. */
-export const LT_PHONE_HALF_LIFE_BP = 100;
+/** 100 bp is the half-life Karl found best (2026-10-26, "the best setting"), on a phone and on a desktop: it was 10 before, and `LT_OLD_HALF_LIFE_BP` is what a save of that time holds. */
+export const LT_DEFAULTS: LtParams = { halfLifeBp: 100, minUsd: 0, maxUsd: 0, average: false };
+export const LT_OLD_HALF_LIFE_BP = 10;
 
 /** Sparse columns of one instrument on its own grid: entry e of column c covers price bin `bins[e]` of width `step`. */
 export interface LtStore {
