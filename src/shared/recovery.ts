@@ -46,6 +46,8 @@ export interface HistorySource {
   readonly paceMs: number;
   /** Rows of a full page. */
   readonly pageRows: number;
+  /** How far back the history answers, in ms before now (absent: as far back as a recording reaches). */
+  readonly reachMs?: number;
   request(cursor: Cursor): PageRequest;
   /** The rows of an answer as trades, in the order the venue gave them; null when the answer is not a page of trades (an error, a rate limit). */
   parse(body: unknown): HistoryTrade[] | null;
@@ -86,6 +88,8 @@ export function historySource(venue: string, listing: Pick<Listing, 'symbol' | '
         venue, bucket: venue === 'binance' ? 'binance-fapi' : 'binance-api', mode: 'forward', ordered: true, pageRows: 1000,
         // USD-M: weight 20 of 2,400 a minute; spot: 4 of 6,000.
         paceMs: venue === 'binance' ? 600 : 150,
+        // USD-M answers by id only the last two days ("Search window is restricted to recent 2 days only", -4166, 2026-10-26); spot a week and more.
+        ...(venue === 'binance' ? { reachMs: 47 * HOUR } : {}),
         request: c => ({ url: c && 'fromId' in c ? `${base}&fromId=${c.fromId}` : c && 'start' in c ? `${base}&startTime=${c.start}&endTime=${c.end}` : base }),
         // `m`: the buyer was the maker, so the taker sold.
         parse: body => rows(body, r => trade(r.a, r.m === true ? 'sell' : r.m === false ? 'buy' : null, num(r.p), num(r.q), num(r.T), unit)),

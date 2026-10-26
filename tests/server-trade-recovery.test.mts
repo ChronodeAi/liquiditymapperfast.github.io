@@ -176,6 +176,32 @@ test('Binance USD-M, whose trades the feed manager names `<symbol>:<id>`, is rea
   recovery.close();
 });
 
+test('a gap older than the venue\'s history answers is never asked for (Binance USD-M: two days), and a newer one is filled', async () => {
+  const DAY = 24 * 60 * MINUTE, clock = { now: T0 }, r = recordings(null, clock), asked: number[] = [];
+  const BINANCE: Market = { id: 'binance:BTCUSDT', name: n => `BTCUSDT:${n}` };
+  // Trade n three days before trade n + 1000: the old gap lies between trades 50 and 100, the new one between 1050 and 1100.
+  const at = (n: number): number => n >= 1_000 ? t(n - 1_000) + 3 * DAY : t(n);
+  const fetch: HistoryFetch = async request => {
+    const from = Number(new URL(request.url).searchParams.get('fromId')), rows: unknown[] = [];
+    asked.push(from);
+    if (from < 1_000) return { ok: false, status: 400, body: { code: -4166, msg: 'Search window is restricted to recent 2 days only.' } };
+    for (let n = from; n <= 1_150 && rows.length < 1000; n++) rows.push({ a: n, p: '81000', q: '0.01', T: at(n), m: n % 2 === 0 });
+    return { ok: true, status: 200, body: rows };
+  };
+  const take = (n: number): void => { const row = { instrumentId: BINANCE.id, tradeId: BINANCE.name(n), side: n % 2 ? 'buy' : 'sell', price: 81_000, notionalUsd: 810, sourceTimestamp: at(n) }; r.footprints.ingest([row], trade => r.coverage.trade(BINANCE.id, String(trade.tradeId), at(n), clock.now)); r.flows.ingest([row]); };
+  /** The loop over trades first..last at their time, the feed live or not. */
+  const pass = (first: number, last: number, live: boolean): void => { for (const end = at(last) + 1; clock.now < end; clock.now += 250) { r.coverage.pass(BINANCE.id, live, clock.now); if (live) for (let n = first; n <= last; n++) if (at(n) >= clock.now && at(n) < clock.now + 250) take(n); } };
+  const recovery = new TradeRecovery({ recordings: r, fetch, now: () => clock.now, sleep: async ms => { clock.now += ms; }, log: () => {} });
+  pass(0, 50, true); pass(51, 99, false); pass(100, 150, true);
+  clock.now = at(1_000) - 50;
+  pass(1_000, 1_050, true); pass(1_051, 1_099, false); pass(1_100, 1_150, true);
+  clock.now += 3 * MINUTE; recovery.poll(clock.now); await recovery.running;
+  assert.deepEqual(asked, [1_051], 'only the newer gap is asked for');
+  assert.equal(openGaps(r, BINANCE.id).length, 2, 'the old gap stays a gap, and so does the one between the two recordings');
+  assert.equal(recovery.status().resting['binance-fapi'], undefined, 'and the venue\'s limit is not rested on it');
+  recovery.close();
+});
+
 test('a gap a venue cannot fill is asked for once or a few times, never again, and not after a restart either', async () => {
   const dir = tempDir(), ledger = path.join(dir, 'trade-recovery.json'), clock = { now: T0 };
   const ids = ['deribit:BTC-PERPETUAL', 'bybit:BTCUSDT', 'coinbase:BTC-USD'];

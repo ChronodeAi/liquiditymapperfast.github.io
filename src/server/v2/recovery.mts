@@ -193,6 +193,9 @@ export class TradeRecovery {
         }
         for (const piece of without(whole, given)) {
           if (source.mode === 'latest' && piece.to < now - LATEST_REACH_MS) continue;
+          // Older than the venue's history answers (Binance USD-M: two days): never asked. Asked, it failed every time, and its limit rested
+          // up to half an hour on it, newer gaps of the venue waiting behind it (2026-10-26).
+          if (source.reachMs !== undefined && piece.from < now - source.reachMs) continue;
           const sum = backlog.instruments[id] ??= { gaps: 0, ms: 0 };
           sum.gaps++; sum.ms += piece.to - piece.from; backlog.gaps++; backlog.ms += piece.to - piece.from;
           if (starting && piece.to < this.#startedAt) continue;
