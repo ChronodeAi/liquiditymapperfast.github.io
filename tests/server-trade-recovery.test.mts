@@ -105,6 +105,26 @@ test('the gap a restart left is filled from the venue\'s history once the feed i
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('the gap a restart left is filled when the run before went on listening after its last trade', async () => {
+  // The usual case: the last pass before the stop comes a little after the last trade, so the stretch ends after its seam, in a second
+  // that holds the last trades before the gap. Seen live 2026-10-26: the gap of a restart was given up whole as recorded live.
+  const dir = tempDir(), file = path.join(dir, 'depth-v2.sqlite'), clock = { now: T0 };
+  const history = okxHistory(400);
+  try {
+    let r = recordings(file, clock);
+    feed(r, clock, t(150) + 600, 0, 150);
+    shut(r);
+    clock.now = t(275) - 50;
+    r = recordings(file, clock);
+    const recovery = new TradeRecovery({ recordings: r, fetch: history.fetch, now: () => clock.now, sleep: async ms => { clock.now += ms; }, log: () => {} });
+    feed(r, clock, t(400) + 1, 275, 400);
+    recovery.poll(clock.now); await recovery.running;
+    assert.deepEqual(openGaps(r), [], 'the restart\'s gap is covered');
+    assert.equal(usd(r), once(400), 'with every trade of it, once');
+    recovery.close(); shut(r);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('trades the recording took inside a gap (a frozen loop\'s sockets handing on what they held) are not recovered a second time', async () => {
   const dir = tempDir(), file = path.join(dir, 'depth-v2.sqlite'), clock = { now: T0 };
   const history = okxHistory(600);

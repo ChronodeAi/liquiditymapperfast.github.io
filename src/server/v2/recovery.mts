@@ -172,10 +172,11 @@ export class TradeRecovery {
       if (!source) { noHistory.push(id); continue; }
       const spans = coverage.spans(id); if (!spans.length) continue;
       // Only between two stretches: before the first the recording had not begun, and after an instrument's newest one (its feed is not
-      // back) the gap has no end yet. In the first minutes after a start, only from where the run before stopped: the restart's gap (a look
-      // every START_LOOK_MS over the whole week held the server's loop up to a second each time).
+      // back) the gap has no end yet. In the first minutes after a start, only the restart's gap (a look every START_LOOK_MS over the whole
+      // week held the server's loop up to a second each time), from a minute before the run before stopped: a gap at the window's edge has no
+      // seam, and its first second, holding the last trades before it, was taken for trades recorded inside it (2026-10-26).
       let from = Math.max(spans[0]!.from, now - this.#retentionMs + RETENTION_MARGIN_MS);
-      if (starting) from = Math.max(from, ...spans.filter(s => s.from < this.#startedAt).map(s => s.to));
+      if (starting) from = Math.max(from, ...spans.filter(s => s.from < this.#startedAt).map(s => s.to - MINUTE));
       const end = coverage.openTo(id) ?? Math.max(...spans.map(s => s.to));
       if (!(end > from)) continue;
       const given = union(this.#givenUp.filter(g => g.id === id), from, end);
