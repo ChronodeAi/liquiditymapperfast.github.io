@@ -16,8 +16,8 @@ import { browserVenues, type BrowserVenue } from './venues.ts';
 import { BTC, SCALES, type Coin, type MarketVenue } from './coins.ts';
 import type { BookConnector, OiEvent, TradeEvent } from './connector.ts';
 import { packLt, type ColumnSet, type ColumnsFrame } from './columns.ts';
-import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, coveredMs, depthAnswer, recordedMinutes, tradeAnswer, type CoverageAnswer, type CoverageMetric, type CoverageStore } from './coverage.ts';
-import { RECOVERY_BUDGET, historySource, planRecovery, rebuildOrders, runRecovery, trimUnknown, webHistoryFetch, type HistoryFetch, type HistorySource, type HistoryTrade, type RecoveryBudget, type RecoveryResult } from './recovery.ts';
+import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageAnswer, type CoverageMetric, type CoverageStore } from './coverage.ts';
+import { RECOVERY_BUDGET, applyRecovered, historySource, planRecovery, recoverableGaps, runRecovery, webHistoryFetch, type HistoryFetch, type HistorySource, type RecoveryBudget, type RecoveryRecordings, type RecoveryResult } from './recovery.ts';
 
 /**
  * The whole data plane without a server: it runs the exchange connectors for the selected venues, values their books, records minute
@@ -169,6 +169,8 @@ export class Engine {
   /** The recovery under way (one at a time), and a request that came while it ran (done next). */
   #recovering: Promise<RecoveryReport> | null = null; #recoverNext: RecoveryRequest | null = null;
   readonly #venueRest = new Map<string, number>();
+  /** What a recovery fills: the recordings below. */
+  readonly #recordings: RecoveryRecordings;
 
   readonly #venues: readonly BrowserVenue[];
   readonly #coin: Coin;
@@ -234,6 +236,7 @@ export class Engine {
     this.tradeCoverage = new TradeCoverage(coverage, now, retentionMs);
     for (const id of this.footprints.instruments) this.#loadedThrough.set(id, this.footprints.lastMinute(id) + COLUMN_MS);
     this.#recorded = new RecordedBefore(this.flows, this.footprints);
+    this.#recordings = { footprints: this.footprints, flows: this.flows, prints: this.printStream, coverage: this.tradeCoverage };
   }
 
   // ---- Venues ---------------------------------------------------------------------------------------------------------------------
@@ -490,11 +493,8 @@ export class Engine {
     for (let waited = 0; waited < RECOVERY_WAIT_MS && ids.some(id => this.#historyOf(id) && !this.tradeCoverage.isOpen(id)); waited += 250) await new Promise<void>(resolve => setTimeout(resolve, 250));
     const now = this.#now(), windows = request.windows.map(w => ({ from: w.from, to: Math.min(w.to, now) })).filter(w => w.to > w.from);
     const instruments = ids.flatMap(id => { const source = this.#historyOf(id); return source ? [{ id, source }] : []; });
-    // A minute held from storage with no record of being covered (an older build recorded it) is not recovered: its trades would count twice.
-    const unknown = (id: string) => (t: number): boolean => t < (this.#loadedThrough.get(id) ?? 0) && this.footprints.holds(id, t) && coveredMs(this.tradeCoverage.covered(id, t, t + COLUMN_MS), t, t + COLUMN_MS) === 0;
-    // A window that reaches now ends where the open stretch does (its last pass): the moment since is the loop's beat, not a gap.
-    const gapsOf = (id: string, from: number, to: number) => { const open = this.tradeCoverage.openTo(id), end = open !== null && open > from ? Math.min(to, open) : to; return trimUnknown(this.tradeCoverage.gaps(id, from, end), unknown(id)); };
-    const jobs = planRecovery(windows, instruments, gapsOf);
+    // A window that reaches now ends where the open stretch does, and a minute held from storage with no record of being covered is left out.
+    const jobs = planRecovery(windows, instruments, (id, from, to) => recoverableGaps(this.#recordings, id, from, to, this.#loadedThrough.get(id) ?? 0));
     const found = new Map<string, { gaps: number; gapMs: number; recoveredMs: number }>();
     for (const job of jobs) { const f = found.get(job.id) ?? { gaps: 0, gapMs: 0, recoveredMs: 0 }; f.gaps++; f.gapMs += job.to - job.from; found.set(job.id, f); }
     const run = await runRecovery(jobs, this.#historyFetch, { budget: this.#recoveryBudget, now: this.#now, onResult: result => {
@@ -506,26 +506,10 @@ export class Engine {
       instruments: ids.map(id => ({ id, recoverable: instruments.some(i => i.id === id), ...(found.get(id) ?? { gaps: 0, gapMs: 0, recoveredMs: 0 }) })) };
   }
 
-  /**
-   * One gap's recovered trades into the recordings, in one step with the stretch they cover: the footprint takes those the live recording does
-   * not hold already (by trade id: the seam's last guard), the flow the same, their market orders (rebuilt from them alone) go to the size
-   * statistics and the large orders without being handed on as new. Never the live callback: not the price, the candle, the trade dust or
-   * the order builder of the live trades.
-   */
+  /** One gap's recovered trades into the recordings with the stretch they cover (shared/recovery.ts `applyRecovered`), and the page told. */
   #applyRecovered(result: RecoveryResult): void {
-    const id = result.job.id, taken: HistoryTrade[] = [], byId = new Map(result.rows.map(r => [r.tradeId, r]));
-    const rows = result.rows.map(r => ({ instrumentId: id, tradeId: r.tradeId, side: r.side, price: r.price, notionalUsd: r.notionalUsd, sourceTimestamp: r.t }));
-    const accepted: typeof rows = [];
-    this.footprints.ingest(rows, row => { const r = byId.get(String(row.tradeId)); if (r) { taken.push(r); accepted.push(row as (typeof rows)[number]); } });
-    this.flows.ingest(accepted);
-    const orders = rebuildOrders(id, taken);
-    this.footprints.countOrders(orders);
-    this.printStream.ingest(orders.map(orderRow), false);
-    if (result.covered) {
-      const first = result.rows[0], last = result.rows[result.rows.length - 1];
-      this.tradeCoverage.recovered(id, result.covered[0], result.covered[1], first ? { id: first.tradeId, t: first.t } : undefined, last ? { id: last.tradeId, t: last.t } : undefined);
-    }
-    if (result.covered || taken.length) this.onRecovered(id, result.covered?.[0] ?? result.job.from, result.covered?.[1] ?? result.job.to);
+    const taken = applyRecovered(this.#recordings, result);
+    if (result.covered || taken) this.onRecovered(result.job.id, result.covered?.[0] ?? result.job.from, result.covered?.[1] ?? result.job.to);
   }
 
   /** Taker flow per second for each instrument over [from, to), from its first recorded minute in that range. */

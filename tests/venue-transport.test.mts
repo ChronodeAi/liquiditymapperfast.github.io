@@ -12,8 +12,8 @@ test('venue control frames are venue-native and unsubscribe is symmetrical', () 
   assert.deepEqual(venueControlFrame('deribit', { args: ['book.BTC-PERPETUAL.none.20.100ms'] }, 'unsubscribe'), { jsonrpc: '2.0', id: 1, method: 'public/unsubscribe', params: { channels: ['book.BTC-PERPETUAL.none.20.100ms'] } });
   assert.equal(venueControlFrame('binance', { stream: 'btcusdt@depth' }), null);
   const coinbaseRequest = { args: ['BTC-USD'], channel: 'level2_batch' };
-  assert.deepEqual(venueControlFrame('coinbase', coinbaseRequest), { type: 'subscribe', product_ids: ['BTC-USD'], channels: ['level2_batch'] });
-  assert.deepEqual(venueControlFrame('coinbase', coinbaseRequest, 'unsubscribe'), { type: 'unsubscribe', product_ids: ['BTC-USD'], channels: ['level2_batch'] });
+  assert.deepEqual(venueControlFrame('coinbase', coinbaseRequest), { type: 'subscribe', product_ids: ['BTC-USD'], channels: ['level2_batch', 'heartbeat'] });
+  assert.deepEqual(venueControlFrame('coinbase', coinbaseRequest, 'unsubscribe'), { type: 'unsubscribe', product_ids: ['BTC-USD'], channels: ['level2_batch', 'heartbeat'] });
   assert.equal(venueHeartbeatFrame('coinbase'), null);
   const krakenRequest = { args: ['BTC/USD'], symbol: 'BTC/USD', channel: 'book', depth: 100, snapshot: true };
   assert.deepEqual(venueControlFrame('kraken', krakenRequest), { method: 'subscribe', params: { channel: 'book', symbol: ['BTC/USD'], depth: 100, snapshot: true } });

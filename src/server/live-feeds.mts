@@ -230,6 +230,8 @@ export interface LiveFeed {
   heartbeat?: VenueHeartbeatDeadline; heartbeatTimer?: FeedTimer | null; heartbeatStarted?: boolean; transportMessages?: number; kucoinWelcome?: boolean; pool?: string | null;
   /** When a session that keeps the whole book last handed it on (`WHOLE_BOOK_EVERY_MS`). */
   wholeBookAt?: number; wholeBookTimer?: FeedTimer | null;
+  /** When this connection was put in place: the book watch counts from here for a feed that has not handed on a book yet. */
+  openedAt?: number;
 }
 /**
  * How often a session that keeps the whole book (Kraken, Bitfinex) hands it on. Each update is still taken and checked when it comes, but
@@ -240,6 +242,15 @@ export interface LiveFeed {
 export const WHOLE_BOOK_EVERY_MS = 250;
 /** A Binance open interest poll that keeps failing is logged at most this often. */
 const OI_LOG_EVERY_MS = 10 * 60_000;
+/**
+ * A depth feed whose book has not been usable for this long while it should be running is reconnected on its own (`#checkBooks`). It is
+ * past the recorder's 45 s staleness (`STALE_MS`), where the server stops recording a book that has not changed anyway.
+ */
+export const BOOK_WATCH_MS = 60_000;
+/** After each reconnect that did not bring the book back for good, the book watch waits twice as long before the next one, up to this. */
+const BOOK_WATCH_MAX_MS = 30 * 60_000;
+/** A depth feed the book watch reconnects is logged at most this often (the reconnects in between are counted in the next line). */
+const BOOK_LOG_EVERY_MS = 10 * 60_000;
 /** The parts of a feed status the diagnostics route shows. */
 const pickStatus = (status: LiveFeedStatus | undefined) => ({ state: status?.state ?? null, lastSuccess: status?.lastSuccess ?? null, lastError: status?.lastError ?? null });
 /** Logical ownership allowances for opaque native/runtime resources. These are
@@ -309,6 +320,10 @@ function selectedOrderbooks(value: readonly string[] | undefined): ReadonlySet<s
 }
 function isPublicOrderbookSpec(spec: LiveFeedSpec): boolean {
   return spec.publicDepth === true || spec.channel === 'l2Book' || spec.channel === 'depth';
+}
+/** A spec whose feed carries an order book: the books `active-book-set` lists and the book watch looks after. */
+function holdsBook(spec: LiveFeedSpec): spec is LiveFeedSpec & { instrumentId: string } {
+  return Boolean(spec.instrumentId) && (spec.publicDepth === true || ['depth', 'l2Book', 'book'].includes(spec.channel));
 }
 interface PublicFamilySelection {
   venue: string; instrumentId?: string; marketType?: string; family?: string; category?: string; instType?: string;
@@ -556,6 +571,14 @@ export class LiveFeedManager {
   #lastStart: { at: number; ms: number; ok: boolean; error?: string } | null = null;
   #recoveryTimer: FeedTimer | null = null; #recoveryAttempt = 0; #recoveries = 0; #lastRecovery: { at: number; reason: string } | null = null;
   #watchdogTimer: FeedTimer | null = null; #deadChecks = 0;
+  /**
+   * The book watch (`#checkBooks`): when each feed last handed on a usable book; for a feed it reconnected, how many times in a row, when
+   * last and the earliest it may again; its totals for the diagnostics route; and when it last logged each feed, with the reconnects since.
+   */
+  #bookAt = new Map<string, number>();
+  #bookWatch = new Map<string, { attempts: number; at: number; next: number }>();
+  #bookReconnects = 0; #lastBookReconnect: { id: string; at: number; reason: string } | null = null;
+  #bookNotes = new Map<string, { at: number; unlogged: number }>();
   #operationScope = new LiveFeedOperationScope();
   declare running: boolean; declare specs: Map<string, LiveFeedSpec>; declare feeds: Map<string, LiveFeed>; declare bookSequences: Map<string, unknown>; declare depthBuffers: Map<string, LiveNormalizedMessage[]>; declare depthBridgePending: Map<string, boolean>; declare resyncing: Map<string, BinanceResyncToken>;
   declare retainedDiagnosticsCache: LiveFeedDiagnostics | null; declare oiTimer: FeedTimer | null; declare sessionCounter: number; declare feedGenerations: Map<string, number>; declare heartbeatTimers: Map<string, FeedTimer>; declare configurationGeneration: number;
@@ -715,6 +738,7 @@ export class LiveFeedManager {
   /**
    * Called on a timer once a start has been requested. A start that has run too long is abandoned for a fresh one,
    * and a manager that has specs but no feed (the state a failed start leaves) is restarted after two checks.
+   * Otherwise each order book is looked after on its own (`#checkBooks`).
    */
   checkLiveness() {
     if (!this.running || !this.networkEnabled) { this.#deadChecks = 0; return; }
@@ -729,6 +753,46 @@ export class LiveFeedManager {
     if (this.#recoveryTimer !== null) return;
     this.#deadChecks = this.specs.size > 0 && this.feeds.size === 0 ? this.#deadChecks + 1 : 0;
     if (this.#deadChecks >= 2) { this.#deadChecks = 0; this.#armRecovery('no feed is open'); }
+    else if (this.#deadChecks === 0) this.#checkBooks();
+  }
+
+  /**
+   * The book watch. A depth feed can go on without a usable book while nothing fails: Coinbase's socket went silent in a network outage
+   * and its book stayed away 9.3 hours, until a restart (2026-10-20); Binance perpetual's stayed away 3 to 14 minutes several times, its
+   * socket deadline following Binance's own ping rule (13 minutes); and a session waiting for a snapshot that never comes, or a feed retired
+   * as idle, had nothing at all to bring it back. A book whose feed should be running and has handed on no usable book for `BOOK_WATCH_MS`
+   * is reconnected alone: a connected feed fails (which drops its book and schedules the reconnect), a missing one is scheduled to open.
+   * A feed already waiting for its reconnect, or being opened, is left to that. When a reconnect brings no book that lasts, the next one
+   * waits twice as long, up to `BOOK_WATCH_MAX_MS`, so a venue that answers with nothing is not hammered.
+   */
+  #checkBooks() {
+    const last = this.#lastStart;
+    if (!last?.ok) return;
+    const now = this.now(), started = last.at + last.ms;
+    for (const [id, spec] of this.specs) {
+      if (!holdsBook(spec)) continue;
+      const feed = this.feeds.get(id);
+      if (feed && (feed.retired || feed.retry !== null || !feed.socket)) continue;
+      const seen = this.#bookAt.get(id) ?? -Infinity;
+      let watch = this.#bookWatch.get(id);
+      // A book that came back and kept coming (updates for the whole threshold after the reconnect) starts the backoff over; a snapshot
+      // and then nothing, as a socket that goes quiet again gives, does not.
+      if (watch && seen - watch.at >= BOOK_WATCH_MS) { this.#bookWatch.delete(id); watch = undefined; }
+      const since = Math.max(seen, feed?.openedAt ?? -Infinity, started);
+      if (now - since < BOOK_WATCH_MS || (watch && now < watch.next)) continue;
+      const attempts = (watch?.attempts ?? 0) + 1;
+      this.#bookWatch.set(id, { attempts, at: now, next: now + Math.min(BOOK_WATCH_MAX_MS, BOOK_WATCH_MS * 2 ** attempts) });
+      const reason = `no usable book for ${Math.round((now - since) / 1000)} s`;
+      this.#bookReconnects += 1; this.#lastBookReconnect = { id, at: now, reason };
+      const note = this.#bookNotes.get(id);
+      if (!note || now - note.at >= BOOK_LOG_EVERY_MS) {
+        const more = note?.unlogged ? ` (reconnected ${note.unlogged} more time${note.unlogged === 1 ? '' : 's'} since the last note)` : '';
+        this.#log(`${id}: ${reason} while it should be running; reconnecting it${more}`);
+        this.#bookNotes.set(id, { at: now, unlogged: 0 });
+      } else note.unlogged += 1;
+      if (feed) this.#fail(id, new Error(`${reason}; reconnecting`), feed.socket);
+      else this.#scheduleReconnect(id);
+    }
   }
 
   #recoverNow(reason: string) {
@@ -759,6 +823,13 @@ export class LiveFeedManager {
       // Binance's open interest poll: its last outcome, whether the next one is set, and how long the one under way has run (a poll that
       // stops shows here; it froze once with nothing saying so, 2026-10-14).
       openInterest: { ...pickStatus(this.#statuses.get('binance-openInterest')), scheduled: this.oiTimer !== null, pollingForMs: this.#oiPollStarted === null ? null : this.now() - this.#oiPollStarted, failures: this.#oiFailures },
+      // The book watch (#checkBooks): how many depth feeds it has reconnected and the last one, those it is backing off on, and how long
+      // ago each depth feed last handed on a usable book (null: none since this configuration started).
+      books: {
+        reconnects: this.#bookReconnects, last: this.#lastBookReconnect,
+        backoff: Object.fromEntries([...this.#bookWatch].map(([id, watch]) => [id, { attempts: watch.attempts, nextAt: watch.next }])),
+        ageMs: Object.fromEntries([...this.specs].filter(([, spec]) => holdsBook(spec)).map(([id]) => { const at = this.#bookAt.get(id); return [id, at === undefined ? null : this.now() - at]; })),
+      },
     };
   }
 
@@ -893,7 +964,10 @@ export class LiveFeedManager {
     }
     if (coinbaseEnabled && coinbaseSymbol) {
       const request = buildCoinbaseSubscription('depth', { productId: coinbaseSymbol, channel: 'level2_batch' });
-      specs.push(['coinbase-depth', { venue: 'coinbase', channel: request.channel, symbol: request.productId, marketType: 'spot', topic: request.topic, instrumentId: `coinbase:${String(request.productId).toUpperCase()}`, request, decode: raw => this.#decodeCoinbaseDepth(raw, coinbaseSymbol), publicDepth: true }]);
+      // Coinbase has no heartbeat to send, so its liveness is what it sends: its heartbeat channel (subscribed with the book) gives a frame a
+      // second. Without `serverHeartbeat` the manager counted its own beat as a sign of life, and a socket that went silent in a network
+      // outage kept the book away 9.3 hours (2026-10-20).
+      specs.push(['coinbase-depth', { venue: 'coinbase', channel: request.channel, symbol: request.productId, marketType: 'spot', topic: request.topic, instrumentId: `coinbase:${String(request.productId).toUpperCase()}`, request, serverHeartbeat: true, decode: raw => this.#decodeCoinbaseDepth(raw, coinbaseSymbol), publicDepth: true }]);
     }
     if (krakenEnabled && krakenSymbol) {
       // Depth 1 000, Kraken's deepest (about 380 bp a side). It sends 100 to 250 book messages a second: the session changes only the levels
@@ -1165,11 +1239,7 @@ export class LiveFeedManager {
       feed.session = null;
       this.#setStatus(id, { state: 'stopped', active: false, nextRetryAt: null });
     }
-    this.bookSequences.clear();
-    this.depthBuffers.clear();
-    this.depthBridgePending.clear();
-    this.#clearResyncing();
-    this.#lastPrices.clear();
+    this.#clearRetiredState();
     this.heartbeatTimers.clear();
     this.feeds.clear();
     this.specs.clear();
@@ -2134,6 +2204,7 @@ export class LiveFeedManager {
       feed = { id, socket, spec, generation, configurationGeneration: spec.configurationGeneration, retry: null, retired: false, sessionToken, connectionAcquired, transportReleased: false, subscriptionKey: id, subscriptionAcked: spec.venue === 'binance', preAckFrames: spec.venue === 'bybit' ? [] : null, preAckBytes: 0, channelId: null, serverHeartbeat: spec.serverHeartbeat === true || spec.venue === 'binance' || spec.venue === 'bitfinex' || spec.venue === 'cryptocom' || spec.venue === 'bitstamp', heartbeat: new VenueHeartbeatDeadline({ venue: spec.venue, now: this.transportNow, policies: heartbeatPolicies }), heartbeatTimer: null, heartbeatStarted: false, session: spec.venue === 'bybit' && spec.channel === 'depth' ? createBybitDepthSession({ topic: spec.topic, instrumentId: spec.instrumentId, sessionToken }) : spec.venue === 'kraken' ? createKrakenDepthSession({ topic: spec.topic, instrumentId: spec.instrumentId, sessionToken, depth: spec.request.depth == null ? null : Number(spec.request.depth) }) : spec.venue === 'bitfinex' ? createBitfinexDepthSession({ topic: spec.topic, instrumentId: spec.instrumentId, sessionToken }) : spec.venue === 'bitmex' ? createBitmexDepthSession({ topic: spec.topic, instrumentId: spec.instrumentId, sessionToken, table: spec.request.table }) : spec.venue === 'cryptocom' ? createCryptocomDepthSession({ topic: spec.topic, instrumentId: spec.instrumentId, sessionToken, instrumentName: String(spec.request.instrumentName ?? spec.symbol ?? ''), depth: spec.request.depth == null ? null : Number(spec.request.depth) }) : spec.venue === 'phemex' ? createPhemexDepthSession({ topic: spec.topic, instrumentId: spec.instrumentId, sessionToken }) : spec.publicDepth ? createPublicDepthSession({ venue: spec.venue, topic: spec.topic, instrumentId: spec.instrumentId, sessionToken, depth: spec.venue === 'whitebit' ? (spec.request.depth == null ? null : Number(spec.request.depth)) : null, allowUnsequenced: spec.venue === 'kucoin' || spec.venue === 'bitstamp' }) : null };
       connectionAcquired = false;
       this.feeds.set(id, feed);
+      feed.openedAt = this.now();
       this.#bind(socket, id);
       if (socket.open) await operationScope.wait(socket.open());
       if (!this.running || this.feedGenerations.get(id) !== generation || feed.retired || this.feeds.get(id) !== feed || this.specs.get(id) !== spec) { feed.retired = true; this.#releaseTransport(feed); retireLiveFeedSocket(socket); return; }
@@ -2636,7 +2707,8 @@ export class LiveFeedManager {
         if (!matching) return;
         this.#markTransportAck(feed, 'subscription-response'); return;
       }
-      if (feed.spec.venue === 'coinbase' && feedRecord(envelope)?.type === 'heartbeat') { if (String(feedRecord(envelope).product_id ?? '').toUpperCase() === String(feed.spec.symbol ?? '').toUpperCase()) this.#markTransportAck(feed, 'heartbeat'); return; }
+      // A heartbeat says the socket is alive, not that the book's subscription was taken.
+      if (feed.spec.venue === 'coinbase' && feedRecord(envelope)?.type === 'heartbeat') { if (String(feedRecord(envelope).product_id ?? '').toUpperCase() === String(feed.spec.symbol ?? '').toUpperCase()) this.#markHeartbeatAck(feed, 'server-heartbeat'); return; }
       if (feed.spec.venue === 'coinbase') {
         if (String(feedRecord(envelope)?.product_id ?? '').toUpperCase() !== String(feed.spec.symbol ?? '').toUpperCase()) return;
         if (!['snapshot', 'l2update'].includes(String(feedRecord(envelope)?.type ?? '').toLowerCase())) return;
@@ -3038,6 +3110,8 @@ export class LiveFeedManager {
     }
     const result = this.onMessage({ id, venue, message, receivedAt: this.now(), ...(mutation ? { retainedMutation: mutation } : {}) });
     if (result === false) return false;
+    // What the book watch counts as a usable book: one taken whole and consistent (an invalidation or a gap is a book gone).
+    if ((message.kind === 'depthSnapshot' || message.kind === 'depthDelta') && message.invalidated !== true && message.gap !== true && message.resyncRequired !== true) this.#bookAt.set(id, this.now());
     // Production applyMessage commits this mutation inside retained admission.
     // Callbacks without that server reducer retain the historical accepted-event
     // behavior, while rejected server admissions leave the manager state alone.
@@ -3276,11 +3350,12 @@ export class LiveFeedManager {
   }
   #clearRetiredState() {
     this.bookSequences.clear(); this.depthBuffers.clear(); this.depthBridgePending.clear(); this.#clearResyncing(); this.#lastPrices.clear();
+    this.#bookAt.clear(); this.#bookWatch.clear();
   }
   #publishActiveBookSets() {
     const activeBookSets: Record<string, string[]> = {};
     for (const spec of this.specs.values()) {
-      if (!spec.instrumentId || (!spec.publicDepth && !['depth', 'l2Book', 'book'].includes(spec.channel))) continue;
+      if (!holdsBook(spec)) continue;
       const key = spec.bookKey ?? bookKey(spec.instrumentId, spec.resolutionKey ?? 'native');
       (activeBookSets[spec.instrumentId] ??= []).push(key);
     }

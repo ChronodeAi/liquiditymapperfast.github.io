@@ -87,7 +87,7 @@ test('Coinbase manager requires matching subscription acknowledgement, filters p
   await manager.start({ coinbaseEnabled: true, coinbaseSymbol: 'BTC-USD' });
   const socket = defined(fake.sockets.find(item => item.spec.id === 'coinbase-depth'));
   assert.equal(socket.spec.request.url, 'wss://ws-feed.exchange.coinbase.com');
-  assert.deepEqual(JSON.parse(defined(socket.sent.at(-1))), { type: 'subscribe', product_ids: ['BTC-USD'], channels: ['level2_batch'] });
+  assert.deepEqual(JSON.parse(defined(socket.sent.at(-1))), { type: 'subscribe', product_ids: ['BTC-USD'], channels: ['level2_batch', 'heartbeat'] });
   assert.equal(manager.status()['coinbase-metadata'].state, 'snapshot');
   assert.equal(defined(messages.find(item => item.id === 'coinbase-metadata')?.message.assets)[0].qtyStep, 0.00001);
 
@@ -132,5 +132,31 @@ test('Coinbase close/reconnect fences retired sockets and requires a fresh snaps
   second.emit(snapshot('98'));
   second.emit(update('4'));
   assert.equal(messages.filter(item => item.id === 'coinbase-depth' && item.message.kind === 'depthDelta').length, before + 1);
+  manager.stop();
+});
+
+test('a Coinbase socket that goes silent is dropped by its deadline, while its heartbeat channel keeps a quiet book connected', async () => {
+  // Coinbase has no heartbeat for us to send. The manager used to count its own beat as a sign of life, so a socket that went silent in a
+  // network outage stayed "connected" with no book for 9.3 hours (2026-10-20).
+  const fake = transport(); const beats:(()=>unknown)[] = []; let clock = 0;
+  const manager = new LiveFeedManager({
+    networkEnabled: true, transportFactory: fake.factory, oiPollMs: 0, transportIdleMs: 0, now: () => clock, transportNow: () => clock,
+    transportPolicies: { ...policies(), coinbase: { ...VENUE_TRANSPORT_POLICIES.coinbase, subscribeIntervalMs: 0 } },
+    schedule: () => null, cancel: () => {}, heartbeatSchedule: fn => { beats.push(fn); return null; }, heartbeatCancel: () => {},
+  });
+  const beat = async () => { for (const fn of beats.splice(0)) await fn(); };
+  await manager.start({ coinbaseEnabled: true, coinbaseSymbol: 'BTC-USD' });
+  const socket = defined(fake.sockets.find(item => item.spec.id === 'coinbase-depth'));
+  socket.emit(subscriptionsAck()); socket.emit(snapshot());
+  // Five minutes of a book that does not change: only the heartbeat channel speaks, once a second (here every five).
+  for (clock = 5_000; clock <= 300_000; clock += 5_000) { socket.emit({ type: 'heartbeat', product_id: 'BTC-USD', sequence: clock, last_trade_id: 1, time: '2026-10-26T00:00:00.000Z' }); await beat(); }
+  assert.equal(socket.closed, false);
+  assert.equal(manager.status()['coinbase-depth'].state, 'live');
+  // Then nothing at all, with the heartbeat round running as its timer would, for longer than the venue's interval and timeout.
+  const silence = VENUE_TRANSPORT_POLICIES.coinbase.heartbeatIntervalMs + VENUE_TRANSPORT_POLICIES.coinbase.heartbeatTimeoutMs;
+  for (const end = clock + silence; clock <= end; clock += 5_000) await beat();
+  assert.equal(socket.closed, true);
+  assert.equal(manager.status()['coinbase-depth'].state, 'backoff');
+  assert.match(textValue(manager.status()['coinbase-depth'].lastError), /heartbeat-timeout/);
   manager.stop();
 });

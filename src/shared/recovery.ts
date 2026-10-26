@@ -15,8 +15,11 @@
  * limits (`bucket`: OKX's swap and spot share one endpoint and one limit) paced well inside what it publishes. A gap the budget did not reach stays a gap, visibly.
  */
 import type { CoinVenue, Listing } from './coins.ts';
-import { complement, type CoverGap, type SeamTrade } from './coverage.ts';
-import { OrderBuilder, type MarketOrder } from './orders.ts';
+import { complement, firstEndingAfter, type CoverGap, type SeamTrade, type TradeCoverage } from './coverage.ts';
+import type { FlowRecorder } from './flow.ts';
+import type { FootprintRecorder } from './footprint.ts';
+import { OrderBuilder, orderRow, type MarketOrder } from './orders.ts';
+import type { PrintStream } from './prints.ts';
 
 const HOUR = 3_600_000, MINUTE = 60_000;
 
@@ -304,4 +307,54 @@ export function rebuildOrders(id: string, list: readonly HistoryTrade[]): Market
   const builder = new OrderBuilder(() => 0, Infinity);
   builder.add(list.map(r => ({ instrumentId: id, tradeId: r.tradeId, side: r.side, price: r.price, notionalUsd: r.notionalUsd, sourceTimestamp: r.t, ...(r.order ? { order: r.order } : {}) })));
   return builder.drain(true);
+}
+
+// ---- Into the recordings --------------------------------------------------------------------------------------------------------------
+
+/** What a recovery fills: the browser engine's recorders and the server's are the same ones. */
+export interface RecoveryRecordings {
+  footprints: Pick<FootprintRecorder, 'ingest' | 'countOrders' | 'holds'>;
+  flows: Pick<FlowRecorder, 'ingest'>;
+  prints: Pick<PrintStream, 'ingest'>;
+  coverage: TradeCoverage;
+}
+
+/**
+ * The gaps of `id` over [from, to) a recovery may fill: up to where its open stretch reaches (the moment since is the loop's beat, not a
+ * gap), and without the minutes the recorder holds from storage with no record of covering (`trimUnknown`; `loadedThrough`, the end of the
+ * newest minute it read from storage for `id`): an older build recorded them, and their trades would count twice.
+ */
+export function recoverableGaps(recordings: Pick<RecoveryRecordings, 'coverage' | 'footprints'>, id: string, from: number, to: number, loadedThrough: number): CoverGap[] {
+  const { coverage, footprints } = recordings, open = coverage.openTo(id), end = open !== null && open > from ? Math.min(to, open) : to;
+  // The stretches merged once (a server's week holds hundreds), reaching a minute past the window so its edge minutes are judged whole.
+  const merged = coverage.covered(id, from - MINUTE, end + MINUTE);
+  // Uncovered: the first merged stretch ending after the minute begins starts after it ends (found by halving: asked of every minute of a week).
+  const unknown = (t: number): boolean => {
+    if (!(t < loadedThrough && footprints.holds(id, t))) return false;
+    const at = firstEndingAfter(merged, t);
+    return at === merged.length || merged[at]![0] >= t + MINUTE;
+  };
+  return trimUnknown(coverage.gaps(id, from, end), unknown);
+}
+
+/**
+ * One gap's recovered trades into the recordings, in one step with the stretch they cover: the footprint takes those it does not hold
+ * already (by trade id: the seam's last guard), the flow the same ones, their market orders (rebuilt from them alone) go to the size
+ * statistics and the large orders without being handed on as new. Never the live trade path: not the price, the candle, the trade dust,
+ * the live order builder or absorption. Returns how many trades were taken.
+ */
+export function applyRecovered(recordings: RecoveryRecordings, result: RecoveryResult): number {
+  const id = result.job.id, taken: HistoryTrade[] = [], byId = new Map(result.rows.map(r => [r.tradeId, r]));
+  const rows = result.rows.map(r => ({ instrumentId: id, tradeId: r.tradeId, side: r.side, price: r.price, notionalUsd: r.notionalUsd, sourceTimestamp: r.t }));
+  const accepted: typeof rows = [];
+  recordings.footprints.ingest(rows, row => { const r = byId.get(String(row.tradeId)); if (r) { taken.push(r); accepted.push(row as (typeof rows)[number]); } }, { recovered: true });
+  recordings.flows.ingest(accepted, { recovered: true });
+  const orders = rebuildOrders(id, taken);
+  recordings.footprints.countOrders(orders);
+  recordings.prints.ingest(orders.map(orderRow), false);
+  if (result.covered) {
+    const first = result.rows[0], last = result.rows[result.rows.length - 1];
+    recordings.coverage.recovered(id, result.covered[0], result.covered[1], first ? { id: first.tradeId, t: first.t } : undefined, last ? { id: last.tradeId, t: last.t } : undefined);
+  }
+  return taken.length;
 }

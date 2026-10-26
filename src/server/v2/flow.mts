@@ -15,9 +15,16 @@ export const toRow = (row: { inst: string; t: number; data: Uint8Array }): FlowM
 
 class SqliteFlowStore implements FlowStore {
   readonly #db: DatabaseSync;
+  readonly #minute;
   constructor(dbPath: string) {
     this.#db = new DatabaseSync(dbPath);
     this.#db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS flow_minutes (inst TEXT NOT NULL, t INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (inst, t));');
+    this.#minute = this.#db.prepare('SELECT inst, t, data FROM flow_minutes WHERE inst = ? AND t = ?');
+  }
+  /** One minute read back, for a recovery that reaches past what memory holds. */
+  minute(inst: string, t: number): FlowMinuteRow | null {
+    const row = this.#minute.get(inst, t) as { inst: string; t: number; data: Uint8Array } | undefined;
+    return row ? toRow(row) : null;
   }
   *load(since: number): Iterable<FlowMinuteRow> {
     for (const row of this.#db.prepare('SELECT inst, t, data FROM flow_minutes WHERE t >= ?').all(since) as { inst: string; t: number; data: Uint8Array }[]) {
