@@ -4,7 +4,7 @@ import { helpButton } from '../help.ts';
 import { clock, clockSeconds, price as fmtPrice, startOfDay } from '../format.ts';
 import { paintInfoBox, type InfoLine } from '../infobox.ts';
 import { emptyScopeMessage, kindOf, type Kind } from '../scope.ts';
-import { isPhone, layoutMode } from '../device.ts';
+import { isPhone, layoutMode, onLayoutMode } from '../device.ts';
 import { GestureRecognizer, axisPinchScale, bindTouch, type GestureHandlers, type Pt } from '../touch.ts';
 import { timeAxis } from '../time-axis.ts';
 import { setHtml } from './lower-panes.ts';
@@ -139,6 +139,8 @@ export class CvdPane {
   /** Bursts the alert engine has seen, drawn as markers on their rows (set from outside; newest last). */
   events: readonly BurstEvent[] = [];
   #timer = 0;
+  /** What the pane listens to besides its own elements: let go of at `dispose`. */
+  #off: (() => unknown)[] = [];
   /** The rows of dots above the exchanges, and the settings panel while it is open (so the controls that depend on each other can be redrawn). */
   #strip: CvdStrip; #panel: Panel | null = null;
   /** What the ranking was last made from: a change to the strip's own settings leaves the rows where they are. */
@@ -155,7 +157,9 @@ export class CvdPane {
     this.#bindInput();
     // The price's marks are kept while the column is out of sight too (a phone shows it only on its own tab): minutes spent on another tab
     // would otherwise be a straight line between two candle closes when the price comes to be drawn.
-    this.store.subscribe((state, changed) => { if (changed.has('mark') && state.mark.price > 0 && !replaying()) this.#price.add(Date.now(), state.mark.price); });
+    this.#off.push(this.store.subscribe((state, changed) => { if (changed.has('mark') && state.mark.price > 0 && !replaying()) this.#price.add(Date.now(), state.mark.price); }));
+    // A tablet turned over changes arrangement, and the span the chips mark with it (a phone's map span reads as an hour).
+    this.#off.push(onLayoutMode(() => { this.#syncControls(); this.invalidate(); }));
     // The window moves on by itself (and a venue can go quiet without sending anything), so the column redraws once a second while it is on screen.
     this.#timer = window.setInterval(() => { if (!this.root.hidden && !document.hidden) { this.invalidate(); this.#strip.refresh(); } }, 1000);
   }
@@ -214,7 +218,7 @@ export class CvdPane {
   }
   /** Trades that printed just now, for the blink of the dot rows. */
   flash(prints: readonly Print[]): void { this.#strip.flash(prints); }
-  dispose(): void { window.clearInterval(this.#timer); window.clearTimeout(this.#flashTimer); this.#strip.dispose(); }
+  dispose(): void { window.clearInterval(this.#timer); window.clearTimeout(this.#flashTimer); this.#stopFling(); for (const off of this.#off) off(); this.#off = []; this.#strip.dispose(); }
 
   /** What the last frame drew. */
   get snapshot(): CvdSnapshot {

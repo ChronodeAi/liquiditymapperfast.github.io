@@ -301,6 +301,8 @@ async function main(): Promise<void> {
   await hub.start();
   await hub.loadSeries(true);
   heat.fit(); lower();
+  // A tab saved from the last visit is already showing: what it covers draws nothing from the start, not from the first tap (the dock only tells of a change).
+  candle.setShown(candleShown()); coverPanes();
   window.setInterval(() => { void hub.loadSeries(true); }, 60_000);
   // Each new open-interest reading is pushed as it lands (Hub.#oiPush); this load is the reconciliation: history, the markets added
   // together, a reading a push missed.

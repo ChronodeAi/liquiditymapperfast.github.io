@@ -105,6 +105,9 @@ test('a fixed aggregate row takes its height and the venue rows share the rest, 
   // A chart taller than the pane leaves nothing for rows to share, and the rows keep their minimum and scroll.
   const tall = rowHeights('golden', 150, [0.5, 0.5], { minRow: 56, price: 0, agg: 224 });
   assert.deepEqual(tall.rows, [56, 56]);
+  // Rows that share the room evenly are whole pixels that add up to it: eight of 67.5 px were 68 each, and the column scrolled for four pixels.
+  const even = rowHeights('equal', 800, Array(8).fill(0.125), { minRow: 56, price: 0, agg: 260 });
+  assert.equal(even.content, 800); assert.ok(even.rows.every(r => r === 67 || r === 68));
   // Without `agg` the layout is as it was.
   const was = rowHeights('golden', 600, shares, { minRow: 54, minAgg: 84, price: 44 });
   assert.equal(was.content, 600); assert.ok(was.agg >= Math.max(...was.rows) * 1.2 - 1);
@@ -117,6 +120,9 @@ test('a line ends where its newest column is, and made that over the window when
   assert.equal(laneNet(line(NaN, 2, 5, 9), true), 9, 'from zero at the left edge, the end is the net');
   assert.equal(laneNet(line(NaN, 100, 105, 90), false), -10, 'a running total since the history began: less where the window began');
   assert.equal(laneNet(line(NaN), false), null);
+  // With the total before the window known, a burst in the first column is not lost: one column holding all the buying, and nothing after it.
+  assert.equal(laneNet({ last: Float64Array.from([150, 150, 150]), before: 100 }, false), 50);
+  assert.equal(laneNet({ last: Float64Array.from([NaN, 40, 40]), before: 0 }, false), 40, 'a line that began inside the window made all of it');
 });
 
 test('the legend of the chart names the window, gives each kind its net and the price its line, and says what the filter leaves out', () => {

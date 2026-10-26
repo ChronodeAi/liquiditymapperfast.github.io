@@ -29,7 +29,7 @@ export function rowHeights(mode: HeightMode, total: number, shares: readonly num
   const aggWeight = mode === 'volume' ? top * 1.35 : top * PHI;
   // A fixed aggregate leaves the rest to the venue rows alone: they are weighed and raised to their minimum as before, and the aggregate is not.
   if (fixedAgg !== undefined) {
-    const height = Math.max(0, Math.round(fixedAgg)), rows = fitRows(weights, Math.max(0, total - price - height), weights.map(() => minRow)).map(Math.round);
+    const height = Math.max(0, Math.round(fixedAgg)), rows = wholePixels(fitRows(weights, Math.max(0, total - price - height), weights.map(() => minRow)));
     return { agg: height, price, rows, content: price + height + rows.reduce((a, b) => a + b, 0) };
   }
   const room = Math.max(0, total - price);
@@ -62,6 +62,12 @@ function fitRows(weights: readonly number[], room: number, mins: readonly number
     if (!changed) break;
   }
   return h;
+}
+
+/** Whole pixels that keep the total (to a pixel): eight rows of 67.5 px rounded one by one are 68 each, four more than the room. */
+function wholePixels(heights: readonly number[]): number[] {
+  let sum = 0, done = 0;
+  return heights.map(h => { sum += h; const px = Math.round(sum) - done; done += px; return px; });
 }
 
 export type RowHit = { kind: 'agg' } | { kind: 'price' } | { kind: 'row'; index: number };

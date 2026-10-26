@@ -654,6 +654,8 @@ export class LtPane extends TimePane {
         if (last >= 0 && s.times[last]! + step >= v.t0 && s.times[last]! <= v.t1 + step) tags.push({ y: y(s.ask[last]!), text: usd(s.ask[last]!), color: p.ask }, { y: y(s.bid[last]!), text: usd(s.bid[last]!), color: p.bid });
         tags.sort((a, b) => a.y - b.y);
         for (let k = 1; k < tags.length; k++) if (tags[k]!.y - tags[k - 1]!.y < 15) tags[k]!.y = tags[k - 1]!.y + 15;
+        // Two lines near zero push the lower tag below the plot: the pair is lifted back up from the floor.
+        for (let k = tags.length - 1, floor = ph - 8; k >= 0; k--, floor = tags[k + 1]!.y - 15) if (tags[k]!.y > floor) tags[k]!.y = floor;
         ctx.textAlign = 'left';
         for (const value of [0, ...ticks]) { const gy = y(value); if (!tags.some(tag => Math.abs(tag.y - gy) < 9)) ctx.fillText(value === 0 ? '0' : usd(value), this.w - AXIS_W + 6, value === 0 ? ph - 8 : gy); }
         for (const tag of tags) {

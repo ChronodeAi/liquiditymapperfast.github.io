@@ -65,13 +65,15 @@ export function laneEnd(lane: Pick<LaneLine, 'last'> | null): number | null {
 }
 
 /**
- * What a line made over the whole window: where it ends, less where it began when it did not start from zero (`rebase` off, the running
- * total since the history began). The chart's legend and the readout say this, so they agree with the line they sit beside.
+ * What a line made over the whole window: where it ends, less where the window began when it did not start from zero (`rebase` off, the
+ * running total since the history began: `before`, so the trades of the first column count; a line without it is taken from its first
+ * column). The chart's legend and the readout say this, so they agree with the line they sit beside.
  */
-export function laneNet(lane: Pick<LaneLine, 'last'> | null, rebase: boolean): number | null {
+export function laneNet(lane: Pick<LaneLine, 'last' | 'before'> | null, rebase: boolean): number | null {
   const end = laneEnd(lane);
   if (end === null || !lane) return null;
   if (rebase) return end;
+  if (lane.before !== undefined) return end - lane.before;
   for (const v of lane.last) if (v === v) return end - v;
   return end;
 }

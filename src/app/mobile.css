@@ -424,7 +424,8 @@ html[data-layout^="phone"] .pane.lt .lt-halves .seg button.on { background: var(
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sheet, .sheet-scrim, .dock-ink.slide, .dock-tab svg { transition: none; }
+  .sheet, .sheet-scrim, .dock-tab svg { transition: none; }
+  .dock-ink.slide { transition: none !important; }
   html[data-layout^="phone"] main .pane { animation: none !important; }
   html[data-bar="compact"] .panel, html[data-bar="compact"] .menu { animation: none; }
 }
