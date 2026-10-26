@@ -28,6 +28,8 @@ export interface LtParams {
   average: boolean;
 }
 export const LT_DEFAULTS: LtParams = { halfLifeBp: 10, minUsd: 0, maxUsd: 0, average: false };
+/** The half-life a phone starts with (Karl, 2026-10-26: "the best setting"): a book's weight reaches far enough to read on a small screen without the touch dominating it. A desktop keeps `LT_DEFAULTS`. */
+export const LT_PHONE_HALF_LIFE_BP = 100;
 
 /** Sparse columns of one instrument on its own grid: entry e of column c covers price bin `bins[e]` of width `step`. */
 export interface LtStore {

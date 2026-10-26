@@ -62,7 +62,24 @@ test('revision 3: a save of revision 2 carries its measure strip into the profil
   // off" rule does not switch off what the strip carried in.
   saved({ defaultsRev: 2, show: { ...DEFAULT_SHOW, traded: false }, measureStrip: { on: true, kind: 'oi' } }, () => { const s = initialState(); assert.deepEqual([topOf(s.traded), s.show.traded], [{ on: true, metric: 'oi' }, true]); });
   saved({ defaultsRev: 2, show: { ...DEFAULT_SHOW, traded: true }, measureStrip: { on: false, kind: 'oi' } }, () => assert.equal(initialState().show.traded, false, 'with the strip off, the old rule stands'));
-  assert.equal(DEFAULTS_REV, 3);
+  assert.equal(DEFAULTS_REV, 4);
+});
+
+test('revision 4: a touch screen has the Flow and LT panes on once, and the Liquidity Tracker at 100 bp unless another half-life was chosen', () => {
+  // Karl, 2026-10-26: the phone's Flow and LT are tabs of the bar, and 100 bp is "the best setting". A save of revision 3 holds the desktop's 10 bp, written down by every save.
+  const rev3 = { defaultsRev: 3, show: { ...DEFAULT_SHOW, cvd: false, lt: false }, lt: { halfLifeBp: 10, minUsd: 0, maxUsd: 0, average: false, view: 'lines' } };
+  saved(rev3, () => {
+    const s = initialState(true, true);
+    assert.deepEqual([s.show.cvd, s.show.lt, s.lt.halfLifeBp, s.defaultsRev], [true, true, 100, DEFAULTS_REV]);
+  });
+  // A first visit on a phone: the same.
+  saved(null, () => { const s = initialState(true, true); assert.deepEqual([s.show.cvd, s.show.lt, s.lt.halfLifeBp], [true, true, 100]); });
+  // Another half-life was a choice, and anything saved under the new revision is read as it is.
+  saved({ ...rev3, lt: { ...rev3.lt, halfLifeBp: 25 } }, () => assert.equal(initialState(true, true).lt.halfLifeBp, 25));
+  saved({ ...rev3, defaultsRev: DEFAULTS_REV, lt: { ...rev3.lt, halfLifeBp: 10 } }, () => { const s = initialState(true, true); assert.deepEqual([s.show.cvd, s.show.lt, s.lt.halfLifeBp], [false, false, 10]); });
+  // A desktop is left alone, and so is a desktop window that is only narrow (a phone's layout without a finger).
+  saved(rev3, () => { for (const s of [initialState(false, false), initialState(true, false), initialState(false, true)]) assert.deepEqual([s.show.cvd, s.show.lt, s.lt.halfLifeBp], [false, false, 10]); });
+  saved(null, () => assert.equal(initialState(false, false).lt.halfLifeBp, 10));
 });
 
 test('the columns begin at the golden section of the window, as wide as before from 1,600 px up, and narrower in proportion under it, to a floor', () => {

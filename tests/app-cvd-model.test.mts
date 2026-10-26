@@ -164,7 +164,8 @@ test('settings read from storage field by field and never come out invalid', () 
   assert.deepEqual(readCvd(undefined), CVD_DEFAULTS); assert.deepEqual(readCvd('nonsense'), CVD_DEFAULTS);
   const s = readCvd({ span: '4h', rank: '24h', top: 2, heights: 'equal', auto: false, refreshMin: 500, pinned: ['kraken', 'kraken', 7, '', 'okx'], quietFlag: 'yes', rebase: false, extra: 1 });
   assert.deepEqual(s, { span: '4h', rank: '24h', top: 3, v: 2, heights: 'equal', auto: false, refreshMin: 60, pinned: ['kraken', 'okx'], quietFlag: true, rebase: false, bursts: false,
-    strip: CVD_DEFAULTS.strip, stripRetailUsd: CVD_DEFAULTS.stripRetailUsd, stripWhaleUsd: CVD_DEFAULTS.stripWhaleUsd, stripSmall: CVD_DEFAULTS.stripSmall, stripBlink: CVD_DEFAULTS.stripBlink });
+    strip: CVD_DEFAULTS.strip, stripRetailUsd: CVD_DEFAULTS.stripRetailUsd, stripWhaleUsd: CVD_DEFAULTS.stripWhaleUsd, stripSmall: CVD_DEFAULTS.stripSmall, stripBlink: CVD_DEFAULTS.stripBlink, scale: 'shared' });
+  assert.equal(readCvd({ scale: 'own' }).scale, 'own'); assert.equal(readCvd({ scale: 'wide' }).scale, 'shared', 'an unknown scale is the default');
   assert.equal(readCvd({ bursts: true }).bursts, true); assert.equal(readCvd({ bursts: 1 }).bursts, false, 'the burst marks are off unless switched on');
   assert.deepEqual(readCvd({ pinHyperliquid: true }).pinned, ['hyperliquid'], 'a save from before the list kept Hyperliquid pinned');
   assert.deepEqual(readCvd({ pinHyperliquid: true, pinned: ['okx'] }).pinned, ['okx'], 'the list wins over the old switch');
