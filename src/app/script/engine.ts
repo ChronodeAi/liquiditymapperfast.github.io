@@ -69,11 +69,30 @@ export function exchangeOf(name: string): { venue: string; kind?: 'spot' | 'perp
 /** A literal value of a call's named argument read without running the script (a number, a text, a plain word, true/false, `rgb(...)`), or undefined. */
 function literal(e: Expr): OptionValue | undefined {
   if (e.k === 'num' || e.k === 'str') return e.v;
-  if (e.k === 'id') return e.name === 'true' ? true : e.name === 'false' ? false : e.name === 'null' ? null : COLOR_NAMES[e.name.toLowerCase()] ?? e.name;
+  if (e.k === 'id') return e.name === 'true' ? true : e.name === 'false' ? false : e.name === 'null' ? null : e.name;
   if (e.k === 'un' && e.op === '-' && e.arg.k === 'num') return -e.arg.v;
   if (e.k === 'call' && e.callee.k === 'id' && (e.callee.name === 'rgb' || e.callee.name === 'rgba') && e.args.every(a => a.k === 'num' || (a.k === 'un' && a.arg.k === 'num'))) return rgb(e.args.map(a => Number(literal(a))));
   if (e.k === 'arr') { const items = e.items.map(literal); return items.every(x => x !== undefined) ? items as OptionValue[] : undefined; }
   return undefined;
+}
+
+/**
+ * A plot's named argument as it can be read before the script runs: a literal, an option (`options.up`, or a declared option's name), an object
+ * of those (`scaleMargins={top: 0.1}`), or a plain word that names nothing in the script (`title=PERP`). Undefined for anything the script
+ * works out (it is read when the plot first runs).
+ */
+function staticValue(e: Expr, opt: Readonly<Record<string, Value>>, scriptNames: ReadonlySet<string>): OptionValue | undefined {
+  if (e.k === 'member' && e.obj.k === 'id' && e.obj.name === 'options') return toData(opt[e.name]);
+  if (e.k === 'id') {
+    if (Object.prototype.hasOwnProperty.call(opt, e.name)) return toData(opt[e.name]);
+    if (scriptNames.has(e.name) || scriptNames.has(e.name.toLowerCase())) return undefined;
+  }
+  if (e.k === 'obj') {
+    const o: Record<string, OptionValue> = {};
+    for (const p of e.props) { const v = staticValue(p.value, opt, scriptNames); if (v === undefined) return undefined; o[p.key] = v; }
+    return o;
+  }
+  return literal(e);
 }
 
 /** A `source(...)` call's filter from its named arguments (`type`, `exchange`, `quote`; more than one exchange as `exchange=A+B` or repeated calls). */
@@ -119,6 +138,15 @@ export function analyze(text: string): Analysis {
     for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v, false);
   };
   visit(program, true);
+  // What only a full browser engine has (the chart library's series objects, the raw function library): refused with where it is used.
+  const refuse = (node: unknown): void => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(refuse); return; }
+    const x = node as Expr;
+    if ('k' in x && x.k === 'id' && (x.name === 'series' || x.name === 'utils' || x.name === 'vars') && !declared.has(x.name) && !persistent.has(x.name)) throw new ScriptSyntaxError({ code: 'unsupported', line: x.p.line, col: x.p.col, detail: x.name });
+    for (const v of Object.values(x)) if (v && typeof v === 'object') refuse(v);
+  };
+  refuse(program);
   return { program, persistent, sources, declared: options, read: [...read].filter(n => !optionNames.has(n)), warnings: dedupe(warnings) };
 }
 
@@ -129,7 +157,9 @@ function optionDecl(name: string, call: Extract<Expr, { k: 'call' }>): OptionDec
   const def = arg('default') ?? (call.args[0] ? literal(call.args[0]) : undefined);
   const t = String(arg('type') ?? '').toLowerCase();
   const type: OptionDecl['type'] = t === 'color' ? 'color' : t === 'checkbox' || t === 'boolean' || t === 'bool' || typeof def === 'boolean' ? 'boolean' : t === 'list' ? 'list' : t === 'range' ? 'range' : t === 'text' || t === 'string' || (typeof def === 'string' && !/^(#|rgb|hsl)/i.test(def)) ? 'text' : typeof def === 'string' ? 'color' : 'number';
-  const decl: OptionDecl = { name, type, value: def ?? (type === 'boolean' ? false : type === 'number' || type === 'range' ? 0 : '') };
+  // A default that is missing or false-like (0, false, '') is '' for a text, false for a switch, and the minimum (never under 0) for a number.
+  const min = arg('min');
+  const decl: OptionDecl = { name, type, value: def || (type === 'boolean' ? false : type === 'text' || type === 'color' || type === 'list' ? '' : Math.max(typeof min === 'number' ? min : 0, 0)) };
   const label = arg('label'); if (typeof label === 'string') decl.label = label;
   for (const k of ['min', 'max', 'step'] as const) { const v = arg(k); if (typeof v === 'number') decl[k] = v; }
   const choices = arg('options'); if (Array.isArray(choices)) decl.choices = choices;
@@ -157,11 +187,12 @@ export function runScript(id: string, source: string, optionValues: Record<strin
   for (const [k, v] of Object.entries(optionValues)) opt[k] = fromData(v);
   const optionsObject = new HostObject('options', k => opt[k], (k, v) => { opt[k] = v; return true; }, () => Object.keys(opt));
 
-  // What persists: one value per name, and its value at the end of each candle (for `name[n]`).
+  // What persists: one value per name (any case: `Total` and `total` are one), starting at 0, and its value at the end of each candle (`name[n]`).
   const kept = new Map<string, { v: Value; past: Value[] }>();
-  for (const name of a.persistent) kept.set(name, { v: undefined, past: [] });
+  for (const name of a.persistent) kept.set(name.toLowerCase(), { v: 0, past: [] });
   const bindings = new Map<string, { get(): Value; set(v: Value): void }>();
   for (const [name, k] of kept) bindings.set(name, { get: () => k.v, set: v => { k.v = v; } });
+  const byName = new Map<string, { get(): Value; set(v: Value): void } | null>();
 
   let i = 0;
   const sourceStack: string[] = [''];
@@ -188,7 +219,16 @@ export function runScript(id: string, source: string, optionValues: Record<strin
       default: return undefined;
     }
   });
-  const rendererObject = new HostObject('renderer', k => k === 'length' ? i + 1 : k === 'timestamp' ? inputs.time[i]! / 1000 : undefined);
+  const rendererObject = new HostObject('renderer', k => {
+    switch (k) {
+      case 'length': return i + 1;
+      case 'timestamp': case 'localTimestamp': return inputs.time[i]! / 1000;
+      case 'timeframe': return inputs.tf / 1000;
+      case 'type': return 'time';
+      case 'lastTradeTimestamp': return i === n - 1 && inputs.forming ? now() / 1000 : (inputs.time[i]! + inputs.tf) / 1000;
+      default: return undefined;
+    }
+  });
 
   // The language's state per place in the text: functions (`sma` at line 3 is not `sma` at line 5), plots, and the order `fns[k]` counts them in.
   const instances = new Map<number, Instance>();
@@ -241,14 +281,15 @@ export function runScript(id: string, source: string, optionValues: Record<strin
       if (color !== undefined) return { known: true, value: color };
       return { known: false, value: undefined };
     },
-    persistent: name => bindings.get(name) ?? null,
+    persistent: name => { let b = byName.get(name); if (b === undefined) { b = bindings.get(name.toLowerCase()) ?? null; byName.set(name, b); } return b; },
     history(name, back) {
-      const k = kept.get(name);
+      const k = kept.get(name.toLowerCase());
       // A kept array or object is indexed as one (`levels[0]`); only a kept number or text has a history.
       if (!k || Array.isArray(k.v) || isPlain(k.v)) return null;
       if (!Number.isInteger(back) || back < 0) return { value: undefined };
       if (back === 0) return { value: k.v };
-      return { value: k.past[k.past.length - back] };
+      // Further back than has been kept reads the oldest there is (on the first candle `x[1]` is `x` itself).
+      return { value: k.past.length ? k.past[Math.max(0, k.past.length - back)] : k.v };
     },
     callNative(fn, args, named, site, node) {
       const name = fn.name;
@@ -286,17 +327,34 @@ export function runScript(id: string, source: string, optionValues: Record<strin
   noteTargets(a.program);
   const optionTarget = (node: Expr): string | null => optionTargets.get(node) ?? null;
 
+  // Every plot call in the text is one plot, in the order written, whether or not it ever runs (one inside an `if` that is never true stays
+  // empty). Its style starts from the named arguments that can be read without running the script (literals, options), and the first call
+  // that runs adds what it gives.
+  const styled = new Set<number>();
+  const scriptNames = new Set([...declaredNames(a.program), ...a.persistent]);
+  for (const [node, site] of sites) {
+    if (node.k !== 'call' || node.callee.k !== 'id') continue;
+    const kind = PLOTS[node.callee.name];
+    if (!kind) continue;
+    if (plots.size >= MAX_PLOTS) return { id, ok: false, error: { code: 'too-many-plots', line: node.p.line, col: node.p.col } };
+    const fields: Record<string, Float64Array> = {};
+    for (const f of PLOT_FIELDS[kind]) fields[f] = new Float64Array(n).fill(NaN);
+    const style: Record<string, OptionValue> = {};
+    for (const nm of node.named) { const v = staticValue(nm.value, opt, scriptNames); if (v !== undefined) style[nm.name] = v; }
+    plots.set(site, { kind, title: typeof style.title === 'string' ? style.title : typeof style.title === 'number' ? String(style.title) : '', style, fields, colors: null });
+    plotOrder.push(site);
+  }
+
   function plot(site: number, kind: PlotKind, args: Value[], named: Record<string, Value> | null): void {
-    let p = plots.get(site);
-    if (!p) {
-      if (plots.size >= MAX_PLOTS) throw new ScriptRuntimeError('too-many-plots');
-      const fields: Record<string, Float64Array> = {};
-      for (const f of PLOT_FIELDS[kind]) fields[f] = new Float64Array(n).fill(NaN);
-      const style: Record<string, OptionValue> = {};
-      if (named) for (const [k, v] of Object.entries(named)) { const d = toData(v); if (d !== undefined) style[k] = d; }
-      p = { kind, title: typeof named?.title === 'string' ? named.title : '', style, fields, colors: null };
-      plots.set(site, p); plotOrder.push(site);
+    const p = plots.get(site);
+    if (!p || p.kind !== kind) return;
+    if (named && !styled.has(site)) {
+      styled.add(site);
+      for (const [k, v] of Object.entries(named)) { const d = toData(v); if (d !== undefined && !(k in p.style)) p.style[k] = d; }
+      if (!p.title && typeof named.title === 'string') p.title = named.title;
     }
+    // A call with no value (only named arguments) makes its plot and draws nothing.
+    if (!args.length) return;
     const point = args[0];
     const setColor = (c: Value): void => { if (typeof c === 'string' && c) { if (!p!.colors) p!.colors = new Array<string>(n).fill(''); p!.colors[i] = c; } };
     if (isPlain(point)) {
@@ -309,6 +367,8 @@ export function runScript(id: string, source: string, optionValues: Record<strin
     for (let f = 0; f < fields.length; f++) { const v = args[f]; p.fields[fields[f]!]![i] = typeof v === 'number' ? v : v === undefined || v === null ? NaN : num(v); }
     if (named && typeof named.color === 'string' && kind === 'histogram') setColor(named.color);
   }
+  /** A histogram bar of 0 is not drawn (an empty candle leaves no stub). */
+  const dropZeros = (): void => { for (const p of plots.values()) if (p.kind === 'histogram') { const v = p.fields.value!; for (let k = 0; k < n; k++) if (v[k] === 0) v[k] = NaN; } };
 
   // The interpreter evaluates a call's arguments before the host sees the call: `source` puts its set in place before its arguments are read.
   host.aroundCall = (node, run) => {
@@ -317,6 +377,8 @@ export function runScript(id: string, source: string, optionValues: Record<strin
     sourceStack.push(key);
     try { return run(); } finally { sourceStack.pop(); }
   };
+  // A plot's named arguments are its style, read on its first call; `source`, `option` and the stateful functions take theirs from the text.
+  host.wantsNamed = (fn, site) => PLOTS[fn.name] !== undefined ? !styled.has(site) : !(fn.name === 'source' || fn.name === 'option' || BUILTINS[fn.name]);
   host.construct = (name, args) => {
     if (name === 'Date') return new DateValue(args.length ? (args[0] instanceof DateValue ? args[0].ms : num(args[0])) : now());
     const len = num(args[0]);
@@ -338,6 +400,7 @@ export function runScript(id: string, source: string, optionValues: Record<strin
     if (e instanceof RangeError) return { id, ok: false, error: { code: 'too-deep', line: 0, col: 0 } };
     throw e;
   }
+  dropZeros();
   const out: PlotOut[] = plotOrder.map(site => { const p = plots.get(site)!; return { kind: p.kind, title: p.title, style: p.style, fields: p.fields, colors: p.colors }; });
   if (!out.length && !colored) warnings.push({ code: 'no-plots' });
   return { id, ok: true, plots: out, warnings, steps: budget.steps, ms: now() - started, ...(colored ? { candleColors: Array.from({ length: n }, (_, k) => candleColors[k] ?? '') } : {}) };

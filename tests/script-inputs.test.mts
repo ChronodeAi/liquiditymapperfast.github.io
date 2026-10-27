@@ -59,7 +59,8 @@ test('one set of markets\' inputs: flows by candle, liquidations where answered,
   assert.deepEqual([...s.lsell].map(v => Number.isNaN(v) ? 'na' : v), [0, 'na', 'na']);
   assert.equal(s.markets, 2);
   const none = sourceInputs(time, [], { flows: () => assert.fail('no markets, nothing read'), liquidations: () => undefined });
-  assert.ok([...none.vbuy].every(Number.isNaN));
+  assert.ok([...none.vbuy, ...none.lsell].every(v => v === 0), 'a set with no market on the page reads 0, as scripts for it expect');
+  assert.equal(none.markets, 0);
   const inputs: BarInputs = { tf: 60_000, time, open: time, high: time, low: time, close: time, volume: time, sources: { '': s }, forming: false };
   assert.equal(transferables(inputs).length, 5, 'the candles share one buffer here; each buffer is named once');
 });

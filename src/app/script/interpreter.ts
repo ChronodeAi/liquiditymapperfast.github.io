@@ -21,6 +21,8 @@ export interface Host {
   aroundCall?(node: Extract<Expr, { k: 'call' }>, run: () => Value): Value;
   /** `new Date(...)`, `new Array(n)`. */
   construct?(name: string, args: Value[]): Value;
+  /** Whether a call to the language's function `fn` at `site` needs its named arguments read (a plot reads them once, `source` never). */
+  wantsNamed?(fn: NativeFunction, site: number): boolean;
 }
 
 class Scope {
@@ -351,23 +353,38 @@ export class Interpreter {
     throw new ScriptRuntimeError('not-callable', p.line, p.col);
   }
 
+  /** The language's function a call names, per call: looked up once, since nothing the script does changes what such a name is. */
+  readonly #natives = new Map<Expr, NativeFunction>();
+
   #call(e: Extract<Expr, { k: 'call' }>, scope: Scope): Value {
     let fn: Value;
     if (e.callee.k === 'member') {
       const obj = this.eval(e.callee.obj, scope);
       if (e.callee.optional && (obj === null || obj === undefined)) return undefined;
       fn = this.#member(obj, e.callee.name, e.p);
-    } else if (e.callee.k === 'index') fn = this.eval(e.callee, scope);
-    else fn = this.eval(e.callee, scope);
+    } else if (e.callee.k === 'id') {
+      const name = e.callee.name, cached = this.#natives.get(e);
+      if (cached && !scope.find(name)) fn = cached;
+      else {
+        fn = this.eval(e.callee, scope);
+        if (fn instanceof NativeFunction && !scope.find(name) && !this.host.persistent?.(name)) this.#natives.set(e, fn);
+      }
+    } else fn = this.eval(e.callee, scope);
     if (!isCallable(fn)) throw new ScriptRuntimeError('not-callable', e.p.line, e.p.col, e.callee.k === 'id' ? e.callee.name : e.callee.k === 'member' ? e.callee.name : undefined);
     const args = e.args.map(a => this.eval(a, scope));
+    const site = this.sites.get(e) ?? -1;
     let named: Record<string, Value> | null = null;
-    if (e.named.length) {
+    if (e.named.length && (!(fn instanceof NativeFunction) || !this.host.wantsNamed || this.host.wantsNamed(fn, site))) {
       named = Object.create(null) as Record<string, Value>;
-      // A plain word as a named value (`title=PERP`, `type=spot`) is that word, unless the script or the language gives the word a value.
-      for (const n of e.named) named[n.name] = n.value.k === 'id' && !this.#knows(n.value.name, scope) ? n.value.name : this.eval(n.value, scope);
+      // A named value is read as a value; a plain word (`title=PERP`, `type=spot`) or a text the script cannot read as one (`id=nr1-all`)
+      // is that text itself.
+      for (const n of e.named) {
+        if (n.value.k === 'id' && !this.#knows(n.value.name, scope)) { named[n.name] = n.value.name; continue; }
+        try { named[n.name] = this.eval(n.value, scope); }
+        catch (err) { if (err instanceof ScriptRuntimeError && err.code === 'unknown-name' && n.raw) named[n.name] = n.raw; else throw err; }
+      }
     }
-    return this.invoke(fn, args, named, e.p, this.sites.get(e) ?? -1, e);
+    return this.invoke(fn, args, named, e.p, site, e);
   }
 
   #knows(name: string, scope: Scope): boolean {

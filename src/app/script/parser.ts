@@ -21,7 +21,7 @@ export type Expr =
   | { k: 'assign'; op: string; target: Expr; value: Expr; p: Pos }
   | { k: 'member'; obj: Expr; name: string; optional: boolean; p: Pos }
   | { k: 'index'; obj: Expr; index: Expr; optional: boolean; p: Pos }
-  | { k: 'call'; callee: Expr; args: Expr[]; named: { name: string; value: Expr; p: Pos }[]; p: Pos }
+  | { k: 'call'; callee: Expr; args: Expr[]; named: { name: string; value: Expr; p: Pos; /** Its text as written, for a value that is read as text (`id=nr1-all`). */ raw: string }[]; p: Pos }
   | { k: 'fn'; params: string[]; body: Stmt[]; p: Pos }
   | { k: 'new'; name: string; args: Expr[]; p: Pos }
   | { k: 'seq'; items: Expr[]; p: Pos };
@@ -239,9 +239,13 @@ export function parse(text: string): Stmt[] {
   /** A call's arguments: values in order, and `name = value` pairs (a word then a single `=`) taken by name. */
   function call(callee: Expr): Expr {
     const p = pos(); eat('(');
-    const args: Expr[] = [], named: { name: string; value: Expr; p: Pos }[] = [];
+    const args: Expr[] = [], named: { name: string; value: Expr; p: Pos; raw: string }[] = [];
     while (!isOp(')')) {
-      if (peek().kind === 'id' && isOp('=', peek(1))) { const at = pos(); const n = peek().text; i += 2; named.push({ name: n, value: assignment(), p: at }); }
+      if (peek().kind === 'id' && isOp('=', peek(1))) {
+        const at = pos(); const n = peek().text; i += 2;
+        const from = peek().at, value = assignment(), to = toks[i - 1]!;
+        named.push({ name: n, value, p: at, raw: text.slice(from, to.at + to.text.length).trim() });
+      }
       else if (isOp('...')) fail('unsupported', peek(), '...');
       else args.push(assignment());
       if (!isOp(')')) eat(',');

@@ -100,12 +100,11 @@ export const BUILTINS: Readonly<Record<string, Builtin>> = {
     const slope = (m * sxy - sx * sy) / (m * sxx - sx * sx), icept = (sy - slope * sx) / m;
     return icept + slope * (m - 1);
   },
-  /** The value `back` candles ago (1 by default): the instance remembers what it was given. */
+  /** The oldest of the last `length` values: the value `length - 1` candles ago once there are that many (`last(x, 2)` is the candle before), this one before. */
   last(inst, [x, n]) {
     const v = num(x), k = len(n, 1);
-    const w = windowOf(inst);
-    const out = w.length >= k ? w[w.length - k]! : NaN;
-    pushWindow(inst, v, k + 1);
+    const w = windowOf(inst), out = w.length ? w[0]! : v;
+    pushWindow(inst, v, k);
     return out;
   },
   /** The stochastic: where the close stands between the lowest low and the highest high of the last `length` candles, 0 to 100. */
@@ -117,7 +116,7 @@ export const BUILTINS: Readonly<Record<string, Builtin>> = {
     for (const y of hs) if (y > hh) hh = y;
     for (const y of ls) if (y < ll) ll = y;
     inst.pending = () => { hs.push(h); ls.push(l); if (hs.length > k - 1) { hs.splice(0, hs.length - (k - 1)); ls.splice(0, ls.length - (k - 1)); } };
-    return hh === ll ? 50 : 100 * (c - ll) / (hh - ll);
+    return 100 * (c - ll) / (hh - ll || 1);
   },
   /** A swing high: the value `right` candles ago when it is the highest of the `left` before it and the `right` after it, else NaN. */
   pivot_high(inst, [x, left, right]) { return pivot(inst, num(x), len(left, 2), len(right, 2), (a, b) => a > b); },

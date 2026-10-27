@@ -30,11 +30,14 @@ test('a cumulative delta, as the shortest script writes it', () => {
   assert.deepEqual(values(run('line(cum(vbuy - vsell))')), [5, 15, 30, 50, 75, 105]);
 });
 
-test('a name assigned without var keeps its value from candle to candle, and name[1] is its value one candle back', () => {
-  const r = run('total = (total || 0) + 1\nprev = total[1]\nline(total)\nhistogram(prev)');
+test('a name assigned without var starts at 0, keeps its value from candle to candle, and name[1] is its value one candle back', () => {
+  const r = run('total = total + 1\nprev = total[1]\nline(total)\nhistogram(prev)');
   assert.deepEqual(values(r, 0), [1, 2, 3, 4, 5, 6]);
-  assert.deepEqual(values(r, 1).map(v => Number.isNaN(v) ? 'na' : v), ['na', 1, 2, 3, 4, 5]);
+  assert.deepEqual(values(r, 1), [1, 1, 2, 3, 4, 5], 'on the first candle there is nothing older: x[1] is x');
   assert.deepEqual(values(run('var x = 0\nx = x + 1\nline(x)')), [1, 1, 1, 1, 1, 1], 'a var starts again each candle');
+  assert.deepEqual(values(run('Total = total + 2\nline(TOTAL)')), [2, 4, 6, 8, 10, 12], 'one name whatever its case');
+  const cvd = run('delta = vbuy - vsell\ncvd = (renderer.length > 1 ? (cvd[1] || 0) : 0) + delta\nline(cvd)');
+  assert.deepEqual(values(cvd), [5, 15, 30, 50, 75, 105]);
 });
 
 test('an on-balance volume over the chart\'s candles', () => {
@@ -97,7 +100,28 @@ test('if blocks, plots inside them, Math and Number, and resetting a function\'s
   const r = run(src, { show: true });
   assert.deepEqual(values(r, 0), [50, 50, 50, 60, 75, 90]);
   assert.deepEqual(values(r, 1), [1, 2, 3, 1, 2, 3], 'the cum starts again after the candle that reset it');
-  assert.equal(ok(run(src, { show: false })).plots.length, 1);
+  const off = ok(run(src, { show: false }));
+  assert.equal(off.plots.length, 2, 'every plot in the text is a plot, in its order, run or not');
+  assert.ok([...off.plots[0]!.fields.value!].every(Number.isNaN));
+});
+
+test('plots keep the order they are written in, their style is read before the script runs, and a histogram bar of 0 is not drawn', () => {
+  const r = ok(run('up = option(type=color, default=red)\nif (time > 120) line(1, title=late)\nhistogram(vbuy > 30 ? 0 : 1, color=up, priceScaleId=flow, scaleMargins={top: 0.1, bottom: 0})\nplothistogram(priceScaleId="rows")'));
+  assert.deepEqual(r.plots.map(p => `${p.kind}:${p.title}`), ['line:late', 'histogram:', 'histogram:']);
+  assert.deepEqual(r.plots[1]!.style, { color: 'red', priceScaleId: 'flow', scaleMargins: { top: 0.1, bottom: 0 } });
+  assert.deepEqual(values({ ...r }, 1).map(v => Number.isNaN(v) ? 'na' : v), [1, 1, 1, 'na', 'na', 'na']);
+  assert.ok([...r.plots[2]!.fields.value!].every(Number.isNaN), 'a plot called with no value draws nothing');
+});
+
+test('the functions of the language answer as the dialect does', () => {
+  const seq = (src: string): number[] => values(runScript('t', src, {}, inputs(8)));
+  // `$price.close` is 100..107 here; the window functions over 1..8 are those over the closes less 99.
+  assert.deepEqual(seq('line(sma($price.close - 99, 3))'), [1, 1.5, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(seq('line(sum($price.close - 99, 3))'), [1, 3, 6, 9, 12, 15, 18, 21]);
+  assert.deepEqual(seq('line(ema($price.close - 99, 3))'), [1, 1.5, 2.25, 3.125, 4.0625, 5.03125, 6.015625, 7.007813]);
+  assert.deepEqual(seq('line(rma($price.close - 99, 3))'), [1, 1.333333, 1.888889, 2.592593, 3.395062, 4.263374, 5.175583, 6.117055]);
+  assert.deepEqual(seq('line(last($price.close - 99, 3))'), [1, 1, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(seq('var v = $price.close - 99\nline(stoch(v, v + 1, v - 1, 3))'), [50, 66.666667, 75, 75, 75, 75, 75, 75]);
 });
 
 test('$price.color colours the chart\'s candles, and the plots are optional then', () => {

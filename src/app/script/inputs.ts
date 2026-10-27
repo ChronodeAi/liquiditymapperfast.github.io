@@ -89,10 +89,15 @@ export interface SourceReader {
   liquidations(ids: readonly string[]): { buy: ReadonlyMap<number, number>; sell: ReadonlyMap<number, number> } | undefined;
 }
 
-/** One set of markets' inputs over `time`. */
+/**
+ * One set of markets' inputs over `time`. A set no market on the page belongs to (an exchange the page does not read) is 0 throughout, as the
+ * scripts written for it expect: a sum over many exchanges must not turn unknown because one of them is missing.
+ */
 export function sourceInputs(time: Float64Array, ids: readonly string[], read: SourceReader): SourceInputs {
-  const n = time.length, vbuy = new Float64Array(n).fill(NaN), vsell = new Float64Array(n).fill(NaN), lbuy = new Float64Array(n).fill(NaN), lsell = new Float64Array(n).fill(NaN);
-  if (ids.length) {
+  const n = time.length;
+  if (!ids.length) return { vbuy: new Float64Array(n), vsell: new Float64Array(n), lbuy: new Float64Array(n), lsell: new Float64Array(n), markets: 0 };
+  const vbuy = new Float64Array(n).fill(NaN), vsell = new Float64Array(n).fill(NaN), lbuy = new Float64Array(n).fill(NaN), lsell = new Float64Array(n).fill(NaN);
+  {
     const flows = read.flows(ids);
     for (let i = 0; i < n; i++) { const [b, s] = buysAndSells(flows[i] ?? null); vbuy[i] = b; vsell[i] = s; }
     const liq = read.liquidations(ids);
