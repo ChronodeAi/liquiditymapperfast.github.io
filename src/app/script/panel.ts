@@ -6,6 +6,7 @@ import type { ScriptError } from './lang/lexer.ts';
 import type { ScriptResult, Warning } from './protocol.ts';
 import { MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, SCRIPT_API, cleanName, exportFile, importText, inferredOption, mergeScripts, newId, type OptionValue, type ScriptRecord } from './records.ts';
 import { errorText, warningText } from './messages.ts';
+import { VWAP_SOURCE } from './starter.ts';
 
 /** What the panel needs of the pane that runs the scripts. */
 export interface ScriptsHost {
@@ -32,7 +33,7 @@ function examples(): { name: string; source: string; place?: ScriptRecord['place
     { name: t('Delta histogram'), source: '// Each candle\'s delta, in the buy colour where buyers led and the sell colour where sellers did.\nup = option(type=color, default=rgb(38,166,154), label=Buys)\ndown = option(type=color, default=rgb(239,83,80), label=Sells)\nvar delta = vbuy - vsell\nhistogram({ time: time, value: delta, color: delta > 0 ? up : down }, title=Delta)\n' },
     { name: t('Liquidations'), source: '// Shorts liquidated (forced buys) up, longs liquidated (forced sells) down, in dollars.\nshorts = option(type=color, default=rgb(38,166,154), label=Shorts)\nlongs = option(type=color, default=rgb(239,83,80), label=Longs)\nhistogram({ time: time, value: lbuy, color: shorts }, title="Shorts liquidated")\nhistogram({ time: time, value: -lsell, color: longs }, title="Longs liquidated")\n' },
     { name: t('Buy share'), source: '// The share of the volume bought at market over the last candles, in percent.\nlength = option(default=20, min=1, label=Candles)\nline(100 * sum(vbuy, length) / sum(vbuy + vsell, length), title="Buy share %")\nline(50, color=rgba(128,128,128,0.6), title=Even)\n' },
-    { name: t('VWAP with bands'), source: '// The volume-weighted average price from the first candle, with bands one and two deviations wide.\nvar typical = ($price.high + $price.low + $price.close) / 3\nvar volume = vbuy + vsell\nvar vwap = cum(typical * volume) / cum(volume)\nvar spread = Math.sqrt(Math.max(0, cum(volume * typical * typical) / cum(volume) - vwap * vwap))\ncloudarea(vwap - 2 * spread, vwap + 2 * spread)\nline(vwap, title=VWAP)\n', place: 'map' },
+    { name: t('VWAP with bands'), source: VWAP_SOURCE, place: 'map' },
   ];
 }
 

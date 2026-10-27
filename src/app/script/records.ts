@@ -196,10 +196,16 @@ export function inferredOption(name: string): OptionValue | null {
   return null;
 }
 
-/** The scripts kept in this browser (none when storage is not there or holds something else). */
-export function loadScripts(storage?: Pick<Storage, 'getItem'> | null): ScriptRecord[] {
+/**
+ * The scripts kept in this browser. A browser that has never kept any (a first visit, or storage the page cannot reach) gets `starter()`, the
+ * scripts a page starts with; one that kept an empty list keeps it, and one that holds something unreadable gets none.
+ */
+export function loadScripts(storage?: Pick<Storage, 'getItem'> | null, starter: () => ScriptRecord[] = () => []): ScriptRecord[] {
+  let raw: string | null = null;
   // Reaching the browser's storage can itself throw (a page whose storage is blocked): inside the guard.
-  try { const s = storage === undefined ? globalThis.localStorage : storage; const raw = s?.getItem(SCRIPTS_KEY); return raw ? readScripts(JSON.parse(raw)) : []; } catch { return []; }
+  try { const s = storage === undefined ? globalThis.localStorage : storage; raw = s?.getItem(SCRIPTS_KEY) ?? null; } catch { raw = null; }
+  if (raw === null) return starter();
+  try { return readScripts(JSON.parse(raw)); } catch { return []; }
 }
 /** Keep the scripts in this browser; false when storage refused. */
 export function storeScripts(list: readonly ScriptRecord[], storage?: Pick<Storage, 'setItem'> | null): boolean {
