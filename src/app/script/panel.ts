@@ -197,7 +197,9 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
     // Options it reads without declaring that nothing set yet get a value guessed from their names.
     const options = { ...draft.options };
     for (const o of optionRows(a, options)) if (!(o.name in options) && o.value !== '') options[o.name] = o.value;
-    const record: ScriptRecord = { id: existing?.id ?? newId(n), name: n, source: text.replace(/\r\n?/g, '\n'), options, on: existing?.on ?? true, api: existing?.api ?? SCRIPT_API, height: existing?.height ?? ROW_DEFAULT, place: draft.place };
+    // What the script is now (it may have been switched off from its row or the map's legend while its editor was open), not when it opened.
+    const now = existing ? host.records.find(r => r.id === existing.id) ?? existing : null;
+    const record: ScriptRecord = { id: now?.id ?? newId(n), name: n, source: text.replace(/\r\n?/g, '\n'), options, on: now?.on ?? true, api: now?.api ?? SCRIPT_API, height: now?.height ?? ROW_DEFAULT, place: draft.place };
     const list = existing ? host.records.map(r => r.id === existing.id ? record : r) : [...host.records, record];
     if (!existing && host.records.length >= MAX_SCRIPTS) { say(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS }), true); return; }
     ui.editing = record.id; ui.draft = { name: record.name, source: record.source, options: { ...record.options }, place: record.place };

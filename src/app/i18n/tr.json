@@ -1786,5 +1786,9 @@
  "+{n} more plots": {
   "one": "+{n} çizim daha",
   "other": "+{n} çizim daha"
+ },
+ "+{n} more scripts": {
+  "one": "+{n} betik daha",
+  "other": "+{n} betik daha"
  }
 }

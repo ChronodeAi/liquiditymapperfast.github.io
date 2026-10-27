@@ -11,7 +11,7 @@ import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { togglePanel, type Panel } from '../ui.ts';
 import { TimePane, setText } from './lower-panes.ts';
-import { leftGutter } from './heat-pane.ts';
+import { leftGutter, type ScriptLegendLine } from './heat-pane.ts';
 import { el } from '../dom.ts';
 import { ScriptHost, type WorkerLike } from '../script/host.ts';
 import { ScriptData } from '../script/data.ts';
@@ -46,6 +46,19 @@ function shownCount(time: Float64Array, tf: number): number {
   let lo = 0, hi = time.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (time[m]! + tf <= now) lo = m + 1; else hi = m; }
   return lo;
+}
+
+/**
+ * The candle a pointer at `at` reads, of the first `shown` of an answer's candles: the one it is over, or right of the newest shown (or over
+ * the price axis) the newest, as the built-in panes' popups do (`readAt`): landing on the last candle is a hunt. Never past what may be shown
+ * (a replay's moment); a time in a gap between candles reads nothing (-1).
+ */
+function indexAt(time: Float64Array, tf: number, at: number, shown: number): number {
+  let lo = 0, hi = time.length - 1, i = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (time[m]! <= at) { i = m; lo = m + 1; } else hi = m - 1; }
+  const newest = shown - 1;
+  if (i > newest) i = newest;
+  return i < 0 || (i < newest && at >= time[i]! + tf) ? -1 : i;
 }
 
 /** How many of a script's plots its popup lists (the others are counted). */
@@ -134,15 +147,71 @@ export class ScriptPane extends TimePane {
     const key = `${dx},${dy}|${places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}`).join('|')}`;
     if (key === this.#rowToolsKey) return;
     this.#rowToolsKey = key;
-    this.#rowTools.replaceChildren(...places.map(place => {
-      const open = el('button', { type: 'button', class: 'script-row-open', ariaLabel: t('Open this script to change it'), tip: t('Open this script to change it') });
-      open.onclick = () => this.openScript(place.id, open);
-      const off = el('button', { type: 'button', class: 'script-row-off', textContent: '×', ariaLabel: t('Switch this script off (it stays in Scripts…)'), tip: t('Switch this script off (it stays in Scripts…)') });
-      off.onclick = () => this.switchOff(place.id);
-      const box = el('span', { class: 'script-row-tool' }, open, off);
+    this.#syncTools(this.#rowTools, this.#rowButtons, places, dx, dy);
+  }
+  #rowButtons = new Map<string, HTMLElement>();
+
+  /** The buttons of the map legend's script lines, a layer the page puts over the map (`places` in the map pane's own pixels). */
+  readonly legendTools = el('div', { class: 'script-row-tools script-legend-tools' });
+  #legendToolsKey = '';
+  placeLegendTools(places: readonly { id: string; x: number; y: number }[]): void {
+    const key = places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}`).join('|');
+    if (key === this.#legendToolsKey) return;
+    this.#legendToolsKey = key;
+    this.#syncTools(this.legendTools, this.#legendButtons, places, 0, 0);
+  }
+  #legendButtons = new Map<string, HTMLElement>();
+
+  /**
+   * Each script's two buttons, open and switch off, at its place (offset by `dx`, `dy`) in `layer`: a script's buttons are made once and moved
+   * after, so a panel opened from one keeps its anchor and a focused one keeps the focus; a script no longer listed loses its buttons.
+   */
+  #syncTools(layer: HTMLElement, made: Map<string, HTMLElement>, places: readonly { id: string; x: number; y: number }[], dx: number, dy: number): void {
+    const wanted = new Set(places.map(p => p.id));
+    for (const [id, box] of made) if (!wanted.has(id)) { box.remove(); made.delete(id); }
+    for (const place of places) {
+      let box = made.get(place.id);
+      if (!box) {
+        const open = el('button', { type: 'button', class: 'script-row-open', ariaLabel: t('Open this script to change it'), tip: t('Open this script to change it') });
+        open.onclick = () => this.openScript(place.id, open);
+        const off = el('button', { type: 'button', class: 'script-row-off', textContent: '×', ariaLabel: t('Switch this script off (it stays in Scripts…)'), tip: t('Switch this script off (it stays in Scripts…)') });
+        off.onclick = () => this.switchOff(place.id);
+        box = el('span', { class: 'script-row-tool' }, open, off);
+        made.set(place.id, box); layer.append(box);
+      }
       box.style.left = `${Math.round(dx + place.x)}px`; box.style.top = `${Math.round(dy + place.y)}px`;
-      return box;
-    }));
+    }
+  }
+
+  /**
+   * The map legend's lines for the scripts drawn on the map: each one's name, the colour of its first plot, and its values at the candle
+   * starting at `at` (null, or right of the newest: the newest shown), or what it is doing (running..., its error).
+   */
+  mapLegend(at: number | null): ScriptLegendLine[] {
+    const state = this.store.state, out: ScriptLegendLine[] = [];
+    if (!state.show.script) return out;
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    for (const r of this.#records) {
+      if (!r.on || r.place !== 'map') continue;
+      const kept = this.#held.get(r.id), held = kept && this.#fresh(kept) ? kept : undefined;
+      if (!held) { out.push({ id: r.id, name: r.name, color: '', text: t('running…'), tone: 'muted' }); continue; }
+      if (!held.result.ok) { out.push({ id: r.id, name: r.name, color: '', text: errorText(held.result.error), tone: 'error' }); continue; }
+      const res = held.result, time = held.time, shown = shownCount(time, tf);
+      const i = at === null ? shown - 1 : indexAt(time, tf, at, shown);
+      const band = (plot: PlotOut): boolean => (plot.kind === 'brokenarea' || plot.kind === 'cloudarea') && plot.colors !== null;
+      // Lines first (they are what a legend reads), then the other plots; bands coloured point by point only when there is nothing else.
+      const finiteAt = (plot: PlotOut): boolean => i >= 0 && PLOT_FIELDS[plot.kind].some(f => Number.isFinite(plot.fields[f]![i]!));
+      const plots = res.plots.filter(plot => plot.style.visible !== false).sort((a, b) => Number(b.kind === 'line') - Number(a.kind === 'line')), valued = plots.filter(plot => !band(plot) && finiteAt(plot));
+      const texts: string[] = [];
+      if (i >= 0) for (const plot of valued.length ? valued : plots) {
+        const fmt = scaleIdOf(plot, r.options) === 'right' ? (v: number) => fmtPrice(v) : shortNumber;
+        const values = PLOT_FIELDS[plot.kind].map(f => plot.fields[f]![i]!).filter(Number.isFinite);
+        if (values.length) texts.push(values.map(fmt).join(' – '));
+      }
+      const first = plots[0], color = first && typeof first.style.color === 'string' ? safeColor(first.style.color, '') : '';
+      out.push({ id: r.id, name: r.name, color, text: texts.slice(0, 3).join(' · ') + (texts.length > 3 ? ' …' : ''), tone: 'text' });
+    }
+    return out;
   }
 
   /** Called when `hasRows` changed: the page lays its panes out again. */
@@ -461,19 +530,15 @@ export class ScriptPane extends TimePane {
 
   /** The popup lines of one script at the candle under the pointer: (the candle's time, first,) its name, then each plot's value there. */
   #cardLines(out: InfoLine[], r: ScriptRecord, res: Extract<ScriptResult, { ok: true }>, time: Float64Array, tf: number, at: number, shown: number, withTime = true, onMap = false): void {
-    let lo = 0, hi = time.length - 1, i = -1;
-    while (lo <= hi) { const m = (lo + hi) >> 1; if (time[m]! <= at) { i = m; lo = m + 1; } else hi = m - 1; }
-    // Right of the newest candle shown (or over the price axis) the popup keeps its values, as the built-in panes' do (`readAt`): landing
-    // on the last candle is a hunt. Never past what may be shown (a replay's moment); a time in a gap between candles reads nothing.
-    const newest = shown - 1;
-    if (i > newest) i = newest;
-    if (i < 0 || (i < newest && at >= time[i]! + tf)) return;
+    const i = indexAt(time, tf, at, shown);
+    if (i < 0) return;
     if (withTime && !out.length) out.push({ text: clock(time[i]!, true), bold: true });
     out.push({ text: r.name, bold: true, rule: true });
     // A band coloured point by point (a heat map's row) is read by its colour: its bounds say nothing, so it is left out beside plots that
     // carry values. At most a few plots are listed; the others are counted.
     const band = (plot: PlotOut): boolean => (plot.kind === 'brokenarea' || plot.kind === 'cloudarea') && plot.colors !== null;
-    const valued = res.plots.some(plot => plot.style.visible !== false && !band(plot));
+    // A plot carries values only where it has one here: a line an option left unrun does not hide the bands.
+    const valued = res.plots.some(plot => plot.style.visible !== false && !band(plot) && PLOT_FIELDS[plot.kind].some(f => Number.isFinite(plot.fields[f]![i]!)));
     let listed = 0, more = 0;
     res.plots.forEach((plot, j) => {
       if (plot.style.visible === false || (valued && band(plot))) return;

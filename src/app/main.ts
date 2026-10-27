@@ -110,6 +110,8 @@ async function main(): Promise<void> {
   // The scripts placed on the map draw over it, and a script's candle colours (`$price.color`) colour its candles.
   heat.scriptLayer = (ctx, pw, ph) => script.paintOnMap(ctx, pw, ph); heat.candleColor = t => script.candleColorAt(t); script.onMapChanged = () => heat.invalidate();
   heat.scriptHover = t => script.mapHoverLines(t);
+  // The map's legend lists the scripts drawn on it, each with its buttons (open, switch off) in a layer over the map.
+  heat.scriptLegend = t => script.mapLegend(t); heat.onScriptLegend = places => script.placeLegendTools(places); heat.root.append(script.legendTools);
   // The Scripts lamp and key in the top bar: the key opens the panel (from the pane's own button too), the lamp says what the scripts do.
   toolbar.onOpenScripts = anchor => script.openPanel(anchor); script.onStatus = (note, name) => toolbar.setScriptsStatus(note, name);
   /** Whether the Scripts pane has rows to show: Scripts is on and a script that is on draws in a row (one on the map needs no pane). */

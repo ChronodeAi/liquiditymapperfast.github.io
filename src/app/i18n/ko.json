@@ -1722,5 +1722,6 @@
  "Stochastic heat map": "스토캐스틱 히트맵",
  "Buyer and seller VWAPs": "매수자·매도자 VWAP",
  "Volume anomalies": "거래량 이상치",
- "+{n} more plots": "플롯 {n}개 더"
+ "+{n} more plots": "플롯 {n}개 더",
+ "+{n} more scripts": "스크립트 {n}개 더"
 }

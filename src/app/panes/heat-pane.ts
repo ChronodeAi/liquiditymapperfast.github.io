@@ -170,6 +170,11 @@ const TIME_H = 22;
 
 /** A plot narrower than this (a phone, a split screen) gets the compact legend, whole-dollar prices and a shorter history note. */
 const NARROW_PLOT = 420;
+/** The legend's script lines: how many at most (the others are counted), and the room at a line's right for its two buttons (px). */
+const SCRIPT_LINES = 6, SCRIPT_TOOLS_W = 40;
+
+/** A line of the map's legend for a script drawn on the map (given by the Scripts pane): its name, colour, and values or state. */
+export interface ScriptLegendLine { id: string; name: string; color: string; text: string; tone: 'text' | 'muted' | 'error' }
 /** A map pane narrower than this gets the narrow price axis and profile column. */
 const COMPACT_PANE = 520;
 
@@ -223,6 +228,10 @@ export class HeatPane {
   scriptLayer: ((ctx: CanvasRenderingContext2D, pw: number, ph: number) => void) | null = null;
   /** The popup lines of the person's scripts drawn on the map, at the candle starting at `t` (set by the Scripts pane). */
   scriptHover: (t: number) => InfoLine[] = () => [];
+  /** The legend's lines for the scripts drawn on the map, at the candle starting at `t` (null: the newest) (set by the Scripts pane). */
+  scriptLegend: (t: number | null) => ScriptLegendLine[] = () => [];
+  /** Where each script line's buttons go, in this pane's own pixels, once the legend is drawn (the Scripts pane places them). */
+  onScriptLegend: (places: readonly { id: string; x: number; y: number }[]) => void = () => {};
   #glCanvas = document.createElement('canvas');
   #ctx: CanvasRenderingContext2D;
   /** The pane's whole width; the plot and everything right of it start after the columns left of the map (`#left`). */
@@ -925,9 +934,17 @@ export class HeatPane {
     detail = fitText(wide, detail, room);
     const extra = [phone && borrowed ? borrowed.replace(/^\s*·\s*/, '') : '', this.#overviewLegend(state)].filter(Boolean).join('  ·  ');
     const note = fitText(wide, extra, room), noteW = note ? wide(note) : 0, detailW = detail ? wide(detail) : 0;
+    // The scripts drawn on the map, a line each under the candle's: a swatch of its colour, its name and its values at this candle (or what
+    // it is doing), and room at the right for its two buttons. At most a few, the others counted; on a phone the names alone.
+    const scripts = this.scriptLegend(hovered ? hovered[0] : null), listed = scripts.slice(0, SCRIPT_LINES), unlisted = scripts.length - listed.length;
+    const scriptTexts = listed.map(s => fitText(wide, phone || !s.text ? s.name : `${s.name}   ${s.text}`, room - SCRIPT_TOOLS_W - 16));
+    const moreScripts = unlisted > 0 ? tn(unlisted, '+{n} more script', '+{n} more scripts') : '';
+    const scriptsW = Math.max(0, ...scriptTexts.map(text => wide(text) + 16 + (phone ? 58 : SCRIPT_TOOLS_W)), moreScripts ? wide(moreScripts) : 0);
+    // A line is as tall as its buttons: on a phone they are a finger's size.
+    const textH = (detail ? 36 : 22) + (note ? 14 : 0), scriptRows = listed.length + (moreScripts ? 1 : 0), lineH = phone ? 24 : 16;
     ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
     const shownTitle = fitText(wide, phone ? `${name}  ${state.timeframe}` : title, room - tailW), titleW = wide(shownTitle);
-    const plateW = Math.max(titleW + tailW, detailW, noteW) + 14, plateH = (detail ? 36 : 22) + (note ? 14 : 0);
+    const plateW = Math.max(titleW + tailW, detailW, noteW, scriptsW) + 14, plateH = textH + (scriptRows ? scriptRows * lineH + 2 : 0);
     this.#legendBox = { right: 6 + plateW, bottom: 6 + plateH };
     ctx.globalAlpha = 0.82; ctx.fillStyle = p.panel; ctx.beginPath(); ctx.roundRect(6, 6, plateW, plateH, Math.min(6, this.#radius * 2)); ctx.fill(); ctx.globalAlpha = 1;
     ctx.textAlign = 'left'; ctx.fillStyle = p.text; ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
@@ -936,6 +953,19 @@ export class HeatPane {
     if (tail) { ctx.fillStyle = p.muted; ctx.fillText(tail, 12 + titleW + 10, 16); }
     if (detail) { ctx.fillStyle = up ? p.candleUp : p.candleDown; ctx.fillText(detail, 12, 32); }
     if (note) { ctx.fillStyle = p.muted; ctx.fillText(note, 12, 46); }
+    const places: { id: string; x: number; y: number }[] = [];
+    let y = 6 + textH + lineH / 2;
+    listed.forEach((s, k) => {
+      ctx.fillStyle = s.color || p.vwap; ctx.fillRect(12, y - 4, 8, 8);
+      ctx.fillStyle = s.tone === 'error' ? p.ask : s.tone === 'muted' ? p.muted : p.text;
+      ctx.fillText(scriptTexts[k]!, 24, y);
+      places.push({ id: s.id, x: 6 + plateW - (phone ? 58 : SCRIPT_TOOLS_W) - 2, y: y - (phone ? 11 : 8) });
+      y += lineH;
+    });
+    if (moreScripts) { ctx.fillStyle = p.muted; ctx.fillText(moreScripts, 12, y); }
+    // The buttons are page elements over this canvas, placed in the pane's own pixels (the plot starts after the columns left of it).
+    const canvas = ctx.canvas as HTMLCanvasElement;
+    this.onScriptLegend(places.map(q => ({ id: q.id, x: canvas.offsetLeft + this.#left + q.x, y: canvas.offsetTop + q.y })));
   }
 
   /** Plan only when the data or a whole minute of the view changes; pointer redraws never scan coverage or start a read. */

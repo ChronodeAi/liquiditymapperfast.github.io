@@ -1786,5 +1786,9 @@
  "+{n} more plots": {
   "one": "+{n} weiterer Plot",
   "other": "+{n} weitere Plots"
+ },
+ "+{n} more scripts": {
+  "one": "+{n} weiteres Skript",
+  "other": "+{n} weitere Skripte"
  }
 }

@@ -1808,5 +1808,10 @@
   "one": "+{n} autre tracé",
   "other": "+{n} autres tracés",
   "many": "+{n} autres tracés"
+ },
+ "+{n} more scripts": {
+  "one": "+{n} autre script",
+  "other": "+{n} autres scripts",
+  "many": "+{n} autres scripts"
  }
 }

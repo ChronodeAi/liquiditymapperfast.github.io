@@ -1808,5 +1808,10 @@
   "one": "+{n} traçado a mais",
   "other": "+{n} traçados a mais",
   "many": "+{n} traçados a mais"
+ },
+ "+{n} more scripts": {
+  "one": "+{n} script a mais",
+  "other": "+{n} scripts a mais",
+  "many": "+{n} scripts a mais"
  }
 }

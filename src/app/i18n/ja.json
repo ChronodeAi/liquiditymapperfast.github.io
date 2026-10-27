@@ -1722,5 +1722,6 @@
  "Stochastic heat map": "ストキャスティクス・ヒートマップ",
  "Buyer and seller VWAPs": "買い手と売り手の VWAP",
  "Volume anomalies": "出来高の異常",
- "+{n} more plots": "ほかにプロット {n} 個"
+ "+{n} more plots": "ほかにプロット {n} 個",
+ "+{n} more scripts": "ほかにスクリプト {n} 個"
 }
