@@ -82,13 +82,13 @@ Every kind also takes title, priceScaleId, scaleMargins, visible; the style keys
 
 | Kind | Calls | Fields of a point | Style it reads | What it draws |
 |---|---|---|---|---|
-| line | `plotline(...)`, `line(...)` | value | color, lineColor, lineWidth, lineStyle | A line through one value a candle. |
-| area | `plotarea(...)`, `area(...)` | value | color, lineColor, lineWidth, lineStyle, topColor, bottomColor | A line with the area under it filled. |
+| line | `plotline(...)`, `line(...)` | value | color (or lineColor), lineWidth, lineStyle | A line through one value a candle. |
+| area | `plotarea(...)`, `area(...)` | value | color (or lineColor), lineWidth, lineStyle, topColor, bottomColor | A line with the area under it filled. |
 | histogram | `plothistogram(...)`, `histogram(...)` | value | color, base | A bar a candle, from base (default 0) to the value. |
-| baseline | `plotbaseline(...)`, `baseline(...)` | value | baseValue, topLineColor, bottomLineColor, topFillColor1, bottomFillColor1, lineWidth, lineStyle | A line coloured above and below baseValue, with the areas filled. |
+| baseline | `plotbaseline(...)`, `baseline(...)` | value | baseValue (or base), topLineColor, bottomLineColor, topFillColor1, bottomFillColor1, lineWidth, lineStyle | A line coloured above and below baseValue, with the areas filled. |
 | candlestick | `plotcandlestick(...)`, `candlestick(...)` | open, high, low, close | upColor, downColor | Candles from {open, high, low, close} (avg_ohlc, ohlc, cum_ohlc, heikinashi). |
 | bar | `plotbar(...)`, `bar_plot(...)` | open, high, low, close | upColor, downColor | Bars (a tick left for the open, right for the close) from {open, high, low, close}. |
-| cloudarea | `plotcloudarea(...)`, `cloudarea(...)` | lowerValue, higherValue | positiveColor, negativeColor, higherLineColor, lowerLineColor, higherLineWidth, lowerLineWidth, higherLineStyle, lowerLineStyle | The area between two values, cloudarea(lower, higher), filled and edged. |
+| cloudarea | `plotcloudarea(...)`, `cloudarea(...)` | lowerValue, higherValue | positiveColor, negativeColor, higherLineColor (or positiveLineColor), lowerLineColor (or negativeLineColor), higherLineWidth, lowerLineWidth, higherLineStyle, lowerLineStyle | The area between two values, cloudarea(lower, higher), filled and edged. |
 | brokenarea | `plotbrokenarea(...)`, `brokenarea(...)` | lowerValue, higherValue | color | A band from lowerValue to higherValue a candle, without joining candles (a row of colour per candle: heat maps). |
 
 ## Markets
@@ -308,7 +308,7 @@ line(1)
 
 ### too-deep
 
-Nested too deeply. Met while the script is read or while it runs. Reading stops it at brackets, blocks or chains of operators nested deeper than 200; a run stops it at calls nested deeper than 200 (a function that calls itself without end).
+Nested too deeply. Met while the script is read or while it runs. Reading stops it at brackets or blocks nested about a hundred deep, or at one expression chaining more than 400 operators, calls or members; a run stops it at calls nested deeper than 200 (a function that calls itself without end).
 
 Meets it:
 

@@ -75,13 +75,13 @@ export const FUNCTIONS: readonly { name: string; call: string; is: string }[] = 
 
 /** The kinds of plot, the calls that draw them and the style each reads. */
 export const PLOT_KINDS: readonly { kind: PlotKind; is: string; style: string }[] = [
-  { kind: 'line', is: 'A line through one value a candle.', style: 'color, lineColor, lineWidth, lineStyle' },
-  { kind: 'area', is: 'A line with the area under it filled.', style: 'color, lineColor, lineWidth, lineStyle, topColor, bottomColor' },
+  { kind: 'line', is: 'A line through one value a candle.', style: 'color (or lineColor), lineWidth, lineStyle' },
+  { kind: 'area', is: 'A line with the area under it filled.', style: 'color (or lineColor), lineWidth, lineStyle, topColor, bottomColor' },
   { kind: 'histogram', is: 'A bar a candle, from base (default 0) to the value.', style: 'color, base' },
-  { kind: 'baseline', is: 'A line coloured above and below baseValue, with the areas filled.', style: 'baseValue, topLineColor, bottomLineColor, topFillColor1, bottomFillColor1, lineWidth, lineStyle' },
+  { kind: 'baseline', is: 'A line coloured above and below baseValue, with the areas filled.', style: 'baseValue (or base), topLineColor, bottomLineColor, topFillColor1, bottomFillColor1, lineWidth, lineStyle' },
   { kind: 'candlestick', is: 'Candles from {open, high, low, close} (avg_ohlc, ohlc, cum_ohlc, heikinashi).', style: 'upColor, downColor' },
   { kind: 'bar', is: 'Bars (a tick left for the open, right for the close) from {open, high, low, close}.', style: 'upColor, downColor' },
-  { kind: 'cloudarea', is: 'The area between two values, cloudarea(lower, higher), filled and edged.', style: 'positiveColor, negativeColor, higherLineColor, lowerLineColor, higherLineWidth, lowerLineWidth, higherLineStyle, lowerLineStyle' },
+  { kind: 'cloudarea', is: 'The area between two values, cloudarea(lower, higher), filled and edged.', style: 'positiveColor, negativeColor, higherLineColor (or positiveLineColor), lowerLineColor (or negativeLineColor), higherLineWidth, lowerLineWidth, higherLineStyle, lowerLineStyle' },
   { kind: 'brokenarea', is: 'A band from lowerValue to higherValue a candle, without joining candles (a row of colour per candle: heat maps).', style: 'color' },
 ];
 
@@ -142,7 +142,7 @@ export const ERRORS: readonly { code: string; wrong?: string; right?: string; sh
   { code: 'bad-assignment', when: 'reading', wrong: '1 = level\nline(level)', right: 'level = 1\nline(level)' },
   { code: 'unsupported', when: 'reading', wrong: 'switch (renderer.length) {}\nline(1)', right: 'if (renderer.length > 0) {}\nline(1)' },
   {
-    code: 'too-deep', when: 'both', note: 'Reading stops it at brackets, blocks or chains of operators nested deeper than 200; a run stops it at calls nested deeper than 200 (a function that calls itself without end).',
+    code: 'too-deep', when: 'both', note: 'Reading stops it at brackets or blocks nested about a hundred deep, or at one expression chaining more than 400 operators, calls or members; a run stops it at calls nested deeper than 200 (a function that calls itself without end).',
     wrong: 'function f(n) { return f(n + 1) }\nline(f(0))', right: 'function f(n) { return n >= 10 ? n : f(n + 1) }\nline(f(0))',
   },
   {
@@ -233,7 +233,8 @@ export function referenceData(): Record<string, unknown> {
   return {
     name: 'LiquidityMapperFast scripts', version: SCRIPT_API, language: 'JavaScript-shaped indicator scripts, run once per candle', reference: REFERENCE_URL,
     rules: RULES, inputs: INPUTS, globals: GLOBALS, functions: FUNCTIONS,
-    plots: PLOT_KINDS.map(p => ({ kind: p.kind, calls: callsOf(p.kind), fields: PLOT_FIELDS[p.kind], style: [...p.style.split(', '), ...PLOT_COMMON.split(', ')], is: p.is })),
+    // Style keys one by one, an alias ("color (or lineColor)") as a key of its own.
+    plots: PLOT_KINDS.map(p => ({ kind: p.kind, calls: callsOf(p.kind), fields: PLOT_FIELDS[p.kind], style: [...p.style.split(', ').flatMap(s => s.replace(/[()]/g, '').split(' or ')), ...PLOT_COMMON.split(', ')], is: p.is })),
     exchanges: Object.keys(EXCHANGES), notSupported: NOT_SUPPORTED, limits: LIMITS,
     errors: ERRORS.map(e => ({ code: e.code, message: errorSentence(e.code), when: e.when, ...(e.note ? { note: e.note } : {}), ...(e.shown ?? (e.wrong ? { wrong: e.wrong, right: e.right } : {})) })),
     warnings: WARNINGS.map(code => ({ code, message: warningSentence(code) })),
@@ -285,9 +286,14 @@ export const BUNDLE = { scriptChars: 30_000, lineChars: 400, options: 40, option
 
 /** A text taken from the script (a name, a title, an option, a name quoted in an error) on one line and cut short: it stays one item. */
 const oneLine = (s: string, max: number = BUNDLE.nameChars): string => {
-  const flat = s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim();
+  const flat = s.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 };
+/**
+ * The characters a reader may take for a line break that the bundle does not (vertical tab, form feed, next line, the Unicode line and
+ * paragraph separators), written as their escapes where text is kept as it is: a line of the script, an option's value.
+ */
+const visible = (s: string): string => s.replace(/[\u000b\u000c\u0085\u2028\u2029]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 /** The same written as a JSON text, in double quotes: where it starts and where it ends is plain. */
 const quoted = (s: string, max?: number): string => JSON.stringify(oneLine(s, max));
 
@@ -302,7 +308,7 @@ function numbered(source: string): string[] {
   for (let k = 0; k < all.length; k++) {
     let end = k;
     while (end < all.length && all[end]!.trim() === '') end++;
-    const l = all[k]!, at = String(k + 1).padStart(width);
+    const l = visible(all[k]!), at = String(k + 1).padStart(width);
     const row = end - k >= 3 ? `${at} | (lines ${k + 1} to ${end} are blank)`
       : l.length > BUNDLE.lineChars ? `${at} | ${l.slice(0, BUNDLE.lineChars)} … (${(l.length - BUNDLE.lineChars).toLocaleString('en')} more characters)` : `${at} | ${l}`;
     if (used + row.length > BUNDLE.scriptChars) {
@@ -343,7 +349,7 @@ export function aiBundle(b: BundleInput): string {
   out.push('```text', ...(b.source.trim() ? numbered(b.source) : ['(empty: write a new script)']), '```', '');
   const set = Object.entries(b.options);
   if (set.length) {
-    const value = (v: unknown): string => { const j = JSON.stringify(v) ?? 'undefined'; return j.length > BUNDLE.optionChars ? `${j.slice(0, BUNDLE.optionChars)}…` : j; };
+    const value = (v: unknown): string => { const j = Object.is(v, -0) ? '-0' : visible(JSON.stringify(v) ?? 'undefined'); return j.length > BUNDLE.optionChars ? `${j.slice(0, BUNDLE.optionChars)}…` : j; };
     // An option's name as the script writes it when it is a name a script can write, else quoted.
     const key = (k: string): string => /^[A-Za-z_$][\w$]{0,59}$/.test(k) ? k : quoted(k);
     out.push('Options set in the panel:', '', ...set.slice(0, BUNDLE.options).map(([k, v]) => `- ${key(k)} = ${value(v)}`));

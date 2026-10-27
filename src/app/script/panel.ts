@@ -157,9 +157,10 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
   const messageClass = (error: boolean): string => error ? 'panel-note layout-message error' : 'panel-note layout-message';
   let message = ui.message ? el('p', { class: messageClass(ui.message.error), textContent: ui.message.text }) : null;
   if (message) body.append(message);
-  // Said in place (Copy for AI): the text keeps its selection and scroll, and the keyboard stays where it was. Rebuilt meanwhile, said anew.
+  // Said in place (Copy for AI): the text keeps its selection and scroll, and the keyboard stays where it was. An editor rebuilt meanwhile
+  // (by Check, Back or a run) has moved on: its message is not replaced and it is not rebuilt again.
   const tell = (text: string, error: boolean): void => {
-    if (!source.isConnected) { say(text, error); return; }
+    if (!source.isConnected) return;
     ui.message = { text, error };
     if (!message) { message = el('p'); source.after(message); }
     message.className = messageClass(error); message.textContent = text;

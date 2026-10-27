@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { panelClosed, statusOf, unsaved, type ScriptsHost, type ScriptsPanelState } from '../src/app/script/panel-state.ts';
+import { panelClosed, sameOptions, statusOf, unsaved, type ScriptsHost, type ScriptsPanelState } from '../src/app/script/panel-state.ts';
 import { ROW_DEFAULT, SCRIPT_API, type ScriptRecord } from '../src/app/script/records.ts';
 import type { ScriptResult } from '../src/app/script/protocol.ts';
 
@@ -35,6 +35,8 @@ test('a script opened and left unchanged opens on the list next time; one with c
   const two = host([{ ...vwap, options: { len: 14, mult: 2 } }]);
   assert.equal(unsaved(two, editing(vwap.id, { options: { mult: 2, len: 14 } })), false, 'an option cleared and set back to its value: the same options, in another order');
   assert.equal(unsaved(two, editing(vwap.id, { options: { mult: 2, len: 15 } })), true);
+  assert.equal(sameOptions({ len: 0 }, { len: -0 }), false, '-0 is another value to a script (1 / len)');
+  assert.equal(sameOptions({ a: 1, b: 2 }, { b: 2, a: 1 }), true);
 
   const empty: ScriptsPanelState = { editing: 'new', draft: { name: '', source: '  \n', options: {}, place: 'pane' }, message: null, armed: null };
   assert.equal(unsaved(h, empty), false, 'a new script nothing was written in');

@@ -40,7 +40,8 @@ export function statusOf(host: ScriptsHost, r: ScriptRecord): { text: string; er
 }
 
 /** A value written with the keys of its objects in order, so two option sets compare by what they hold, not by the order they were set in. */
-const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : x);
+const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => Object.is(x, -0) ? { '-0': true } // -0 is not 0 to a script (1 / x)
+  : x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : x);
 
 /** Whether the script being written differs from what is kept (a new one: whether anything was written). */
 export function unsaved(host: ScriptsHost, ui: ScriptsPanelState): boolean {

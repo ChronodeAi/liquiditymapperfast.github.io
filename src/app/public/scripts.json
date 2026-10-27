@@ -289,6 +289,7 @@
    ],
    "style": [
     "baseValue",
+    "base",
     "topLineColor",
     "bottomLineColor",
     "topFillColor1",
@@ -360,7 +361,9 @@
     "positiveColor",
     "negativeColor",
     "higherLineColor",
+    "positiveLineColor",
     "lowerLineColor",
+    "negativeLineColor",
     "higherLineWidth",
     "lowerLineWidth",
     "higherLineStyle",
@@ -523,7 +526,7 @@
    "code": "too-deep",
    "message": "Nested too deeply.",
    "when": "both",
-   "note": "Reading stops it at brackets, blocks or chains of operators nested deeper than 200; a run stops it at calls nested deeper than 200 (a function that calls itself without end).",
+   "note": "Reading stops it at brackets or blocks nested about a hundred deep, or at one expression chaining more than 400 operators, calls or members; a run stops it at calls nested deeper than 200 (a function that calls itself without end).",
    "wrong": "function f(n) { return f(n + 1) }\nline(f(0))",
    "right": "function f(n) { return n >= 10 ? n : f(n + 1) }\nline(f(0))"
   },
