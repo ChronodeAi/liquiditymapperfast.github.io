@@ -228,8 +228,11 @@ export class HeatPane {
   scriptLayer: ((ctx: CanvasRenderingContext2D, pw: number, ph: number) => void) | null = null;
   /** The popup lines of the person's scripts drawn on the map, at the candle starting at `t` (set by the Scripts pane). */
   scriptHover: (t: number) => InfoLine[] = () => [];
-  /** The legend's lines for the scripts drawn on the map, at the candle starting at `t` (null: the newest) (set by the Scripts pane). */
-  scriptLegend: (t: number | null) => ScriptLegendLine[] = () => [];
+  /**
+   * The legend's lines for the scripts drawn on the map, at the candle starting at `t` (null: the newest), with values for the first `valued`
+   * of them only (set by the Scripts pane).
+   */
+  scriptLegend: (t: number | null, valued: number) => ScriptLegendLine[] = () => [];
   /** Where each script line's buttons go, in this pane's own pixels, once the legend is drawn (the Scripts pane places them). */
   onScriptLegend: (places: readonly { id: string; x: number; y: number }[]) => void = () => {};
   #glCanvas = document.createElement('canvas');
@@ -934,14 +937,17 @@ export class HeatPane {
     detail = fitText(wide, detail, room);
     const extra = [phone && borrowed ? borrowed.replace(/^\s*·\s*/, '') : '', this.#overviewLegend(state)].filter(Boolean).join('  ·  ');
     const note = fitText(wide, extra, room), noteW = note ? wide(note) : 0, detailW = detail ? wide(detail) : 0;
-    // The scripts drawn on the map, a line each under the candle's: a swatch of its colour, its name and its values at this candle (or what
-    // it is doing), and room at the right for its two buttons. At most a few, the others counted; on a phone the names alone.
-    const scripts = this.scriptLegend(hovered ? hovered[0] : null), listed = scripts.slice(0, SCRIPT_LINES), unlisted = scripts.length - listed.length;
-    const scriptTexts = listed.map(s => fitText(wide, phone || !s.text ? s.name : `${s.name}   ${s.text}`, room - SCRIPT_TOOLS_W - 16));
+    // The scripts drawn on the map, a line each under the candle's: a swatch of its colour, its name, its two buttons right after the name
+    // (where they stay whatever the values beside them, so they do not move from under a pointer coming to them), then its values at this
+    // candle or what it is doing. At most a few, the others counted. In a phone's arrangement the buttons are a finger's size (as their
+    // style makes them) and the lines as tall; there, and on a narrow map, the names alone.
+    const touch = isPhone(), namesOnly = phone || touch, toolsW = touch ? 58 : SCRIPT_TOOLS_W, lineH = touch ? 24 : 16;
+    const scripts = this.scriptLegend(hovered ? hovered[0] : null, namesOnly ? 0 : SCRIPT_LINES), listed = scripts.slice(0, SCRIPT_LINES), unlisted = scripts.length - listed.length;
+    const scriptNames = listed.map(s => fitText(wide, s.name, room - toolsW - 30));
+    const scriptValues = listed.map((s, k) => namesOnly || !s.text ? '' : fitText(wide, s.text, Math.max(0, room - 30 - wide(scriptNames[k]!) - toolsW - 12)));
     const moreScripts = unlisted > 0 ? tn(unlisted, '+{n} more script', '+{n} more scripts') : '';
-    const scriptsW = Math.max(0, ...scriptTexts.map(text => wide(text) + 16 + (phone ? 58 : SCRIPT_TOOLS_W)), moreScripts ? wide(moreScripts) : 0);
-    // A line is as tall as its buttons: on a phone they are a finger's size.
-    const textH = (detail ? 36 : 22) + (note ? 14 : 0), scriptRows = listed.length + (moreScripts ? 1 : 0), lineH = phone ? 24 : 16;
+    const scriptsW = Math.max(0, ...listed.map((_, k) => 18 + wide(scriptNames[k]!) + 6 + toolsW + (scriptValues[k] ? 6 + wide(scriptValues[k]!) : 0)), moreScripts ? wide(moreScripts) : 0);
+    const textH = (detail ? 36 : 22) + (note ? 14 : 0), scriptRows = listed.length + (moreScripts ? 1 : 0);
     ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
     const shownTitle = fitText(wide, phone ? `${name}  ${state.timeframe}` : title, room - tailW), titleW = wide(shownTitle);
     const plateW = Math.max(titleW + tailW, detailW, noteW, scriptsW) + 14, plateH = textH + (scriptRows ? scriptRows * lineH + 2 : 0);
@@ -952,14 +958,16 @@ export class HeatPane {
     ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
     if (tail) { ctx.fillStyle = p.muted; ctx.fillText(tail, 12 + titleW + 10, 16); }
     if (detail) { ctx.fillStyle = up ? p.candleUp : p.candleDown; ctx.fillText(detail, 12, 32); }
-    if (note) { ctx.fillStyle = p.muted; ctx.fillText(note, 12, 46); }
+    // The note stands under the prices, or under the title where there are none (it stood below the plate then, over what follows).
+    if (note) { ctx.fillStyle = p.muted; ctx.fillText(note, 12, detail ? 46 : 32); }
     const places: { id: string; x: number; y: number }[] = [];
     let y = 6 + textH + lineH / 2;
     listed.forEach((s, k) => {
       ctx.fillStyle = s.color || p.vwap; ctx.fillRect(12, y - 4, 8, 8);
-      ctx.fillStyle = s.tone === 'error' ? p.ask : s.tone === 'muted' ? p.muted : p.text;
-      ctx.fillText(scriptTexts[k]!, 24, y);
-      places.push({ id: s.id, x: 6 + plateW - (phone ? 58 : SCRIPT_TOOLS_W) - 2, y: y - (phone ? 11 : 8) });
+      ctx.fillStyle = p.text; ctx.fillText(scriptNames[k]!, 24, y);
+      const toolsX = 24 + wide(scriptNames[k]!) + 6;
+      places.push({ id: s.id, x: toolsX, y: y - (touch ? 11 : 8) });
+      if (scriptValues[k]) { ctx.fillStyle = s.tone === 'error' ? p.ask : p.muted; ctx.fillText(scriptValues[k]!, toolsX + toolsW + 6, y); }
       y += lineH;
     });
     if (moreScripts) { ctx.fillStyle = p.muted; ctx.fillText(moreScripts, 12, y); }

@@ -187,29 +187,36 @@ export class ScriptPane extends TimePane {
    * The map legend's lines for the scripts drawn on the map: each one's name, the colour of its first plot, and its values at the candle
    * starting at `at` (null, or right of the newest: the newest shown), or what it is doing (running..., its error).
    */
-  mapLegend(at: number | null): ScriptLegendLine[] {
+  mapLegend(at: number | null, valued = Infinity): ScriptLegendLine[] {
     const state = this.store.state, out: ScriptLegendLine[] = [];
     if (!state.show.script) return out;
-    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, p = this.palette, fallbacks = [p.vwap, p.poc, p.level, p.accent, p.bid, p.ask];
     for (const r of this.#records) {
       if (!r.on || r.place !== 'map') continue;
+      // Only the first `valued` lines show values (the legend lists a few, and none on a phone): the others are named, not worked out.
+      const withValues = out.length < valued;
       const kept = this.#held.get(r.id), held = kept && this.#fresh(kept) ? kept : undefined;
       if (!held) { out.push({ id: r.id, name: r.name, color: '', text: t('running…'), tone: 'muted' }); continue; }
       if (!held.result.ok) { out.push({ id: r.id, name: r.name, color: '', text: errorText(held.result.error), tone: 'error' }); continue; }
       const res = held.result, time = held.time, shown = shownCount(time, tf);
       const i = at === null ? shown - 1 : indexAt(time, tf, at, shown);
       const band = (plot: PlotOut): boolean => (plot.kind === 'brokenarea' || plot.kind === 'cloudarea') && plot.colors !== null;
-      // Lines first (they are what a legend reads), then the other plots; bands coloured point by point only when there is nothing else.
       const finiteAt = (plot: PlotOut): boolean => i >= 0 && PLOT_FIELDS[plot.kind].some(f => Number.isFinite(plot.fields[f]![i]!));
-      const plots = res.plots.filter(plot => plot.style.visible !== false).sort((a, b) => Number(b.kind === 'line') - Number(a.kind === 'line')), valued = plots.filter(plot => !band(plot) && finiteAt(plot));
-      const texts: string[] = [];
-      if (i >= 0) for (const plot of valued.length ? valued : plots) {
-        const fmt = scaleIdOf(plot, r.options) === 'right' ? (v: number) => fmtPrice(v) : shortNumber;
-        const values = PLOT_FIELDS[plot.kind].map(f => plot.fields[f]![i]!).filter(Number.isFinite);
-        if (values.length) texts.push(values.map(fmt).join(' – '));
+      // Lines first (they are what a legend reads), then the other plots; bands coloured point by point only when there is nothing else.
+      const plots = res.plots.map((plot, j) => ({ plot, j })).filter(({ plot }) => plot.style.visible !== false).sort((a, b) => Number(b.plot.kind === 'line') - Number(a.plot.kind === 'line'));
+      const read = plots.filter(({ plot }) => !band(plot) && finiteAt(plot)), from = read.length ? read : plots.filter(({ plot }) => finiteAt(plot));
+      // Its colour as it is drawn: the plot's own (color, or lineColor), its colour at this candle, or the page's colour for its place.
+      const first = from[0] ?? plots[0], own = first ? first.plot.style.color ?? first.plot.style.lineColor : undefined;
+      const color = !first ? '' : (typeof own === 'string' && safeColor(own, '')) || (i >= 0 && first.plot.colors?.[i] ? safeColor(first.plot.colors[i]!, '') : '') || fallbacks[first.j % fallbacks.length]!;
+      let text = '';
+      if (withValues && i >= 0) {
+        const texts = from.slice(0, 3).map(({ plot }) => {
+          const fmt = scaleIdOf(plot, r.options) === 'right' ? (v: number) => fmtPrice(v) : shortNumber;
+          return PLOT_FIELDS[plot.kind].map(f => plot.fields[f]![i]!).filter(Number.isFinite).map(fmt).join(' – ');
+        });
+        text = texts.join(' · ') + (from.length > 3 ? ' …' : '');
       }
-      const first = plots[0], color = first && typeof first.style.color === 'string' ? safeColor(first.style.color, '') : '';
-      out.push({ id: r.id, name: r.name, color, text: texts.slice(0, 3).join(' · ') + (texts.length > 3 ? ' …' : ''), tone: 'text' });
+      out.push({ id: r.id, name: r.name, color, text, tone: 'text' });
     }
     return out;
   }
