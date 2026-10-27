@@ -16,6 +16,7 @@ import { ScriptData } from '../script/data.ts';
 import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/analysis.ts';
 import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
 import { SCRIPT_API, loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
+import { starterScripts } from '../script/starter.ts';
 import { PLOT_FIELDS, type ScriptResult, type Warning } from '../script/protocol.ts';
 import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
@@ -38,7 +39,7 @@ const MIN_INTERVAL = 1_000, REFRESH = 15_000;
  * script cannot keep a core busy. The Scripts… button opens the panel that lists, writes, imports and exports them (script/panel.ts).
  */
 export class ScriptPane extends TimePane {
-  #records: ScriptRecord[] = loadScripts();
+  #records: ScriptRecord[] = loadScripts(undefined, starterScripts);
   #version = 0;
   #host = new ScriptHost({ spawn: () => new Worker(new URL('../script/script.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike });
   #data: ScriptData;
@@ -56,8 +57,7 @@ export class ScriptPane extends TimePane {
 
   constructor(host: HTMLElement, store: Store, view: View, private hub: Hub) {
     super(host, store, view, 'script');
-    this.#data = new ScriptData(hub, () => this.invalidate());
-    this.head.innerHTML = `<strong>${t('Scripts')}</strong><span class="readout"></span>`;
+    this.#data = new ScriptData(hub, () => this.invalidate());    this.head.innerHTML = `<strong>${t('Scripts')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('scriptPane'));
     setTip(this.head.querySelector('strong')!, t('Your own indicators, written as scripts over the candles and the taker flow.'));
     const group = document.createElement('span'); group.className = 'ctl ctl-group'; this.head.append(group);
@@ -74,10 +74,10 @@ export class ScriptPane extends TimePane {
   warningsOf(id: string): readonly Warning[] { return this.#warnings.get(id) ?? []; }
   analysisOf(r: ScriptRecord): Analysis | ScriptError { return this.#analyze(r.source); }
 
-  /** Keep `list` as the scripts; false when this browser refused to store it (the list still applies until the page closes). */
   /** Keep an answer made here, as a new map (what is worked out from the answers, the candle colours, is worked out again). */
   #setHeld(id: string, held: Held): void { this.#held = new Map(this.#held).set(id, held); this.#heldGen++; this.onMapChanged(); }
 
+  /** Keep `list` as the scripts; false when this browser refused to store it (the list still applies until the page closes). */
   setRecords(list: ScriptRecord[]): boolean {
     // A script whose text, options or version changed has no answer until it runs again: the old one is not drawn meanwhile.
     const was = new Map(this.#records.map(r => [r.id, r]));
@@ -174,7 +174,8 @@ export class ScriptPane extends TimePane {
       if (!results.length) return;
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
       if (version !== this.#version) { this.invalidate(); return; }
-      this.#runMs = Date.now() - started;
+      // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often.
+      this.#runMs = this.#host.lastRunMs;
       for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst });
       this.#held = new Map(this.#held); this.#heldGen++;
       this.invalidate();

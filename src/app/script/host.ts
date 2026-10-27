@@ -7,7 +7,8 @@ import type { RunRequest, RunResponse, ScriptJob, ScriptResult } from './protoco
  * would be stale), and a deadline. A script that loops is stopped by its own step budget inside the worker; a run that still does not answer
  * in time (a script that fills memory, a worker that hung) has its worker ended and a fresh one started, and every script of it is reported
  * as stopped. A fresh worker says when it has loaded; a run's clock starts only then, and a worker that does not load in `loadMs` is given up
- * on the same way. The worker never sees the page: it gets the inputs and the scripts' texts, and answers with what to draw.
+ * on the same way. Loading can wait a long time on a page whose own requests hold every connection to its server (each address gets only a
+ * few), so it has minutes, and its wait is not counted as the run's time (`lastRunMs`). The worker never sees the page: it gets the inputs and the scripts' texts, and answers with what to draw.
  */
 
 /** What the host needs of a worker (a real `Worker`, or a test's stand-in). */
@@ -27,9 +28,10 @@ export interface HostOptions {
   loadMs?: number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (id: unknown) => void;
+  now?: () => number;
 }
 
-interface Run { seq: number; jobs: ScriptJob[]; inputs: BarInputs; timer: unknown; resolve: (r: ScriptResult[]) => void; sent: boolean }
+interface Run { seq: number; jobs: ScriptJob[]; inputs: BarInputs; timer: unknown; resolve: (r: ScriptResult[]) => void; sent: boolean; sentAt: number }
 
 export class ScriptHost {
   #worker: WorkerLike | null = null;
@@ -40,9 +42,11 @@ export class ScriptHost {
   readonly #o: Required<HostOptions>;
   /** How many workers were ended for running over their deadline (or for not loading). */
   restarts = 0;
+  /** How long the last run took in its worker (ms), from when the worker took it to its answer or its deadline; 0 for one that never started. */
+  lastRunMs = 0;
 
   constructor(o: HostOptions) {
-    this.#o = { deadlineMs: 4_000, perScriptMs: 2_600, loadMs: 30_000, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id as ReturnType<typeof setTimeout>), ...o };
+    this.#o = { deadlineMs: 4_000, perScriptMs: 2_600, loadMs: 120_000, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id as ReturnType<typeof setTimeout>), now: () => Date.now(), ...o };
   }
 
   /** Whether a run is under way. */
@@ -67,7 +71,7 @@ export class ScriptHost {
   }
 
   #start(jobs: ScriptJob[], inputs: BarInputs, resolve: (r: ScriptResult[]) => void): void {
-    const run: Run = { seq: ++this.#seq, jobs, inputs, timer: null, resolve, sent: false };
+    const run: Run = { seq: ++this.#seq, jobs, inputs, timer: null, resolve, sent: false, sentAt: 0 };
     this.#running = run;
     try { this.#ensure(); } catch { this.#stop('worker-failed'); return; }
     if (this.#ready) this.#send();
@@ -79,7 +83,7 @@ export class ScriptHost {
     const run = this.#running;
     if (!run || run.sent || !this.#worker) return;
     if (run.timer !== null) this.#o.clearTimer(run.timer);
-    run.sent = true;
+    run.sent = true; run.sentAt = this.#o.now();
     run.timer = this.#o.setTimer(() => this.#stop('timeout'), this.#o.deadlineMs + Math.max(0, run.jobs.length - 1) * this.#o.perScriptMs);
     try { this.#worker.postMessage({ t: 'run', seq: run.seq, jobs: run.jobs, inputs: run.inputs }, transferables(run.inputs)); }
     catch { this.#stop('worker-failed'); }
@@ -90,6 +94,7 @@ export class ScriptHost {
     if (!run || msg.t !== 'result' || msg.seq !== run.seq) return;
     this.#o.clearTimer(run.timer);
     this.#running = null;
+    this.lastRunMs = this.#o.now() - run.sentAt;
     const byId = new Map(msg.results.map(r => [r.id, r]));
     run.resolve(run.jobs.map(j => byId.get(j.id) ?? { id: j.id, ok: false, error: { code: 'no-answer', line: 0, col: 0 } }));
     this.#next();
@@ -100,6 +105,7 @@ export class ScriptHost {
     const run = this.#running; if (!run) return;
     if (run.timer !== null) this.#o.clearTimer(run.timer);
     this.#running = null;
+    this.lastRunMs = run.sent ? this.#o.now() - run.sentAt : 0;
     this.#worker?.terminate(); this.#worker = null; this.#ready = false; this.restarts++;
     run.resolve(run.jobs.map(j => ({ id: j.id, ok: false, error: { code, line: 0, col: 0 } })));
     this.#next();

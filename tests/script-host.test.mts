@@ -19,14 +19,15 @@ const inputs = (): BarInputs => { const a = new Float64Array(1); return { tf: 60
 const job = (id: string): ScriptJob => ({ id, source: 'line(1)', options: {}, api: 1 });
 
 function rig(autoReady = true) {
-  const workers: FakeWorker[] = [], timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
+  const workers: FakeWorker[] = [], timers: { fn: () => void; ms: number; cleared: boolean }[] = [], clock = { now: 0 };
   const host = new ScriptHost({
     spawn: () => { const w = new FakeWorker(); workers.push(w); queueMicrotask(() => { if (autoReady) w.ready(); }); return w; },
     deadlineMs: 1_000, perScriptMs: 0,
     setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
     clearTimer: t => { (t as { cleared: boolean }).cleared = true; },
+    now: () => clock.now,
   });
-  return { host, workers, timers };
+  return { host, workers, timers, clock };
 }
 
 const tick = (): Promise<void> => new Promise(r => setTimeout(r, 0));
@@ -104,4 +105,27 @@ test('the clock of a run starts only once its worker has loaded, and a worker th
   const r = await q;
   assert.equal(!r[0]!.ok && r[0]!.error.code, 'worker-failed');
   assert.equal(second.workers[0]!.ended, true);
+});
+
+test('a run\'s time is counted from when its worker took it: a long wait to load is not a slow script', async () => {
+  const { host, workers, timers, clock } = rig(false);
+  const p = host.run([job('a')], inputs());
+  assert.ok(timers.some(t => t.ms >= 60_000), 'a worker has minutes to load (the page\'s own requests can hold every connection to its server)');
+  clock.now = 45_000;
+  workers[0]!.ready();
+  clock.now = 45_200;
+  workers[0]!.answer(workers[0]!.posted[0]!.seq, ['a']);
+  await p;
+  assert.equal(host.lastRunMs, 200);
+  const q = host.run([job('a')], inputs());
+  clock.now = 46_200;
+  timers.find(t => t.ms === 1_000 && !t.cleared)!.fn();
+  await q;
+  assert.equal(host.lastRunMs, 1_000, 'a run past its deadline took that long');
+  const never = rig(false);
+  const r = never.host.run([job('b')], inputs());
+  never.clock.now = 120_000;
+  never.timers.find(t => t.ms !== 1_000)!.fn();
+  await r;
+  assert.equal(never.host.lastRunMs, 0, 'a worker that never loaded ran nothing');
 });
