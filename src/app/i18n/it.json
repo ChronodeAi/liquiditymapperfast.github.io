@@ -1686,7 +1686,6 @@
  "Each over its own range": "Ciascuno sul proprio intervallo",
  "Scripts": "Script",
  "Your own indicators, written as scripts over the candles and the taker flow.": "I tuoi indicatori, scritti come script sulle candele e sul flusso dei taker.",
- "A pane under the map: your own indicators, written as scripts over the candles and the taker flow.": "Un pannello sotto la mappa: i tuoi indicatori, scritti come script sulle candele e sul flusso dei taker.",
  "A script is a short program that is run once for each candle of the chart, oldest first, and draws lines, bars or bands from what it reads: the candle, what was bought and sold at market over the exchanges of the flow column (or the ones it names with source), and the liquidations. Each script has a row of its own here, with its own scale.": "Uno script è un breve programma eseguito una volta per ogni candela del grafico, partendo dalla più vecchia, che disegna linee, barre o bande da ciò che legge: la candela, ciò che è stato comprato e venduto a mercato sugli exchange della colonna del flusso (o su quelli che indica con source) e le liquidazioni. Ogni script ha qui una riga tutta sua, con la sua scala.",
  "Write one, paste one or start from an example in Scripts…. The language is the one indicator scripts are written in on other charting pages, so most such scripts run here as they are; Scripts… lists what is not supported. A script runs on a thread of its own and can read nothing but those inputs: no page, no network, no storage.": "Scrivine uno, incollane uno o parti da un esempio in Script…. Il linguaggio è quello in cui si scrivono gli script degli indicatori su altre pagine di grafici, quindi la maggior parte di questi script funziona qui così com'è; Script… elenca ciò che non è supportato. Uno script gira in un thread tutto suo e non può leggere altro che questi input: niente pagina, niente rete, niente archiviazione.",
  "The taker flow is what the page holds (a day a second at a time, older minutes where the server keeps them): a candle before that reads NaN and draws nothing, and the functions carry on past it.": "Il flusso dei taker è quello che la pagina tiene (un giorno secondo per secondo, minuti più vecchi dove il server li conserva): una candela precedente dà NaN e non disegna nulla, e le funzioni proseguono oltre.",
@@ -1698,9 +1697,6 @@
   "other": "{n} script attivi",
   "many": "{n} script attivi"
  },
- "No scripts yet: open Scripts… to write one or add an example.": "Ancora nessuno script: apri Script… per scriverne uno o aggiungere un esempio.",
- "The scripts that are on draw on the map.": "Gli script attivi disegnano sulla mappa.",
- "Every script is switched off: switch one on in Scripts….": "Tutti gli script sono disattivati: attivane uno in Script….",
  "running…": "in esecuzione…",
  "{n} warnings": {
   "one": "{n} avviso",
@@ -1801,5 +1797,7 @@
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Un source(...) indica i suoi mercati con qualcosa che solo l'esecuzione può ricavare: dà 0. Indicali con una parola, un'opzione o options.name.",
  "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Alcuni giorni hanno avuto più liquidazioni di quante la fonte dei dati ne restituisca: le più piccole mancano da lbuy e lsell.",
  "The file was written by a newer version of the page: update this page to read it.": "Il file è stato scritto da una versione più recente della pagina: aggiorna questa pagina per leggerlo.",
- "This script was written for a newer version of the script language: update the page to run it.": "Questo script è stato scritto per una versione più recente del linguaggio degli script: aggiorna la pagina per eseguirlo."
+ "This script was written for a newer version of the script language: update the page to run it.": "Questo script è stato scritto per una versione più recente del linguaggio degli script: aggiorna la pagina per eseguirlo.",
+ "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "I tuoi indicatori, scritti come script sulle candele e sul flusso dei taker: sulla mappa o in righe a parte sotto di essa.",
+ "“{name}” stopped with an error: open Scripts to see it.": "«{name}» si è fermato per un errore: apri Script per vederlo."
 }

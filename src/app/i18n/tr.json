@@ -1669,7 +1669,6 @@
  "Each over its own range": "Her biri kendi aralığında",
  "Scripts": "Betikler",
  "Your own indicators, written as scripts over the candles and the taker flow.": "Mumlar ve taker akışı üzerine betik olarak yazılan kendi göstergeleriniz.",
- "A pane under the map: your own indicators, written as scripts over the candles and the taker flow.": "Haritanın altında bir bölme: mumlar ve taker akışı üzerine betik olarak yazılan kendi göstergeleriniz.",
  "A script is a short program that is run once for each candle of the chart, oldest first, and draws lines, bars or bands from what it reads: the candle, what was bought and sold at market over the exchanges of the flow column (or the ones it names with source), and the liquidations. Each script has a row of its own here, with its own scale.": "Betik, grafiğin her mumu için en eskiden başlayarak bir kez çalıştırılan kısa bir programdır ve okuduklarından çizgiler, çubuklar ya da bantlar çizer: mumu, akış sütununun borsalarında (ya da source ile adını verdiği borsalarda) piyasadan alınıp satılanı ve tasfiyeleri. Her betiğin burada kendi ölçeğiyle kendine ait bir satırı vardır.",
  "Write one, paste one or start from an example in Scripts…. The language is the one indicator scripts are written in on other charting pages, so most such scripts run here as they are; Scripts… lists what is not supported. A script runs on a thread of its own and can read nothing but those inputs: no page, no network, no storage.": "Betikler… içinde bir betik yazın, yapıştırın ya da bir örnekle başlayın. Dil, diğer grafik sayfalarında gösterge betiklerinin yazıldığı dildir; bu yüzden bu tür betiklerin çoğu burada olduğu gibi çalışır. Desteklenmeyenleri Betikler… listeler. Bir betik kendi iş parçacığında çalışır ve bu girdilerden başka hiçbir şey okuyamaz: ne sayfayı, ne ağı, ne de depolamayı.",
  "The taker flow is what the page holds (a day a second at a time, older minutes where the server keeps them): a candle before that reads NaN and draws nothing, and the functions carry on past it.": "Taker akışı, sayfanın tuttuğu kadardır (bir gün saniye saniye, sunucunun tuttuğu yerde daha eski dakikalar): bundan önceki bir mum NaN verir ve hiçbir şey çizmez; fonksiyonlar onu geçip devam eder.",
@@ -1680,9 +1679,6 @@
   "one": "{n} betik açık",
   "other": "{n} betik açık"
  },
- "No scripts yet: open Scripts… to write one or add an example.": "Henüz betik yok: yazmak ya da örnek eklemek için Betikler… panelini açın.",
- "The scripts that are on draw on the map.": "Açık betikler haritanın üzerine çizilir.",
- "Every script is switched off: switch one on in Scripts….": "Tüm betikler kapalı: Betikler… panelinden birini açın.",
  "running…": "çalışıyor…",
  "{n} warnings": {
   "one": "{n} uyarı",
@@ -1780,5 +1776,7 @@
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Bir source(...), piyasalarını ancak çalışmanın bulabileceği bir şeyle adlandırıyor: 0 verir. Onları bir sözcükle, bir seçenekle ya da options.name ile adlandırın.",
  "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Bazı günlerde veri kaynağının döndürdüğünden daha fazla tasfiye vardı: en küçükleri lbuy ve lsell'de eksik.",
  "The file was written by a newer version of the page: update this page to read it.": "Dosya sayfanın daha yeni bir sürümüyle yazılmış: okumak için bu sayfayı güncelleyin.",
- "This script was written for a newer version of the script language: update the page to run it.": "Bu betik, betik dilinin daha yeni bir sürümü için yazılmış: çalıştırmak için sayfayı güncelleyin."
+ "This script was written for a newer version of the script language: update the page to run it.": "Bu betik, betik dilinin daha yeni bir sürümü için yazılmış: çalıştırmak için sayfayı güncelleyin.",
+ "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Mumlar ve taker akışı üzerine betik olarak yazılan kendi göstergeleriniz: haritada ya da altında kendi satırlarında.",
+ "“{name}” stopped with an error: open Scripts to see it.": "“{name}” bir hatayla durdu: görmek için Betikler’i açın."
 }

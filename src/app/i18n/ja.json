@@ -1620,7 +1620,6 @@
  "Each over its own range": "それぞれの範囲",
  "Scripts": "スクリプト",
  "Your own indicators, written as scripts over the candles and the taker flow.": "ローソク足とテイカーフローをもとにスクリプトで書く、自分だけのインジケーター。",
- "A pane under the map: your own indicators, written as scripts over the candles and the taker flow.": "マップの下のペイン。ローソク足とテイカーフローをもとにスクリプトで書く、自分だけのインジケーター。",
  "A script is a short program that is run once for each candle of the chart, oldest first, and draws lines, bars or bands from what it reads: the candle, what was bought and sold at market over the exchanges of the flow column (or the ones it names with source), and the liquidations. Each script has a row of its own here, with its own scale.": "スクリプトは、チャートのローソク足ごとに古いものから 1 回ずつ実行される短いプログラムで、読み取ったものから線、バー、バンドを描きます。読み取るのは、ローソク足、フロー列の取引所（または source で指定した取引所）で成行で買われた額と売られた額、そして清算です。スクリプトごとにここに専用の行があり、それぞれ独自のスケールを持ちます。",
  "Write one, paste one or start from an example in Scripts…. The language is the one indicator scripts are written in on other charting pages, so most such scripts run here as they are; Scripts… lists what is not supported. A script runs on a thread of its own and can read nothing but those inputs: no page, no network, no storage.": "スクリプト…で、新しく書く、貼り付ける、または例から始めることができます。言語は他のチャートページでインジケータースクリプトを書くのと同じ言語なので、そうしたスクリプトの多くはここでもそのまま動きます。対応していないものはスクリプト…に一覧があります。スクリプトは専用のスレッドで動き、これらの入力以外は何も読めません。ページ、ネットワーク、ストレージには触れられません。",
  "The taker flow is what the page holds (a day a second at a time, older minutes where the server keeps them): a candle before that reads NaN and draws nothing, and the functions carry on past it.": "テイカーフローはページが保持している分だけです（1 日分は秒単位、それより古い分はサーバーが保持する分単位）。それより前のローソク足は NaN になって何も描かず、関数はその先へ処理を続けます。",
@@ -1628,9 +1627,6 @@
  "Scripts…": "スクリプト…",
  "Write, switch on and off, import and export your scripts.": "スクリプトの作成、オン・オフ、読み込み、書き出し。",
  "{n} scripts on": "{n} 個がオン",
- "No scripts yet: open Scripts… to write one or add an example.": "スクリプトはまだありません。スクリプト…を開いて書くか、例を追加してください。",
- "The scripts that are on draw on the map.": "オンのスクリプトはマップに描かれます。",
- "Every script is switched off: switch one on in Scripts….": "すべてのスクリプトがオフです。スクリプト…でオンにしてください。",
  "running…": "実行中…",
  "{n} warnings": "警告 {n} 件",
  "The script ends before this is complete.": "これが完成する前にスクリプトが終わっています。",
@@ -1719,5 +1715,7 @@
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) の市場が、実行してみないと分からないもので指定されています。0 になります。単語、オプション、または options.name で指定してください。",
  "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "データ元が返す件数より多くの清算があった日があります。lbuy と lsell では最も小さいものが欠けています。",
  "The file was written by a newer version of the page: update this page to read it.": "このファイルは新しいバージョンのページで書かれています。読み込むには、このページを更新してください。",
- "This script was written for a newer version of the script language: update the page to run it.": "このスクリプトは新しいバージョンのスクリプト言語向けに書かれています。実行するには、ページを更新してください。"
+ "This script was written for a newer version of the script language: update the page to run it.": "このスクリプトは新しいバージョンのスクリプト言語向けに書かれています。実行するには、ページを更新してください。",
+ "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "ローソク足とテイカーフローをもとにスクリプトで書く、自分だけのインジケーター。マップ上か、その下の専用の行に描きます。",
+ "“{name}” stopped with an error: open Scripts to see it.": "「{name}」はエラーで停止しました。スクリプトを開いて確認してください。"
 }

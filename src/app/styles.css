@@ -638,6 +638,9 @@ html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; 
 .led-btn { position: relative; padding-left: 22px; }
 .led-btn::before { content: ""; position: absolute; left: 8px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 50%; background: var(--edge); opacity: 1; transition: background .2s, box-shadow .2s; }
 .led-btn[data-state="on"]::before { background: var(--bid); opacity: 1; }
+/* The Scripts lamp (toolbar.ts setScriptsStatus): amber while a script waits for its first answer, red when one stopped with an error. */
+.led-btn[data-state="on"][data-note="running"]::before { background: var(--warn); }
+.led-btn[data-state="on"][data-note="error"]::before { background: var(--ask); }
 /* Held sound is a caution, not a failure: amber, never the sell colour (theme.ts CAUTION). */
 .sound-btn[data-state="locked"]::before { background: #e6a700; opacity: 1; }
 .sound-btn.flash::before { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bid) 35%, transparent); }

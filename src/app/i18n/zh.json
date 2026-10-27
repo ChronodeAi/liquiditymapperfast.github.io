@@ -1620,7 +1620,6 @@
  "Each over its own range": "各自范围",
  "Scripts": "脚本",
  "Your own indicators, written as scripts over the candles and the taker flow.": "你自己的指标，以脚本形式基于 K 线和吃单流编写。",
- "A pane under the map: your own indicators, written as scripts over the candles and the taker flow.": "地图下方的窗格：你自己的指标，以脚本形式基于 K 线和吃单流编写。",
  "A script is a short program that is run once for each candle of the chart, oldest first, and draws lines, bars or bands from what it reads: the candle, what was bought and sold at market over the exchanges of the flow column (or the ones it names with source), and the liquidations. Each script has a row of its own here, with its own scale.": "脚本是一段简短的程序，对图表的每根 K 线从最早的开始各运行一次，并根据读到的内容绘制线、柱或通道：K 线、资金流栏中各交易所（或它用 source 指定的交易所）的市价买入和卖出量，以及强平。每个脚本在这里都有自己的一行和自己的刻度。",
  "Write one, paste one or start from an example in Scripts…. The language is the one indicator scripts are written in on other charting pages, so most such scripts run here as they are; Scripts… lists what is not supported. A script runs on a thread of its own and can read nothing but those inputs: no page, no network, no storage.": "在“脚本…”中编写、粘贴或从示例开始。其语言与其他图表页面编写指标脚本所用的语言相同，因此大多数此类脚本可以原样在这里运行；“脚本…”中列出了不支持的内容。脚本在独立的线程中运行，除了这些输入之外什么也读不到：无法访问页面、网络或存储。",
  "The taker flow is what the page holds (a day a second at a time, older minutes where the server keeps them): a candle before that reads NaN and draws nothing, and the functions carry on past it.": "吃单流仅限页面保存的部分（一天内按秒，更早的按服务器保存的分钟）：在此之前的 K 线读数为 NaN，不绘制任何内容，函数会越过它继续计算。",
@@ -1628,9 +1627,6 @@
  "Scripts…": "脚本…",
  "Write, switch on and off, import and export your scripts.": "编写、开启和关闭、导入和导出你的脚本。",
  "{n} scripts on": "已开启 {n} 个脚本",
- "No scripts yet: open Scripts… to write one or add an example.": "还没有脚本：打开“脚本…”来编写一个或添加示例。",
- "The scripts that are on draw on the map.": "已开启的脚本绘制在地图上。",
- "Every script is switched off: switch one on in Scripts….": "所有脚本均已关闭：在“脚本…”中开启一个。",
  "running…": "运行中…",
  "{n} warnings": "{n} 个警告",
  "The script ends before this is complete.": "脚本在此处完成之前就结束了。",
@@ -1719,5 +1715,7 @@
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) 用只有运行时才能确定的内容指定其市场：读数为 0。请用一个词、一个选项或 options.name 来指定。",
  "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "有些日子的强平数量超过了数据源返回的上限：lbuy 和 lsell 中缺少最小的那些。",
  "The file was written by a newer version of the page: update this page to read it.": "该文件由较新版本的页面写入：请更新本页面以读取它。",
- "This script was written for a newer version of the script language: update the page to run it.": "该脚本是为较新版本的脚本语言编写的：请更新页面以运行它。"
+ "This script was written for a newer version of the script language: update the page to run it.": "该脚本是为较新版本的脚本语言编写的：请更新页面以运行它。",
+ "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "你自己的指标，以脚本形式基于 K 线和吃单流编写：画在地图上，或在地图下方单独的行中。",
+ "“{name}” stopped with an error: open Scripts to see it.": "“{name}”因错误而停止：打开脚本查看。"
 }

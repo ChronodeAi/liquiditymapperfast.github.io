@@ -1703,7 +1703,6 @@
  "Each over its own range": "Каждый в своём диапазоне",
  "Scripts": "Скрипты",
  "Your own indicators, written as scripts over the candles and the taker flow.": "Ваши собственные индикаторы, написанные скриптами по свечам и потоку тейкеров.",
- "A pane under the map: your own indicators, written as scripts over the candles and the taker flow.": "Панель под картой: ваши собственные индикаторы, написанные скриптами по свечам и потоку тейкеров.",
  "A script is a short program that is run once for each candle of the chart, oldest first, and draws lines, bars or bands from what it reads: the candle, what was bought and sold at market over the exchanges of the flow column (or the ones it names with source), and the liquidations. Each script has a row of its own here, with its own scale.": "Скрипт — это короткая программа, которая выполняется один раз для каждой свечи графика, начиная с самой старой, и рисует линии, столбики или полосы из того, что читает: свечу, то, что было куплено и продано по рынку на биржах колонки потока (или на тех, что он называет через source), и ликвидации. У каждого скрипта здесь своя строка со своей шкалой.",
  "Write one, paste one or start from an example in Scripts…. The language is the one indicator scripts are written in on other charting pages, so most such scripts run here as they are; Scripts… lists what is not supported. A script runs on a thread of its own and can read nothing but those inputs: no page, no network, no storage.": "Напишите скрипт, вставьте готовый или начните с примера в окне «Скрипты…». Язык — тот же, на котором пишут скрипты индикаторов на других страницах с графиками, так что большинство таких скриптов работает здесь как есть; в окне «Скрипты…» перечислено, что не поддерживается. Скрипт выполняется в отдельном потоке выполнения и не может читать ничего, кроме этих входных данных: ни страницу, ни сеть, ни хранилище.",
  "The taker flow is what the page holds (a day a second at a time, older minutes where the server keeps them): a candle before that reads NaN and draws nothing, and the functions carry on past it.": "Поток тейкеров — это то, что хранит страница (день посекундно, более старые минуты, где их хранит сервер): свеча до этого даёт NaN и ничего не рисует, а функции продолжают работу дальше.",
@@ -1716,9 +1715,6 @@
   "many": "{n} скриптов включено",
   "other": "{n} скрипта включено"
  },
- "No scripts yet: open Scripts… to write one or add an example.": "Скриптов пока нет: откройте «Скрипты…», чтобы написать скрипт или добавить пример.",
- "The scripts that are on draw on the map.": "Включённые скрипты рисуют на карте.",
- "Every script is switched off: switch one on in Scripts….": "Все скрипты выключены: включите один в окне «Скрипты…».",
  "running…": "выполняется…",
  "{n} warnings": {
   "one": "{n} предупреждение",
@@ -1822,5 +1818,7 @@
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) называет свои рынки тем, что можно узнать только при выполнении: результат 0. Назовите их словом, параметром или options.name.",
  "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "В некоторые дни ликвидаций было больше, чем отдаёт источник данных: самых мелких нет в lbuy и lsell.",
  "The file was written by a newer version of the page: update this page to read it.": "Файл записан более новой версией страницы: обновите эту страницу, чтобы его прочитать.",
- "This script was written for a newer version of the script language: update the page to run it.": "Этот скрипт написан для более новой версии языка скриптов: обновите страницу, чтобы его запустить."
+ "This script was written for a newer version of the script language: update the page to run it.": "Этот скрипт написан для более новой версии языка скриптов: обновите страницу, чтобы его запустить.",
+ "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Ваши собственные индикаторы, написанные скриптами по свечам и потоку тейкеров: на карте или в отдельных строках под ней.",
+ "“{name}” stopped with an error: open Scripts to see it.": "«{name}» остановлен с ошибкой: откройте Скрипты, чтобы её увидеть."
 }

@@ -6,7 +6,7 @@ import type { View } from '../view.ts';
 import { helpButton } from '../help.ts';
 import { setTip } from '../tip.ts';
 import { t, tn } from '../i18n.ts';
-import { clock } from '../format.ts';
+import { clock, price as fmtPrice } from '../format.ts';
 import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { togglePanel, type Panel } from '../ui.ts';
@@ -84,8 +84,17 @@ export class ScriptPane extends TimePane {
   /** Keep an answer made here, as a new map (what is worked out from the answers, the candle colours, is worked out again). */
   #setHeld(id: string, held: Held): void { this.#held = new Map(this.#held).set(id, held); this.#heldGen++; this.onMapChanged(); }
 
+  /** Whether a script that is on draws in a row of this pane: the pane is shown only then (and only while Scripts is on). */
+  get hasRows(): boolean { return this.#records.some(r => r.on && r.place === 'pane'); }
+  /** Called when `hasRows` changed: the page lays its panes out again. */
+  onRowsChanged: () => void = () => {};
+  /** Called with what the scripts are doing, for the Scripts lamp: `running` (one that is on waits for its first answer), `error` and the name of one that stopped, or ''. */
+  onStatus: (note: 'running' | 'error' | '', name: string) => void = () => {};
+  #statusKey = '';
+
   /** Keep `list` as the scripts; false when this browser refused to store it (the list still applies until the page closes). */
   setRecords(list: ScriptRecord[]): boolean {
+    const hadRows = this.hasRows;
     // A script whose text, options or version changed has no answer until it runs again: the old one is not drawn meanwhile.
     const was = new Map(this.#records.map(r => [r.id, r]));
     const stale = list.filter(r => { const o = was.get(r.id); return !o || o.source !== r.source || o.api !== r.api || JSON.stringify(o.options) !== JSON.stringify(r.options) || !r.on; });
@@ -98,6 +107,8 @@ export class ScriptPane extends TimePane {
     const kept = storeScripts(list);
     this.#lastRun = 0;
     this.invalidate();
+    this.#reportStatus();
+    if (this.hasRows !== hadRows) this.onRowsChanged();
     return kept;
   }
 
@@ -107,9 +118,9 @@ export class ScriptPane extends TimePane {
   /** The panel's code, loaded the first time the panel opens (a page that never opens it does not carry it). */
   #panelCode: typeof import('../script/panel.ts') | null = null;
   readonly #build = (_tools: HTMLElement, body: HTMLElement): void => { this.#panelCode?.buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui); };
-  openPanel(): void {
-    if (!this.#panelCode) { void lazy(() => import('../script/panel.ts')).then(m => { if (m) { this.#panelCode = m; this.openPanel(); } }); return; }
-    this.#panel = togglePanel(this.#button, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; this.#panelCode?.panelClosed(this, this.#ui); }, stays: true }, this.#build);
+  openPanel(anchor: HTMLElement = this.#button): void {
+    if (!this.#panelCode) { void lazy(() => import('../script/panel.ts')).then(m => { if (m) { this.#panelCode = m; this.openPanel(anchor); } }); return; }
+    this.#panel = togglePanel(anchor, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; this.#panelCode?.panelClosed(this, this.#ui); }, stays: true }, this.#build);
   }
   /** Write the list's statuses again with the latest results, in place (a menu or a switch under the pointer stays); not while a script is being written. */
   #refreshPanel(): void { if (this.#panel && !this.#ui.editing) this.#panelCode?.refreshStatuses(this, this.#panel.body); }
@@ -200,7 +211,22 @@ export class ScriptPane extends TimePane {
       this.invalidate();
       this.onMapChanged();
       this.#refreshPanel();
+      this.#reportStatus();
     });
+  }
+
+  /** Tell the lamp what the scripts are doing, when that changed. */
+  #reportStatus(): void {
+    const state = this.store.state, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    let note: 'running' | 'error' | '' = '', name = '';
+    if (state.show.script) for (const r of this.#records) {
+      if (!r.on) continue;
+      const held = this.#held.get(r.id);
+      if (held && !held.result.ok) { note = 'error'; name = r.name; break; }
+      if (!held || held.tf !== tf || held.inst !== state.seriesInstrument) note = 'running';
+    }
+    const key = `${note}|${name}`;
+    if (key !== this.#statusKey) { this.#statusKey = key; this.onStatus(note, name); }
   }
 
   protected draw(): void {
@@ -217,11 +243,9 @@ export class ScriptPane extends TimePane {
     const running = this.#records.filter(r => r.on), on = running.filter(r => r.place === 'pane');
     setText(this.head.querySelector('.readout'), this.#records.length ? tn(running.length, '{n} script on', '{n} scripts on') : '');
     ctx.textBaseline = 'middle';
-    if (!on.length) {
-      ctx.fillStyle = p.muted; ctx.textAlign = 'left';
-      ctx.fillText(!this.#records.length ? t('No scripts yet: open Scripts… to write one or add an example.') : running.length ? t('The scripts that are on draw on the map.') : t('Every script is switched off: switch one on in Scripts….'), 12, ph / 2);
-      return;
-    }
+    this.#reportStatus();
+    // The pane is laid out only while a script that is on draws in it (`hasRows`): for a moment after one is switched off it has none.
+    if (!on.length) return;
     const total = on.reduce((s, r) => s + r.height, 0), least = Math.max(1, Math.min(24, Math.floor(ph / on.length)));
     let top = 0;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
@@ -298,6 +322,7 @@ export class ScriptPane extends TimePane {
    */
   paintOnMap(ctx: CanvasRenderingContext2D, pw: number, ph: number): void {
     const state = this.store.state;
+    this.#reportStatus();
     if (!state.show.script) { this.#host.dropUnsent(); return; }
     // The map asks for runs too: on a phone the pane is not laid out while another tab shows, and the scripts on the map must still run.
     this.#maybeRun();
@@ -318,18 +343,33 @@ export class ScriptPane extends TimePane {
     }
   }
 
-  /** The popup lines of one script at the candle under the pointer: its name, then each plot's value there. */
-  #cardLines(out: InfoLine[], r: ScriptRecord, res: Extract<ScriptResult, { ok: true }>, time: Float64Array, tf: number, at: number): void {
+  /** The map's popup lines for the scripts drawn on it, at the candle starting at `at`: each one's name, then its plots' values there. */
+  mapHoverLines(at: number): InfoLine[] {
+    const state = this.store.state, out: InfoLine[] = [];
+    if (!state.show.script) return out;
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    for (const r of this.#records) {
+      if (!r.on || r.place !== 'map') continue;
+      const held = this.#held.get(r.id);
+      if (held?.result.ok && held.tf === tf && held.inst === state.seriesInstrument) this.#cardLines(out, r, held.result, held.time, tf, at, false, true);
+    }
+    return out;
+  }
+
+  /** The popup lines of one script at the candle under the pointer: (the candle's time, first,) its name, then each plot's value there. */
+  #cardLines(out: InfoLine[], r: ScriptRecord, res: Extract<ScriptResult, { ok: true }>, time: Float64Array, tf: number, at: number, withTime = true, onMap = false): void {
     let lo = 0, hi = time.length - 1, i = -1;
     while (lo <= hi) { const m = (lo + hi) >> 1; if (time[m]! <= at) { i = m; lo = m + 1; } else hi = m - 1; }
     if (i < 0 || at >= time[i]! + tf) return;
-    if (!out.length) out.push({ text: clock(time[i]!, true), bold: true });
+    if (withTime && !out.length) out.push({ text: clock(time[i]!, true), bold: true });
     out.push({ text: r.name, bold: true, rule: true });
     res.plots.forEach((plot, j) => {
       if (plot.style.visible === false) return;
       const values = PLOT_FIELDS[plot.kind].map(f => plot.fields[f]![i]!);
       if (!values.some(Number.isFinite)) return;
-      const text = values.length === 1 ? shortNumber(values[0]!) : values.map(shortNumber).join(plot.kind === 'cloudarea' || plot.kind === 'brokenarea' ? ' – ' : ' / ');
+      // On the map a plot on the price scale is a price, written as the price axis writes one; the others are amounts.
+      const fmt = onMap && scaleIdOf(plot, r.options) === 'right' ? (v: number) => fmtPrice(v) : shortNumber;
+      const text = values.length === 1 ? fmt(values[0]!) : values.map(fmt).join(plot.kind === 'cloudarea' || plot.kind === 'brokenarea' ? ' – ' : ' / ');
       out.push({ label: plot.title || `${plot.kind} ${j + 1}`, text, color: values.length === 1 && values[0]! < 0 ? 'sell' : 'text' });
     });
   }

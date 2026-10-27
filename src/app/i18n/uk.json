@@ -1708,7 +1708,6 @@
  "Each over its own range": "Кожен у своєму діапазоні",
  "Scripts": "Скрипти",
  "Your own indicators, written as scripts over the candles and the taker flow.": "Ваші власні індикатори, написані скриптами за свічками та потоком тейкерів.",
- "A pane under the map: your own indicators, written as scripts over the candles and the taker flow.": "Панель під картою: ваші власні індикатори, написані скриптами за свічками та потоком тейкерів.",
  "A script is a short program that is run once for each candle of the chart, oldest first, and draws lines, bars or bands from what it reads: the candle, what was bought and sold at market over the exchanges of the flow column (or the ones it names with source), and the liquidations. Each script has a row of its own here, with its own scale.": "Скрипт — це коротка програма, яка виконується один раз для кожної свічки графіка, починаючи з найстарішої, і малює лінії, стовпчики чи смуги з того, що читає: свічку, те, що було куплено й продано за ринком на біржах колонки потоку (або на тих, які він називає через source), і ліквідації. Кожен скрипт має тут власний рядок із власною шкалою.",
  "Write one, paste one or start from an example in Scripts…. The language is the one indicator scripts are written in on other charting pages, so most such scripts run here as they are; Scripts… lists what is not supported. A script runs on a thread of its own and can read nothing but those inputs: no page, no network, no storage.": "Напишіть скрипт, вставте готовий або почніть із прикладу у вікні «Скрипти…». Мова та сама, якою пишуть скрипти індикаторів на інших сторінках із графіками, тож більшість таких скриптів працює тут як є; у вікні «Скрипти…» перелічено, що не підтримується. Скрипт виконується в окремому потоці виконання й не може читати нічого, крім цих вхідних даних: ні сторінки, ні мережі, ні сховища.",
  "The taker flow is what the page holds (a day a second at a time, older minutes where the server keeps them): a candle before that reads NaN and draws nothing, and the functions carry on past it.": "Потік тейкерів — це те, що зберігає сторінка (день посекундно, старіші хвилини, де їх зберігає сервер): свічка до цього дає NaN і нічого не малює, а функції працюють далі.",
@@ -1721,9 +1720,6 @@
   "many": "{n} скриптів увімкнено",
   "other": "{n} скрипти увімкнено"
  },
- "No scripts yet: open Scripts… to write one or add an example.": "Скриптів поки немає: відкрийте «Скрипти…», щоб написати скрипт або додати приклад.",
- "The scripts that are on draw on the map.": "Увімкнені скрипти малюють на карті.",
- "Every script is switched off: switch one on in Scripts….": "Усі скрипти вимкнено: увімкніть один у вікні «Скрипти…».",
  "running…": "виконується…",
  "{n} warnings": {
   "one": "{n} попередження",
@@ -1827,5 +1823,7 @@
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) називає свої ринки тим, що можна з'ясувати лише під час виконання: результат 0. Назвіть їх словом, параметром або options.name.",
  "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "У деякі дні ліквідацій було більше, ніж віддає джерело даних: найменших немає в lbuy і lsell.",
  "The file was written by a newer version of the page: update this page to read it.": "Файл записано новішою версією сторінки: оновіть цю сторінку, щоб його прочитати.",
- "This script was written for a newer version of the script language: update the page to run it.": "Цей скрипт написано для новішої версії мови скриптів: оновіть сторінку, щоб його запустити."
+ "This script was written for a newer version of the script language: update the page to run it.": "Цей скрипт написано для новішої версії мови скриптів: оновіть сторінку, щоб його запустити.",
+ "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Ваші власні індикатори, написані скриптами за свічками та потоком тейкерів: на карті або в окремих рядках під нею.",
+ "“{name}” stopped with an error: open Scripts to see it.": "«{name}» зупинено з помилкою: відкрийте Скрипти, щоб її побачити."
 }

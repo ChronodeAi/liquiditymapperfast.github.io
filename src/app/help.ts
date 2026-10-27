@@ -225,7 +225,7 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
   },
   script: {
     title: t('Scripts'), guide: 'lower-panes',
-    tip: t('A pane under the map: your own indicators, written as scripts over the candles and the taker flow.'),
+    tip: t('Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.'),
     body: [],
   },
   scriptPane: {

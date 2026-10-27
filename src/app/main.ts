@@ -109,6 +109,11 @@ async function main(): Promise<void> {
   const script = new ScriptPane(chart, store, heat.view, hub);
   // The scripts placed on the map draw over it, and a script's candle colours (`$price.color`) colour its candles.
   heat.scriptLayer = (ctx, pw, ph) => script.paintOnMap(ctx, pw, ph); heat.candleColor = t => script.candleColorAt(t); script.onMapChanged = () => heat.invalidate();
+  heat.scriptHover = t => script.mapHoverLines(t);
+  // The Scripts lamp and key in the top bar: the key opens the panel (from the pane's own button too), the lamp says what the scripts do.
+  toolbar.onOpenScripts = anchor => script.openPanel(anchor); script.onStatus = (note, name) => toolbar.setScriptsStatus(note, name);
+  /** Whether the Scripts pane has rows to show: Scripts is on and a script that is on draws in a row (one on the map needs no pane). */
+  const scriptRows = (s: typeof store.state): boolean => s.show.script && script.hasRows;
   const ladder = new LadderPane(side, store, kernels, hub);
   const cvd = new CvdPane(flowCol, store, hub, heat.view);
   // The phone's Candle view: a tab of its own that fills the area (panes/candle-pane.ts); it counts the markets the map's footprint counts.
@@ -236,14 +241,16 @@ async function main(): Promise<void> {
   const layout = () => {
     const s = store.state;
     gutters();
-    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.stats; script.root.hidden = !s.show.script;
+    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.stats; script.root.hidden = !scriptRows(s);
     // The two side panels vanish and return at once: nothing is rebuilt, a hidden column is simply not laid out.
     cvd.root.hidden = !s.show.cvd; ladder.root.hidden = !s.show.book;
     arrange.columns({ flow: s.show.cvd, book: s.show.book });
     arrange.rebuild();
     if (s.show.cvd) cvd.invalidate(); if (s.show.book) ladder.invalidate();
-    dock.sync(s.show);
+    // The Scripts tab, like its pane, is there only for scripts drawn in rows: those on the map need neither.
+    dock.sync({ ...s.show, script: scriptRows(s) });
   };
+  script.onRowsChanged = () => layout();
 
   /** The Bar stats rows the pane was last sized for: which, grouped or not, which kinds folded. */
   let tableShape = `${store.state.barStats.join(',')}|${store.state.barStatOptions.grouped}|${store.state.barStatOptions.folded.join(',')}`;

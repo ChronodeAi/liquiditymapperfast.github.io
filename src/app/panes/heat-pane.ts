@@ -221,6 +221,8 @@ export class HeatPane {
   candleColor: (t: number) => string = () => '';
   /** The scripts placed on the map draw here, over the candles and the lines, in the map's price and time (set by the Scripts pane). */
   scriptLayer: ((ctx: CanvasRenderingContext2D, pw: number, ph: number) => void) | null = null;
+  /** The popup lines of the person's scripts drawn on the map, at the candle starting at `t` (set by the Scripts pane). */
+  scriptHover: (t: number) => InfoLine[] = () => [];
   #glCanvas = document.createElement('canvas');
   #ctx: CanvasRenderingContext2D;
   /** The pane's whole width; the plot and everything right of it start after the columns left of the map (`#left`). */
@@ -2395,13 +2397,20 @@ export class HeatPane {
       this.#paintFootprintPopup(ctx, rowHit, x, y, pw, ph, touch);
     } else if (ownY && here && (measured = this.#bands.readout(x, y, hv.t))) { // a bucket of a band along the top: its box, under the band
       paintInfoBox(ctx, measured.lines, x, measured.y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: 'down' });
-    } else if (ownY && here && state.layer === 'liquidity') {
-      const cell = this.valueAt(hv.t, hv.price!);
-      const side = cell && cell.ask > cell.bid ? 'ask' : 'bid', source = cell ? this.#sourceOf(hv.t, hv.price!, side) : '';
-      const lines: InfoLine[] = [{ label: t('Price'), text: fmtPrice(hv.price!) }];
-      if (cell) lines.push({ label: side === 'ask' ? t('Ask') : t('Bid'), text: `$${usd(Math.max(cell.bid, cell.ask))}`, color: side === 'ask' ? 'above' : 'below', bold: true });
-      if (source) lines.push({ label: t('Source'), text: source });
-      paintInfoBox(ctx, lines, x, touch ? y - 24 : y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
+    } else if (ownY && here) {
+      // The price and the book there, then what the scripts on the map draw at that candle.
+      const scripted = this.scriptHover(hv.t);
+      if (state.layer === 'liquidity' || scripted.length) {
+        const lines: InfoLine[] = [{ label: t('Price'), text: fmtPrice(hv.price!) }];
+        if (state.layer === 'liquidity') {
+          const cell = this.valueAt(hv.t, hv.price!);
+          const side = cell && cell.ask > cell.bid ? 'ask' : 'bid', source = cell ? this.#sourceOf(hv.t, hv.price!, side) : '';
+          if (cell) lines.push({ label: side === 'ask' ? t('Ask') : t('Bid'), text: `$${usd(Math.max(cell.bid, cell.ask))}`, color: side === 'ask' ? 'above' : 'below', bold: true });
+          if (source) lines.push({ label: t('Source'), text: source });
+        }
+        lines.push(...scripted);
+        paintInfoBox(ctx, lines, x, touch ? y - 24 : y, { x0: 0, y0: 0, x1: pw, y1: ph }, p, { placement: touch ? 'up' : 'center' });
+      }
     }
     if (inX) { ctx.fillStyle = p.text; ctx.fillRect(x - 40, ph + 2, 80, 18); ctx.fillStyle = p.bg; ctx.textAlign = 'center'; ctx.fillText(clock(hv.t, true), x, ph + 11); }
   }
