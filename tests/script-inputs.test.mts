@@ -24,13 +24,15 @@ test('a liquidated short is a forced buy and a liquidated long a forced sell, as
 test('a filter keeps markets by kind, exchange and quote, and has one key whatever its order', () => {
   const all = [
     { id: 'binance:BTCUSDT', venue: 'binance', kind: 'perp' as const, quote: 'USDT' },
-    { id: 'binance-spot:BTCUSDT', venue: 'binance-spot', kind: 'spot' as const, quote: 'USDT' },
+    { id: 'binancespot:BTCUSDT', venue: 'binancespot', kind: 'spot' as const, quote: 'USDT' },
     { id: 'coinbase:BTC-USD', venue: 'coinbase', kind: 'spot' as const, quote: 'USD' },
   ];
   assert.deepEqual(marketsMatching(all, {}), all.map(m => m.id));
-  assert.deepEqual(marketsMatching(all, { kinds: ['spot'] }), ['binance-spot:BTCUSDT', 'coinbase:BTC-USD']);
+  assert.deepEqual(marketsMatching(all, { kinds: ['spot'] }), ['binancespot:BTCUSDT', 'coinbase:BTC-USD']);
   assert.deepEqual(marketsMatching(all, { kinds: ['spot'], quotes: ['usd'] }), ['coinbase:BTC-USD']);
-  assert.deepEqual(marketsMatching(all, { venues: ['BINANCE'] }), ['binance:BTCUSDT']);
+  assert.deepEqual(marketsMatching(all, { venues: ['BINANCE'] }), ['binance:BTCUSDT', 'binancespot:BTCUSDT'], 'an exchange is its family, spot and perpetual');
+  assert.deepEqual(marketsMatching(all, { venues: ['binance/perp'] }), ['binance:BTCUSDT']);
+  assert.deepEqual(marketsMatching(all, { venues: ['binance/spot', 'coinbase'] }), ['binancespot:BTCUSDT', 'coinbase:BTC-USD']);
   assert.equal(filterKey({ venues: ['b', 'a'], kinds: ['spot'] }), filterKey({ kinds: ['spot'], venues: ['A', 'B', 'a'] }));
   assert.equal(filterKey({}), '');
   assert.deepEqual(marketInfo([{ instrumentId: 'coinbase:BTC-USD', venue: 'coinbase', marketType: 'spot', quote: 'usd' }], 'coinbase:BTC-USD'), { id: 'coinbase:BTC-USD', venue: 'coinbase', kind: 'spot', quote: 'USD' });

@@ -1,5 +1,6 @@
 import type { CandleRow, Market } from '../store.ts';
 import type { CandleFlow } from '../delta/candles.ts';
+import { familyKey } from '../cvd/families.ts';
 
 /**
  * What a script reads, candle by candle, as flat arrays the page hands the script worker in one message: the chart's candles, and for each set
@@ -7,7 +8,10 @@ import type { CandleFlow } from '../delta/candles.ts';
  * liquidations of each candle, in USD. A candle nothing was recorded in is NaN, never 0: a quiet candle and an unknown one must not look alike.
  */
 
-/** Which markets a set holds: by kind, exchange or quote currency (each absent: any). */
+/**
+ * Which markets a set holds: by kind, exchange or quote currency (each absent: any). An exchange is its family (`binance` holds Binance's
+ * spot and perpetual markets), or a family and a kind (`binance/perp`).
+ */
 export interface SourceFilter { kinds?: readonly ('spot' | 'perp')[]; venues?: readonly string[]; quotes?: readonly string[] }
 /** A market as a filter sees it. */
 export interface MarketInfo { id: string; venue: string; kind: 'spot' | 'perp'; quote: string }
@@ -20,9 +24,14 @@ export function filterKey(f: SourceFilter): string {
 
 /** The markets of `all` a filter keeps. */
 export function marketsMatching(all: readonly MarketInfo[], f: SourceFilter): string[] {
-  const kinds = f.kinds?.length ? new Set(f.kinds) : null, venues = f.venues?.length ? new Set(f.venues.map(v => v.toLowerCase())) : null;
-  const quotes = f.quotes?.length ? new Set(f.quotes.map(q => q.toLowerCase())) : null;
-  return all.filter(m => (!kinds || kinds.has(m.kind)) && (!venues || venues.has(m.venue.toLowerCase())) && (!quotes || quotes.has(m.quote.toLowerCase()))).map(m => m.id);
+  const kinds = f.kinds?.length ? new Set(f.kinds) : null, quotes = f.quotes?.length ? new Set(f.quotes.map(q => q.toLowerCase())) : null;
+  const venues = f.venues?.length ? f.venues.map(v => { const [family, kind] = v.toLowerCase().split('/'); return { family: family!, kind }; }) : null;
+  return all.filter(m => {
+    if (kinds && !kinds.has(m.kind)) return false;
+    if (quotes && !quotes.has(m.quote.toLowerCase())) return false;
+    const family = familyKey(m.venue.toLowerCase());
+    return !venues || venues.some(v => v.family === family && (!v.kind || v.kind === m.kind));
+  }).map(m => m.id);
 }
 
 /** A market's exchange, kind and quote from the market list (a market it does not list counts as a perpetual, as the flow column takes it). */

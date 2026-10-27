@@ -23,6 +23,7 @@ export type Expr =
   | { k: 'index'; obj: Expr; index: Expr; optional: boolean; p: Pos }
   | { k: 'call'; callee: Expr; args: Expr[]; named: { name: string; value: Expr; p: Pos }[]; p: Pos }
   | { k: 'fn'; params: string[]; body: Stmt[]; p: Pos }
+  | { k: 'new'; name: string; args: Expr[]; p: Pos }
   | { k: 'seq'; items: Expr[]; p: Pos };
 export type Stmt =
   | { k: 'expr'; e: Expr; p: Pos }
@@ -107,7 +108,7 @@ export function parse(text: string): Stmt[] {
             i++; const n = name(); const params = paramList(); const body = block();
             return { k: 'func', name: n, params, body, p };
           }
-          case 'switch': case 'try': case 'throw': case 'class': case 'new': case 'import': case 'export': case 'with': case 'delete': case 'async': case 'await': case 'yield':
+          case 'switch': case 'try': case 'throw': case 'class': case 'import': case 'export': case 'with': case 'delete': case 'async': case 'await': case 'yield':
             fail('unsupported', t, t.text);
         }
       }
@@ -255,7 +256,15 @@ export function parse(text: string): Stmt[] {
     if (t.kind === 'str') { i++; return { k: 'str', v: t.value as string, p }; }
     if (t.kind === 'id') {
       if (t.text === 'function') { i++; if (peek().kind === 'id') name(); const params = paramList(); return { k: 'fn', params, body: block(), p }; }
-      if (t.text === 'new' || t.text === 'this' || t.text === 'class' || t.text === 'delete' || t.text === 'await' || t.text === 'yield' || t.text === 'import') fail('unsupported', t, t.text);
+      // `new` makes the few things the language can make: a date (`new Date(ms)`) and an array (`new Array(n)`).
+      if (t.text === 'new') {
+        i++; const c = peek();
+        if (c.kind !== 'id' || (c.text !== 'Date' && c.text !== 'Array')) fail('unsupported', t, 'new');
+        i++; const args: Expr[] = [];
+        if (isOp('(')) { i++; while (!isOp(')')) { args.push(assignment()); if (!isOp(')')) eat(','); } i++; }
+        return { k: 'new', name: c.text, args, p };
+      }
+      if (t.text === 'this' || t.text === 'class' || t.text === 'delete' || t.text === 'await' || t.text === 'yield' || t.text === 'import') fail('unsupported', t, t.text);
       if (RESERVED.has(t.text) && t.text !== 'true' && t.text !== 'false' && t.text !== 'null') fail('unexpected', t);
       i++; return { k: 'id', name: t.text, p };
     }
