@@ -964,7 +964,8 @@ export class HeatPane {
     let y = 6 + textH + lineH / 2;
     listed.forEach((s, k) => {
       ctx.fillStyle = s.color || p.vwap; ctx.fillRect(12, y - 4, 8, 8);
-      ctx.fillStyle = p.text; ctx.fillText(scriptNames[k]!, 24, y);
+      // Where no values are shown (names alone) the name carries the script's state: muted while it waits, red when it stopped.
+      ctx.fillStyle = !scriptValues[k] && s.tone === 'error' ? p.ask : !scriptValues[k] && s.tone === 'muted' ? p.muted : p.text; ctx.fillText(scriptNames[k]!, 24, y);
       const toolsX = 24 + wide(scriptNames[k]!) + 6;
       places.push({ id: s.id, x: toolsX, y: y - (touch ? 11 : 8) });
       if (scriptValues[k]) { ctx.fillStyle = s.tone === 'error' ? p.ask : p.muted; ctx.fillText(scriptValues[k]!, toolsX + toolsW + 6, y); }

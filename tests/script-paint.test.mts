@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_MARGINS, marginsOf, plotExtent, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf } from '../src/app/script/paint.ts';
+import { DEFAULT_MARGINS, marginsOf, plotColorAt, plotExtent, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf } from '../src/app/script/paint.ts';
 import type { PlotOut } from '../src/app/script/protocol.ts';
 import { interpolateColors, parseColor, safeColor } from '../src/app/script/lang/colors.ts';
 
@@ -49,4 +49,16 @@ test('colours a script gives are read before they are painted, and blends run al
   assert.equal(interpolateColors(-1, ['red', 'blue']), 'rgb(255, 0, 0)');
   assert.equal(interpolateColors(2, ['red', 'blue']), 'rgb(0, 0, 255)');
   assert.equal(interpolateColors(0.5, ['rgba(0,0,0,0)', 'rgba(0,0,0,1)']), 'rgba(0, 0, 0, 0.5)');
+});
+
+test('a legend swatch takes the colour the plot is drawn in at that candle', () => {
+  const pal = safeColor('#123456', ''), up = safeColor('#00ff00', ''), down = safeColor('#ff0000', '');
+  const line = { ...plot('line', [1, 2]), style: { color: 'blue' }, colors: ['red', ''] };
+  assert.equal(plotColorAt(line, 0, pal, up, down), safeColor('red', ''), "a point's own colour first");
+  assert.equal(plotColorAt(line, 1, pal, up, down), safeColor('blue', ''), "then the plot's");
+  assert.equal(plotColorAt(plot('line', [1], { lineColor: 'orange' }), 0, pal, up, down), safeColor('orange', ''));
+  assert.equal(plotColorAt(plot('line', [1]), 0, pal, up, down), pal, "else the page's colour for its place");
+  const candles: PlotOut = { kind: 'candlestick', title: '', style: {}, fields: { open: Float64Array.from([1, 2]), high: Float64Array.from([3, 3]), low: Float64Array.from([0, 0]), close: Float64Array.from([2, 1]) }, colors: null };
+  assert.deepEqual([plotColorAt(candles, 0, pal, up, down), plotColorAt(candles, 1, pal, up, down)], [up, down], 'a candle by its direction');
+  assert.equal(plotColorAt(plot('baseline', [-1], { baseValue: 0, bottomLineColor: 'purple' }), 0, pal, up, down), safeColor('purple', ''), 'a baseline below its base');
 });

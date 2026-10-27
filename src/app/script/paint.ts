@@ -106,6 +106,24 @@ const color = (raw: OptionValue | undefined, fallback: string): string => safeCo
 /** The colour of point `i`: its own, else the plot's. */
 const pointColor = (plot: PlotOut, i: number, fallback: string): string => { const c = plot.colors?.[i]; return c ? safeColor(c, fallback) : fallback; };
 
+/**
+ * The colour a plot is drawn in at point `i`, as `paintPlot` chooses it (for a legend's swatch): a point's own colour first, then the plot's
+ * for its kind (a line's color or lineColor, a baseline's line above or below its base, a candle's up or down colour, a cloud's upper line),
+ * else `fallback` (the page's colour for the plot's place) or the page's up and down colours.
+ */
+export function plotColorAt(plot: PlotOut, i: number, fallback: string, up: string, down: string): string {
+  const v = plot.fields.value?.[i] ?? NaN;
+  switch (plot.kind) {
+    case 'line': case 'area': return pointColor(plot, i, color(plot.style.color ?? plot.style.lineColor, fallback));
+    case 'baseline': return pointColor(plot, i, v >= styleNum(plot.style.baseValue ?? plot.style.base, 0) ? color(plot.style.topLineColor, up) : color(plot.style.bottomLineColor, down));
+    case 'histogram': return pointColor(plot, i, color(plot.style.color, fallback));
+    case 'candlestick': case 'bar': { const o = plot.fields.open?.[i] ?? NaN, c = plot.fields.close?.[i] ?? NaN; return pointColor(plot, i, c >= o ? color(plot.style.upColor, up) : color(plot.style.downColor, down)); }
+    case 'cloudarea': return color(plot.style.higherLineColor ?? plot.style.positiveLineColor, up);
+    case 'brokenarea': return pointColor(plot, i, color(plot.style.color, withAlpha(up, 0.2)));
+  }
+  return fallback;
+}
+
 /** Draw one plot in its row on its scale. */
 export function paintPlot(f: Frame, plot: PlotOut, s: Scale): void {
   if (plot.style.visible === false) return;

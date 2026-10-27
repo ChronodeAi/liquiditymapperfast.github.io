@@ -20,7 +20,7 @@ import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
 import { SCRIPT_API, loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
 import { starterScripts } from '../script/starter.ts';
 import { PLOT_FIELDS, type PlotOut, type ScriptResult, type Warning } from '../script/protocol.ts';
-import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
+import { paintPlot, plotColorAt, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
 import type { SourceFilter } from '../script/inputs.ts';
@@ -205,9 +205,9 @@ export class ScriptPane extends TimePane {
       // Lines first (they are what a legend reads), then the other plots; bands coloured point by point only when there is nothing else.
       const plots = res.plots.map((plot, j) => ({ plot, j })).filter(({ plot }) => plot.style.visible !== false).sort((a, b) => Number(b.plot.kind === 'line') - Number(a.plot.kind === 'line'));
       const read = plots.filter(({ plot }) => !band(plot) && finiteAt(plot)), from = read.length ? read : plots.filter(({ plot }) => finiteAt(plot));
-      // Its colour as it is drawn: the plot's own (color, or lineColor), its colour at this candle, or the page's colour for its place.
-      const first = from[0] ?? plots[0], own = first ? first.plot.style.color ?? first.plot.style.lineColor : undefined;
-      const color = !first ? '' : (typeof own === 'string' && safeColor(own, '')) || (i >= 0 && first.plot.colors?.[i] ? safeColor(first.plot.colors[i]!, '') : '') || fallbacks[first.j % fallbacks.length]!;
+      // Its colour as it is drawn at this candle (the painter's own choice: a point's colour, the plot's for its kind, the page's for its place).
+      const first = from[0] ?? plots[0];
+      const color = first ? plotColorAt(first.plot, Math.max(0, i), fallbacks[first.j % fallbacks.length]!, p.candleUp, p.candleDown) : '';
       let text = '';
       if (withValues && i >= 0) {
         const texts = from.slice(0, 3).map(({ plot }) => {
