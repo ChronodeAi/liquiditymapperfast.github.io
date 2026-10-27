@@ -70,8 +70,8 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
     const st = statusOf(host, r);
     const box = el('input', { type: 'checkbox', checked: r.on, ariaLabel: t('On') });
     box.onchange = () => {
-      keep(list.map(x => x.id === r.id ? { ...x, on: box.checked } : x), box.checked ? t('“{name}” is on.', { name: r.name }) : t('“{name}” is off.', { name: r.name }));
       if (box.checked) host.showScripts();
+      keep(list.map(x => x.id === r.id ? { ...x, on: box.checked } : x), box.checked ? t('“{name}” is on.', { name: r.name }) : t('“{name}” is off.', { name: r.name }));
     };
     const armed = ui.armed === r.id;
     const remove = button(armed ? t('Sure?') : t('Delete'), () => {
@@ -95,8 +95,8 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
   for (const ex of examples()) {
     const place = ex.place ?? 'pane';
     const add = button(t('Add'), () => {
-      keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place }], t('Added “{name}”.', { name: ex.name }));
       host.showScripts();
+      keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place }], t('Added “{name}”.', { name: ex.name }));
     }, t('Add a ready-made script to start from'));
     add.disabled = full;
     body.append(el('div', { class: 'layout-row script-example' }, el('span', { class: 'script-example-name', textContent: ex.name }), el('span', { class: 'layout-date', textContent: place === 'map' ? t('On the map') : t('In its own row') }), add));
@@ -213,8 +213,8 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
     const list = existing ? host.records.map(r => r.id === existing.id ? record : r) : [...host.records, record];
     if (!existing && host.records.length >= MAX_SCRIPTS) { say(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS }), true); return; }
     ui.editing = record.id; ui.draft = { name: record.name, source: record.source, options: { ...record.options }, place: record.place };
-    keep(list, t('Saved “{name}”: it runs with the next update.', { name: record.name }));
     if (!existing) host.showScripts();
+    keep(list, t('Saved “{name}”: it runs with the next update.', { name: record.name }));
   };
   const check = (): void => { const a = host.analysisOf({ ...probe, source: draft.source }); say(isError(a) ? errorText(a) : t('The script reads.'), isError(a)); };
   body.append(el('div', { class: 'layout-tools' },

@@ -37,12 +37,15 @@ export function statusOf(host: ScriptsHost, r: ScriptRecord): { text: string; er
   return { text: `${r.place === 'map' ? t('On the map') : t('In its own row')} · ${status}`, error: r.on && !!res && !res.ok };
 }
 
+/** A value written with the keys of its objects in order, so two option sets compare by what they hold, not by the order they were set in. */
+const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : x);
+
 /** Whether the script being written differs from what is kept (a new one: whether anything was written). */
 export function unsaved(host: ScriptsHost, ui: ScriptsPanelState): boolean {
   const d = ui.draft; if (!d) return false;
   const r = host.records.find(x => x.id === ui.editing);
   if (!r) return d.source.trim() !== '' || d.name.trim() !== '';
-  return (cleanName(d.name) ?? '') !== r.name || d.source !== r.source || d.place !== r.place || JSON.stringify(d.options) !== JSON.stringify(r.options);
+  return (cleanName(d.name) ?? '') !== r.name || d.source !== r.source || d.place !== r.place || stable(d.options) !== stable(r.options);
 }
 
 /**

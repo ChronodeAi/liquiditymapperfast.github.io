@@ -135,7 +135,7 @@ async function main(): Promise<void> {
   // does not, `loads`; the map is drawn several times a second while frames come anyway), with the Delta pane hidden as well.
   let stripLoads = hub.flow.loads;
   // The open-interest markets are worked out from the flow and the books on the map, which come after the candles: asked again as they do.
-  hub.onFlowChanged = () => { cvd.invalidate(); delta.invalidate(); script.invalidate(); const landed = stripLoads !== hub.flow.loads; stripLoads = hub.flow.loads; if (replaying() || (landed && topShown(store.state))) heat.invalidate(); hub.refreshOiMarkets(); };
+  hub.onFlowChanged = () => { cvd.invalidate(); delta.invalidate(); script.refresh(); const landed = stripLoads !== hub.flow.loads; stripLoads = hub.flow.loads; if (replaying() || (landed && topShown(store.state))) heat.invalidate(); hub.refreshOiMarkets(); };
   // A finger on a pane under the map moves the time axis it shares with the map.
   for (const pane of [depth, oi, delta, ls, lt, bars, script]) pane.useTimeGestures(heat.timeGestures());
   heat.onFrame = lower; heat.onView = lower;
@@ -285,7 +285,7 @@ async function main(): Promise<void> {
     if (changed.has('replay')) { ladder.invalidate(); cvd.invalidate(); heat.invalidate(); lower(); }
     if (changed.has('layers') || changed.has('layer') || changed.has('candles') || changed.has('mark') || changed.has('heat') || changed.has('show')) heat.invalidate();
     if (changed.has('oi') || changed.has('show')) { oi.invalidate(); bars.invalidate(); }
-    if (changed.has('show') && !state.show.script) script.dropPending();
+    if (changed.has('show')) script.showChanged();
     if (changed.has('lt') || changed.has('show') || changed.has('sounds')) lt.refresh();
     if (changed.has('sounds')) depth.syncSound();
     // The pane is sized again only when its rows change (which, or grouped and folded), not for every option: a height set by hand stays.

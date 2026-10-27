@@ -32,6 +32,9 @@ test('a script opened and left unchanged opens on the list next time; one with c
     assert.equal(ui.armed, null);
   }
   assert.equal(unsaved(h, editing(vwap.id, { name: `  ${vwap.name} ` })), false, 'a name as it would be kept');
+  const two = host([{ ...vwap, options: { len: 14, mult: 2 } }]);
+  assert.equal(unsaved(two, editing(vwap.id, { options: { mult: 2, len: 14 } })), false, 'an option cleared and set back to its value: the same options, in another order');
+  assert.equal(unsaved(two, editing(vwap.id, { options: { mult: 2, len: 15 } })), true);
 
   const empty: ScriptsPanelState = { editing: 'new', draft: { name: '', source: '  \n', options: {}, place: 'pane' }, message: null, armed: null };
   assert.equal(unsaved(h, empty), false, 'a new script nothing was written in');
