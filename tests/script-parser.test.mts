@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenize, ScriptSyntaxError } from '../src/app/script/lexer.ts';
-import { parse, type Expr, type Stmt } from '../src/app/script/parser.ts';
+import { tokenize, ScriptSyntaxError } from '../src/app/script/lang/lexer.ts';
+import { parse, type Expr, type Stmt } from '../src/app/script/lang/parser.ts';
 
 const errorOf = (text: string): { code: string; line: number; col: number } => {
   try { parse(text); } catch (e) { if (e instanceof ScriptSyntaxError) return e.info; throw e; }

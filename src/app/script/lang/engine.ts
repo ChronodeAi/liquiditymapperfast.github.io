@@ -4,9 +4,9 @@ import { Interpreter, declaredNames, numberSites, type Budget, type Host } from 
 import { DateValue, HostObject, NativeFunction, ScriptRuntimeError, fromData, isPlain, num, plain, text, toData, truthy, type Value } from './values.ts';
 import { BUILTINS, makeInstance, type Instance } from './builtins.ts';
 import { COLOR_NAMES, interpolateColors, rgb } from './colors.ts';
-import { PLOT_FIELDS, type OptionDecl, type PlotKind, type PlotOut, type ScriptResult, type Warning } from './protocol.ts';
-import { filterKey, type BarInputs, type SourceFilter, type SourceInputs } from './inputs.ts';
-import type { OptionValue } from './records.ts';
+import { PLOT_FIELDS, type OptionDecl, type PlotKind, type PlotOut, type ScriptResult, type Warning } from '../protocol.ts';
+import { filterKey, type BarInputs, type SourceFilter, type SourceInputs } from '../inputs.ts';
+import type { OptionValue } from '../records.ts';
 
 /**
  * A script from text to plots. `analyze` reads it without running it (what it declares, which sets of markets it reads), so the page can

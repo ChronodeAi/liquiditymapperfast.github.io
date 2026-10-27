@@ -134,14 +134,14 @@ export function keyOf(v: Value): string {
 }
 
 /** A copy of a script value as plain data for the page (plot styles): numbers, texts, true/false, arrays and objects of those. */
-export function toData(v: Value, depth = 0): import('./records.ts').OptionValue | undefined {
+export function toData(v: Value, depth = 0): import('../records.ts').OptionValue | undefined {
   if (v === null) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'string' || typeof v === 'boolean') return v;
   if (depth > 3) return undefined;
   if (Array.isArray(v)) return v.slice(0, 64).map(x => toData(x, depth + 1) ?? null);
   if (isPlain(v)) {
-    const out: Record<string, import('./records.ts').OptionValue> = {};
+    const out: Record<string, import('../records.ts').OptionValue> = {};
     for (const [k, x] of Object.entries(v).slice(0, 64)) { const d = toData(x, depth + 1); if (d !== undefined) out[k] = d; }
     return out;
   }

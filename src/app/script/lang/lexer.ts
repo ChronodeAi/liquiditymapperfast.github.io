@@ -70,6 +70,11 @@ export function tokenize(text: string): Token[] {
       i++; push('str', start, value); continue;
     }
     if (isIdStart(c)) { while (i < text.length && isIdPart(text[i]!)) i++; push('id', start, text.slice(start, i)); continue; }
+    // A colour written as `#rrggbb` (`default=#2e9bff`) is a text, as the scripts' language reads such a value.
+    if (c === '#') {
+      const m = /^#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w$])/.exec(text.slice(i, i + 10));
+      if (m) { i += m[0].length; push('str', start, m[0]); continue; }
+    }
     let op = OPS.find(o => text.startsWith(o, i));
     if (!op) fail('unexpected-char', i, c);
     // `a?.5:b` is a condition and a number, as in JavaScript, not an optional member.

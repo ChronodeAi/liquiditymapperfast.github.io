@@ -1,5 +1,5 @@
 import type { BarInputs } from './inputs.ts';
-import type { ScriptError } from './lexer.ts';
+import type { ScriptError } from './lang/lexer.ts';
 import type { OptionValue } from './records.ts';
 
 /** The messages between the page and the script worker, and what a run answers for each script. */
@@ -7,7 +7,8 @@ import type { OptionValue } from './records.ts';
 /** One script to run: its text, the values set for its options, and the version of the language it was written for. */
 export interface ScriptJob { id: string; source: string; options: Record<string, OptionValue>; api: number }
 export interface RunRequest { t: 'run'; seq: number; jobs: ScriptJob[]; inputs: BarInputs }
-export interface RunResponse { t: 'result'; seq: number; results: ScriptResult[] }
+/** A run's answer, or the worker saying it has loaded and can take runs (sent once, first). */
+export type RunResponse = { t: 'result'; seq: number; results: ScriptResult[] } | { t: 'ready' };
 
 /** What a plot draws: a line, an area under a line, bars, a line with a baseline, candles or bars of four prices, a band between two lines. */
 export type PlotKind = 'line' | 'area' | 'histogram' | 'baseline' | 'candlestick' | 'bar' | 'cloudarea' | 'brokenarea';

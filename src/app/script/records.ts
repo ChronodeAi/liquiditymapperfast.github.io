@@ -171,6 +171,21 @@ export function mergeScripts(list: readonly ScriptRecord[], incoming: readonly S
   return { list: out, added, replaced, skipped };
 }
 
+/**
+ * A value for an option a script reads (`options.name`) without declaring it, when nothing set one: guessed from its name as the indicator
+ * editors scripts are written in guess it (a `...length` is 14, a `...color` a colour, a `...width` 1, a `show...`/`use...` switch on, a
+ * multiplier 2). Null when the name says nothing: the panel then asks for it.
+ */
+export function inferredOption(name: string): OptionValue | null {
+  const n = name.toLowerCase();
+  if (/length$|period$|^len$/.test(n)) return 14;
+  if (/colou?r$/.test(n)) return n.includes('down') || n.includes('sell') || n.includes('neg') ? '#ef5350' : n.includes('up') || n.includes('buy') || n.includes('pos') ? '#26a69a' : '#4f8ff7';
+  if (/width$/.test(n)) return 1;
+  if (/^(show|use|toggle|set|enable)[A-Z_]/.test(name)) return true;
+  if (/mult|multiplier/.test(n)) return 2;
+  return null;
+}
+
 /** The scripts kept in this browser (none when storage is not there or holds something else). */
 export function loadScripts(storage: Pick<Storage, 'getItem'> | null = globalThis.localStorage ?? null): ScriptRecord[] {
   try { const raw = storage?.getItem(SCRIPTS_KEY); return raw ? readScripts(JSON.parse(raw)) : []; } catch { return []; }

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze, exchangeOf, runScript, sourceFilter } from '../src/app/script/engine.ts';
+import { analyze, exchangeOf, runScript, sourceFilter } from '../src/app/script/lang/engine.ts';
 import { filterKey, type BarInputs, type SourceInputs } from '../src/app/script/inputs.ts';
-import { parse } from '../src/app/script/parser.ts';
+import { parse } from '../src/app/script/lang/parser.ts';
 import type { ScriptResult } from '../src/app/script/protocol.ts';
 
 const MIN = 60_000;
