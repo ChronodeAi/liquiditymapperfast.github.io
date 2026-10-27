@@ -1711,7 +1711,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "このペインの専用の行か、マップ上か。マップ上では、価格スケールのプロット（初期設定）はその価格に、その他はそれぞれ独自のスケールに描きます。",
  "Draw": "描画先",
  "Pasted script": "貼り付けたスクリプト",
- "Read {n} scripts.": "{n} 個のスクリプトを読み込みました。",
  "Saved “{name}”: it runs with the next update.": "「{name}」を保存しました。次の更新で実行されます。",
  "The script reads.": "スクリプトは正しく読み取れます。",
  "Keep the script and run it": "スクリプトを保存して実行",
@@ -1720,5 +1719,7 @@
  "Back": "戻る",
  "Back to the list (what is not saved is dropped)": "一覧に戻る（保存していない内容は破棄されます）",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) の市場が、実行してみないと分からないもので指定されています。0 になります。単語、オプション、または options.name で指定してください。",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "データ元が返す件数より多くの清算があった日があります。lbuy と lsell では最も小さいものが欠けています。"
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "データ元が返す件数より多くの清算があった日があります。lbuy と lsell では最も小さいものが欠けています。",
+ "The file was written by a newer version of the page: update this page to read it.": "このファイルは新しいバージョンのページで書かれています。読み込むには、このページを更新してください。",
+ "This script was written for a newer version of the script language: update the page to run it.": "このスクリプトは新しいバージョンのスクリプト言語向けに書かれています。実行するには、ページを更新してください。"
 }

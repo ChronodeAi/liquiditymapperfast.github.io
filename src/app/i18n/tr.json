@@ -1772,10 +1772,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "Bu bölmede kendine ait bir satır ya da harita: fiyat ölçeğindeki çizimler (varsayılan) kendi fiyatlarında, diğerleri her biri kendi ölçeğinde.",
  "Draw": "Çiz",
  "Pasted script": "Yapıştırılan betik",
- "Read {n} scripts.": {
-  "one": "{n} betik okundu.",
-  "other": "{n} betik okundu."
- },
  "Saved “{name}”: it runs with the next update.": "“{name}” kaydedildi: bir sonraki güncellemeyle çalışır.",
  "The script reads.": "Betik okunabiliyor.",
  "Keep the script and run it": "Betiği sakla ve çalıştır",
@@ -1784,5 +1780,7 @@
  "Back": "Geri",
  "Back to the list (what is not saved is dropped)": "Listeye dön (kaydedilmeyen atılır)",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Bir source(...), piyasalarını ancak çalışmanın bulabileceği bir şeyle adlandırıyor: 0 verir. Onları bir sözcükle, bir seçenekle ya da options.name ile adlandırın.",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Bazı günlerde veri kaynağının döndürdüğünden daha fazla tasfiye vardı: en küçükleri lbuy ve lsell'de eksik."
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Bazı günlerde veri kaynağının döndürdüğünden daha fazla tasfiye vardı: en küçükleri lbuy ve lsell'de eksik.",
+ "The file was written by a newer version of the page: update this page to read it.": "Dosya sayfanın daha yeni bir sürümüyle yazılmış: okumak için bu sayfayı güncelleyin.",
+ "This script was written for a newer version of the script language: update the page to run it.": "Bu betik, betik dilinin daha yeni bir sürümü için yazılmış: çalıştırmak için sayfayı güncelleyin."
 }

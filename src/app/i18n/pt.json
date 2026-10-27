@@ -1793,11 +1793,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "Uma fileira própria neste painel, ou no mapa: os traçados da escala de preços (o padrão) nos seus preços, os outros cada um numa escala própria.",
  "Draw": "Desenhar",
  "Pasted script": "Script colado",
- "Read {n} scripts.": {
-  "one": "{n} script lido.",
-  "other": "{n} scripts lidos.",
-  "many": "{n} scripts lidos."
- },
  "Saved “{name}”: it runs with the next update.": "“{name}” guardado: corre com a próxima atualização.",
  "The script reads.": "O script pode ser lido.",
  "Keep the script and run it": "Guardar o script e executá-lo",
@@ -1806,5 +1801,7 @@
  "Back": "Voltar",
  "Back to the list (what is not saved is dropped)": "Voltar à lista (o que não foi guardado perde-se)",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Um source(...) indica os seus mercados com algo que só a execução consegue determinar: dá 0. Indique-os com uma palavra, uma opção ou options.name.",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Alguns dias tiveram mais liquidações do que a fonte de dados devolve: as mais pequenas faltam em lbuy e lsell."
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Alguns dias tiveram mais liquidações do que a fonte de dados devolve: as mais pequenas faltam em lbuy e lsell.",
+ "The file was written by a newer version of the page: update this page to read it.": "O ficheiro foi escrito por uma versão mais recente da página: atualize esta página para o ler.",
+ "This script was written for a newer version of the script language: update the page to run it.": "Este script foi escrito para uma versão mais recente da linguagem de scripts: atualize a página para o executar."
 }

@@ -1819,12 +1819,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "Окремий рядок у цій панелі або карта: побудови на ціновій шкалі (за замовчуванням) — на своїх цінах, решта — кожна на власній шкалі.",
  "Draw": "Малювати",
  "Pasted script": "Вставлений скрипт",
- "Read {n} scripts.": {
-  "one": "Прочитано {n} скрипт.",
-  "few": "Прочитано {n} скрипти.",
-  "many": "Прочитано {n} скриптів.",
-  "other": "Прочитано {n} скрипти."
- },
  "Saved “{name}”: it runs with the next update.": "«{name}» збережено: він запуститься з наступним оновленням.",
  "The script reads.": "Скрипт читається без помилок.",
  "Keep the script and run it": "Зберегти скрипт і запустити його",
@@ -1833,5 +1827,7 @@
  "Back": "Назад",
  "Back to the list (what is not saved is dropped)": "Назад до списку (незбережене буде втрачено)",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) називає свої ринки тим, що можна з'ясувати лише під час виконання: результат 0. Назвіть їх словом, параметром або options.name.",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "У деякі дні ліквідацій було більше, ніж віддає джерело даних: найменших немає в lbuy і lsell."
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "У деякі дні ліквідацій було більше, ніж віддає джерело даних: найменших немає в lbuy і lsell.",
+ "The file was written by a newer version of the page: update this page to read it.": "Файл записано новішою версією сторінки: оновіть цю сторінку, щоб його прочитати.",
+ "This script was written for a newer version of the script language: update the page to run it.": "Цей скрипт написано для новішої версії мови скриптів: оновіть сторінку, щоб його запустити."
 }

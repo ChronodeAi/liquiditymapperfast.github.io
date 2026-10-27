@@ -1793,11 +1793,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "Une rangée à part dans ce panneau, ou sur la carte : les tracés de l'échelle des prix (par défaut) à leurs prix, les autres chacun sur une échelle propre.",
  "Draw": "Tracer",
  "Pasted script": "Script collé",
- "Read {n} scripts.": {
-  "one": "{n} script lu.",
-  "other": "{n} scripts lus.",
-  "many": "{n} scripts lus."
- },
  "Saved “{name}”: it runs with the next update.": "« {name} » enregistré : il s'exécute à la prochaine mise à jour.",
  "The script reads.": "Le script est lisible.",
  "Keep the script and run it": "Garder le script et l'exécuter",
@@ -1806,5 +1801,7 @@
  "Back": "Retour",
  "Back to the list (what is not saved is dropped)": "Retour à la liste (ce qui n'est pas enregistré est perdu)",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Un source(...) nomme ses marchés avec quelque chose que seule l'exécution peut déterminer : il donne 0. Nommez-les avec un mot, une option ou options.name.",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Certains jours ont compté plus de liquidations que la source de données n'en renvoie : les plus petites manquent dans lbuy et lsell."
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Certains jours ont compté plus de liquidations que la source de données n'en renvoie : les plus petites manquent dans lbuy et lsell.",
+ "The file was written by a newer version of the page: update this page to read it.": "Le fichier a été écrit par une version plus récente de la page : mettez cette page à jour pour le lire.",
+ "This script was written for a newer version of the script language: update the page to run it.": "Ce script a été écrit pour une version plus récente du langage de script : mettez la page à jour pour l’exécuter."
 }

@@ -13,7 +13,9 @@ test('a script read back keeps what it was and drops what it cannot be', () => {
   assert.match(made.id, /^my-cvd-[a-z0-9]{6}$/);
   assert.equal(made.source, 'a\nb\nc', 'line ends kept as newlines');
   assert.equal(made.height, ROW_MAX);
-  assert.equal(made.api, SCRIPT_API, 'a newer api than the page knows is read as the newest it can');
+  assert.equal(made.api, 99, 'a script keeps the version it was written for, a newer one too (the pane then does not run it)');
+  assert.deepEqual(importText(JSON.stringify({ format: FILE_FORMAT, version: 999, scripts: [script('a-000001')] }), 'x'), { error: 'newer' }, 'a file of a later version is refused, not read as this one');
+  assert.deepEqual(loadScripts(null), []);
   assert.equal(made.on, true, 'only false switches a script off');
   assert.equal(made.place, 'pane');
   assert.equal(readScript({ name: 'a', source: 'x', place: 'map' })!.place, 'map');

@@ -1,5 +1,6 @@
 import type { Hub } from '../hub.ts';
 import { TIMEFRAMES } from '../hub.ts';
+import { pageNow, replaying } from '../replay/clock.ts';
 import type { Store } from '../store.ts';
 import type { View } from '../view.ts';
 import { helpButton } from '../help.ts';
@@ -14,7 +15,7 @@ import { ScriptHost, type WorkerLike } from '../script/host.ts';
 import { ScriptData } from '../script/data.ts';
 import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/analysis.ts';
 import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
-import { loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
+import { SCRIPT_API, loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
 import { PLOT_FIELDS, type ScriptResult, type Warning } from '../script/protocol.ts';
 import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
@@ -109,21 +110,27 @@ export class ScriptPane extends TimePane {
     const state = this.store.state;
     const on = this.#records.filter(r => r.on);
     if (!state.show.script || !on.length || this.#running) return;
-    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope };
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replaying() ? Math.floor(pageNow() / tf) : -1 };
     const was = this.#seen, now = Date.now();
     const changed = !was || Object.keys(seen).some(k => (seen as Record<string, unknown>)[k] !== (was as Record<string, unknown>)[k]);
-    if (!changed && now - this.#lastRun < REFRESH) return;
+    // Nothing changed: run again at the refresh anyway (the candle under way fills in from the flow), on a timer, so a quiet page still refreshes.
+    if (!changed && now - this.#lastRun < REFRESH) { this.#wake(this.#lastRun + REFRESH - now); return; }
     const interval = Math.max(MIN_INTERVAL, this.#runMs * 4), wait = this.#lastRun + interval - now;
-    if (wait > 0) { if (!this.#timer) this.#timer = window.setTimeout(() => { this.#timer = 0; this.invalidate(); }, wait); return; }
+    if (wait > 0) { this.#wake(wait); return; }
     this.#seen = seen;
     this.#run(on);
   }
+
+  /** Draw again (and so look whether a run is due) in `ms`. */
+  #wake(ms: number): void { if (!this.#timer) this.#timer = window.setTimeout(() => { this.#timer = 0; this.invalidate(); }, Math.max(50, ms)); }
 
   #run(on: readonly ScriptRecord[]): void {
     const state = this.store.state;
     const filters = new Map<string, SourceFilter>([['', {}]]);
     const runnable: ScriptRecord[] = [];
     for (const r of on) {
+      if (r.api > SCRIPT_API) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: { code: 'newer-api', line: 0, col: 0 } }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
       const a = this.#analyze(r.source);
       if (!('program' in a)) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
       // Its markets as its options name them (`exchange=options.venue`): the worker works them out from the same values.
@@ -147,12 +154,15 @@ export class ScriptPane extends TimePane {
     }
     const time = inputs.time.slice(), tf = inputs.tf, inst = state.seriesInstrument, started = Date.now();
     this.#running = true; this.#lastRun = started;
+    const version = this.#version;
     void this.#host.run(runnable.map(r => ({ id: r.id, source: r.source, options: r.options, api: r.api })), inputs).then(results => {
       this.#running = false;
       if (!results.length) return;
+      // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
+      if (version !== this.#version) { this.invalidate(); return; }
       this.#runMs = Date.now() - started;
       for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst });
-      this.#held = new Map(this.#held);
+      this.#held = new Map(this.#held); this.#heldGen++;
       this.invalidate();
       this.onMapChanged();
       this.#refreshPanel();
@@ -178,14 +188,14 @@ export class ScriptPane extends TimePane {
       ctx.fillText(!this.#records.length ? t('No scripts yet: open Scripts… to write one or add an example.') : running.length ? t('The scripts that are on draw on the map.') : t('Every script is switched off: switch one on in Scripts….'), 12, ph / 2);
       return;
     }
-    const total = on.reduce((s, r) => s + r.height, 0);
+    const total = on.reduce((s, r) => s + r.height, 0), least = Math.max(1, Math.min(24, Math.floor(ph / on.length)));
     let top = 0;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
     const hv = state.hover;
     const card: InfoLine[] = [];
     const fallbacks = [p.vwap, p.poc, p.level, p.accent, p.bid, p.ask];
     on.forEach((r, k) => {
-      const rowH = k === on.length - 1 ? ph - top : Math.max(24, Math.round(ph * r.height / total));
+      const left = on.length - 1 - k, rowH = left === 0 ? Math.max(least, ph - top) : Math.max(least, Math.min(ph - top - left * least, Math.round(ph * r.height / total)));
       const held = this.#held.get(r.id);
       if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(this.w, top + 0.5); ctx.stroke(); }
       // A row's name stands on a faint plate of the page's colour, so a plot under it does not make it hard to read.
@@ -228,16 +238,17 @@ export class ScriptPane extends TimePane {
   /** Called when what the scripts draw on the map changed (the map draws again). */
   onMapChanged: () => void = () => {};
   #candleColors = new Map<number, string>();
-  #colorsKey: unknown = null;
+  #colorsKey = '';
+  #heldGen = 0;
 
   /** A script's colour for the map's candle starting at `t` (`$price.color = ...`), or '' for the candle's own. */
   candleColorAt(t: number): string {
     if (!this.store.state.show.script) return '';
-    if (this.#colorsKey !== this.#held) this.#rebuildColors();
+    const state = this.store.state, key = `${this.#heldGen}|${this.#version}|${state.timeframe}|${state.seriesInstrument}`;
+    if (this.#colorsKey !== key) { this.#colorsKey = key; this.#rebuildColors(); }
     return this.#candleColors.get(t) ?? '';
   }
   #rebuildColors(): void {
-    this.#colorsKey = this.#held;
     const out = new Map<number, string>(), tf = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
     for (const r of this.#records) {
       const held = r.on ? this.#held.get(r.id) : undefined;

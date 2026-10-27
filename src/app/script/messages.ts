@@ -33,6 +33,7 @@ export function errorText(e: ScriptError): string {
     case 'too-large': text = t('Stopped: an array or a text grew too large.'); break;
     case 'timeout': text = t('Stopped: the run took too long and was ended.'); break;
     case 'worker-failed': case 'internal': case 'no-answer': text = t('The scripts could not be run here.'); break;
+    case 'newer-api': text = t('This script was written for a newer version of the script language: update the page to run it.'); break;
     default: text = e.code;
   }
   return e.line > 0 ? t('Line {line}, column {col}: {text}', { line: e.line, col: e.col, text }) : text;

@@ -88,7 +88,7 @@ test('object points, per-candle colours, and a point with only a time is a gap',
   const r = run('histogram({ time: time, value: vbuy + vsell, color: vbuy > 30 ? "red" : "green" })\nbrokenarea({ time: time, lowerValue: 0, higherValue: 1, color: interpolate(0.5, rgb(0,0,0), rgb(255,255,255)) })\nvar na = { time: time }\nline(na)');
   const out = ok(r);
   assert.deepEqual(values(r, 0), [15, 30, 45, 60, 75, 90]);
-  assert.deepEqual(out.plots[0]!.colors, ['green', 'green', 'green', 'red', 'red', 'red']);
+  assert.deepEqual(out.plots[0]!.colors, ['green', 'green', 'green', 'red', 'red', 'red'].map(c => c === 'green' ? 'rgb(0, 128, 0)' : 'rgb(255, 0, 0)'), 'colours read as colours');
   assert.equal(out.plots[1]!.kind, 'brokenarea');
   assert.deepEqual(values(r, 1, 'higherValue'), [1, 1, 1, 1, 1, 1]);
   assert.equal(out.plots[1]!.colors![0], 'rgb(128, 128, 128)');
@@ -126,7 +126,7 @@ test('the functions of the language answer as the dialect does', () => {
 
 test('$price.color colours the chart\'s candles, and the plots are optional then', () => {
   const r = ok(run('$price.color = $price.close > 102 ? "red" : "blue"'));
-  assert.deepEqual(r.candleColors, ['blue', 'blue', 'blue', 'red', 'red', 'red']);
+  assert.deepEqual(r.candleColors, ['rgb(0, 0, 255)', 'rgb(0, 0, 255)', 'rgb(0, 0, 255)', 'rgb(255, 0, 0)', 'rgb(255, 0, 0)', 'rgb(255, 0, 0)']);
   assert.ok(!r.warnings.some(w => w.code === 'no-plots'));
 });
 
@@ -240,6 +240,32 @@ test('JavaScript as it is: do-while, a binding per turn of a for with let, one e
   assert.deepEqual(values(run('function f(x) { var x; return x }\nline(f(7))')), [7, 7, 7, 7, 7, 7]);
   assert.deepEqual(values(run('line(Number("123") + Number.EPSILON * 0)')), [123, 123, 123, 123, 123, 123]);
   assert.deepEqual(values(run('line(([1] == 1 ? 1 : 0) + ([2] < "10" ? 10 : 0))')), [1, 1, 1, 1, 1, 1]);
+});
+
+test('a script that keeps arrays, functions or writes its options runs every candle, so an update gives what a full run gives', () => {
+  const cases = [
+    'if (renderer.length === 1) { a = []; b = a }\na.push(vbuy)\nline(b.length)',
+    'if (renderer.length === 1) counter = (function () { var n = 0; return function () { return ++n } })()\nline(counter())',
+    'options.n = nz(options.n) + 1\nline(options.n)',
+  ];
+  for (const src of cases) {
+    const runner = createRunner('t', src, {});
+    ok(runner.run(inputs(3)));
+    const live = ok(runner.run(inputs(3, i => i === 2 ? { vbuy: 999 } : {})));
+    assert.equal(runner.startedAt, 0, src);
+    assert.deepEqual([...live.plots[0]!.fields.value!], [...ok(runScript('t', src, {}, inputs(3, i => i === 2 ? { vbuy: 999 } : {}))).plots[0]!.fields.value!], src);
+  }
+  const simple = createRunner('t', 'x = x + vbuy\nline(x)', {});
+  simple.run(inputs(3)); simple.run(inputs(3, i => i === 2 ? { vbuy: 1 } : {}));
+  assert.equal(simple.startedAt, 2, 'a script that keeps numbers alone still runs only the candle under way');
+});
+
+test('colours and styles a script gives are read and held short before they leave the worker', () => {
+  const r = ok(run('if (renderer.length === 1) c = "x".padEnd(10000, "x")\nline({ time: time, value: 1, color: c })\nhistogram(1, title=' + '"' + 'y'.repeat(500) + '"' + ', color="not a colour")'));
+  assert.equal(r.plots[0]!.colors, null, 'a text that is not a colour colours nothing');
+  assert.ok(r.plots[1]!.title.length <= 120);
+  const named = ok(run('histogram({ time: time, value: 1, color: "RED" })\n$price.color = "rgba(1,2,3,0.5)"'));
+  assert.deepEqual([named.plots[0]!.colors![0], named.candleColors![0]], ['rgb(255, 0, 0)', 'rgba(1, 2, 3, 0.5)']);
 });
 
 test('errors name the code and the place', () => {

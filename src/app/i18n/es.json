@@ -1793,11 +1793,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "Una fila propia en este panel, o en el mapa: los trazados de la escala de precios (lo predeterminado) a sus precios, los demás cada uno en una escala propia.",
  "Draw": "Dibujar",
  "Pasted script": "Script pegado",
- "Read {n} scripts.": {
-  "one": "Se leyó {n} script.",
-  "other": "Se leyeron {n} scripts.",
-  "many": "Se leyeron {n} scripts."
- },
  "Saved “{name}”: it runs with the next update.": "Se guardó «{name}»: se ejecuta con la próxima actualización.",
  "The script reads.": "El script se puede leer.",
  "Keep the script and run it": "Guarda el script y ejecútalo",
@@ -1806,5 +1801,7 @@
  "Back": "Atrás",
  "Back to the list (what is not saved is dropped)": "Vuelve a la lista (lo que no se guardó se descarta)",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Un source(...) nombra sus mercados con algo que solo la ejecución puede averiguar: da 0. Nómbralos con una palabra, una opción u options.name.",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Algunos días hubo más liquidaciones de las que devuelve la fuente de datos: las más pequeñas faltan en lbuy y lsell."
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Algunos días hubo más liquidaciones de las que devuelve la fuente de datos: las más pequeñas faltan en lbuy y lsell.",
+ "The file was written by a newer version of the page: update this page to read it.": "El archivo lo escribió una versión más nueva de la página: actualiza esta página para leerlo.",
+ "This script was written for a newer version of the script language: update the page to run it.": "Este script se escribió para una versión más nueva del lenguaje de scripts: actualiza la página para ejecutarlo."
 }

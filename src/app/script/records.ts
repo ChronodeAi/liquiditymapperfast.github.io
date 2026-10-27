@@ -81,14 +81,14 @@ export function newId(name: string, random: () => number = Math.random): string 
   return `${slug}-${Math.floor(random() * 36 ** 6).toString(36).padStart(6, '0')}`;
 }
 
-/** One script from storage or a file, or null. A missing id is made; an `api` the page does not know is kept as the page's newest it can read. */
+/** One script from storage or a file, or null. A missing id is made; the `api` it was written for is kept, a newer one too (it is then not run). */
 export function readScript(raw: unknown): ScriptRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   const name = cleanName(r.name);
   if (!name || typeof r.source !== 'string' || r.source.length > MAX_SOURCE_CHARS) return null;
   const id = typeof r.id === 'string' && ID_RE.test(r.id) ? r.id : newId(name);
-  const api = typeof r.api === 'number' && Number.isInteger(r.api) && r.api >= 1 ? Math.min(r.api, SCRIPT_API) : SCRIPT_API;
+  const api = typeof r.api === 'number' && Number.isInteger(r.api) && r.api >= 1 ? Math.min(r.api, 999) : SCRIPT_API;
   const height = typeof r.height === 'number' && Number.isFinite(r.height) ? Math.max(ROW_MIN, Math.min(ROW_MAX, Math.round(r.height))) : ROW_DEFAULT;
   return { id, name, source: r.source.replace(/\r\n?/g, '\n'), options: readOptions(r.options), on: r.on !== false, api, height, place: r.place === 'map' ? 'map' : 'pane' };
 }
@@ -148,7 +148,7 @@ function indicatorsIn(raw: unknown): ScriptRecord[] {
  * The scripts in a file or a pasted text, or why there are none: a scripts file written by Export, an indicator file or a workspace from another
  * charting page, or else the text itself as one script named `fallbackName`.
  */
-export function importText(text: string, fallbackName: string): { scripts: ScriptRecord[] } | { error: 'too-large' | 'empty' } {
+export function importText(text: string, fallbackName: string): { scripts: ScriptRecord[] } | { error: 'too-large' | 'empty' | 'newer' } {
   if (text.length > MAX_FILE_CHARS) return { error: 'too-large' };
   const trimmed = text.trim();
   if (!trimmed) return { error: 'empty' };
@@ -156,7 +156,10 @@ export function importText(text: string, fallbackName: string): { scripts: Scrip
     let raw: unknown;
     try { raw = JSON.parse(trimmed); } catch { raw = undefined; }
     if (raw !== undefined) {
-      const scripts = raw && typeof raw === 'object' && (raw as { format?: unknown }).format === FILE_FORMAT ? readScripts((raw as { scripts?: unknown }).scripts) : indicatorsIn(raw);
+      const own = raw && typeof raw === 'object' && (raw as { format?: unknown }).format === FILE_FORMAT;
+      // A scripts file of a later version may mean things this page reads otherwise: refused, not read as this version.
+      if (own) { const v = (raw as { version?: unknown }).version; if (typeof v !== 'number' || v > FILE_VERSION) return { error: 'newer' }; }
+      const scripts = own ? readScripts((raw as { scripts?: unknown }).scripts) : indicatorsIn(raw);
       return scripts.length ? { scripts } : { error: 'empty' };
     }
   }
@@ -194,10 +197,11 @@ export function inferredOption(name: string): OptionValue | null {
 }
 
 /** The scripts kept in this browser (none when storage is not there or holds something else). */
-export function loadScripts(storage: Pick<Storage, 'getItem'> | null = globalThis.localStorage ?? null): ScriptRecord[] {
-  try { const raw = storage?.getItem(SCRIPTS_KEY); return raw ? readScripts(JSON.parse(raw)) : []; } catch { return []; }
+export function loadScripts(storage?: Pick<Storage, 'getItem'> | null): ScriptRecord[] {
+  // Reaching the browser's storage can itself throw (a page whose storage is blocked): inside the guard.
+  try { const s = storage === undefined ? globalThis.localStorage : storage; const raw = s?.getItem(SCRIPTS_KEY); return raw ? readScripts(JSON.parse(raw)) : []; } catch { return []; }
 }
 /** Keep the scripts in this browser; false when storage refused. */
-export function storeScripts(list: readonly ScriptRecord[], storage: Pick<Storage, 'setItem'> | null = globalThis.localStorage ?? null): boolean {
-  try { if (!storage) return false; storage.setItem(SCRIPTS_KEY, JSON.stringify(list)); return true; } catch { return false; }
+export function storeScripts(list: readonly ScriptRecord[], storage?: Pick<Storage, 'setItem'> | null): boolean {
+  try { const s = storage === undefined ? globalThis.localStorage : storage; if (!s) return false; s.setItem(SCRIPTS_KEY, JSON.stringify(list)); return true; } catch { return false; }
 }

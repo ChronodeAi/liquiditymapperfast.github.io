@@ -1711,7 +1711,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "此窗格中单独的一行，或地图上：价格刻度上的绘图（默认）位于其价格处，其他绘图各自使用独立的刻度。",
  "Draw": "绘制于",
  "Pasted script": "粘贴的脚本",
- "Read {n} scripts.": "已读取 {n} 个脚本。",
  "Saved “{name}”: it runs with the next update.": "已保存“{name}”：将在下次更新时运行。",
  "The script reads.": "脚本可以正常读取。",
  "Keep the script and run it": "保存脚本并运行",
@@ -1720,5 +1719,7 @@
  "Back": "返回",
  "Back to the list (what is not saved is dropped)": "返回列表（未保存的内容将被丢弃）",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) 用只有运行时才能确定的内容指定其市场：读数为 0。请用一个词、一个选项或 options.name 来指定。",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "有些日子的强平数量超过了数据源返回的上限：lbuy 和 lsell 中缺少最小的那些。"
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "有些日子的强平数量超过了数据源返回的上限：lbuy 和 lsell 中缺少最小的那些。",
+ "The file was written by a newer version of the page: update this page to read it.": "该文件由较新版本的页面写入：请更新本页面以读取它。",
+ "This script was written for a newer version of the script language: update the page to run it.": "该脚本是为较新版本的脚本语言编写的：请更新页面以运行它。"
 }

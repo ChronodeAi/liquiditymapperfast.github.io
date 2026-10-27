@@ -187,7 +187,7 @@ function strokeLine(f: Frame, v: Float64Array, y: (v: number) => number, colorAt
     if (!Number.isFinite(val)) { if (prev >= 0) ctx.stroke(); prev = -1; current = ''; continue; }
     const c = colorAt(i);
     if (prev < 0) { ctx.beginPath(); ctx.strokeStyle = c; current = c; ctx.moveTo(cx(i), y(val)); prev = i; continue; }
-    if (c !== current) { ctx.lineTo(cx(i), y(val)); ctx.stroke(); ctx.beginPath(); ctx.strokeStyle = c; current = c; ctx.moveTo(cx(i), y(val)); }
+    if (c !== current) { ctx.stroke(); ctx.beginPath(); ctx.strokeStyle = c; current = c; ctx.moveTo(cx(prev), y(v[prev]!)); ctx.lineTo(cx(i), y(val)); }
     else ctx.lineTo(cx(i), y(val));
     prev = i;
   }

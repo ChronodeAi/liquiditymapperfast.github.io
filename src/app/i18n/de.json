@@ -1772,10 +1772,6 @@
  "A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.": "Eine eigene Zeile in diesem Bereich oder auf der Karte: die Plots auf der Preisskala (der Standard) bei ihren Preisen, die anderen jeweils auf einer eigenen Skala.",
  "Draw": "Zeichnen",
  "Pasted script": "Eingefügtes Skript",
- "Read {n} scripts.": {
-  "one": "{n} Skript gelesen.",
-  "other": "{n} Skripte gelesen."
- },
  "Saved “{name}”: it runs with the next update.": "„{name}“ gespeichert: Es läuft mit der nächsten Aktualisierung.",
  "The script reads.": "Das Skript lässt sich lesen.",
  "Keep the script and run it": "Das Skript behalten und ausführen",
@@ -1784,5 +1780,7 @@
  "Back": "Zurück",
  "Back to the list (what is not saved is dropped)": "Zurück zur Liste (nicht Gespeichertes wird verworfen)",
  "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Ein source(...) benennt seine Märkte mit etwas, das erst der Lauf ermitteln kann: Es ergibt 0. Benenne sie mit einem Wort, einer Option oder options.name.",
- "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "An manchen Tagen gab es mehr Liquidationen, als die Datenquelle liefert: Die kleinsten fehlen in lbuy und lsell."
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "An manchen Tagen gab es mehr Liquidationen, als die Datenquelle liefert: Die kleinsten fehlen in lbuy und lsell.",
+ "The file was written by a newer version of the page: update this page to read it.": "Die Datei wurde von einer neueren Version der Seite geschrieben: Aktualisiere diese Seite, um sie zu lesen.",
+ "This script was written for a newer version of the script language: update the page to run it.": "Dieses Skript wurde für eine neuere Version der Skriptsprache geschrieben: Aktualisiere die Seite, um es auszuführen."
 }

@@ -7,7 +7,7 @@ import { flowLoadIds } from '../cvd/ids.ts';
 import { DAY_MS, liquidationBuckets, type LiquidationDay } from '../panes/bar-stats.ts';
 import { LIQUIDATIONS_PER_ANSWER, LIQUIDATION_RETENTION_MS } from '../../shared/liquidations.ts';
 import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
-import { pageNow } from '../replay/clock.ts';
+import { pageNow, replaying } from '../replay/clock.ts';
 import { candleArrays, filterKey, marketInfo, marketsMatching, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
 
 /**
@@ -38,7 +38,9 @@ export class ScriptData {
   /** The inputs over the chart's candles for each filter; null while there are no candles. */
   inputs(state: AppState, filters: ReadonlyMap<string, SourceFilter>): BarInputs | null {
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, now = pageNow();
-    const candles = candleArrays(state.candles, tf, now);
+    // In a replay a script reads only the candles that had closed by its moment: the candle under way then is not known yet, nor anything after.
+    const rows = replaying() ? state.candles.filter(r => r[0] + tf <= now) : state.candles;
+    const candles = candleArrays(rows, tf, now);
     const n = candles.time.length;
     if (!n) return null;
     const starts = Array.from(candles.time);
@@ -55,7 +57,7 @@ export class ScriptData {
           if (!cache) { cache = new FlowCache(); this.#caches.set(k, cache); if (this.#caches.size > 64) this.#caches.delete(this.#caches.keys().next().value!); }
           return deltaFlows(cache, this.hub.flow, list, starts, tf, now).flows;
         },
-        liquidations: list => { if (!liq) return undefined; const b = liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, Date.now()); if (b.cut) this.liquidationsCut = true; return b; },
+        liquidations: list => { if (!liq) return undefined; const b = liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, now); if (b.cut) this.liquidationsCut = true; return b; },
       });
     }
     return { tf, ...candles, sources };

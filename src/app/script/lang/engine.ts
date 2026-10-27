@@ -5,7 +5,7 @@ import { declaredNames, numberSites } from './walk.ts';
 import { MAX_PLOTS, PLOTS, RUN_MS, STEPS_PER_CANDLE, analyze, literal, optionTable, sourceFilter, type Analysis } from './analysis.ts';
 import { DateValue, HostObject, NativeFunction, ScriptRuntimeError, isPlain, num, own, plain, text, toData, truthy, type Value } from './values.ts';
 import { BUILTINS, makeInstance, type Instance } from './builtins.ts';
-import { COLOR_NAMES, interpolateColors, rgb } from './colors.ts';
+import { COLOR_NAMES, interpolateColors, rgb, safeColor } from './colors.ts';
 import { PLOT_FIELDS, type PlotKind, type PlotOut, type ScriptResult } from '../protocol.ts';
 import { filterKey, type BarInputs, type SourceInputs } from '../inputs.ts';
 import type { OptionValue } from '../records.ts';
@@ -42,6 +42,16 @@ function staticValue(e: Expr, opt: Readonly<Record<string, Value>>, scriptNames:
     return o;
   }
   return literal(e);
+}
+
+/** The longest title a plot keeps, and the longest text of its style. */
+const MAX_TITLE = 120, MAX_STYLE_TEXT = 200;
+/** A plot's style value held to short texts (a title or a colour, never a long text the page would have to carry). */
+function styleData(v: OptionValue | undefined): OptionValue | undefined {
+  if (typeof v === 'string') return v.length <= MAX_STYLE_TEXT ? v : undefined;
+  if (Array.isArray(v)) return v.slice(0, 16).map(x => styleData(x) ?? null);
+  if (v && typeof v === 'object') { const out: Record<string, OptionValue> = {}; for (const [k, x] of Object.entries(v).slice(0, 32)) { const d = styleData(x); if (d !== undefined) out[k] = d; } return out; }
+  return v;
 }
 
 /** What a run of a script keeps per plot while it goes from candle to candle. */
@@ -106,7 +116,10 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   const budget: Budget = { steps: 0, left: 0, deadline: 0, now };
   // The options: what was set, else the declared default; plain data copied into the script's own values.
   const opt = optionTable(a.declared, optionValues);
-  const optionsObject = new HostObject('options', k => opt[k], (k, v) => { opt[k] = v; return true; }, () => Object.keys(opt));
+  // A script that writes its options changes what the next candle reads: it is always run from the first candle, from the options as set.
+  const initialOptions = new Map(Object.entries(opt).map(([k, v]) => [k, cloneValue(v)]));
+  let optionsWritten = false;
+  const optionsObject = new HostObject('options', k => opt[k], (k, v) => { opt[k] = v; optionsWritten = true; return true; }, () => Object.keys(opt));
 
   // What persists: one value per name (any case: `Total` and `total` are one), starting at 0, and its value at the end of each candle (`name[n]`).
   const kept = new Map<string, { v: Value; past: Value[] }>();
@@ -129,7 +142,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
       case 'time': return inputs.time[i]! / 1000;
       default: return undefined;
     }
-  }, (k, v) => { if (k === 'color' || k === 'borderColor' || k === 'wickColor') { price[k] = typeof v === 'string' ? v : ''; if (k === 'color') { candleColors[i] = price.color; colored = true; } return true; } return false; });
+  }, (k, v) => { if (k === 'color' || k === 'borderColor' || k === 'wickColor') { price[k] = typeof v === 'string' ? v : ''; if (k === 'color') { candleColors[i] = safeColor(price.color, ''); if (candleColors[i]) colored = true; } return true; } return false; });
   const barObject = new HostObject('bar', k => {
     const s = src();
     switch (k) {
@@ -253,6 +266,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   // empty). Its style starts from the named arguments that can be read without running the script (literals, options), and the first call
   // that runs adds what it gives.
   const styled = new Set<number>();
+  const initialStyles = new Map<number, { title: string; style: Record<string, OptionValue> }>();
   const scriptNames = new Set([...declaredNames(a.program), ...a.persistent]);
   for (const [node, site] of sites) {
     if (node.k !== 'call' || node.callee.k !== 'id') continue;
@@ -262,8 +276,10 @@ export function createRunner(id: string, source: string, optionValues: Record<st
     const fields: Record<string, Float64Array> = {};
     for (const f of PLOT_FIELDS[kind]) fields[f] = new Float64Array(n).fill(NaN);
     const style: Record<string, OptionValue> = {};
-    for (const nm of node.named) { const v = staticValue(nm.value, opt, scriptNames); if (v !== undefined) style[nm.name] = v; }
-    plots.set(site, { kind, title: typeof style.title === 'string' ? style.title : typeof style.title === 'number' ? String(style.title) : '', style, fields, colors: null });
+    for (const nm of node.named) { const v = styleData(staticValue(nm.value, opt, scriptNames)); if (v !== undefined) style[nm.name] = v; }
+    const title = typeof style.title === 'string' ? style.title.slice(0, MAX_TITLE) : typeof style.title === 'number' ? String(style.title) : '';
+    plots.set(site, { kind, title, style, fields, colors: null });
+    initialStyles.set(site, { title, style: { ...style } });
     plotOrder.push(site);
   }
 
@@ -272,13 +288,13 @@ export function createRunner(id: string, source: string, optionValues: Record<st
     if (!p || p.kind !== kind) return;
     if (named && !styled.has(site)) {
       styled.add(site);
-      for (const [k, v] of Object.entries(named)) { const d = toData(v); if (d !== undefined && !(k in p.style)) p.style[k] = d; }
-      if (!p.title && typeof named.title === 'string') p.title = named.title;
+      for (const [k, v] of Object.entries(named)) { const d = styleData(toData(v)); if (d !== undefined && !(k in p.style)) p.style[k] = d; }
+      if (!p.title && typeof named.title === 'string') p.title = named.title.slice(0, MAX_TITLE);
     }
     // A call with no value (only named arguments) makes its plot and draws nothing.
     if (!args.length) return;
     const point = args[0];
-    const setColor = (c: Value): void => { if (typeof c === 'string' && c) { if (!p!.colors) p!.colors = new Array<string>(n).fill(''); p!.colors[i] = c; } };
+    const setColor = (c: Value): void => { if (typeof c !== 'string' || !c) return; const color = c.length <= 64 ? safeColor(c, '') : ''; if (!color) return; if (!p!.colors) p!.colors = new Array<string>(n).fill(''); p!.colors[i] = color; };
     if (isPlain(point)) {
       for (const f of PLOT_FIELDS[kind]) { const v = point[f]; p.fields[f]![i] = typeof v === 'number' ? v : v === undefined || v === null ? NaN : num(v); }
       if (kind === 'line' || kind === 'area' || kind === 'histogram' || kind === 'baseline') { if (point.value === undefined && typeof point.close === 'number') p.fields.value![i] = point.close; }
@@ -313,6 +329,19 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   /** What the script held after candle `at` of `inputs` had closed, and what it had drawn by then. */
   interface Snapshot { at: number; inputs: BarInputs; kept: Map<string, { v: Value; past: Value[] }>; states: Map<number, unknown>; fields: Map<number, Record<string, Float64Array>>; colors: Map<number, string[] | null>; candleColors: string[] }
   let snap: Snapshot | null = null;
+  /**
+   * Whether what the script holds can be put back exactly: kept names holding plain values (numbers, texts, true/false, dates) and options it
+   * never wrote. An array, an object or a function kept from candle to candle can be shared or hold state a copy would not, so a script that
+   * keeps one always runs every candle.
+   */
+  const restorable = (): boolean => {
+    if (optionsWritten) return false;
+    const simple = (v: Value): boolean => v === null || v === undefined || typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' || v instanceof DateValue;
+    // An option that is an array or an object can be changed in place, which the options' setter does not see.
+    for (const v of Object.values(opt)) if (!simple(v)) return false;
+    for (const k of kept.values()) { if (!simple(k.v)) return false; for (const x of k.past) if (!simple(x)) return false; }
+    return true;
+  };
   const take = (at: number): Snapshot => ({
     at, inputs,
     kept: new Map([...kept].map(([name, k]) => [name, { v: cloneValue(k.v), past: k.past.map(x => cloneValue(x)) }])),
@@ -329,7 +358,15 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   /** Start from nothing: every kept name at 0, every function's state empty. */
   const fresh = (): void => {
     for (const k of kept.values()) { k.v = 0; k.past = []; }
+    for (const inst of touched) inst.touched = false;
+    touched.length = 0;
     instances.clear();
+    // The options as they were set, and each plot's style as the text gives it: the first call that runs styles it again.
+    for (const key of Object.keys(opt)) delete opt[key];
+    for (const [k, v] of initialOptions) opt[k] = cloneValue(v);
+    optionsWritten = false;
+    styled.clear();
+    for (const [site, p] of plots) { const s0 = initialStyles.get(site)!; p.title = s0.title; p.style = { ...s0.style }; }
   };
 
   const runner = {
@@ -362,10 +399,12 @@ export function createRunner(id: string, source: string, optionValues: Record<st
           touched.length = 0;
           for (const k of kept.values()) { k.past.push(k.v); if (k.past.length > 4_096) k.past.splice(0, k.past.length - 2_048); }
           // After the last candle that has closed: what the next run over the same candles starts from.
-          if (i === n - 2) snap = take(i);
+          if (i === n - 2) snap = restorable() ? take(i) : null;
         }
       } catch (e) {
         snap = null;
+        for (const inst of touched) { inst.touched = false; inst.pending = null; }
+        touched.length = 0;
         if (e instanceof ScriptRuntimeError) return { id, ok: false, error: { code: e.code, line: e.line, col: e.col, ...(e.detail ? { detail: e.detail } : {}) } };
         if (e instanceof RangeError) return { id, ok: false, error: { code: 'too-deep', line: 0, col: 0 } };
         throw e;
