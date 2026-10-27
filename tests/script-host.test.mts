@@ -22,7 +22,7 @@ function rig(autoReady = true) {
   const workers: FakeWorker[] = [], timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
   const host = new ScriptHost({
     spawn: () => { const w = new FakeWorker(); workers.push(w); queueMicrotask(() => { if (autoReady) w.ready(); }); return w; },
-    deadlineMs: 1_000,
+    deadlineMs: 1_000, perScriptMs: 0,
     setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
     clearTimer: t => { (t as { cleared: boolean }).cleared = true; },
   });

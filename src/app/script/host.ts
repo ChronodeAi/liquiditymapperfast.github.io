@@ -20,8 +20,9 @@ export interface WorkerLike {
 
 export interface HostOptions {
   spawn: () => WorkerLike;
-  /** How long a run may take before its worker is ended (ms). */
+  /** How long a run may take before its worker is ended (ms), and how much longer for each script after the first (each has its own time inside the worker). */
   deadlineMs?: number;
+  perScriptMs?: number;
   /** How long a fresh worker may take to load (ms). */
   loadMs?: number;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -41,7 +42,7 @@ export class ScriptHost {
   restarts = 0;
 
   constructor(o: HostOptions) {
-    this.#o = { deadlineMs: 4_000, loadMs: 30_000, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id as ReturnType<typeof setTimeout>), ...o };
+    this.#o = { deadlineMs: 4_000, perScriptMs: 2_600, loadMs: 30_000, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id as ReturnType<typeof setTimeout>), ...o };
   }
 
   /** Whether a run is under way. */
@@ -79,7 +80,7 @@ export class ScriptHost {
     if (!run || run.sent || !this.#worker) return;
     if (run.timer !== null) this.#o.clearTimer(run.timer);
     run.sent = true;
-    run.timer = this.#o.setTimer(() => this.#stop('timeout'), this.#o.deadlineMs);
+    run.timer = this.#o.setTimer(() => this.#stop('timeout'), this.#o.deadlineMs + Math.max(0, run.jobs.length - 1) * this.#o.perScriptMs);
     try { this.#worker.postMessage({ t: 'run', seq: run.seq, jobs: run.jobs, inputs: run.inputs }, transferables(run.inputs)); }
     catch { this.#stop('worker-failed'); }
   }

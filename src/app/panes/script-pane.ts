@@ -23,7 +23,8 @@ import type { SourceFilter } from '../script/inputs.ts';
 import { buildScriptsPanel, type ScriptsPanelState } from '../script/panel.ts';
 
 /** What the pane knows of a script between runs. */
-interface Held { result: ScriptResult; time: Float64Array; tf: number }
+/** A script's last answer, the candles it was worked out over (their starts, timeframe and market): drawn only over those. */
+interface Held { result: ScriptResult; time: Float64Array; tf: number; inst: string }
 
 /** How often a script runs at most (ms), and how often it runs again anyway while nothing it reads changes (the candle under way fills in). */
 const MIN_INTERVAL = 1_000, REFRESH = 15_000;
@@ -120,7 +121,7 @@ export class ScriptPane extends TimePane {
     const runnable: ScriptRecord[] = [];
     for (const r of on) {
       const a = this.#analyze(r.source);
-      if (!('program' in a)) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0 }); continue; }
+      if (!('program' in a)) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
       // Its markets as its options name them (`exchange=options.venue`): the worker works them out from the same values.
       for (const [k, f] of sourcesWith(a, r.options)) filters.set(k, f);
       runnable.push(r);
@@ -140,13 +141,13 @@ export class ScriptPane extends TimePane {
       if (this.#data.liquidationsCut && (a.inputs.has('lbuy') || a.inputs.has('lsell'))) w.push({ code: 'liquidations-cut' });
       this.#warnings.set(r.id, w);
     }
-    const time = inputs.time.slice(), tf = inputs.tf, started = Date.now();
+    const time = inputs.time.slice(), tf = inputs.tf, inst = state.seriesInstrument, started = Date.now();
     this.#running = true; this.#lastRun = started;
     void this.#host.run(runnable.map(r => ({ id: r.id, source: r.source, options: r.options, api: r.api })), inputs).then(results => {
       this.#running = false;
       if (!results.length) return;
       this.#runMs = Date.now() - started;
-      for (const res of results) this.#held.set(res.id, { result: res, time, tf });
+      for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst });
       this.#held = new Map(this.#held);
       this.invalidate();
       this.onMapChanged();
@@ -195,7 +196,7 @@ export class ScriptPane extends TimePane {
       else {
         const res = held.result, time = held.time;
         // A run for another timeframe is not drawn over this one: the next run replaces it.
-        if (held.tf === tf && time.length) {
+        if (held.tf === tf && held.inst === state.seriesInstrument && time.length) {
           const [from, to] = visibleRange(time, v.t0, v.t1, tf);
           const scales = scalesOf(res.plots, r.options, from, to);
           const frame: Frame = { ctx, x: tt => v.xOf(tt, pw), barW: Math.max(1, v.xOf(tf, pw) - v.xOf(0, pw)), tf, time, from, to, top, height: rowH, w: pw, color: p.text, up: p.candleUp, down: p.candleDown };
@@ -236,7 +237,7 @@ export class ScriptPane extends TimePane {
     const out = new Map<number, string>(), tf = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
     for (const r of this.#records) {
       const held = r.on ? this.#held.get(r.id) : undefined;
-      if (!held?.result.ok || !held.result.candleColors || held.tf !== tf) continue;
+      if (!held?.result.ok || !held.result.candleColors || held.tf !== tf || held.inst !== this.store.state.seriesInstrument) continue;
       held.result.candleColors.forEach((c, i) => { if (c) out.set(held.time[i]!, safeColor(c, '')); });
     }
     this.#candleColors = out;
@@ -256,7 +257,7 @@ export class ScriptPane extends TimePane {
     for (const r of this.#records) {
       if (!r.on || r.place !== 'map') continue;
       const held = this.#held.get(r.id);
-      if (!held?.result.ok || held.tf !== tf || !held.time.length) continue;
+      if (!held?.result.ok || held.tf !== tf || held.inst !== state.seriesInstrument || !held.time.length) continue;
       const res = held.result, time = held.time, [from, to] = visibleRange(time, v.t0, v.t1, tf);
       const scales = scalesOf(res.plots.filter(pl => scaleIdOf(pl, r.options) !== 'right'), r.options, from, to);
       scales.set('right', { min: v.p0, max: v.p1, margins: { top: 0, bottom: 0 } });
