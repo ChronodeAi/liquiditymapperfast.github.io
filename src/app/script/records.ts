@@ -31,6 +31,11 @@ export interface ScriptRecord {
   api: number;
   /** Its row's height in the pane (px). */
   height: number;
+  /**
+   * Where it draws: a row of its own in the Scripts pane, or on the map, where the plots on the price scale (`priceScaleId` 'right', the
+   * default of the scripts' language) are drawn at their prices and the others each on a scale of their own inside their margins.
+   */
+  place: 'pane' | 'map';
 }
 
 /** A name as it is kept: spaces collapsed and trimmed, at most `MAX_NAME` characters; null when nothing is left. */
@@ -85,7 +90,7 @@ export function readScript(raw: unknown): ScriptRecord | null {
   const id = typeof r.id === 'string' && ID_RE.test(r.id) ? r.id : newId(name);
   const api = typeof r.api === 'number' && Number.isInteger(r.api) && r.api >= 1 ? Math.min(r.api, SCRIPT_API) : SCRIPT_API;
   const height = typeof r.height === 'number' && Number.isFinite(r.height) ? Math.max(ROW_MIN, Math.min(ROW_MAX, Math.round(r.height))) : ROW_DEFAULT;
-  return { id, name, source: r.source.replace(/\r\n?/g, '\n'), options: readOptions(r.options), on: r.on !== false, api, height };
+  return { id, name, source: r.source.replace(/\r\n?/g, '\n'), options: readOptions(r.options), on: r.on !== false, api, height, place: r.place === 'map' ? 'map' : 'pane' };
 }
 
 /** Scripts from storage or a file: the valid ones, at most `MAX_SCRIPTS`, one per id (the later one wins). */
@@ -118,7 +123,9 @@ function indicatorsIn(raw: unknown): ScriptRecord[] {
     const r = v as Record<string, unknown>;
     if (typeof r.script !== 'string') return;
     if (/^\s*plotcandlestick\(\s*avg_ohlc\(\s*bar\s*\)\s*\)\s*$/.test(r.script)) return;
-    const s = readScript({ name: r.displayName ?? r.name ?? r.id, source: r.script, options: r.options, on: true });
+    // An indicator on the price scale was drawn over the candles where it was written: it goes on the map here.
+    const options = r.options && typeof r.options === 'object' ? r.options as Record<string, unknown> : {};
+    const s = readScript({ name: r.displayName ?? r.name ?? r.id, source: r.script, options: r.options, on: true, place: options.priceScaleId === 'right' ? 'map' : 'pane' });
     if (s) out.push(s);
   };
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;

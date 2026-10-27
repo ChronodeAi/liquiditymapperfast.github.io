@@ -1,5 +1,5 @@
 import type { Expr, Pos, Stmt } from './parser.ts';
-import { DateValue, NativeFunction, ScriptFunction, ScriptRuntimeError, add, compare, getMember, isCallable, keyOf, looseEquals, num, plain, setMember, text, truthy, typeOf, MAX_ARRAY, type Value } from './values.ts';
+import { DateValue, NativeFunction, ScriptFunction, ScriptRuntimeError, own, add, compare, getMember, isCallable, keyOf, looseEquals, num, plain, setMember, text, truthy, typeOf, MAX_ARRAY, MAX_TEXT, type Value } from './values.ts';
 
 /**
  * Walks a parsed script. It knows the language (scopes, operators, control flow, functions, the step budget) and nothing about candles: a
@@ -38,6 +38,22 @@ class Scope {
 class Jump { constructor(readonly kind: 'break' | 'continue' | 'return', readonly value: Value = undefined) {} }
 
 export interface Budget { steps: number; left: number; deadline: number; now: () => number }
+
+/**
+ * Spend steps for what a script makes, so memory is bounded with time: an element of an array is a step, sixteen characters of a text are one.
+ * A loop that makes large things runs out of steps long before it fills memory.
+ */
+export function charge(b: Budget, steps: number): void {
+  if (!(steps > 0)) return;
+  b.left -= steps; b.steps += steps;
+  if (b.left < 0) throw new ScriptRuntimeError('budget');
+}
+/** A text a method made: held to `MAX_TEXT` and paid for. */
+function madeText(b: Budget, s: string): string {
+  if (s.length > MAX_TEXT) throw new ScriptRuntimeError('too-large', 0, 0, 'text');
+  charge(b, s.length >> 4);
+  return s;
+}
 
 /** Numbers each call in the text, in order, so the same call is the same site on every candle. */
 export function numberSites(stmts: readonly Stmt[]): Map<Expr, number> {
@@ -246,6 +262,7 @@ export class Interpreter {
         return this.#read(e.name, scope, e.p);
       case 'arr': {
         if (e.items.length > MAX_ARRAY) throw new ScriptRuntimeError('too-large', e.p.line, e.p.col, 'array');
+        charge(this.budget, e.items.length);
         return e.items.map(x => this.eval(x, scope));
       }
       case 'obj': { const o = plain(); for (const p of e.props) { if (p.key === '__proto__') continue; o[p.key] = this.eval(p.value, scope); } return o; }
@@ -321,7 +338,7 @@ export class Interpreter {
 
   #binary(op: string, a: Value, b: Value, p: Pos): Value {
     switch (op) {
-      case '+': return add(a, b);
+      case '+': { const r = add(a, b); if (typeof r === 'string' && r.length > 64) { try { charge(this.budget, r.length >> 4); } catch (err) { if (err instanceof ScriptRuntimeError) throw new ScriptRuntimeError(err.code, p.line, p.col); throw err; } } return r; }
       case '-': return num(a) - num(b);
       case '*': return num(a) * num(b);
       case '/': return num(a) / num(b);
@@ -398,11 +415,12 @@ export class Interpreter {
       return new NativeFunction(key, args => {
         const a = args.map(x => typeof x === 'number' || typeof x === 'string' ? x : x === undefined ? undefined : text(x));
         if ((key === 'padStart' || key === 'padEnd') && num(a[0] as Value) > 10_000) throw new ScriptRuntimeError('too-large', p.line, p.col, 'text');
-        if (key === 'split') return (obj.split(String(a[0] ?? ''), a[1] === undefined ? undefined : Math.min(num(a[1] as Value), MAX_ARRAY)) as Value[]).slice(0, MAX_ARRAY);
-        if (key === 'replace' || key === 'replaceAll') return obj[key](String(a[0] ?? ''), String(a[1] ?? ''));
+        if (key === 'split') { const parts = (obj.split(String(a[0] ?? ''), a[1] === undefined ? undefined : Math.min(num(a[1] as Value), MAX_ARRAY)) as Value[]).slice(0, MAX_ARRAY); charge(this.budget, parts.length); return parts; }
+        // Plain texts only: a pattern or a function never reaches the real `replace`.
+        if (key === 'replace' || key === 'replaceAll') return madeText(this.budget, obj[key](String(a[0] ?? ''), String(a[1] ?? '')));
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const r = (String.prototype as unknown as Record<string, (...x: unknown[]) => unknown>)[key]!.apply(obj, a);
-        return typeof r === 'string' || typeof r === 'number' || typeof r === 'boolean' ? r : undefined;
+        return typeof r === 'string' ? madeText(this.budget, r) : typeof r === 'number' || typeof r === 'boolean' ? r : undefined;
       });
     }
     if (typeof obj === 'number') {
@@ -422,16 +440,17 @@ export class Interpreter {
 
   #arrayMethod(arr: Value[], key: string, p: Pos): NativeFunction | undefined {
     const call = (fn: Value, args: Value[]): Value => this.invoke(fn, args, null, p);
-    const grow = (n: number): void => { if (arr.length + n > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array'); };
+    const grow = (n: number): void => { if (arr.length + n > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array'); charge(this.budget, n); };
+    const made = (out: Value[]): Value[] => { charge(this.budget, out.length); return out; };
     const methods: Record<string, (args: Value[]) => Value> = {
       push: args => { grow(args.length); return arr.push(...args); },
       pop: () => arr.pop(), shift: () => arr.shift(),
       unshift: args => { grow(args.length); return arr.unshift(...args); },
-      slice: args => arr.slice(args[0] === undefined ? undefined : num(args[0]), args[1] === undefined ? undefined : num(args[1])),
+      slice: args => made(arr.slice(args[0] === undefined ? undefined : num(args[0]), args[1] === undefined ? undefined : num(args[1]))),
       splice: args => { const r = arr.splice(num(args[0]), args[1] === undefined ? arr.length : num(args[1]), ...args.slice(2)); grow(0); return r; },
-      concat: args => { const out = arr.concat(...args.map(a => Array.isArray(a) ? a : [a])); if (out.length > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array'); return out; },
+      concat: args => { const out = arr.concat(...args.map(a => Array.isArray(a) ? a : [a])); if (out.length > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array'); return made(out); },
       indexOf: args => arr.indexOf(args[0]), lastIndexOf: args => arr.lastIndexOf(args[0]), includes: args => arr.includes(args[0]),
-      join: args => arr.map(x => x === null || x === undefined ? '' : text(x)).join(args[0] === undefined ? ',' : text(args[0])),
+      join: args => { charge(this.budget, arr.length); return madeText(this.budget, arr.map(x => x === null || x === undefined ? '' : text(x)).join(args[0] === undefined ? ',' : text(args[0]))); },
       reverse: () => arr.reverse(),
       fill: args => arr.fill(args[0], args[1] === undefined ? undefined : num(args[1]), args[2] === undefined ? undefined : num(args[2])),
       at: args => arr.at(num(args[0])),
@@ -445,7 +464,7 @@ export class Interpreter {
       every: args => arr.every((x, i) => truthy(call(args[0], [x, i, arr]))),
       reduce: args => args.length > 1 ? arr.reduce((acc, x, i) => call(args[0], [acc, x, i, arr]), args[1]) : arr.reduce((acc, x, i) => call(args[0], [acc, x, i, arr])),
     };
-    const m = methods[key];
+    const m = own(methods, key);
     return m ? new NativeFunction(key, args => m(args)) : undefined;
   }
 }
@@ -464,6 +483,6 @@ export function dateMethod(ms: number, key: string): NativeFunction | undefined 
     getFullYear: () => d.getFullYear(), getMonth: () => d.getMonth(), getDate: () => d.getDate(), getDay: () => d.getDay(),
     getHours: () => d.getHours(), getMinutes: () => d.getMinutes(), getSeconds: () => d.getSeconds(),
   };
-  const f = table[key];
+  const f = own(table, key);
   return f ? new NativeFunction(key, () => f()) : undefined;
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FILE_FORMAT, MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, ROW_MAX, SCRIPT_API, cleanName, exportFile, importText, loadScripts, mergeScripts, newId, readOptions, readScript, readScripts, storeScripts, type ScriptRecord } from '../src/app/script/records.ts';
 
-const script = (id: string, patch: Partial<ScriptRecord> = {}): ScriptRecord => ({ id, name: id, source: 'line(cum(vbuy - vsell))', options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, ...patch });
+const script = (id: string, patch: Partial<ScriptRecord> = {}): ScriptRecord => ({ id, name: id, source: 'line(cum(vbuy - vsell))', options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: 'pane', ...patch });
 
 test('a script read back keeps what it was and drops what it cannot be', () => {
   assert.deepEqual(readScript(script('cvd-aaaaaa')), script('cvd-aaaaaa'));
@@ -15,6 +15,8 @@ test('a script read back keeps what it was and drops what it cannot be', () => {
   assert.equal(made.height, ROW_MAX);
   assert.equal(made.api, SCRIPT_API, 'a newer api than the page knows is read as the newest it can');
   assert.equal(made.on, true, 'only false switches a script off');
+  assert.equal(made.place, 'pane');
+  assert.equal(readScript({ name: 'a', source: 'x', place: 'map' })!.place, 'map');
   assert.equal(cleanName(`  ${'x'.repeat(60)} `)!.length, 40);
 });
 
@@ -47,10 +49,10 @@ test('an indicator file, a workspace and a plain text are each read as scripts',
   assert.ok('scripts' in one && one.scripts.length === 1 && one.scripts[0]!.name === 'OBV' && one.scripts[0]!.options.color === 'red');
   const wrapped = importText(JSON.stringify({ type: 'indicator', name: 'Wrapped', data: { script: 'line(1)' } }), 'x');
   assert.ok('scripts' in wrapped && wrapped.scripts[0]!.name === 'Wrapped');
-  const workspace = { name: 'w', states: { chart: { indicators: { price: { id: 'price', name: 'Price', script: 'plotcandlestick(avg_ohlc(bar))' }, cvd: { id: 'cvd', displayName: 'CVD', name: 'cvd', script: 'line(cum(vbuy - vsell))' } } }, trades: {} } };
+  const workspace = { name: 'w', states: { chart: { indicators: { price: { id: 'price', name: 'Price', script: 'plotcandlestick(avg_ohlc(bar))' }, cvd: { id: 'cvd', displayName: 'CVD', name: 'cvd', script: 'line(cum(vbuy - vsell))' }, vwap: { id: 'vwap', name: 'VWAP', script: 'line(1)', options: { priceScaleId: 'right' } } } }, trades: {} } };
   const read = importText(JSON.stringify(workspace), 'x');
   assert.ok('scripts' in read);
-  assert.deepEqual(read.scripts.map(s => s.name), ['CVD'], 'the price candles are the map\'s own');
+  assert.deepEqual(read.scripts.map(s => `${s.name}:${s.place}`), ['CVD:pane', 'VWAP:map'], 'the price candles are the map\'s own; an indicator on the price scale goes on the map');
   const plain = importText('line(cum(vbuy - vsell))\n', 'Pasted');
   assert.ok('scripts' in plain && plain.scripts[0]!.name === 'Pasted' && plain.scripts[0]!.source === 'line(cum(vbuy - vsell))\n');
   assert.deepEqual(importText('  \n ', 'x'), { error: 'empty' });

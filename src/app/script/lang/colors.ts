@@ -28,7 +28,7 @@ export function rgb(c: readonly number[]): string {
 export function parseColor(raw: unknown): [number, number, number, number] | null {
   if (typeof raw !== 'string') return null;
   const s = raw.trim().toLowerCase();
-  const named = COLOR_NAMES[s];
+  const named = Object.prototype.hasOwnProperty.call(COLOR_NAMES, s) ? COLOR_NAMES[s] : undefined;
   if (named) return parseColor(named);
   let m = /^#([0-9a-f]{3,4})$/.exec(s);
   if (m) { const h = m[1]!; const ch = (k: number): number => parseInt(h[k]! + h[k]!, 16); return [ch(0), ch(1), ch(2), h.length === 4 ? ch(3) / 255 : 1]; }

@@ -107,6 +107,8 @@ async function main(): Promise<void> {
   const ls = new LsPane(chart, store, heat.view, hub);
   const lt = new LtPane(chart, store, heat.view, hub);
   const script = new ScriptPane(chart, store, heat.view, hub);
+  // The scripts placed on the map draw over it, and a script's candle colours (`$price.color`) colour its candles.
+  heat.scriptLayer = (ctx, pw, ph) => script.paintOnMap(ctx, pw, ph); heat.candleColor = t => script.candleColorAt(t); script.onMapChanged = () => heat.invalidate();
   const ladder = new LadderPane(side, store, kernels, hub);
   const cvd = new CvdPane(flowCol, store, hub, heat.view);
   // The phone's Candle view: a tab of its own that fills the area (panes/candle-pane.ts); it counts the markets the map's footprint counts.

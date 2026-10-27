@@ -153,6 +153,28 @@ test('a script cannot reach the page: no constructor, prototype or global object
   assert.ok(!big.ok && (big.error.code === 'too-large' || big.error.code === 'budget'));
 });
 
+test('a name a table only inherits names nothing, and a member of anything but the script\'s own objects reads as nothing', () => {
+  for (const src of ['line(constructor)', 'line(toString)', 'line(hasOwnProperty)', 'line(valueOf)', 'line(__proto__)']) {
+    const r = run(src);
+    assert.ok(!r.ok && r.error.code === 'unknown-name', `${src}: ${r.ok ? 'ran' : r.error.code}`);
+  }
+  for (const src of ['line(Math.toString())', 'line([].valueOf())', 'line([].hasOwnProperty("x"))', 'line(new Date(0).valueOf.call(1))', 'line(Number.toString())']) {
+    const r = run(src);
+    assert.ok(!r.ok && (r.error.code === 'not-callable' || r.error.code === 'no-member'), `${src}: ${r.ok ? 'ran' : r.error.code}`);
+  }
+  assert.ok(values(run('var d = new Date(0)\nline(d.constructor === undefined && [].constructor === undefined ? 1 : 0)')).every(v => v === 1));
+  assert.ok(values(run('line(fns[0] === undefined ? 1 : 0)')).every(v => v === 1));
+  const set = run('var a = []\na.__proto__ = 1');
+  assert.ok(!set.ok && set.error.code === 'no-member');
+});
+
+test('what a script makes is paid for: texts and arrays that grow fast run out of steps or size, never memory', () => {
+  for (const src of ['var s = "xx"\nwhile (true) s = s.concat(s, s)', 'var s = "ab"\nwhile (true) s = s.replaceAll("a", s)', 'var a = new Array(1000000)\nline(a.join("xx").length)', 'var keep = []\nfor (let i = 0; i < 1000000000; i++) keep.push(new Array(100000))', 'var s = "x"\nwhile (true) s = s + s', 'var keep = []\nwhile (true) keep.push(Array.from({ length: 1000000 }))']) {
+    const r = runScript('t', src, {}, inputs(2));
+    assert.ok(!r.ok && (r.error.code === 'too-large' || r.error.code === 'budget'), `${src}: ${r.ok ? 'ran' : r.error.code}`);
+  }
+});
+
 test('errors name the code and the place', () => {
   const r = run('line(\n  nope + 1)');
   assert.ok(!r.ok);

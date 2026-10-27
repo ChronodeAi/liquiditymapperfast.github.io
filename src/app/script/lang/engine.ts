@@ -1,7 +1,7 @@
 import { parse, type Expr, type Stmt } from './parser.ts';
 import { ScriptSyntaxError, type ScriptError } from './lexer.ts';
-import { Interpreter, declaredNames, numberSites, type Budget, type Host } from './interpreter.ts';
-import { DateValue, HostObject, NativeFunction, ScriptRuntimeError, fromData, isPlain, num, plain, text, toData, truthy, type Value } from './values.ts';
+import { Interpreter, charge, declaredNames, numberSites, type Budget, type Host } from './interpreter.ts';
+import { DateValue, HostObject, NativeFunction, ScriptRuntimeError, fromData, isPlain, num, own, plain, text, toData, truthy, type Value } from './values.ts';
 import { BUILTINS, makeInstance, type Instance } from './builtins.ts';
 import { COLOR_NAMES, interpolateColors, rgb } from './colors.ts';
 import { PLOT_FIELDS, type OptionDecl, type PlotKind, type PlotOut, type ScriptResult, type Warning } from '../protocol.ts';
@@ -63,7 +63,7 @@ export function exchangeOf(name: string): { venue: string; kind?: 'spot' | 'perp
     DYDX: { venue: 'dydx', kind: 'perp' }, HYPERLIQUID: { venue: 'hyperliquid', kind: 'perp' }, BYBIT: { venue: 'bybit' }, BITGET: { venue: 'bitget' }, KUCOIN: { venue: 'kucoin' },
     MEXC: { venue: 'mexc' }, PHEMEX: { venue: 'phemex' }, POLONIEX: { venue: 'poloniex', kind: 'spot' }, WHITEBIT: { venue: 'whitebit' }, ASTER: { venue: 'aster', kind: 'perp' },
   };
-  return table[n] ?? { venue: n.toLowerCase().replace(/_futures$/, '') };
+  return own(table, n) ?? { venue: n.toLowerCase().replace(/_futures$/, '') };
 }
 
 /** A literal value of a call's named argument read without running the script (a number, a text, a plain word, true/false, `rgb(...)`), or undefined. */
@@ -238,7 +238,7 @@ export function runScript(id: string, source: string, optionValues: Record<strin
 
   // `fns[k]` is the k-th call of a function that keeps state, in the order they are written; setting its `state` starts it again.
   const builtinSites: number[] = [];
-  for (const [node, site] of numberSites(a.program)) if (node.k === 'call' && node.callee.k === 'id' && BUILTINS[node.callee.name]) builtinSites.push(site);
+  for (const [node, site] of numberSites(a.program)) if (node.k === 'call' && node.callee.k === 'id' && own(BUILTINS, node.callee.name)) builtinSites.push(site);
   const instanceAt = (site: number): Instance => { let inst = instances.get(site); if (!inst) { inst = makeInstance(); instances.set(site, inst); } return inst; };
   const fnsObject = new HostObject('fns', k => {
     const site = builtinSites[Number(k)];
@@ -246,20 +246,21 @@ export function runScript(id: string, source: string, optionValues: Record<strin
     return new HostObject('fn', key => key === 'state' ? plain() : undefined, key => { if (key !== 'state') return false; instanceAt(site).reset(); return true; });
   });
 
-  const globals: Record<string, Value> = {
+  // Without a prototype: `toString` or `constructor` are not names the table holds.
+  const globals: Record<string, Value> = Object.assign(Object.create(null) as Record<string, Value>, {
     Math: mathObject(), Number: numberObject(), Infinity, NaN, undefined,
     String: new NativeFunction('String', args => text(args[0])), Boolean: new NativeFunction('Boolean', args => truthy(args[0])),
     isFinite: new NativeFunction('isFinite', args => Number.isFinite(num(args[0]))), isNaN: new NativeFunction('isNaN', args => Number.isNaN(num(args[0]))),
     parseFloat: new NativeFunction('parseFloat', args => parseFloat(text(args[0]))), parseInt: new NativeFunction('parseInt', args => parseInt(text(args[0]), args[1] === undefined ? 10 : num(args[1]))),
-    Date: dateObject(now), Array: arrayObject(), Object: objectObject(),
+    Date: dateObject(now), Array: arrayObject(n => charge(budget, n)), Object: objectObject(),
     rgb: new NativeFunction('rgb', args => rgb(args.map(num))), rgba: new NativeFunction('rgba', args => rgb(args.map(num))),
     nz: new NativeFunction('nz', args => { const v = args[0]; return v === undefined || v === null || (typeof v === 'number' && Number.isNaN(v)) ? (args.length > 1 ? args[1] : 0) : v; }),
     na: new NativeFunction('na', args => { const v = args[0]; return v === undefined || v === null || (typeof v === 'number' && Number.isNaN(v)); }),
     option: new NativeFunction('option', () => undefined),
     source: new NativeFunction('source', () => undefined),
-  };
+  });
   for (const name of Object.keys(BUILTINS)) globals[name] = new NativeFunction(name, () => undefined);
-  for (const name of Object.keys(PLOTS)) if (!(name in globals)) globals[name] = new NativeFunction(name, () => undefined);
+  for (const name of Object.keys(PLOTS)) if (!Object.prototype.hasOwnProperty.call(globals, name)) globals[name] = new NativeFunction(name, () => undefined);
 
   const host: Host = {
     global(name) {
@@ -276,8 +277,8 @@ export function runScript(id: string, source: string, optionValues: Record<strin
         case 'renderer': return { known: true, value: rendererObject };
         case 'fns': return { known: true, value: fnsObject };
       }
-      if (name in globals) return { known: true, value: globals[name] };
-      const color = COLOR_NAMES[name.toLowerCase()];
+      if (Object.prototype.hasOwnProperty.call(globals, name)) return { known: true, value: globals[name] };
+      const color = own(COLOR_NAMES, name.toLowerCase());
       if (color !== undefined) return { known: true, value: color };
       return { known: false, value: undefined };
     },
@@ -296,9 +297,9 @@ export function runScript(id: string, source: string, optionValues: Record<strin
       if (node.callee.k !== 'id') return fn.call(args, named);
       if (name === 'option') { const target = optionTarget(node); return target !== null ? opt[target] : args[0] ?? named?.default; }
       if (name === 'source') return args[0];
-      const plotKind = PLOTS[name];
+      const plotKind = own(PLOTS, name);
       if (plotKind) { plot(site, plotKind, args, named); return undefined; }
-      const builtin = BUILTINS[name];
+      const builtin = own(BUILTINS, name);
       if (builtin) {
         const inst = instanceAt(site);
         if (!inst.touched) { inst.touched = true; touched.push(inst); }
@@ -334,7 +335,7 @@ export function runScript(id: string, source: string, optionValues: Record<strin
   const scriptNames = new Set([...declaredNames(a.program), ...a.persistent]);
   for (const [node, site] of sites) {
     if (node.k !== 'call' || node.callee.k !== 'id') continue;
-    const kind = PLOTS[node.callee.name];
+    const kind = own(PLOTS, node.callee.name);
     if (!kind) continue;
     if (plots.size >= MAX_PLOTS) return { id, ok: false, error: { code: 'too-many-plots', line: node.p.line, col: node.p.col } };
     const fields: Record<string, Float64Array> = {};
@@ -378,11 +379,11 @@ export function runScript(id: string, source: string, optionValues: Record<strin
     try { return run(); } finally { sourceStack.pop(); }
   };
   // A plot's named arguments are its style, read on its first call; `source`, `option` and the stateful functions take theirs from the text.
-  host.wantsNamed = (fn, site) => PLOTS[fn.name] !== undefined ? !styled.has(site) : !(fn.name === 'source' || fn.name === 'option' || BUILTINS[fn.name]);
+  host.wantsNamed = (fn, site) => own(PLOTS, fn.name) !== undefined ? !styled.has(site) : !(fn.name === 'source' || fn.name === 'option' || own(BUILTINS, fn.name));
   host.construct = (name, args) => {
     if (name === 'Date') return new DateValue(args.length ? (args[0] instanceof DateValue ? args[0].ms : num(args[0])) : now());
     const len = num(args[0]);
-    if (args.length === 1 && Number.isInteger(len) && len >= 0 && len <= 1_000_000) return new Array<Value>(len).fill(undefined);
+    if (args.length === 1 && Number.isInteger(len) && len >= 0 && len <= 1_000_000) { charge(budget, len); return new Array<Value>(len).fill(undefined); }
     if (args.length === 1 && typeof args[0] === 'number') throw new ScriptRuntimeError('too-large', 0, 0, 'array');
     return [...args];
   };
@@ -416,8 +417,8 @@ function mathObject(): HostObject {
   const consts: Record<string, number> = { PI: Math.PI, E: Math.E, LN2: Math.LN2, LN10: Math.LN10, LOG2E: Math.LOG2E, LOG10E: Math.LOG10E, SQRT2: Math.SQRT2, SQRT1_2: Math.SQRT1_2 };
   const made = new Map<string, NativeFunction>();
   return new HostObject('Math', k => {
-    if (k in consts) return consts[k];
-    const f = fns[k]; if (!f) return undefined;
+    const c = own(consts, k); if (c !== undefined) return c;
+    const f = own(fns, k); if (!f) return undefined;
     let nf = made.get(k);
     if (!nf) { nf = new NativeFunction(k, args => f(...args.map(num))); made.set(k, nf); }
     return nf;
@@ -434,14 +435,20 @@ function numberObject(): HostObject {
     parseInt: new NativeFunction('parseInt', a => parseInt(text(a[0]), a[1] === undefined ? 10 : num(a[1]))),
   };
   const call = new NativeFunction('Number', a => num(a[0]));
-  return new HostObject('Number', k => k in consts ? consts[k] : fns[k] ?? (k === 'call' ? call : undefined));
+  return new HostObject('Number', k => own(consts, k) ?? own(fns, k) ?? (k === 'call' ? call : undefined));
 }
 
 function dateObject(now: () => number): HostObject {
   return new HostObject('Date', k => k === 'now' ? new NativeFunction('now', () => now()) : k === 'UTC' ? new NativeFunction('UTC', a => Date.UTC(num(a[0]), num(a[1] ?? 0), num(a[2] ?? 1), num(a[3] ?? 0), num(a[4] ?? 0), num(a[5] ?? 0))) : undefined);
 }
-function arrayObject(): HostObject {
-  return new HostObject('Array', k => k === 'isArray' ? new NativeFunction('isArray', a => Array.isArray(a[0])) : k === 'from' ? new NativeFunction('from', a => Array.isArray(a[0]) ? [...a[0]] : isPlain(a[0]) && typeof a[0].length === 'number' ? Array.from({ length: Math.min(num(a[0].length), 1_000_000) }, () => undefined) : []) : undefined);
+function arrayObject(pay: (n: number) => void): HostObject {
+  const from = (a: Value[]): Value[] => {
+    if (Array.isArray(a[0])) { pay(a[0].length); return [...a[0]]; }
+    const n = isPlain(a[0]) && typeof a[0].length === 'number' ? Math.max(0, Math.min(Math.floor(a[0].length), 1_000_000)) : 0;
+    pay(n);
+    return new Array<Value>(Number.isFinite(n) ? n : 0).fill(undefined);
+  };
+  return new HostObject('Array', k => k === 'isArray' ? new NativeFunction('isArray', a => Array.isArray(a[0])) : k === 'from' ? new NativeFunction('from', from) : undefined);
 }
 function objectObject(): HostObject {
   const own = (v: Value): [string, Value][] => isPlain(v) ? Object.entries(v) : Array.isArray(v) ? v.map((x, i) => [String(i), x] as [string, Value]) : v instanceof HostObject && v.keys ? v.keys().map(k => [k, v.get(k)] as [string, Value]) : [];

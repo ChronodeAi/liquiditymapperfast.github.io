@@ -217,6 +217,10 @@ export class HeatPane {
   onFrame: () => void = () => {};
   /** The Delta pane's price/CVD divergences in view (set in main; none while that pane is not drawn). */
   divergences: () => readonly Divergence[] = () => [];
+  /** A script's colour for the candle starting at `t` (`$price.color = ...`), or '' for the candle's own (set by the Scripts pane). */
+  candleColor: (t: number) => string = () => '';
+  /** The scripts placed on the map draw here, over the candles and the lines, in the map's price and time (set by the Scripts pane). */
+  scriptLayer: ((ctx: CanvasRenderingContext2D, pw: number, ph: number) => void) | null = null;
   #glCanvas = document.createElement('canvas');
   #ctx: CanvasRenderingContext2D;
   /** The pane's whole width; the plot and everything right of it start after the columns left of the map (`#left`). */
@@ -793,6 +797,7 @@ export class HeatPane {
     this.#valueTags = this.#paintValueLines(ctx, state, pw, ph);
     this.#keyTags = state.keyLevels.on ? paintKeyLevels(ctx, this.#keyLevelLines(state), v, pw, ph, p, state.keyLevels, pageNow(), this.#keyLevelContext(state).zone, this.#labels) : [];
     this.#vwapTags = state.vwap.on ? paintVwap(ctx, this.#vwapLines(state), v, pw, ph, p, state.vwap, this.#labels) : [];
+    this.scriptLayer?.(ctx, pw, ph);
     // Replay: nothing after its moment is shown (the heatmap under this canvas included), and a line marks it.
     if (replaying()) {
       const x = Math.max(0, Math.min(pw, v.xOf(pageNow(), pw)));
@@ -1296,7 +1301,7 @@ export class HeatPane {
       if (c[0] + tf < v.t0 || c[0] > v.t1) continue;
       // Every candle, the one still forming too, has the same body and stands in the middle of its slot, so the spacing is the same all along.
       const xClassic = v.xOf(c[0] + tf / 2, pw), x = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing, up = c[4] >= c[1];
-      const color = up ? p.candleUp : p.candleDown;
+      const color = this.candleColor(c[0]) || (up ? p.candleUp : p.candleDown);
       const yh = v.yOf(c[2], ph), yl = v.yOf(c[3], ph), yo = v.yOf(c[1], ph), yc = v.yOf(c[4], ph), cx = Math.round(x) + 0.5;
       const top = Math.min(yo, yc), height = Math.max(1.5, Math.abs(yc - yo));
       if (hollow) {

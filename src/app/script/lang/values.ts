@@ -31,7 +31,10 @@ export type Value = number | string | boolean | null | undefined | Value[] | Pla
 export const MAX_ARRAY = 1_000_000, MAX_TEXT = 100_000;
 
 export const plain = (): Plain => Object.create(null) as Plain;
-export const isPlain = (v: Value): v is Plain => typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof ScriptFunction) && !(v instanceof NativeFunction) && !(v instanceof HostObject) && !(v instanceof DateValue);
+/** A table's own entry for `key`, never one it inherits (`constructor`, `toString`): every lookup by a name a script wrote goes through this. */
+export const own = <T>(table: Readonly<Record<string, T>>, key: string): T | undefined => Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+/** A script's own object: made without a prototype (`plain()`), so it is never an object of the page or of the language's machinery. */
+export const isPlain = (v: Value): v is Plain => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.getPrototypeOf(v) === null;
 export const isCallable = (v: Value): v is ScriptFunction | NativeFunction => v instanceof ScriptFunction || v instanceof NativeFunction;
 
 const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__']);
@@ -110,7 +113,8 @@ export function getMember(obj: Value, key: string, methods: (obj: Value, key: st
   }
   if (typeof obj === 'number' || typeof obj === 'boolean' || obj instanceof DateValue) return methods(obj, key);
   if (isCallable(obj)) return key === 'name' ? obj.name : undefined;
-  return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
+  // Only a script's own object has members to read; anything else that got here (it should not) reads as nothing.
+  return isPlain(obj) && Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
 }
 
 /** Set a member: on the script's own arrays and objects, and on the named objects that take one (`$price.color`). */

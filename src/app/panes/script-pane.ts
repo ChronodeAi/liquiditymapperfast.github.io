@@ -18,6 +18,7 @@ import { loadScripts, storeScripts, type ScriptRecord } from '../script/records.
 import { PLOT_FIELDS, type ScriptResult, type Warning } from '../script/protocol.ts';
 import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
+import { safeColor } from '../script/lang/colors.ts';
 import type { SourceFilter } from '../script/inputs.ts';
 import { buildScriptsPanel, type ScriptsPanelState } from '../script/panel.ts';
 
@@ -39,6 +40,7 @@ export class ScriptPane extends TimePane {
   #host = new ScriptHost({ spawn: () => new Worker(new URL('../script/script.worker.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike });
   #data: ScriptData;
   #analysis = new Map<string, Analysis | ScriptError>();
+  /** Each script's last answer; a new map at every run, so what is worked out from it can tell when to work it out again. */
   #held = new Map<string, Held>();
   #warnings = new Map<string, Warning[]>();
   #lastRun = 0; #runMs = 0; #timer = 0; #running = false;
@@ -140,7 +142,9 @@ export class ScriptPane extends TimePane {
       if (!results.length) return;
       this.#runMs = Date.now() - started;
       for (const res of results) this.#held.set(res.id, { result: res, time, tf });
+      this.#held = new Map(this.#held);
       this.invalidate();
+      this.onMapChanged();
       this.#refreshPanel();
     });
   }
@@ -156,12 +160,12 @@ export class ScriptPane extends TimePane {
 
   #paint(): void {
     const { ctx, palette: p } = this, state = this.store.state, pw = this.plotW, ph = this.h, v = this.view;
-    const on = this.#records.filter(r => r.on);
-    setText(this.head.querySelector('.readout'), this.#records.length ? tn(on.length, '{n} script on', '{n} scripts on') : '');
+    const running = this.#records.filter(r => r.on), on = running.filter(r => r.place === 'pane');
+    setText(this.head.querySelector('.readout'), this.#records.length ? tn(running.length, '{n} script on', '{n} scripts on') : '');
     ctx.textBaseline = 'middle';
     if (!on.length) {
       ctx.fillStyle = p.muted; ctx.textAlign = 'left';
-      ctx.fillText(this.#records.length ? t('Every script is switched off: switch one on in Scripts….') : t('No scripts yet: open Scripts… to write one or add an example.'), 12, ph / 2);
+      ctx.fillText(!this.#records.length ? t('No scripts yet: open Scripts… to write one or add an example.') : running.length ? t('The scripts that are on draw on the map.') : t('Every script is switched off: switch one on in Scripts….'), 12, ph / 2);
       return;
     }
     const total = on.reduce((s, r) => s + r.height, 0);
@@ -174,7 +178,13 @@ export class ScriptPane extends TimePane {
       const rowH = k === on.length - 1 ? ph - top : Math.max(24, Math.round(ph * r.height / total));
       const held = this.#held.get(r.id);
       if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(this.w, top + 0.5); ctx.stroke(); }
-      const label = (text: string, color: string, y: number): void => { ctx.font = '11px ui-sans-serif, system-ui, sans-serif'; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(text, 6, y); };
+      // A row's name stands on a faint plate of the page's colour, so a plot under it does not make it hard to read.
+      const label = (text: string, color: string, y: number): void => {
+        ctx.font = '11px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left';
+        const w = Math.min(pw - 8, ctx.measureText(text).width + 8);
+        ctx.globalAlpha = 0.78; ctx.fillStyle = p.bg; ctx.fillRect(2, y - 7, w, 14); ctx.globalAlpha = 1;
+        ctx.fillStyle = color; ctx.fillText(text, 6, y);
+      };
       if (!held) label(`${r.name} · ${t('running…')}`, p.muted, top + 9);
       else if (!held.result.ok) { label(r.name, p.text, top + 9); ctx.save(); ctx.beginPath(); ctx.rect(0, top, pw, rowH); ctx.clip(); label(errorText(held.result.error), p.ask, top + 24); ctx.restore(); }
       else {
@@ -203,6 +213,54 @@ export class ScriptPane extends TimePane {
       top += rowH;
     });
     if (card.length) this.#lines = card;
+  }
+
+  /** Called when what the scripts draw on the map changed (the map draws again). */
+  onMapChanged: () => void = () => {};
+  #candleColors = new Map<number, string>();
+  #colorsKey: unknown = null;
+
+  /** A script's colour for the map's candle starting at `t` (`$price.color = ...`), or '' for the candle's own. */
+  candleColorAt(t: number): string {
+    if (!this.store.state.show.script) return '';
+    if (this.#colorsKey !== this.#held) this.#rebuildColors();
+    return this.#candleColors.get(t) ?? '';
+  }
+  #rebuildColors(): void {
+    this.#colorsKey = this.#held;
+    const out = new Map<number, string>(), tf = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
+    for (const r of this.#records) {
+      const held = r.on ? this.#held.get(r.id) : undefined;
+      if (!held?.result.ok || !held.result.candleColors || held.tf !== tf) continue;
+      held.result.candleColors.forEach((c, i) => { if (c) out.set(held.time[i]!, safeColor(c, '')); });
+    }
+    this.#candleColors = out;
+  }
+
+  /**
+   * Draw the scripts placed on the map (called by the map, in its plot's coordinates): the plots on the price scale at their prices, the
+   * others each on a scale of their own, fitted to what is in view inside their margins, as they would be over a chart's candles.
+   */
+  paintOnMap(ctx: CanvasRenderingContext2D, pw: number, ph: number): void {
+    const state = this.store.state;
+    if (!state.show.script) return;
+    // The map asks for runs too: on a phone the pane is not laid out while another tab shows, and the scripts on the map must still run.
+    this.#maybeRun();
+    const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, p = this.palette;
+    const fallbacks = [p.vwap, p.poc, p.level, p.accent, p.bid, p.ask];
+    for (const r of this.#records) {
+      if (!r.on || r.place !== 'map') continue;
+      const held = this.#held.get(r.id);
+      if (!held?.result.ok || held.tf !== tf || !held.time.length) continue;
+      const res = held.result, time = held.time, [from, to] = visibleRange(time, v.t0, v.t1, tf);
+      const scales = scalesOf(res.plots.filter(pl => scaleIdOf(pl, r.options) !== 'right'), r.options, from, to);
+      scales.set('right', { min: v.p0, max: v.p1, margins: { top: 0, bottom: 0 } });
+      const frame: Frame = { ctx, x: tt => v.xOf(tt, pw), barW: Math.max(1, v.xOf(tf, pw) - v.xOf(0, pw)), tf, time, from, to, top: 0, height: ph, w: pw, color: p.text, up: p.candleUp, down: p.candleDown };
+      res.plots.forEach((plot, j) => {
+        const s = scales.get(scaleIdOf(plot, r.options));
+        if (s) paintPlot({ ...frame, color: fallbacks[j % fallbacks.length]! }, plot, s);
+      });
+    }
   }
 
   /** The popup lines of one script at the candle under the pointer: its name, then each plot's value there. */

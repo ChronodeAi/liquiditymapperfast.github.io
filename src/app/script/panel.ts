@@ -19,20 +19,20 @@ export interface ScriptsHost {
 /** What the panel keeps while it is open: the script being written (a new one has the id `new`), its text so far, a message, and which Delete waits for its second press. */
 export interface ScriptsPanelState {
   editing: string | null;
-  draft: { name: string; source: string; options: Record<string, OptionValue> } | null;
+  draft: { name: string; source: string; options: Record<string, OptionValue>; place: ScriptRecord['place'] } | null;
   message: { text: string; error: boolean } | null;
   armed: string | null;
 }
 
 /** Scripts to start from, written for this page. */
-function examples(): { name: string; source: string }[] {
+function examples(): { name: string; source: string; place?: ScriptRecord['place'] }[] {
   return [
     { name: t('Cumulative delta'), source: '// What was bought at market less what was sold, added up candle after candle.\nline(cum(vbuy - vsell), title=CVD)\n' },
     { name: t('Spot and perpetual CVD'), source: '// The cumulative delta of the spot markets and of the perpetuals, apart.\nspotColor = option(type=color, default=#2e9bff, label=Spot)\nperpColor = option(type=color, default=#ff9f1c, label=Perpetual)\nspotDelta = source(vbuy, type=spot) - source(vsell, type=spot)\nperpDelta = source(vbuy, type=perp) - source(vsell, type=perp)\nline(cum(spotDelta), title=Spot, color=spotColor)\nline(cum(perpDelta), title=Perp, color=perpColor, priceScaleId=perp)\n' },
     { name: t('Delta histogram'), source: '// Each candle\'s delta, in the buy colour where buyers led and the sell colour where sellers did.\nup = option(type=color, default=rgb(38,166,154), label=Buys)\ndown = option(type=color, default=rgb(239,83,80), label=Sells)\nvar delta = vbuy - vsell\nhistogram({ time: time, value: delta, color: delta > 0 ? up : down }, title=Delta)\n' },
     { name: t('Liquidations'), source: '// Shorts liquidated (forced buys) up, longs liquidated (forced sells) down, in dollars.\nshorts = option(type=color, default=rgb(38,166,154), label=Shorts)\nlongs = option(type=color, default=rgb(239,83,80), label=Longs)\nhistogram({ time: time, value: lbuy, color: shorts }, title="Shorts liquidated")\nhistogram({ time: time, value: -lsell, color: longs }, title="Longs liquidated")\n' },
     { name: t('Buy share'), source: '// The share of the volume bought at market over the last candles, in percent.\nlength = option(default=20, min=1, label=Candles)\nline(100 * sum(vbuy, length) / sum(vbuy + vsell, length), title="Buy share %")\nline(50, color=rgba(128,128,128,0.6), title=Even)\n' },
-    { name: t('VWAP with bands'), source: '// The volume-weighted average price from the first candle, with bands one and two deviations wide.\nvar typical = ($price.high + $price.low + $price.close) / 3\nvar volume = vbuy + vsell\nvar vwap = cum(typical * volume) / cum(volume)\nvar spread = Math.sqrt(Math.max(0, cum(volume * typical * typical) / cum(volume) - vwap * vwap))\ncloudarea(vwap - 2 * spread, vwap + 2 * spread)\nline(vwap, title=VWAP)\n' },
+    { name: t('VWAP with bands'), source: '// The volume-weighted average price from the first candle, with bands one and two deviations wide.\nvar typical = ($price.high + $price.low + $price.close) / 3\nvar volume = vbuy + vsell\nvar vwap = cum(typical * volume) / cum(volume)\nvar spread = Math.sqrt(Math.max(0, cum(volume * typical * typical) / cum(volume) - vwap * vwap))\ncloudarea(vwap - 2 * spread, vwap + 2 * spread)\nline(vwap, title=VWAP)\n', place: 'map' },
   ];
 }
 
@@ -79,7 +79,7 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
     up.disabled = list.indexOf(r) === 0;
     body.append(el('div', { class: 'layout-row script-row' },
       el('label', { class: 'script-on' }, box),
-      button(r.name, () => { ui.editing = r.id; ui.draft = { name: r.name, source: r.source, options: { ...r.options } }; ui.message = null; redraw(); }, t('Open this script to change it')),
+      button(r.name, () => { ui.editing = r.id; ui.draft = { name: r.name, source: r.source, options: { ...r.options }, place: r.place }; ui.message = null; redraw(); }, t('Open this script to change it')),
       el('span', { class: `layout-date${res && !res.ok && r.on ? ' error' : ''}`, textContent: status }),
       up, remove));
   }
@@ -90,9 +90,9 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
   const full = list.length >= MAX_SCRIPTS;
   const addExample = button(t('Add example'), () => {
     const ex = examples()[Number(pick.value)]; if (!ex) return;
-    keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT }], t('Added “{name}”.', { name: ex.name }));
+    keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: ex.place ?? 'pane' }], t('Added “{name}”.', { name: ex.name }));
   }, t('Add a ready-made script to start from'));
-  const create = button(t('New script'), () => { ui.editing = 'new'; ui.draft = { name: '', source: '', options: {} }; ui.message = null; redraw(); }, t('Write a script, or paste one (an indicator file or a workspace works too)'));
+  const create = button(t('New script'), () => { ui.editing = 'new'; ui.draft = { name: '', source: '', options: {}, place: 'pane' }; ui.message = null; redraw(); }, t('Write a script, or paste one (an indicator file or a workspace works too)'));
   addExample.disabled = full; create.disabled = full;
   body.append(el('div', { class: 'layout-tools' }, create, pick, addExample));
   if (full) body.append(note(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS })));
@@ -132,7 +132,7 @@ function reference(): string[] {
 }
 
 function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, ui: ScriptsPanelState, keep: (list: ScriptRecord[], done: string) => void, say: (text: string, error?: boolean) => void): void {
-  const draft = ui.draft ??= { name: '', source: '', options: {} };
+  const draft = ui.draft ??= { name: '', source: '', options: {}, place: 'pane' };
   const existing = host.records.find(r => r.id === ui.editing) ?? null;
   const name = el('input', { type: 'text', class: 'layout-name', maxLength: 40, placeholder: t('Name'), ariaLabel: t('Name'), value: draft.name });
   name.oninput = () => { draft.name = name.value; };
@@ -147,7 +147,12 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
     const s = source.selectionStart, end = source.selectionEnd;
     source.setRangeText('  ', s, end, 'end'); draft.source = source.value;
   };
-  body.append(el('div', { class: 'layout-save' }, name), source);
+  const place = el('select', { ariaLabel: t('Where') });
+  place.append(new Option(t('In its own row'), 'pane'), new Option(t('On the map'), 'map'));
+  place.value = draft.place;
+  place.onchange = () => { draft.place = place.value === 'map' ? 'map' : 'pane'; };
+  const where = el('label', { class: 'row script-option', tip: t('A row of its own in this pane, or on the map: the plots on the price scale (the default) at their prices, the others each on a scale of their own.') }, el('span', { textContent: t('Draw') }), place);
+  body.append(el('div', { class: 'layout-save' }, name), where, source);
   if (ui.message) body.append(el('p', { class: ui.message.error ? 'panel-note layout-message error' : 'panel-note layout-message', textContent: ui.message.text }));
 
   // What the last run said about the script as it is kept.
@@ -159,7 +164,7 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
   }
 
   // Its options, as the text reads now: the declared ones and those it reads without declaring.
-  const probe: ScriptRecord = { id: existing?.id ?? 'new', name: draft.name || 'x', source: draft.source, options: draft.options, on: true, api: SCRIPT_API, height: ROW_DEFAULT };
+  const probe: ScriptRecord = { id: existing?.id ?? 'new', name: draft.name || 'x', source: draft.source, options: draft.options, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: draft.place };
   const rows = optionRows(host.analysisOf(probe));
   if (rows.length) {
     body.append(heading(t('Options')));
@@ -195,10 +200,10 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
     // Options it reads without declaring that nothing set yet get a value guessed from their names.
     const options = { ...draft.options };
     for (const o of optionRows(a)) if (!(o.name in options) && o.value !== '') options[o.name] = o.value;
-    const record: ScriptRecord = { id: existing?.id ?? newId(n), name: n, source: text.replace(/\r\n?/g, '\n'), options, on: existing?.on ?? true, api: existing?.api ?? SCRIPT_API, height: existing?.height ?? ROW_DEFAULT };
+    const record: ScriptRecord = { id: existing?.id ?? newId(n), name: n, source: text.replace(/\r\n?/g, '\n'), options, on: existing?.on ?? true, api: existing?.api ?? SCRIPT_API, height: existing?.height ?? ROW_DEFAULT, place: draft.place };
     const list = existing ? host.records.map(r => r.id === existing.id ? record : r) : [...host.records, record];
     if (!existing && host.records.length >= MAX_SCRIPTS) { say(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS }), true); return; }
-    ui.editing = record.id; ui.draft = { name: record.name, source: record.source, options: { ...record.options } };
+    ui.editing = record.id; ui.draft = { name: record.name, source: record.source, options: { ...record.options }, place: record.place };
     keep(list, t('Saved “{name}”: it runs with the next update.', { name: record.name }));
   };
   const check = (): void => { const a = host.analysisOf({ ...probe, source: draft.source }); say(isError(a) ? errorText(a) : t('The script reads.'), isError(a)); };
