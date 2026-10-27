@@ -57,7 +57,8 @@ export class ScriptPane extends TimePane {
 
   constructor(host: HTMLElement, store: Store, view: View, private hub: Hub) {
     super(host, store, view, 'script');
-    this.#data = new ScriptData(hub, () => this.invalidate());    this.head.innerHTML = `<strong>${t('Scripts')}</strong><span class="readout"></span>`;
+    this.#data = new ScriptData(hub, () => this.invalidate());
+    this.head.innerHTML = `<strong>${t('Scripts')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('scriptPane'));
     setTip(this.head.querySelector('strong')!, t('Your own indicators, written as scripts over the candles and the taker flow.'));
     const group = document.createElement('span'); group.className = 'ctl ctl-group'; this.head.append(group);
