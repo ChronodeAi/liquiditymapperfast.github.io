@@ -90,7 +90,7 @@ export class ScriptPane extends TimePane {
   /** The scripts, in their order. */
   get records(): readonly ScriptRecord[] { return this.#records; }
   /** A script's last answer, its warnings, and what reading it found (or why it could not be read). */
-  resultOf(id: string): ScriptResult | null { return this.#held.get(id)?.result ?? null; }
+  resultOf(id: string): ScriptResult | null { const held = this.#held.get(id); return held && this.#fresh(held) ? held.result : null; }
   warningsOf(id: string): readonly Warning[] { return this.#warnings.get(id) ?? []; }
   analysisOf(r: ScriptRecord): Analysis | ScriptError { return this.#analyze(r.source); }
   /** Whether Scripts is on: the scripts run and draw. */
@@ -123,7 +123,7 @@ export class ScriptPane extends TimePane {
     for (const id of [...this.#held.keys()]) if (!list.some(r => r.id === id)) this.#held.delete(id);
     const kept = storeScripts(list);
     this.#lastRun = 0;
-    this.invalidate();
+    this.refresh();
     this.#reportStatus();
     if (this.hasRows !== hadRows) this.onRowsChanged();
     return kept;
@@ -228,7 +228,8 @@ export class ScriptPane extends TimePane {
       // A newer request replaced this one before its worker took it: the newer one's answer is the one that counts.
       if (token !== this.#runToken) return;
       this.#running = false;
-      if (!results.length) return;
+      // Dropped before its worker took it (the scripts changed, or were switched off): look again now, or nothing may ask while the map is covered.
+      if (!results.length) { this.refresh(); return; }
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
       if (version !== this.#version) { this.refresh(); return; }
       // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often, spaced
@@ -252,6 +253,9 @@ export class ScriptPane extends TimePane {
     this.#setHeld(id, { result: { id, ok: false, error }, time: new Float64Array(0), tf: 0, inst: '', at: -Infinity });
   }
 
+  /** Whether an answer may be read now: one for the chart as it is (`#current`), or an error met on the page, which holds everywhere. */
+  #fresh(held: Held): boolean { return held.tf === 0 || this.#current(held, TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000); }
+
   /**
    * Whether an answer is for the chart as it is now: its timeframe, its market, and in a replay one worked out at or before the replay's
    * moment (never a live one, never one from before a rewind: what was read later may differ for the same candles), of which only the
@@ -271,7 +275,8 @@ export class ScriptPane extends TimePane {
       if (!fresh) note = 'running';
     }
     const key = `${note}|${name}`;
-    if (key !== this.#statusKey) { this.#statusKey = key; this.onStatus(note, name); }
+    // The list's statuses follow (in place): entering a replay, say, leaves its answers waiting for the replay's first run.
+    if (key !== this.#statusKey) { this.#statusKey = key; this.onStatus(note, name); this.#refreshPanel(); }
   }
 
   protected draw(): void {
@@ -299,7 +304,7 @@ export class ScriptPane extends TimePane {
     const fallbacks = [p.vwap, p.poc, p.level, p.accent, p.bid, p.ask];
     on.forEach((r, k) => {
       const left = on.length - 1 - k, rowH = left === 0 ? Math.max(least, ph - top) : Math.max(least, Math.min(ph - top - left * least, Math.round(ph * r.height / total)));
-      const held = this.#held.get(r.id);
+      const kept = this.#held.get(r.id), held = kept && this.#fresh(kept) ? kept : undefined;
       if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(this.w, top + 0.5); ctx.stroke(); }
       // A row's name stands on a faint plate of the page's colour, so a plot under it does not make it hard to read.
       const label = (text: string, color: string, y: number): void => {
