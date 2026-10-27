@@ -1778,5 +1778,6 @@
  "The file was written by a newer version of the page: update this page to read it.": "Dosya sayfanın daha yeni bir sürümüyle yazılmış: okumak için bu sayfayı güncelleyin.",
  "This script was written for a newer version of the script language: update the page to run it.": "Bu betik, betik dilinin daha yeni bir sürümü için yazılmış: çalıştırmak için sayfayı güncelleyin.",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Mumlar ve taker akışı üzerine betik olarak yazılan kendi göstergeleriniz: haritada ya da altında kendi satırlarında.",
- "“{name}” stopped with an error: open Scripts to see it.": "“{name}” bir hatayla durdu: görmek için Betikler’i açın."
+ "“{name}” stopped with an error: open Scripts to see it.": "“{name}” bir hatayla durdu: görmek için Betikler’i açın.",
+ "Switch this script off (it stays in Scripts…)": "Bu betiği kapat (Betikler… içinde kalır)"
 }

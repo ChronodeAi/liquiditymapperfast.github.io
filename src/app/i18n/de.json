@@ -1778,5 +1778,6 @@
  "The file was written by a newer version of the page: update this page to read it.": "Die Datei wurde von einer neueren Version der Seite geschrieben: Aktualisiere diese Seite, um sie zu lesen.",
  "This script was written for a newer version of the script language: update the page to run it.": "Dieses Skript wurde für eine neuere Version der Skriptsprache geschrieben: Aktualisiere die Seite, um es auszuführen.",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Eigene Indikatoren, als Skripte über die Kerzen und den Taker-Flow geschrieben: auf der Karte oder in eigenen Zeilen darunter.",
- "“{name}” stopped with an error: open Scripts to see it.": "„{name}“ wurde mit einem Fehler angehalten: Öffne Skripte, um ihn zu sehen."
+ "“{name}” stopped with an error: open Scripts to see it.": "„{name}“ wurde mit einem Fehler angehalten: Öffne Skripte, um ihn zu sehen.",
+ "Switch this script off (it stays in Scripts…)": "Dieses Skript ausschalten (es bleibt unter Skripte…)"
 }

@@ -1799,5 +1799,6 @@
  "The file was written by a newer version of the page: update this page to read it.": "El archivo lo escribió una versión más nueva de la página: actualiza esta página para leerlo.",
  "This script was written for a newer version of the script language: update the page to run it.": "Este script se escribió para una versión más nueva del lenguaje de scripts: actualiza la página para ejecutarlo.",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Tus propios indicadores, escritos como scripts sobre las velas y el flujo de takers: en el mapa o en filas propias debajo de él.",
- "“{name}” stopped with an error: open Scripts to see it.": "«{name}» se detuvo con un error: abre Scripts para verlo."
+ "“{name}” stopped with an error: open Scripts to see it.": "«{name}» se detuvo con un error: abre Scripts para verlo.",
+ "Switch this script off (it stays in Scripts…)": "Desactivar este script (sigue en Scripts…)"
 }

@@ -11,6 +11,8 @@ import { HoverCard } from '../hovercard.ts';
 import type { InfoLine } from '../infobox.ts';
 import { togglePanel, type Panel } from '../ui.ts';
 import { TimePane, setText } from './lower-panes.ts';
+import { leftGutter } from './heat-pane.ts';
+import { el } from '../dom.ts';
 import { ScriptHost, type WorkerLike } from '../script/host.ts';
 import { ScriptData } from '../script/data.ts';
 import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/analysis.ts';
@@ -22,7 +24,7 @@ import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Fr
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
 import type { SourceFilter } from '../script/inputs.ts';
-import type { ScriptsPanelState } from '../script/panel-state.ts';
+import { unsaved, type ScriptsPanelState } from '../script/panel-state.ts';
 import { lazy } from '../lazy.ts';
 
 /**
@@ -85,6 +87,7 @@ export class ScriptPane extends TimePane {
     setTip(this.#button, t('Write, switch on and off, import and export your scripts.'));
     this.#button.onclick = () => this.openPanel();
     group.append(this.#button);
+    this.root.append(this.#rowTools);
   }
 
   /** The scripts, in their order. */
@@ -103,6 +106,42 @@ export class ScriptPane extends TimePane {
 
   /** Whether a script that is on draws in a row of this pane: the pane is shown only then (and only while Scripts is on). */
   get hasRows(): boolean { return this.#records.some(r => r.on && r.place === 'pane'); }
+  /** The buttons beside each row's name (open the script, switch it off), a layer over the canvas; placed again only when a row moves. */
+  #rowTools = el('div', { class: 'script-row-tools' });
+  #rowToolsKey = '';
+
+  /** Open a script in the Scripts panel, from `anchor` (a row's or the map legend's button); one being written with changes not saved stays. */
+  openScript(id: string, anchor: HTMLElement): void {
+    const r = this.#records.find(x => x.id === id); if (!r) return;
+    if (!(this.#ui.editing && this.#ui.editing !== id && unsaved(this, this.#ui)) && this.#ui.editing !== id) {
+      this.#ui.editing = id; this.#ui.draft = { name: r.name, source: r.source, options: { ...r.options }, place: r.place }; this.#ui.message = null;
+    }
+    if (this.#panel) this.#panel.render(this.#build); else this.openPanel(anchor);
+  }
+
+  /** Switch a script off from where it is drawn (it stays in the list, to be switched on again there). */
+  switchOff(id: string): void {
+    this.setRecords(this.#records.map(r => r.id === id ? { ...r, on: false } : r));
+    if (this.#panel && !this.#ui.editing) this.#panel.render(this.#build);
+  }
+
+  /** Put each row's buttons beside its name (`places` in the plot's coordinates); nothing changes while no row moved. */
+  #placeRowTools(places: readonly { id: string; x: number; y: number }[]): void {
+    const dx = this.canvas.offsetLeft + leftGutter(this.store.state), dy = this.canvas.offsetTop;
+    const key = `${dx},${dy}|${places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}`).join('|')}`;
+    if (key === this.#rowToolsKey) return;
+    this.#rowToolsKey = key;
+    this.#rowTools.replaceChildren(...places.map(place => {
+      const open = el('button', { type: 'button', class: 'script-row-open', ariaLabel: t('Open this script to change it'), tip: t('Open this script to change it') });
+      open.onclick = () => this.openScript(place.id, open);
+      const off = el('button', { type: 'button', class: 'script-row-off', textContent: '×', ariaLabel: t('Switch this script off (it stays in Scripts…)'), tip: t('Switch this script off (it stays in Scripts…)') });
+      off.onclick = () => this.switchOff(place.id);
+      const box = el('span', { class: 'script-row-tool' }, open, off);
+      box.style.left = `${Math.round(dx + place.x)}px`; box.style.top = `${Math.round(dy + place.y)}px`;
+      return box;
+    }));
+  }
+
   /** Called when `hasRows` changed: the page lays its panes out again. */
   onRowsChanged: () => void = () => {};
   /** Called with what the scripts are doing, for the Scripts lamp: `running` (one that is on waits for its first answer), `error` and the name of one that stopped, or ''. */
@@ -299,7 +338,8 @@ export class ScriptPane extends TimePane {
     ctx.textBaseline = 'middle';
     this.#reportStatus();
     // The pane is laid out only while a script that is on draws in it (`hasRows`): for a moment after one is switched off it has none.
-    if (!on.length) return;
+    if (!on.length) { this.#placeRowTools([]); return; }
+    const places: { id: string; x: number; y: number }[] = [];
     const total = on.reduce((s, r) => s + r.height, 0), least = Math.max(1, Math.min(24, Math.floor(ph / on.length)));
     let top = 0;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
@@ -311,14 +351,17 @@ export class ScriptPane extends TimePane {
       const kept = this.#held.get(r.id), held = kept && this.#fresh(kept) ? kept : undefined;
       if (k > 0) { ctx.strokeStyle = p.line; ctx.beginPath(); ctx.moveTo(0, top + 0.5); ctx.lineTo(this.w, top + 0.5); ctx.stroke(); }
       // A row's name stands on a faint plate of the page's colour, so a plot under it does not make it hard to read.
-      const label = (text: string, color: string, y: number): void => {
+      const label = (text: string, color: string, y: number): number => {
         ctx.font = '11px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'left';
         const w = Math.min(pw - 8, ctx.measureText(text).width + 8);
         ctx.globalAlpha = 0.78; ctx.fillStyle = p.bg; ctx.fillRect(2, y - 7, w, 14); ctx.globalAlpha = 1;
         ctx.fillStyle = color; ctx.fillText(text, 6, y);
+        return w;
       };
-      if (!held) label(`${r.name} · ${t('running…')}`, p.muted, top + 9);
-      else if (!held.result.ok) { label(r.name, p.text, top + 9); ctx.save(); ctx.beginPath(); ctx.rect(0, top, pw, rowH); ctx.clip(); label(errorText(held.result.error), p.ask, top + 24); ctx.restore(); }
+      // The row's buttons stand after its name's plate (the name is drawn last, over the plots, so it is measured where it is drawn).
+      const tools = (w: number): void => { places.push({ id: r.id, x: Math.min(pw - 44, 2 + w + 4), y: top + 1 }); };
+      if (!held) tools(label(`${r.name} · ${t('running…')}`, p.muted, top + 9));
+      else if (!held.result.ok) { tools(label(r.name, p.text, top + 9)); ctx.save(); ctx.beginPath(); ctx.rect(0, top, pw, rowH); ctx.clip(); label(errorText(held.result.error), p.ask, top + 24); ctx.restore(); }
       else {
         const res = held.result, time = held.time;
         // A run for another timeframe is not drawn over this one: the next run replaces it.
@@ -340,10 +383,11 @@ export class ScriptPane extends TimePane {
           if (hv) this.#cardLines(card, r, res, time, tf, hv.t, shown);
         }
         const notes = this.warningsOf(r.id).length + res.warnings.length;
-        label(notes ? `${r.name} · ${tn(notes, '{n} warning', '{n} warnings')}` : r.name, notes ? p.muted : p.text, top + 9);
+        tools(label(notes ? `${r.name} · ${tn(notes, '{n} warning', '{n} warnings')}` : r.name, notes ? p.muted : p.text, top + 9));
       }
       top += rowH;
     });
+    this.#placeRowTools(places);
     if (card.length) this.#lines = card;
   }
 
@@ -416,7 +460,11 @@ export class ScriptPane extends TimePane {
   #cardLines(out: InfoLine[], r: ScriptRecord, res: Extract<ScriptResult, { ok: true }>, time: Float64Array, tf: number, at: number, shown: number, withTime = true, onMap = false): void {
     let lo = 0, hi = time.length - 1, i = -1;
     while (lo <= hi) { const m = (lo + hi) >> 1; if (time[m]! <= at) { i = m; lo = m + 1; } else hi = m - 1; }
-    if (i < 0 || i >= shown || at >= time[i]! + tf) return;
+    // Right of the newest candle shown (or over the price axis) the popup keeps its values, as the built-in panes' do (`readAt`): landing
+    // on the last candle is a hunt. Never past what may be shown (a replay's moment); a time in a gap between candles reads nothing.
+    const newest = shown - 1;
+    if (i > newest) i = newest;
+    if (i < 0 || (i < newest && at >= time[i]! + tf)) return;
     if (withTime && !out.length) out.push({ text: clock(time[i]!, true), bold: true });
     out.push({ text: r.name, bold: true, rule: true });
     res.plots.forEach((plot, j) => {

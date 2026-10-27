@@ -1820,5 +1820,6 @@
  "The file was written by a newer version of the page: update this page to read it.": "Файл записан более новой версией страницы: обновите эту страницу, чтобы его прочитать.",
  "This script was written for a newer version of the script language: update the page to run it.": "Этот скрипт написан для более новой версии языка скриптов: обновите страницу, чтобы его запустить.",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Ваши собственные индикаторы, написанные скриптами по свечам и потоку тейкеров: на карте или в отдельных строках под ней.",
- "“{name}” stopped with an error: open Scripts to see it.": "«{name}» остановлен с ошибкой: откройте Скрипты, чтобы её увидеть."
+ "“{name}” stopped with an error: open Scripts to see it.": "«{name}» остановлен с ошибкой: откройте Скрипты, чтобы её увидеть.",
+ "Switch this script off (it stays in Scripts…)": "Выключить этот скрипт (он останется в «Скрипты…»)"
 }

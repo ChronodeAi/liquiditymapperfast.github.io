@@ -681,6 +681,12 @@ html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; 
 .script-row > button:nth-child(2) { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .script-row .layout-date.error { color: var(--ask); }
 .script-example > .script-example-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Scripts pane's row buttons (script-pane.ts #placeRowTools): open the script, switch it off; after the row's name, over the canvas. */
+.script-row-tool { position: absolute; z-index: 2; display: inline-flex; gap: 2px; }
+.script-row-tool > button { position: relative; width: 18px; height: 16px; min-height: 0; padding: 0; font-size: 13px; line-height: 14px; opacity: .6; }
+.script-row-tool > button:hover, .script-row-tool > button:focus-visible { opacity: 1; }
+.script-row-open::before { content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; transform: translate(-50%, -50%); background: currentColor; -webkit-mask: var(--mark-settings) center / contain no-repeat; mask: var(--mark-settings) center / contain no-repeat; }
+html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px; }
 .script-source { display: block; box-sizing: border-box; width: 100%; min-height: 220px; margin: 6px 0; padding: 6px 8px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; white-space: pre; overflow: auto; color: var(--text); background: var(--bg); border: 1px solid var(--line); }
 .script-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
 .script-option > input[type="number"], .script-option > input[type="text"] { width: 150px; font: inherit; }

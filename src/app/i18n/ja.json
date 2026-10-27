@@ -1717,5 +1717,6 @@
  "The file was written by a newer version of the page: update this page to read it.": "このファイルは新しいバージョンのページで書かれています。読み込むには、このページを更新してください。",
  "This script was written for a newer version of the script language: update the page to run it.": "このスクリプトは新しいバージョンのスクリプト言語向けに書かれています。実行するには、ページを更新してください。",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "ローソク足とテイカーフローをもとにスクリプトで書く、自分だけのインジケーター。マップ上か、その下の専用の行に描きます。",
- "“{name}” stopped with an error: open Scripts to see it.": "「{name}」はエラーで停止しました。スクリプトを開いて確認してください。"
+ "“{name}” stopped with an error: open Scripts to see it.": "「{name}」はエラーで停止しました。スクリプトを開いて確認してください。",
+ "Switch this script off (it stays in Scripts…)": "このスクリプトをオフにする（スクリプト…に残ります）"
 }
