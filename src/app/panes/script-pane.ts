@@ -107,7 +107,7 @@ export class ScriptPane extends TimePane {
   onRowsChanged: () => void = () => {};
   /** Called with what the scripts are doing, for the Scripts lamp: `running` (one that is on waits for its first answer), `error` and the name of one that stopped, or ''. */
   onStatus: (note: 'running' | 'error' | '', name: string) => void = () => {};
-  #statusKey = '';
+  #statusKey = ''; #rowsKey = '';
 
   /** Keep `list` as the scripts; false when this browser refused to store it (the list still applies until the page closes). */
   setRecords(list: ScriptRecord[]): boolean {
@@ -275,8 +275,12 @@ export class ScriptPane extends TimePane {
       if (!fresh) note = 'running';
     }
     const key = `${note}|${name}`;
-    // The list's statuses follow (in place): entering a replay, say, leaves its answers waiting for the replay's first run.
-    if (key !== this.#statusKey) { this.#statusKey = key; this.onStatus(note, name); this.#refreshPanel(); }
+    if (key !== this.#statusKey) { this.#statusKey = key; this.onStatus(note, name); }
+    // The list's statuses follow, in place, whenever one script's changes (entering a replay, say, leaves its answers waiting for the
+    // replay's first run), whether or not the lamp's does.
+    let rows = state.show.script ? 'on' : 'off';
+    for (const r of this.#records) { const h = this.#held.get(r.id); rows += `|${r.id}:${!h ? '-' : !this.#fresh(h) ? 's' : h.result.ok ? 'o' : 'e'}`; }
+    if (rows !== this.#rowsKey) { this.#rowsKey = rows; this.#refreshPanel(); }
   }
 
   protected draw(): void {
