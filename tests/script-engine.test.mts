@@ -260,6 +260,20 @@ test('a script that keeps arrays, functions or writes its options runs every can
   assert.equal(simple.startedAt, 2, 'a script that keeps numbers alone still runs only the candle under way');
 });
 
+test('an option written, or a plot styled, on the candle under way does not outlive that candle\'s run', () => {
+  const same = (src: string): void => {
+    const runner = createRunner('t', src, {});
+    ok(runner.run(inputs(3)));
+    const live = ok(runner.run(inputs(3, i => i === 2 ? { vbuy: 99 } : {})));
+    const full = ok(runScript('t', src, {}, inputs(3, i => i === 2 ? { vbuy: 99 } : {})));
+    assert.deepEqual(live.plots.map(p => [p.title, p.style, [...p.fields.value!]]), full.plots.map(p => [p.title, p.style, [...p.fields.value!]]), src);
+  };
+  same('if (renderer.length === 3) options.n = nz(options.n) + 1\nline(nz(options.n))');
+  same('if (renderer.length === 3) line(1, color=vbuy < 50 ? "red" : "blue", title=String(vbuy))');
+  const long = ok(run('var c = "red".padEnd(10000, " ")\n$price.color = c\nline({ time: time, value: 1, color: c })'));
+  assert.equal(long.candleColors, undefined, 'a colour longer than any colour is not read');
+});
+
 test('colours and styles a script gives are read and held short before they leave the worker', () => {
   const r = ok(run('if (renderer.length === 1) c = "x".padEnd(10000, "x")\nline({ time: time, value: 1, color: c })\nhistogram(1, title=' + '"' + 'y'.repeat(500) + '"' + ', color="not a colour")'));
   assert.equal(r.plots[0]!.colors, null, 'a text that is not a colour colours nothing');

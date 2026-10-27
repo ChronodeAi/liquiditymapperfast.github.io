@@ -142,7 +142,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
       case 'time': return inputs.time[i]! / 1000;
       default: return undefined;
     }
-  }, (k, v) => { if (k === 'color' || k === 'borderColor' || k === 'wickColor') { price[k] = typeof v === 'string' ? v : ''; if (k === 'color') { candleColors[i] = safeColor(price.color, ''); if (candleColors[i]) colored = true; } return true; } return false; });
+  }, (k, v) => { if (k === 'color' || k === 'borderColor' || k === 'wickColor') { price[k] = typeof v === 'string' ? v : ''; if (k === 'color') { candleColors[i] = price.color.length <= 64 ? safeColor(price.color, '') : ''; if (candleColors[i]) colored = true; } return true; } return false; });
   const barObject = new HostObject('bar', k => {
     const s = src();
     switch (k) {
@@ -327,7 +327,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   const interp = new Interpreter(a.program, host, budget);
 
   /** What the script held after candle `at` of `inputs` had closed, and what it had drawn by then. */
-  interface Snapshot { at: number; inputs: BarInputs; kept: Map<string, { v: Value; past: Value[] }>; states: Map<number, unknown>; fields: Map<number, Record<string, Float64Array>>; colors: Map<number, string[] | null>; candleColors: string[] }
+  interface Snapshot { at: number; inputs: BarInputs; kept: Map<string, { v: Value; past: Value[] }>; states: Map<number, unknown>; fields: Map<number, Record<string, Float64Array>>; colors: Map<number, string[] | null>; candleColors: string[]; styles: Map<number, { title: string; style: Record<string, OptionValue> }>; styled: Set<number> }
   let snap: Snapshot | null = null;
   /**
    * Whether what the script holds can be put back exactly: kept names holding plain values (numbers, texts, true/false, dates) and options it
@@ -349,11 +349,16 @@ export function createRunner(id: string, source: string, optionValues: Record<st
     fields: new Map([...plots].map(([site, p]) => [site, p.fields])),
     colors: new Map([...plots].map(([site, p]) => [site, p.colors])),
     candleColors,
+    styles: new Map([...plots].map(([site, p]) => [site, { title: p.title, style: JSON.parse(JSON.stringify(p.style)) as Record<string, OptionValue> }])),
+    styled: new Set(styled),
   });
   /** Put back what the script held after candle `snap.at`. */
   const restore = (from: Snapshot): void => {
     for (const [name, k] of kept) { const was = from.kept.get(name); k.v = was ? cloneValue(was.v) : 0; k.past = was ? was.past.map(x => cloneValue(x)) : []; }
     for (const [site, inst] of instances) { inst.pending = null; inst.touched = false; inst.state = from.states.has(site) ? cloneState(from.states.get(site)) as Record<string, unknown> : {}; }
+    // A plot first styled on a candle after the snapshot is styled again by the run that takes that candle over.
+    styled.clear(); for (const site of from.styled) styled.add(site);
+    for (const [site, p] of plots) { const was = from.styles.get(site); if (was) { p.title = was.title; p.style = JSON.parse(JSON.stringify(was.style)) as Record<string, OptionValue>; } }
   };
   /** Start from nothing: every kept name at 0, every function's state empty. */
   const fresh = (): void => {
@@ -410,7 +415,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
         throw e;
       }
       // A run of the candle under way alone keeps the snapshot of the run before (its closed candles are the same); a run over no closed candle has none.
-      if (n < 2) snap = null;
+      if (n < 2 || optionsWritten) snap = null;
       dropZeros();
       const out: PlotOut[] = plotOrder.map(site => { const p = plots.get(site)!; return { kind: p.kind, title: p.title, style: p.style, fields: p.fields, colors: p.colors }; });
       if (!out.length && !colored) warnings.push({ code: 'no-plots' });

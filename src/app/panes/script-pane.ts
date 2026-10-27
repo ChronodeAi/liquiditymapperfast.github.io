@@ -75,7 +75,14 @@ export class ScriptPane extends TimePane {
   analysisOf(r: ScriptRecord): Analysis | ScriptError { return this.#analyze(r.source); }
 
   /** Keep `list` as the scripts; false when this browser refused to store it (the list still applies until the page closes). */
+  /** Keep an answer made here, as a new map (what is worked out from the answers, the candle colours, is worked out again). */
+  #setHeld(id: string, held: Held): void { this.#held = new Map(this.#held).set(id, held); this.#heldGen++; this.onMapChanged(); }
+
   setRecords(list: ScriptRecord[]): boolean {
+    // A script whose text, options or version changed has no answer until it runs again: the old one is not drawn meanwhile.
+    const was = new Map(this.#records.map(r => [r.id, r]));
+    const stale = list.filter(r => { const o = was.get(r.id); return !o || o.source !== r.source || o.api !== r.api || JSON.stringify(o.options) !== JSON.stringify(r.options) || !r.on; });
+    if (stale.some(r => this.#held.has(r.id))) { this.#held = new Map(this.#held); for (const r of stale) this.#held.delete(r.id); this.#heldGen++; this.onMapChanged(); }
     this.#records = list;
     this.#version++;
     for (const id of [...this.#held.keys()]) if (!list.some(r => r.id === id)) this.#held.delete(id);
@@ -123,16 +130,23 @@ export class ScriptPane extends TimePane {
   }
 
   /** Draw again (and so look whether a run is due) in `ms`. */
-  #wake(ms: number): void { if (!this.#timer) this.#timer = window.setTimeout(() => { this.#timer = 0; this.invalidate(); }, Math.max(50, ms)); }
+  #wakeAt = 0;
+  #wake(ms: number): void {
+    const at = Date.now() + Math.max(50, ms);
+    if (this.#timer && this.#wakeAt <= at) return;
+    if (this.#timer) window.clearTimeout(this.#timer);
+    this.#wakeAt = at;
+    this.#timer = window.setTimeout(() => { this.#timer = 0; this.#wakeAt = 0; this.invalidate(); }, at - Date.now());
+  }
 
   #run(on: readonly ScriptRecord[]): void {
     const state = this.store.state;
     const filters = new Map<string, SourceFilter>([['', {}]]);
     const runnable: ScriptRecord[] = [];
     for (const r of on) {
-      if (r.api > SCRIPT_API) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: { code: 'newer-api', line: 0, col: 0 } }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
+      if (r.api > SCRIPT_API) { this.#setHeld(r.id, { result: { id: r.id, ok: false, error: { code: 'newer-api', line: 0, col: 0 } }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
       const a = this.#analyze(r.source);
-      if (!('program' in a)) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
+      if (!('program' in a)) { this.#setHeld(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
       // Its markets as its options name them (`exchange=options.venue`): the worker works them out from the same values.
       for (const [k, f] of sourcesWith(a, r.options)) filters.set(k, f);
       runnable.push(r);

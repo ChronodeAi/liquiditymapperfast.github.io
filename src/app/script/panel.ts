@@ -39,14 +39,14 @@ function examples(): { name: string; source: string; place?: ScriptRecord['place
 const isError = (a: Analysis | ScriptError): a is ScriptError => !('program' in a);
 
 /** The options a script shows in its panel: those it declares, then those it reads without declaring them. */
-function optionRows(a: Analysis | ScriptError, set: Readonly<Record<string, OptionValue>> = {}): { name: string; label: string; type: string; value: OptionValue; min?: number; max?: number; step?: number }[] {
+function optionRows(a: Analysis | ScriptError, set: Readonly<Record<string, OptionValue>> = {}): { name: string; label: string; type: string; value: OptionValue; declared: boolean; min?: number; max?: number; step?: number }[] {
   if (isError(a)) return [];
-  const rows = a.declared.map(d => ({ name: d.name, label: d.label ?? d.name, type: d.type, value: d.value, ...(d.min !== undefined ? { min: d.min } : {}), ...(d.max !== undefined ? { max: d.max } : {}), ...(d.step !== undefined ? { step: d.step } : {}) }));
+  const rows = a.declared.map(d => ({ name: d.name, label: d.label ?? d.name, type: d.type, value: d.value, declared: true, ...(d.min !== undefined ? { min: d.min } : {}), ...(d.max !== undefined ? { max: d.max } : {}), ...(d.step !== undefined ? { step: d.step } : {}) }));
   for (const name of a.read) {
     // What it is: the value it already has says (a text stays a text), else its name, else it is a text.
     const had = Object.prototype.hasOwnProperty.call(set, name) ? set[name] : undefined, guess = had !== undefined ? had : inferredOption(name);
     const type = typeof guess === 'boolean' ? 'boolean' : typeof guess === 'number' ? 'number' : typeof guess === 'string' && /^(#|rgb|hsl)/i.test(guess) ? 'color' : 'text';
-    rows.push({ name, label: name, type, value: guess ?? '' });
+    rows.push({ name, label: name, type, value: guess ?? '', declared: false });
   }
   return rows;
 }
@@ -177,7 +177,7 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
       else if (o.type === 'number' || o.type === 'range') {
         input = el('input', { type: 'number', value: typeof current === 'number' ? String(current) : '', step: o.step !== undefined ? String(o.step) : 'any' });
         input.oninput = () => { const v = Number(input.value); if (input.value.trim() === '') delete draft.options[o.name]; else if (Number.isFinite(v)) draft.options[o.name] = v; };
-      } else { input = el('input', { type: 'text', value: typeof current === 'string' ? current : current === null || current === undefined ? '' : JSON.stringify(current) }); input.oninput = () => { const v = input.value.trim(); draft.options[o.name] = o.type === 'text' && v !== '' && Number.isFinite(Number(v)) ? Number(v) : input.value; }; }
+      } else { input = el('input', { type: 'text', value: typeof current === 'string' ? current : current === null || current === undefined ? '' : JSON.stringify(current) }); input.oninput = () => { const v = input.value.trim(); draft.options[o.name] = o.type === 'text' && !o.declared && v !== '' && Number.isFinite(Number(v)) ? Number(v) : input.value; }; }
       input.ariaLabel = o.label;
       body.append(el('label', { class: 'row script-option' }, el('span', { textContent: o.label }), input));
     }
