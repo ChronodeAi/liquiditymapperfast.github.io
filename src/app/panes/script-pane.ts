@@ -25,9 +25,11 @@ import type { SourceFilter } from '../script/inputs.ts';
 import type { ScriptsPanelState } from '../script/panel-state.ts';
 import { lazy } from '../lazy.ts';
 
-/** What the pane knows of a script between runs. */
-/** A script's last answer, the candles it was worked out over (their starts, timeframe and market): drawn only over those. */
-interface Held { result: ScriptResult; time: Float64Array; tf: number; inst: string }
+/**
+ * A script's last answer, the candles it was worked out over (their starts, timeframe and market) and the moment it was worked out at: the
+ * replay's moment then, Infinity live, -Infinity for an answer made on the page (a script that does not read).
+ */
+interface Held { result: ScriptResult; time: Float64Array; tf: number; inst: string; at: number }
 
 /** The replay candle the page is at (a run's inputs stop at the candles closed by then), or -1 live. */
 const replayKey = (tf: number): number => replaying() ? Math.floor(pageNow() / tf) : -1;
@@ -195,14 +197,15 @@ export class ScriptPane extends TimePane {
     const filters = new Map<string, SourceFilter>([['', {}]]);
     const runnable: ScriptRecord[] = [];
     for (const r of on) {
-      if (r.api > SCRIPT_API) { this.#setHeld(r.id, { result: { id: r.id, ok: false, error: { code: 'newer-api', line: 0, col: 0 } }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
+      if (r.api > SCRIPT_API) { this.#pageError(r.id, { code: 'newer-api', line: 0, col: 0 }); continue; }
       const a = this.#analyze(r.source);
-      if (!('program' in a)) { this.#setHeld(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0, inst: '' }); continue; }
+      if (!('program' in a)) { this.#pageError(r.id, a); continue; }
       // Its markets as its options name them (`exchange=options.venue`): the worker works them out from the same values.
       for (const [k, f] of sourcesWith(a, r.options)) filters.set(k, f);
       runnable.push(r);
     }
-    if (!runnable.length) { this.#host.dropUnsent(); return; }
+    // A look that runs nothing is paced like a run, or a map drawn again for its errors would look again at once, frame after frame.
+    if (!runnable.length) { this.#host.dropUnsent(); this.#lastRun = Date.now(); return; }
     const inputs = this.#data.inputs(state, filters);
     if (!inputs) { this.#host.dropUnsent(); return; }
     // What each script reads that the page cannot give it: an option it reads but does not declare that is not set, a set of markets with none.
@@ -217,7 +220,7 @@ export class ScriptPane extends TimePane {
       if (this.#data.liquidationsCut && (a.inputs.has('lbuy') || a.inputs.has('lsell'))) w.push({ code: 'liquidations-cut' });
       this.#warnings.set(r.id, w);
     }
-    const time = inputs.time.slice(), tf = inputs.tf, inst = state.seriesInstrument, started = Date.now();
+    const time = inputs.time.slice(), tf = inputs.tf, inst = state.seriesInstrument, at = replaying() ? pageNow() : Infinity, started = Date.now();
     const token = ++this.#runToken;
     this.#running = true; this.#lastRun = started;
     const version = this.#version;
@@ -227,21 +230,34 @@ export class ScriptPane extends TimePane {
       this.#running = false;
       if (!results.length) return;
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
-      if (version !== this.#version) { this.invalidate(); return; }
+      if (version !== this.#version) { this.refresh(); return; }
       // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often, spaced
       // from when it started in its worker.
       this.#runMs = ms; this.#lastRun = Date.now() - ms;
-      for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst });
+      for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst, at });
       this.#held = new Map(this.#held); this.#heldGen++;
       this.invalidate();
       this.onMapChanged();
       this.#refreshPanel();
       this.#reportStatus();
+      // The next look is set now (the refresh timer), not left to a drawing: a map covered by another tab draws nothing.
+      this.#maybeRun();
     });
   }
 
-  /** Whether an answer is for the chart as it is now: its timeframe and its market (in a replay only its candles closed by then are shown: `shownCount`). */
-  #current(held: Held, tf: number): boolean { return held.tf === tf && held.inst === this.store.state.seriesInstrument; }
+  /** Keep an error met on the page (a script that does not read, one for a newer page); the same one again changes nothing, so nothing is drawn again for it. */
+  #pageError(id: string, error: ScriptError): void {
+    const was = this.#held.get(id);
+    if (was && was.tf === 0 && !was.result.ok && JSON.stringify(was.result.error) === JSON.stringify(error)) return;
+    this.#setHeld(id, { result: { id, ok: false, error }, time: new Float64Array(0), tf: 0, inst: '', at: -Infinity });
+  }
+
+  /**
+   * Whether an answer is for the chart as it is now: its timeframe, its market, and in a replay one worked out at or before the replay's
+   * moment (never a live one, never one from before a rewind: what was read later may differ for the same candles), of which only the
+   * candles closed by then are shown (`shownCount`).
+   */
+  #current(held: Held, tf: number): boolean { return held.tf === tf && held.inst === this.store.state.seriesInstrument && held.at <= (replaying() ? pageNow() : Infinity); }
 
   /** Tell the lamp what the scripts are doing, when that changed. */
   #reportStatus(): void {
