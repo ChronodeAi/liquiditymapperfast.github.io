@@ -1742,8 +1742,6 @@
  "Move this script up (its row goes higher in the pane)": "Dieses Skript nach oben verschieben (seine Zeile rückt im Bereich höher)",
  "Open this script to change it": "Dieses Skript öffnen, um es zu ändern",
  "Add": "Hinzufügen",
- "Example": "Beispiel",
- "Add example": "Beispiel hinzufügen",
  "Added “{name}”.": "„{name}“ hinzugefügt.",
  "Add a ready-made script to start from": "Ein fertiges Skript als Ausgangspunkt hinzufügen",
  "New script": "Neues Skript",

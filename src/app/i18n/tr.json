@@ -1742,8 +1742,6 @@
  "Move this script up (its row goes higher in the pane)": "Bu betiği yukarı taşı (satırı bölmede yukarı çıkar)",
  "Open this script to change it": "Değiştirmek için bu betiği aç",
  "Add": "Ekle",
- "Example": "Örnek",
- "Add example": "Örnek ekle",
  "Added “{name}”.": "“{name}” eklendi.",
  "Add a ready-made script to start from": "Başlangıç için hazır bir betik ekle",
  "New script": "Yeni betik",

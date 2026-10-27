@@ -1782,8 +1782,6 @@
  "Move this script up (its row goes higher in the pane)": "Переместить этот скрипт вверх (его строка поднимается в панели)",
  "Open this script to change it": "Открыть этот скрипт, чтобы изменить его",
  "Add": "Добавить",
- "Example": "Пример",
- "Add example": "Добавить пример",
  "Added “{name}”.": "«{name}» добавлен.",
  "Add a ready-made script to start from": "Добавить готовый скрипт, чтобы начать с него",
  "New script": "Новый скрипт",

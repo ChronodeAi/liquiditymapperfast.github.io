@@ -1684,8 +1684,6 @@
  "Move this script up (its row goes higher in the pane)": "上移此脚本（其行在窗格中上移）",
  "Open this script to change it": "打开此脚本进行修改",
  "Add": "添加",
- "Example": "示例",
- "Add example": "添加示例",
  "Added “{name}”.": "已添加“{name}”。",
  "Add a ready-made script to start from": "添加一个现成的脚本作为起点",
  "New script": "新建脚本",

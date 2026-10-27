@@ -1684,8 +1684,6 @@
  "Move this script up (its row goes higher in the pane)": "이 스크립트를 위로 이동(패널에서 행이 위로 올라감)",
  "Open this script to change it": "이 스크립트를 열어 수정",
  "Add": "추가",
- "Example": "예제",
- "Add example": "예제 추가",
  "Added “{name}”.": "“{name}”을(를) 추가했습니다.",
  "Add a ready-made script to start from": "시작점으로 쓸 기성 스크립트 추가",
  "New script": "새 스크립트",

@@ -7,23 +7,9 @@ import type { ScriptResult, Warning } from './protocol.ts';
 import { MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, SCRIPT_API, cleanName, exportFile, importText, inferredOption, mergeScripts, newId, type OptionValue, type ScriptRecord } from './records.ts';
 import { errorText, warningText } from './messages.ts';
 import { VWAP_SOURCE } from './starter.ts';
+import { statusOf, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 
-/** What the panel needs of the pane that runs the scripts. */
-export interface ScriptsHost {
-  readonly records: readonly ScriptRecord[];
-  setRecords(list: ScriptRecord[]): boolean;
-  resultOf(id: string): ScriptResult | null;
-  warningsOf(id: string): readonly Warning[];
-  analysisOf(r: ScriptRecord): Analysis | ScriptError;
-}
-
-/** What the panel keeps while it is open: the script being written (a new one has the id `new`), its text so far, a message, and which Delete waits for its second press. */
-export interface ScriptsPanelState {
-  editing: string | null;
-  draft: { name: string; source: string; options: Record<string, OptionValue>; place: ScriptRecord['place'] } | null;
-  message: { text: string; error: boolean } | null;
-  armed: string | null;
-}
+export { panelClosed, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 
 /** Scripts to start from, written for this page. */
 function examples(): { name: string; source: string; place?: ScriptRecord['place'] }[] {
@@ -38,6 +24,19 @@ function examples(): { name: string; source: string; place?: ScriptRecord['place
 }
 
 const isError = (a: Analysis | ScriptError): a is ScriptError => !('program' in a);
+
+/**
+ * The list's statuses written again where they stand, after a run: the list is not built again, so a menu, a switch or a Delete that waits
+ * for its second press is not lost under the person's pointer.
+ */
+export function refreshStatuses(host: ScriptsHost, body: HTMLElement): void {
+  for (const cell of body.querySelectorAll<HTMLElement>('[data-script-status]')) {
+    const r = host.records.find(x => x.id === cell.dataset.scriptStatus); if (!r) continue;
+    const st = statusOf(host, r);
+    if (cell.textContent !== st.text) cell.textContent = st.text;
+    cell.classList.toggle('error', st.error);
+  }
+}
 
 /** The options a script shows in its panel: those it declares, then those it reads without declaring them. */
 function optionRows(a: Analysis | ScriptError, set: Readonly<Record<string, OptionValue>> = {}): { name: string; label: string; type: string; value: OptionValue; declared: boolean; min?: number; max?: number; step?: number }[] {
@@ -68,10 +67,12 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
   const list = host.records;
   if (!list.length) body.append(note(t('No scripts yet.')));
   for (const r of list) {
-    const res = host.resultOf(r.id), notes = host.warningsOf(r.id).length + (res?.ok ? res.warnings.length : 0);
-    const status = !r.on ? t('off') : !res ? t('not run yet') : !res.ok ? t('error') : notes ? tn(notes, '{n} warning', '{n} warnings') : tn(res.plots.length, '{n} plot', '{n} plots');
+    const st = statusOf(host, r);
     const box = el('input', { type: 'checkbox', checked: r.on, ariaLabel: t('On') });
-    box.onchange = () => keep(list.map(x => x.id === r.id ? { ...x, on: box.checked } : x), box.checked ? t('“{name}” is on.', { name: r.name }) : t('“{name}” is off.', { name: r.name }));
+    box.onchange = () => {
+      keep(list.map(x => x.id === r.id ? { ...x, on: box.checked } : x), box.checked ? t('“{name}” is on.', { name: r.name }) : t('“{name}” is off.', { name: r.name }));
+      if (box.checked) host.showScripts();
+    };
     const armed = ui.armed === r.id;
     const remove = button(armed ? t('Sure?') : t('Delete'), () => {
       if (!armed) { ui.armed = r.id; redraw(); return; }
@@ -80,24 +81,29 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
     if (armed) remove.classList.add('armed');
     const up = button('↑', () => { const i = list.indexOf(r); if (i > 0) { const next = [...list]; [next[i - 1], next[i]] = [next[i]!, next[i - 1]!]; keep(next, t('Moved “{name}”.', { name: r.name })); } }, t('Move this script up (its row goes higher in the pane)'));
     up.disabled = list.indexOf(r) === 0;
+    const status = el('span', { class: `layout-date${st.error ? ' error' : ''}`, textContent: st.text });
+    status.dataset.scriptStatus = r.id;
     body.append(el('div', { class: 'layout-row script-row' },
       el('label', { class: 'script-on' }, box),
       button(r.name, () => { ui.editing = r.id; ui.draft = { name: r.name, source: r.source, options: { ...r.options }, place: r.place }; ui.message = null; redraw(); }, t('Open this script to change it')),
-      el('span', { class: `layout-date${res && !res.ok && r.on ? ' error' : ''}`, textContent: status }),
-      up, remove));
+      status, up, remove));
   }
 
+  // The examples, each a row with its own Add (no menu to pick from first), and a script of one's own.
   body.append(heading(t('Add')));
-  const pick = el('select', { ariaLabel: t('Example') });
-  for (const [i, ex] of examples().entries()) pick.append(new Option(ex.name, String(i)));
   const full = list.length >= MAX_SCRIPTS;
-  const addExample = button(t('Add example'), () => {
-    const ex = examples()[Number(pick.value)]; if (!ex) return;
-    keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: ex.place ?? 'pane' }], t('Added “{name}”.', { name: ex.name }));
-  }, t('Add a ready-made script to start from'));
+  for (const ex of examples()) {
+    const place = ex.place ?? 'pane';
+    const add = button(t('Add'), () => {
+      keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place }], t('Added “{name}”.', { name: ex.name }));
+      host.showScripts();
+    }, t('Add a ready-made script to start from'));
+    add.disabled = full;
+    body.append(el('div', { class: 'layout-row script-example' }, el('span', { class: 'script-example-name', textContent: ex.name }), el('span', { class: 'layout-date', textContent: place === 'map' ? t('On the map') : t('In its own row') }), add));
+  }
   const create = button(t('New script'), () => { ui.editing = 'new'; ui.draft = { name: '', source: '', options: {}, place: 'pane' }; ui.message = null; redraw(); }, t('Write a script, or paste one (an indicator file or a workspace works too)'));
-  addExample.disabled = full; create.disabled = full;
-  body.append(el('div', { class: 'layout-tools' }, create, pick, addExample));
+  create.disabled = full;
+  body.append(el('div', { class: 'layout-tools' }, create));
   if (full) body.append(note(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS })));
 
   const file = el('input', { type: 'file', accept: '.json,.txt,.js,application/json,text/plain', hidden: true });
@@ -208,6 +214,7 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
     if (!existing && host.records.length >= MAX_SCRIPTS) { say(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS }), true); return; }
     ui.editing = record.id; ui.draft = { name: record.name, source: record.source, options: { ...record.options }, place: record.place };
     keep(list, t('Saved “{name}”: it runs with the next update.', { name: record.name }));
+    if (!existing) host.showScripts();
   };
   const check = (): void => { const a = host.analysisOf({ ...probe, source: draft.source }); say(isError(a) ? errorText(a) : t('The script reads.'), isError(a)); };
   body.append(el('div', { class: 'layout-tools' },

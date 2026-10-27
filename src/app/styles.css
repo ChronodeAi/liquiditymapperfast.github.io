@@ -677,6 +677,7 @@ html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; 
 .script-row > .script-on { display: inline-flex; flex: none; }
 .script-row > button:nth-child(2) { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .script-row .layout-date.error { color: var(--ask); }
+.script-example > .script-example-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .script-source { display: block; box-sizing: border-box; width: 100%; min-height: 220px; margin: 6px 0; padding: 6px 8px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; resize: vertical; white-space: pre; overflow: auto; color: var(--text); background: var(--bg); border: 1px solid var(--line); }
 .script-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
 .script-option > input[type="number"], .script-option > input[type="text"] { width: 150px; font: inherit; }

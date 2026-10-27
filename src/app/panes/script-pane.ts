@@ -22,7 +22,7 @@ import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Fr
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
 import type { SourceFilter } from '../script/inputs.ts';
-import type { ScriptsPanelState } from '../script/panel.ts';
+import type { ScriptsPanelState } from '../script/panel-state.ts';
 import { lazy } from '../lazy.ts';
 
 /** What the pane knows of a script between runs. */
@@ -76,6 +76,10 @@ export class ScriptPane extends TimePane {
   resultOf(id: string): ScriptResult | null { return this.#held.get(id)?.result ?? null; }
   warningsOf(id: string): readonly Warning[] { return this.#warnings.get(id) ?? []; }
   analysisOf(r: ScriptRecord): Analysis | ScriptError { return this.#analyze(r.source); }
+  /** Whether Scripts is on: the scripts run and draw. */
+  get running(): boolean { return this.store.state.show.script; }
+  /** Switch Scripts on: a script was added or switched on, and should be seen. */
+  showScripts(): void { const show = this.store.state.show; if (!show.script) this.store.set({ show: { ...show, script: true } }); }
 
   /** Keep an answer made here, as a new map (what is worked out from the answers, the candle colours, is worked out again). */
   #setHeld(id: string, held: Held): void { this.#held = new Map(this.#held).set(id, held); this.#heldGen++; this.onMapChanged(); }
@@ -105,10 +109,10 @@ export class ScriptPane extends TimePane {
   readonly #build = (_tools: HTMLElement, body: HTMLElement): void => { this.#panelCode?.buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui); };
   openPanel(): void {
     if (!this.#panelCode) { void lazy(() => import('../script/panel.ts')).then(m => { if (m) { this.#panelCode = m; this.openPanel(); } }); return; }
-    this.#panel = togglePanel(this.#button, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; }, stays: true }, this.#build);
+    this.#panel = togglePanel(this.#button, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; this.#panelCode?.panelClosed(this, this.#ui); }, stays: true }, this.#build);
   }
-  /** Draw the panel again with the latest results, unless a script is being written there (the text box keeps its place). */
-  #refreshPanel(): void { if (this.#panel && !this.#ui.editing) this.#panel.render(this.#build); }
+  /** Write the list's statuses again with the latest results, in place (a menu or a switch under the pointer stays); not while a script is being written. */
+  #refreshPanel(): void { if (this.#panel && !this.#ui.editing) this.#panelCode?.refreshStatuses(this, this.#panel.body); }
 
   #analyze(source: string): Analysis | ScriptError {
     let a = this.#analysis.get(source);

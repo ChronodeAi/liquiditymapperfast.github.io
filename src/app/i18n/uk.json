@@ -1787,8 +1787,6 @@
  "Move this script up (its row goes higher in the pane)": "Перемістити цей скрипт вище (його рядок піднімається в панелі)",
  "Open this script to change it": "Відкрити цей скрипт, щоб змінити його",
  "Add": "Додати",
- "Example": "Приклад",
- "Add example": "Додати приклад",
  "Added “{name}”.": "«{name}» додано.",
  "Add a ready-made script to start from": "Додати готовий скрипт, щоб почати з нього",
  "New script": "Новий скрипт",

@@ -1684,8 +1684,6 @@
  "Move this script up (its row goes higher in the pane)": "このスクリプトを上へ移動（ペイン内で行が上がります）",
  "Open this script to change it": "このスクリプトを開いて変更",
  "Add": "追加",
- "Example": "例",
- "Add example": "例を追加",
  "Added “{name}”.": "「{name}」を追加しました。",
  "Add a ready-made script to start from": "出発点になる既成のスクリプトを追加",
  "New script": "新しいスクリプト",
