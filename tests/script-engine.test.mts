@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze, exchangeOf, runScript, sourceFilter } from '../src/app/script/lang/engine.ts';
+import { analyze, createRunner, exchangeOf, runScript, sourceFilter } from '../src/app/script/lang/engine.ts';
 import { filterKey, type BarInputs, type SourceInputs } from '../src/app/script/inputs.ts';
 import { parse } from '../src/app/script/lang/parser.ts';
 import type { ScriptResult } from '../src/app/script/protocol.ts';
@@ -173,6 +173,32 @@ test('what a script makes is paid for: texts and arrays that grow fast run out o
     const r = runScript('t', src, {}, inputs(2));
     assert.ok(!r.ok && (r.error.code === 'too-large' || r.error.code === 'budget'), `${src}: ${r.ok ? 'ran' : r.error.code}`);
   }
+});
+
+test('a run over the same closed candles runs the candle under way alone, and gives what a run over every candle gives', () => {
+  const src = 'x = x + vbuy\nprev = x[1]\nvar c = cum(vbuy - vsell)\nline(sma(c, 3), title=avg)\nline(x - prev, title=step)\nhistogram({ time: time, value: ema(vsell, 4), color: vbuy > 30 ? "red" : "blue" })\nif (vbuy > 40) $price.color = "red"';
+  const base = inputs(8);
+  const runner = createRunner('t', src, {});
+  const first = ok(runner.run(base));
+  assert.equal(runner.startedAt, 0);
+  // The candle under way changed: only it runs again.
+  const live = inputs(8, i => i === 7 ? { vbuy: 999 } : {});
+  const again = ok(runner.run(live));
+  assert.equal(runner.startedAt, 7);
+  const full = ok(runScript('t', src, {}, inputs(8, i => i === 7 ? { vbuy: 999 } : {})));
+  assert.deepEqual(again.plots.map(p => [...p.fields.value!]), full.plots.map(p => [...p.fields.value!]));
+  assert.deepEqual(again.plots[2]!.colors, full.plots[2]!.colors);
+  assert.deepEqual(again.candleColors, full.candleColors);
+  assert.notDeepEqual(first.plots[0]!.fields.value, again.plots[0]!.fields.value);
+  // A new candle after it: the one that closed runs with its final numbers, and the new one after it.
+  const grown = ok(runner.run(inputs(9, i => i === 7 ? { vbuy: 999 } : {})));
+  assert.equal(runner.startedAt, 7);
+  assert.deepEqual(grown.plots.map(p => [...p.fields.value!]), ok(runScript('t', src, {}, inputs(9, i => i === 7 ? { vbuy: 999 } : {}))).plots.map(p => [...p.fields.value!]));
+  // An older candle changed (history filled in): every candle runs again.
+  const older = ok(runner.run(inputs(9, i => i === 2 ? { vbuy: 1 } : i === 7 ? { vbuy: 999 } : {})));
+  assert.equal(runner.startedAt, 0);
+  assert.deepEqual(older.plots.map(p => [...p.fields.value!]), ok(runScript('t', src, {}, inputs(9, i => i === 2 ? { vbuy: 1 } : i === 7 ? { vbuy: 999 } : {}))).plots.map(p => [...p.fields.value!]));
+  void first;
 });
 
 test('errors name the code and the place', () => {

@@ -174,13 +174,58 @@ interface PlotBuild { kind: PlotKind; title: string; style: Record<string, Optio
  * Returns what to draw, or the first error with where it happened.
  */
 export function runScript(id: string, source: string, optionValues: Record<string, OptionValue>, inputs: BarInputs, now: () => number = Date.now): ScriptResult {
+  return createRunner(id, source, optionValues, now).run(inputs);
+}
+
+/** A script read once and run as often as its inputs change. */
+export interface ScriptRunner {
+  run(inputs: BarInputs): ScriptResult;
+  /** The candle the last run started from: 0 for a run over every candle, more when only the candles after the last closed one ran again. */
+  readonly startedAt: number;
+}
+
+const NO_INPUTS: BarInputs = { tf: 60_000, time: new Float64Array(0), open: new Float64Array(0), high: new Float64Array(0), low: new Float64Array(0), close: new Float64Array(0), volume: new Float64Array(0), sources: {}, forming: false };
+
+/** Whether candles [0, m) of two inputs are the same (NaN where both are NaN): the only candles a run may take over from the one before. */
+export function sameCandles(a: BarInputs, b: BarInputs, m: number): boolean {
+  if (a.tf !== b.tf || m > a.time.length || m > b.time.length) return false;
+  const ka = Object.keys(a.sources), kb = Object.keys(b.sources);
+  if (ka.length !== kb.length || ka.some(k => !(k in b.sources))) return false;
+  const eq = (x: Float64Array, y: Float64Array): boolean => { for (let k = 0; k < m; k++) { const u = x[k]!, v = y[k]!; if (u !== v && !(u !== u && v !== v)) return false; } return true; };
+  if (!eq(a.time, b.time) || !eq(a.open, b.open) || !eq(a.high, b.high) || !eq(a.low, b.low) || !eq(a.close, b.close) || !eq(a.volume, b.volume)) return false;
+  for (const k of ka) { const x = a.sources[k]!, y = b.sources[k]!; if (!eq(x.vbuy, y.vbuy) || !eq(x.vsell, y.vsell) || !eq(x.lbuy, y.lbuy) || !eq(x.lsell, y.lsell)) return false; }
+  return true;
+}
+
+/** A copy of a script value deep enough that a later run cannot change it: the script's own arrays and objects copied, the rest shared (they do not change). */
+function cloneValue(v: Value, seen = new Map<object, Value>()): Value {
+  if (v === null || typeof v !== 'object') return v;
+  const had = seen.get(v); if (had !== undefined) return had;
+  if (Array.isArray(v)) { const out: Value[] = []; seen.set(v, out); for (const x of v) out.push(cloneValue(x, seen)); return out; }
+  if (isPlain(v)) { const out = plain(); seen.set(v, out); for (const [k, x] of Object.entries(v)) out[k] = cloneValue(x, seen); return out; }
+  return v;
+}
+/** A copy of a stateful function's state (numbers, arrays and small objects of numbers). */
+function cloneState(v: unknown): unknown {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map(cloneState);
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = cloneState(x);
+  return out;
+}
+
+/**
+ * Read a script once, and run it whenever its inputs change. A run over the same closed candles as the run before (the candle under way is the
+ * only one that changed, or new ones were added after it) starts from what the script held after the last candle that had closed then, so a
+ * live update runs one candle, not five hundred. Anything else (other candles, other markets, the timeframe) runs every candle from the first.
+ */
+export function createRunner(id: string, source: string, optionValues: Record<string, OptionValue>, now: () => number = Date.now): ScriptRunner {
   let a: Analysis;
   try { a = analyze(source); }
-  catch (e) { if (e instanceof ScriptSyntaxError) return { id, ok: false, error: e.info }; throw e; }
-  const started = now();
-  const n = inputs.time.length;
-  const budget: Budget = { steps: 0, left: Math.max(200_000, STEPS_PER_CANDLE * n), deadline: started + RUN_MS, now };
-  const warnings = [...a.warnings];
+  catch (e) { if (e instanceof ScriptSyntaxError) { const info = e.info; return { run: () => ({ id, ok: false, error: info }), startedAt: 0 }; } throw e; }
+  let inputs: BarInputs = NO_INPUTS;
+  let n = 0;
+  const budget: Budget = { steps: 0, left: 0, deadline: 0, now };
   // The options: what was set, else the declared default; plain data copied into the script's own values.
   const opt = plain();
   for (const d of a.declared) opt[d.name] = fromData(d.value);
@@ -199,7 +244,7 @@ export function runScript(id: string, source: string, optionValues: Record<strin
   const src = (): SourceInputs | undefined => inputs.sources[sourceStack[sourceStack.length - 1]!] ?? inputs.sources[''];
   const at = (arr: Float64Array | undefined): number => arr ? arr[i]! : NaN;
   const price = { color: '' as string, borderColor: '', wickColor: '' };
-  const candleColors: string[] = [];
+  let candleColors: string[] = [];
   let colored = false;
   const priceObject = new HostObject('$price', k => {
     switch (k) {
@@ -337,7 +382,7 @@ export function runScript(id: string, source: string, optionValues: Record<strin
     if (node.k !== 'call' || node.callee.k !== 'id') continue;
     const kind = own(PLOTS, node.callee.name);
     if (!kind) continue;
-    if (plots.size >= MAX_PLOTS) return { id, ok: false, error: { code: 'too-many-plots', line: node.p.line, col: node.p.col } };
+    if (plots.size >= MAX_PLOTS) { const error = { code: 'too-many-plots', line: node.p.line, col: node.p.col }; return { run: () => ({ id, ok: false, error }), startedAt: 0 }; }
     const fields: Record<string, Float64Array> = {};
     for (const f of PLOT_FIELDS[kind]) fields[f] = new Float64Array(n).fill(NaN);
     const style: Record<string, OptionValue> = {};
@@ -389,22 +434,75 @@ export function runScript(id: string, source: string, optionValues: Record<strin
   };
   const interp = new Interpreter(a.program, host, budget);
 
-  try {
-    for (i = 0; i < n; i++) {
-      interp.runOnce();
-      for (const inst of touched) { inst.commit(); inst.touched = false; }
-      touched.length = 0;
-      for (const k of kept.values()) { k.past.push(k.v); if (k.past.length > 4_096) k.past.splice(0, k.past.length - 2_048); }
-    }
-  } catch (e) {
-    if (e instanceof ScriptRuntimeError) return { id, ok: false, error: { code: e.code, line: e.line, col: e.col, ...(e.detail ? { detail: e.detail } : {}) } };
-    if (e instanceof RangeError) return { id, ok: false, error: { code: 'too-deep', line: 0, col: 0 } };
-    throw e;
-  }
-  dropZeros();
-  const out: PlotOut[] = plotOrder.map(site => { const p = plots.get(site)!; return { kind: p.kind, title: p.title, style: p.style, fields: p.fields, colors: p.colors }; });
-  if (!out.length && !colored) warnings.push({ code: 'no-plots' });
-  return { id, ok: true, plots: out, warnings, steps: budget.steps, ms: now() - started, ...(colored ? { candleColors: Array.from({ length: n }, (_, k) => candleColors[k] ?? '') } : {}) };
+  /** What the script held after candle `at` of `inputs` had closed, and what it had drawn by then. */
+  interface Snapshot { at: number; inputs: BarInputs; kept: Map<string, { v: Value; past: Value[] }>; states: Map<number, unknown>; fields: Map<number, Record<string, Float64Array>>; colors: Map<number, string[] | null>; candleColors: string[] }
+  let snap: Snapshot | null = null;
+  const take = (at: number): Snapshot => ({
+    at, inputs,
+    kept: new Map([...kept].map(([name, k]) => [name, { v: cloneValue(k.v), past: k.past.map(x => cloneValue(x)) }])),
+    states: new Map([...instances].map(([site, inst]) => [site, cloneState(inst.state)])),
+    fields: new Map([...plots].map(([site, p]) => [site, p.fields])),
+    colors: new Map([...plots].map(([site, p]) => [site, p.colors])),
+    candleColors,
+  });
+  /** Put back what the script held after candle `snap.at`. */
+  const restore = (from: Snapshot): void => {
+    for (const [name, k] of kept) { const was = from.kept.get(name); k.v = was ? cloneValue(was.v) : 0; k.past = was ? was.past.map(x => cloneValue(x)) : []; }
+    for (const [site, inst] of instances) { inst.pending = null; inst.touched = false; inst.state = from.states.has(site) ? cloneState(from.states.get(site)) as Record<string, unknown> : {}; }
+  };
+  /** Start from nothing: every kept name at 0, every function's state empty. */
+  const fresh = (): void => {
+    for (const k of kept.values()) { k.v = 0; k.past = []; }
+    instances.clear();
+  };
+
+  const runner = {
+    startedAt: 0,
+    run(next: BarInputs): ScriptResult {
+      const started = now();
+      inputs = next; n = next.time.length;
+      // From the candle after the last one that had closed at the run before, when every candle before it is the same.
+      const start = snap && snap.at === snap.inputs.time.length - 2 && snap.at + 1 <= n && sameCandles(snap.inputs, next, snap.at + 1) ? snap.at + 1 : 0;
+      const from = start > 0 ? snap : null;
+      if (from) restore(from); else { fresh(); snap = null; }
+      runner.startedAt = start;
+      budget.steps = 0; budget.left = Math.max(200_000, STEPS_PER_CANDLE * (n - start)); budget.deadline = started + RUN_MS;
+      const warnings = [...a.warnings];
+      // The plots' numbers: those of the candles taken over, then NaN until the run gives them.
+      for (const [site, p] of plots) {
+        const fields: Record<string, Float64Array> = {};
+        for (const f of PLOT_FIELDS[p.kind]) { const arr = new Float64Array(n).fill(NaN); const old = from?.fields.get(site)?.[f]; if (old) arr.set(old.subarray(0, start)); fields[f] = arr; }
+        p.fields = fields;
+        const oldColors = from?.colors.get(site) ?? null;
+        p.colors = oldColors ? [...oldColors.slice(0, start), ...new Array<string>(n - start).fill('')] : null;
+      }
+      candleColors = from ? from.candleColors.slice(0, start) : [];
+      colored = candleColors.some(c => c);
+      try {
+        for (i = start; i < n; i++) {
+          price.color = ''; price.borderColor = ''; price.wickColor = '';
+          interp.runOnce();
+          for (const inst of touched) { inst.commit(); inst.touched = false; }
+          touched.length = 0;
+          for (const k of kept.values()) { k.past.push(k.v); if (k.past.length > 4_096) k.past.splice(0, k.past.length - 2_048); }
+          // After the last candle that has closed: what the next run over the same candles starts from.
+          if (i === n - 2) snap = take(i);
+        }
+      } catch (e) {
+        snap = null;
+        if (e instanceof ScriptRuntimeError) return { id, ok: false, error: { code: e.code, line: e.line, col: e.col, ...(e.detail ? { detail: e.detail } : {}) } };
+        if (e instanceof RangeError) return { id, ok: false, error: { code: 'too-deep', line: 0, col: 0 } };
+        throw e;
+      }
+      // A run of the candle under way alone keeps the snapshot of the run before (its closed candles are the same); a run over no closed candle has none.
+      if (n < 2) snap = null;
+      dropZeros();
+      const out: PlotOut[] = plotOrder.map(site => { const p = plots.get(site)!; return { kind: p.kind, title: p.title, style: p.style, fields: p.fields, colors: p.colors }; });
+      if (!out.length && !colored) warnings.push({ code: 'no-plots' });
+      return { id, ok: true, plots: out, warnings, steps: budget.steps, ms: now() - started, ...(colored ? { candleColors: Array.from({ length: n }, (_, k) => candleColors[k] ?? '') } : {}) };
+    },
+  };
+  return runner;
 }
 
 function mathObject(): HostObject {
