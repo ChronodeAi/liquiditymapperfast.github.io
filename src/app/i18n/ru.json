@@ -1826,5 +1826,7 @@
  "Check": "Проверить",
  "Read the script without saving it, to see whether it reads": "Прочитать скрипт без сохранения, чтобы узнать, читается ли он",
  "Back": "Назад",
- "Back to the list (what is not saved is dropped)": "Назад к списку (несохранённое будет потеряно)"
+ "Back to the list (what is not saved is dropped)": "Назад к списку (несохранённое будет потеряно)",
+ "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...) называет свои рынки тем, что можно узнать только при выполнении: результат 0. Назовите их словом, параметром или options.name.",
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "В некоторые дни ликвидаций было больше, чем отдаёт источник данных: самых мелких нет в lbuy и lsell."
 }

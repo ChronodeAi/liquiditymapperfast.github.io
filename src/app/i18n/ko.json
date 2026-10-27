@@ -1718,5 +1718,7 @@
  "Check": "확인",
  "Read the script without saving it, to see whether it reads": "저장하지 않고 스크립트를 읽어 제대로 읽히는지 확인",
  "Back": "뒤로",
- "Back to the list (what is not saved is dropped)": "목록으로 돌아가기(저장하지 않은 내용은 버려집니다)"
+ "Back to the list (what is not saved is dropped)": "목록으로 돌아가기(저장하지 않은 내용은 버려집니다)",
+ "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "source(...)가 실행해 봐야 알 수 있는 값으로 시장을 지정하고 있습니다. 0이 됩니다. 단어, 옵션 또는 options.name으로 지정하세요.",
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "일부 날짜에는 데이터 출처가 돌려주는 것보다 청산이 많았습니다. lbuy와 lsell에서 가장 작은 청산이 빠져 있습니다."
 }

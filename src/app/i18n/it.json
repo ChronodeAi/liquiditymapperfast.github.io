@@ -1804,5 +1804,7 @@
  "Check": "Verifica",
  "Read the script without saving it, to see whether it reads": "Leggi lo script senza salvarlo, per vedere se è leggibile",
  "Back": "Indietro",
- "Back to the list (what is not saved is dropped)": "Torna all'elenco (ciò che non è salvato va perso)"
+ "Back to the list (what is not saved is dropped)": "Torna all'elenco (ciò che non è salvato va perso)",
+ "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Un source(...) indica i suoi mercati con qualcosa che solo l'esecuzione può ricavare: dà 0. Indicali con una parola, un'opzione o options.name.",
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Alcuni giorni hanno avuto più liquidazioni di quante la fonte dei dati ne restituisca: le più piccole mancano da lbuy e lsell."
 }

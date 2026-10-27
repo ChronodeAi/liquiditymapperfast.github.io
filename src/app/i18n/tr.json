@@ -1782,5 +1782,7 @@
  "Check": "Denetle",
  "Read the script without saving it, to see whether it reads": "Betiği kaydetmeden okuyun ve okunup okunmadığını görün",
  "Back": "Geri",
- "Back to the list (what is not saved is dropped)": "Listeye dön (kaydedilmeyen atılır)"
+ "Back to the list (what is not saved is dropped)": "Listeye dön (kaydedilmeyen atılır)",
+ "A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.": "Bir source(...), piyasalarını ancak çalışmanın bulabileceği bir şeyle adlandırıyor: 0 verir. Onları bir sözcükle, bir seçenekle ya da options.name ile adlandırın.",
+ "Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.": "Bazı günlerde veri kaynağının döndürdüğünden daha fazla tasfiye vardı: en küçükleri lbuy ve lsell'de eksik."
 }

@@ -1,7 +1,7 @@
 import { el } from '../dom.ts';
 import { t, tn } from '../i18n.ts';
 import { button, heading, note } from '../ui.ts';
-import type { Analysis } from './lang/engine.ts';
+import type { Analysis } from './lang/analysis.ts';
 import type { ScriptError } from './lang/lexer.ts';
 import type { ScriptResult, Warning } from './protocol.ts';
 import { MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, SCRIPT_API, cleanName, exportFile, importText, inferredOption, mergeScripts, newId, type OptionValue, type ScriptRecord } from './records.ts';

@@ -12,7 +12,7 @@ import { togglePanel, type Panel } from '../ui.ts';
 import { TimePane, setText } from './lower-panes.ts';
 import { ScriptHost, type WorkerLike } from '../script/host.ts';
 import { ScriptData } from '../script/data.ts';
-import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/engine.ts';
+import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/analysis.ts';
 import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
 import { loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
 import { PLOT_FIELDS, type ScriptResult, type Warning } from '../script/protocol.ts';
@@ -20,7 +20,8 @@ import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Fr
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
 import type { SourceFilter } from '../script/inputs.ts';
-import { buildScriptsPanel, type ScriptsPanelState } from '../script/panel.ts';
+import type { ScriptsPanelState } from '../script/panel.ts';
+import { lazy } from '../lazy.ts';
 
 /** What the pane knows of a script between runs. */
 /** A script's last answer, the candles it was worked out over (their starts, timeframe and market): drawn only over those. */
@@ -83,8 +84,11 @@ export class ScriptPane extends TimePane {
     return kept;
   }
 
-  readonly #build = (_tools: HTMLElement, body: HTMLElement): void => buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui);
+  /** The panel's code, loaded the first time the panel opens (a page that never opens it does not carry it). */
+  #panelCode: typeof import('../script/panel.ts') | null = null;
+  readonly #build = (_tools: HTMLElement, body: HTMLElement): void => { this.#panelCode?.buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui); };
   openPanel(): void {
+    if (!this.#panelCode) { void lazy(() => import('../script/panel.ts')).then(m => { if (m) { this.#panelCode = m; this.openPanel(); } }); return; }
     this.#panel = togglePanel(this.#button, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; }, stays: true }, this.#build);
   }
   /** Draw the panel again with the latest results, unless a script is being written there (the text box keeps its place). */
