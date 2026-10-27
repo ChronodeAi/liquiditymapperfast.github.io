@@ -47,7 +47,7 @@ export class ScriptPane extends TimePane {
   /** Each script's last answer; a new map at every run, so what is worked out from it can tell when to work it out again. */
   #held = new Map<string, Held>();
   #warnings = new Map<string, Warning[]>();
-  #lastRun = 0; #runMs = 0; #timer = 0; #running = false;
+  #lastRun = 0; #runMs = 0; #timer = 0; #running = false; #runToken = 0;
   #seen: { candles: unknown; loads: number; data: number; version: number; tf: string; markets: unknown; venues: unknown; scope: string } | null = null;
   #card = new HoverCard();
   #lines: InfoLine[] | null = null;
@@ -117,7 +117,10 @@ export class ScriptPane extends TimePane {
   #maybeRun(): void {
     const state = this.store.state;
     const on = this.#records.filter(r => r.on);
-    if (!state.show.script || !on.length || this.#running) return;
+    // Nothing to run: a run still waiting for its worker to load is dropped, so the worker never runs scripts switched off meanwhile.
+    if (!state.show.script || !on.length) { this.#host.dropUnsent(); return; }
+    // A run under way is waited for; one still waiting for its worker to load is replaced by a newer request.
+    if (this.#running && !this.#host.loading) return;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
     const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replaying() ? Math.floor(pageNow() / tf) : -1 };
     const was = this.#seen, now = Date.now();
@@ -152,9 +155,9 @@ export class ScriptPane extends TimePane {
       for (const [k, f] of sourcesWith(a, r.options)) filters.set(k, f);
       runnable.push(r);
     }
-    if (!runnable.length) return;
+    if (!runnable.length) { this.#host.dropUnsent(); return; }
     const inputs = this.#data.inputs(state, filters);
-    if (!inputs) return;
+    if (!inputs) { this.#host.dropUnsent(); return; }
     // What each script reads that the page cannot give it: an option it reads but does not declare that is not set, a set of markets with none.
     const markets = this.#data.markets(state, filters);
     for (const r of runnable) {
@@ -168,15 +171,19 @@ export class ScriptPane extends TimePane {
       this.#warnings.set(r.id, w);
     }
     const time = inputs.time.slice(), tf = inputs.tf, inst = state.seriesInstrument, started = Date.now();
+    const token = ++this.#runToken;
     this.#running = true; this.#lastRun = started;
     const version = this.#version;
-    void this.#host.run(runnable.map(r => ({ id: r.id, source: r.source, options: r.options, api: r.api })), inputs).then(results => {
+    void this.#host.run(runnable.map(r => ({ id: r.id, source: r.source, options: r.options, api: r.api })), inputs).then(({ results, ms }) => {
+      // A newer request replaced this one before its worker took it: the newer one's answer is the one that counts.
+      if (token !== this.#runToken) return;
       this.#running = false;
       if (!results.length) return;
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
       if (version !== this.#version) { this.invalidate(); return; }
-      // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often.
-      this.#runMs = this.#host.lastRunMs;
+      // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often, spaced
+      // from when it started in its worker.
+      this.#runMs = ms; this.#lastRun = Date.now() - ms;
       for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst });
       this.#held = new Map(this.#held); this.#heldGen++;
       this.invalidate();
@@ -280,7 +287,7 @@ export class ScriptPane extends TimePane {
    */
   paintOnMap(ctx: CanvasRenderingContext2D, pw: number, ph: number): void {
     const state = this.store.state;
-    if (!state.show.script) return;
+    if (!state.show.script) { this.#host.dropUnsent(); return; }
     // The map asks for runs too: on a phone the pane is not laid out while another tab shows, and the scripts on the map must still run.
     this.#maybeRun();
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, p = this.palette;

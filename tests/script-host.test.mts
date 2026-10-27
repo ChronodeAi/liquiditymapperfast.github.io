@@ -40,22 +40,22 @@ test('a run is answered with one result per script, in the order asked', async (
   const sent = workers[0]!.posted[0]!;
   workers[0]!.answer(sent.seq, ['b', 'a']);
   const r = await p;
-  assert.deepEqual(r.map(x => x.id), ['a', 'b']);
+  assert.deepEqual(r.results.map(x => x.id), ['a', 'b']);
   assert.equal(host.busy, false);
 });
 
 test('while a run is under way the newest request waits and an older waiting one is dropped', async () => {
   const { host, workers } = rig();
   const first = host.run([job('a')], inputs());
+  await tick();
   const second = host.run([job('b')], inputs());
   const third = host.run([job('c')], inputs());
-  await tick();
-  assert.deepEqual(await second, [], 'overtaken before it started');
+  assert.deepEqual((await second).results, [], 'overtaken before it started');
   workers[0]!.answer(workers[0]!.posted[0]!.seq, ['a']);
-  assert.equal((await first)[0]!.id, 'a');
+  assert.equal((await first).results[0]!.id, 'a');
   assert.equal(workers[0]!.posted.length, 2);
   workers[0]!.answer(workers[0]!.posted[1]!.seq, ['c']);
-  assert.equal((await third)[0]!.id, 'c');
+  assert.equal((await third).results[0]!.id, 'c');
 });
 
 test('a run past its deadline ends its worker, reports every script stopped, and the next run gets a fresh worker', async () => {
@@ -65,7 +65,7 @@ test('a run past its deadline ends its worker, reports every script stopped, and
   const deadline = timers.find(t => t.ms === 1_000 && !t.cleared)!;
   deadline.fn();
   const r = await p;
-  assert.ok(r.every(x => !x.ok && x.error.code === 'timeout'));
+  assert.ok(r.results.every(x => !x.ok && x.error.code === 'timeout'));
   assert.equal(workers[0]!.ended, true);
   assert.equal(host.restarts, 1);
   // A late answer from the ended worker changes nothing.
@@ -74,7 +74,7 @@ test('a run past its deadline ends its worker, reports every script stopped, and
   assert.equal(workers.length, 2);
   await tick();
   workers[1]!.answer(workers[1]!.posted[0]!.seq, ['a']);
-  assert.equal((await q)[0]!.ok, true);
+  assert.equal((await q).results[0]!.ok, true);
   assert.ok(timers.filter(t => t.ms === 1_000).every(t => t.cleared || t === deadline), 'an answered run clears its deadline');
 });
 
@@ -85,7 +85,7 @@ test('a worker that fails stops its run, and an answer to an older run is ignore
   workers[0]!.answer(999, ['a']);
   assert.equal(host.busy, true);
   workers[0]!.onerror?.(new Error('load'));
-  const r = await p;
+  const r = (await p).results;
   assert.equal(!r[0]!.ok && r[0]!.error.code, 'worker-failed');
 });
 
@@ -98,11 +98,11 @@ test('the clock of a run starts only once its worker has loaded, and a worker th
   assert.equal(workers[0]!.posted.length, 1);
   assert.ok(timers.some(t => t.ms === 1_000 && !t.cleared));
   workers[0]!.answer(workers[0]!.posted[0]!.seq, ['a']);
-  assert.equal((await p)[0]!.ok, true);
+  assert.equal((await p).results[0]!.ok, true);
   const second = rig(false);
   const q = second.host.run([job('b')], inputs());
   second.timers.find(t => t.ms !== 1_000)!.fn();
-  const r = await q;
+  const r = (await q).results;
   assert.equal(!r[0]!.ok && r[0]!.error.code, 'worker-failed');
   assert.equal(second.workers[0]!.ended, true);
 });
@@ -115,17 +115,50 @@ test('a run\'s time is counted from when its worker took it: a long wait to load
   workers[0]!.ready();
   clock.now = 45_200;
   workers[0]!.answer(workers[0]!.posted[0]!.seq, ['a']);
-  await p;
-  assert.equal(host.lastRunMs, 200);
+  assert.equal((await p).ms, 200);
   const q = host.run([job('a')], inputs());
   clock.now = 46_200;
   timers.find(t => t.ms === 1_000 && !t.cleared)!.fn();
-  await q;
-  assert.equal(host.lastRunMs, 1_000, 'a run past its deadline took that long');
+  assert.equal((await q).ms, 1_000, 'a run past its deadline took that long');
   const never = rig(false);
   const r = never.host.run([job('b')], inputs());
   never.clock.now = 120_000;
   never.timers.find(t => t.ms !== 1_000)!.fn();
-  await r;
-  assert.equal(never.host.lastRunMs, 0, 'a worker that never loaded ran nothing');
+  assert.equal((await r).ms, 0, 'a worker that never loaded ran nothing');
+});
+
+test('a run still waiting for its worker to load is replaced by a newer one, or dropped: the worker never runs scripts changed meanwhile', async () => {
+  const { host, workers } = rig(false);
+  const old = host.run([job('old')], inputs());
+  assert.equal(host.loading, true);
+  const newer = host.run([job('new')], inputs());
+  assert.deepEqual(await old, { results: [], ms: 0 }, 'replaced before its worker took it');
+  workers[0]!.ready();
+  assert.deepEqual(workers[0]!.posted.map(m => m.jobs.map(j => j.id)), [['new']], 'only the newer scripts are sent');
+  assert.equal(host.loading, false);
+  workers[0]!.answer(workers[0]!.posted[0]!.seq, ['new']);
+  assert.equal((await newer).results[0]!.id, 'new');
+
+  const second = rig(false);
+  const off = second.host.run([job('a')], inputs());
+  second.host.dropUnsent();
+  assert.deepEqual(await off, { results: [], ms: 0 });
+  assert.equal(second.host.busy, false);
+  second.workers[0]!.ready();
+  assert.equal(second.workers[0]!.posted.length, 0, 'switched off before the worker loaded: nothing runs');
+  const later = second.host.run([job('b')], inputs());
+  assert.equal(second.workers.length, 1, 'the loaded worker is kept for the next run');
+  assert.equal(second.workers[0]!.posted.length, 1);
+  second.workers[0]!.answer(second.workers[0]!.posted[0]!.seq, ['b']);
+  assert.equal((await later).results[0]!.ok, true);
+  second.host.dropUnsent();
+  assert.equal(second.host.busy, false, 'nothing to drop once a run was taken and answered');
+});
+
+test('disposing ends the worker and answers what waited with nothing and no time', async () => {
+  const { host, workers } = rig(false);
+  const p = host.run([job('a')], inputs());
+  host.dispose();
+  assert.deepEqual(await p, { results: [], ms: 0 });
+  assert.equal(workers[0]!.ended, true);
 });

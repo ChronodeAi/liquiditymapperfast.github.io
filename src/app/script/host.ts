@@ -8,7 +8,7 @@ import type { RunRequest, RunResponse, ScriptJob, ScriptResult } from './protoco
  * in time (a script that fills memory, a worker that hung) has its worker ended and a fresh one started, and every script of it is reported
  * as stopped. A fresh worker says when it has loaded; a run's clock starts only then, and a worker that does not load in `loadMs` is given up
  * on the same way. Loading can wait a long time on a page whose own requests hold every connection to its server (each address gets only a
- * few), so it has minutes, and its wait is not counted as the run's time (`lastRunMs`). The worker never sees the page: it gets the inputs and the scripts' texts, and answers with what to draw.
+ * few), so it has minutes, and its wait is not counted in the run's time (`RunOutcome.ms`). The worker never sees the page: it gets the inputs and the scripts' texts, and answers with what to draw.
  */
 
 /** What the host needs of a worker (a real `Worker`, or a test's stand-in). */
@@ -31,33 +31,52 @@ export interface HostOptions {
   now?: () => number;
 }
 
-interface Run { seq: number; jobs: ScriptJob[]; inputs: BarInputs; timer: unknown; resolve: (r: ScriptResult[]) => void; sent: boolean; sentAt: number }
+/** A run's answer: one result per script, and how long it ran in its worker (ms), from when the worker took it to its answer or its deadline (0 for one that never started). */
+export interface RunOutcome { results: ScriptResult[]; ms: number }
+const NOTHING: RunOutcome = { results: [], ms: 0 };
+
+interface Run { seq: number; jobs: ScriptJob[]; inputs: BarInputs; timer: unknown; resolve: (r: RunOutcome) => void; sent: boolean; sentAt: number }
 
 export class ScriptHost {
   #worker: WorkerLike | null = null;
   #ready = false;
   #seq = 0;
   #running: Run | null = null;
-  #waiting: { jobs: ScriptJob[]; inputs: BarInputs; resolve: (r: ScriptResult[]) => void } | null = null;
+  #waiting: { jobs: ScriptJob[]; inputs: BarInputs; resolve: (r: RunOutcome) => void } | null = null;
   readonly #o: Required<HostOptions>;
   /** How many workers were ended for running over their deadline (or for not loading). */
   restarts = 0;
-  /** How long the last run took in its worker (ms), from when the worker took it to its answer or its deadline; 0 for one that never started. */
-  lastRunMs = 0;
 
   constructor(o: HostOptions) {
     this.#o = { deadlineMs: 4_000, perScriptMs: 2_600, loadMs: 120_000, setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id as ReturnType<typeof setTimeout>), now: () => Date.now(), ...o };
   }
 
-  /** Whether a run is under way. */
+  /** Whether a run is under way (asked for, its worker loading or running it). */
   get busy(): boolean { return this.#running !== null; }
+  /** Whether the run under way still waits for its worker to load: a newer request replaces it rather than waiting behind it. */
+  get loading(): boolean { return this.#running !== null && !this.#running.sent; }
 
-  /** Run `jobs` over `inputs` (the arrays are handed over: do not use them after). Resolves with one result per job; a request overtaken by a newer one before it started resolves with none. */
-  run(jobs: ScriptJob[], inputs: BarInputs): Promise<ScriptResult[]> {
+  /**
+   * Run `jobs` over `inputs` (the arrays are handed over: do not use them after). Resolves with one result per job and the run's time; a request
+   * overtaken by a newer one before its worker took it resolves with none. A run waiting for its worker to load is replaced the same way: the
+   * worker then runs only the newest scripts, not ones changed or switched off meanwhile.
+   */
+  run(jobs: ScriptJob[], inputs: BarInputs): Promise<RunOutcome> {
     return new Promise(resolve => {
-      if (this.#running) { this.#waiting?.resolve([]); this.#waiting = { jobs, inputs, resolve }; return; }
+      const run = this.#running;
+      if (run && !run.sent) { const was = run.resolve; run.jobs = jobs; run.inputs = inputs; run.resolve = resolve; was(NOTHING); return; }
+      if (run) { this.#waiting?.resolve(NOTHING); this.#waiting = { jobs, inputs, resolve }; return; }
       this.#start(jobs, inputs, resolve);
     });
+  }
+
+  /** Drop the run that waits for its worker to load (its scripts were switched off): it resolves with none, and the worker goes on loading. */
+  dropUnsent(): void {
+    const run = this.#running;
+    if (!run || run.sent) return;
+    if (run.timer !== null) this.#o.clearTimer(run.timer);
+    this.#running = null;
+    run.resolve(NOTHING);
   }
 
   #ensure(): WorkerLike {
@@ -70,7 +89,7 @@ export class ScriptHost {
     return this.#worker = w;
   }
 
-  #start(jobs: ScriptJob[], inputs: BarInputs, resolve: (r: ScriptResult[]) => void): void {
+  #start(jobs: ScriptJob[], inputs: BarInputs, resolve: (r: RunOutcome) => void): void {
     const run: Run = { seq: ++this.#seq, jobs, inputs, timer: null, resolve, sent: false, sentAt: 0 };
     this.#running = run;
     try { this.#ensure(); } catch { this.#stop('worker-failed'); return; }
@@ -94,9 +113,8 @@ export class ScriptHost {
     if (!run || msg.t !== 'result' || msg.seq !== run.seq) return;
     this.#o.clearTimer(run.timer);
     this.#running = null;
-    this.lastRunMs = this.#o.now() - run.sentAt;
     const byId = new Map(msg.results.map(r => [r.id, r]));
-    run.resolve(run.jobs.map(j => byId.get(j.id) ?? { id: j.id, ok: false, error: { code: 'no-answer', line: 0, col: 0 } }));
+    run.resolve({ results: run.jobs.map(j => byId.get(j.id) ?? { id: j.id, ok: false, error: { code: 'no-answer', line: 0, col: 0 } }), ms: this.#o.now() - run.sentAt });
     this.#next();
   }
 
@@ -105,9 +123,8 @@ export class ScriptHost {
     const run = this.#running; if (!run) return;
     if (run.timer !== null) this.#o.clearTimer(run.timer);
     this.#running = null;
-    this.lastRunMs = run.sent ? this.#o.now() - run.sentAt : 0;
     this.#worker?.terminate(); this.#worker = null; this.#ready = false; this.restarts++;
-    run.resolve(run.jobs.map(j => ({ id: j.id, ok: false, error: { code, line: 0, col: 0 } })));
+    run.resolve({ results: run.jobs.map(j => ({ id: j.id, ok: false, error: { code, line: 0, col: 0 } })), ms: run.sent ? this.#o.now() - run.sentAt : 0 });
     this.#next();
   }
 
@@ -119,8 +136,8 @@ export class ScriptHost {
 
   /** End the worker and drop what waits (the page is closing the feature). */
   dispose(): void {
-    if (this.#running) { if (this.#running.timer !== null) this.#o.clearTimer(this.#running.timer); this.#running.resolve([]); this.#running = null; }
-    this.#waiting?.resolve([]); this.#waiting = null;
+    if (this.#running) { if (this.#running.timer !== null) this.#o.clearTimer(this.#running.timer); this.#running.resolve(NOTHING); this.#running = null; }
+    this.#waiting?.resolve(NOTHING); this.#waiting = null;
     this.#worker?.terminate(); this.#worker = null; this.#ready = false;
   }
 }
