@@ -12,7 +12,7 @@ import { togglePanel, type Panel } from '../ui.ts';
 import { TimePane, setText } from './lower-panes.ts';
 import { ScriptHost, type WorkerLike } from '../script/host.ts';
 import { ScriptData } from '../script/data.ts';
-import { analyze, type Analysis } from '../script/lang/engine.ts';
+import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/engine.ts';
 import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
 import { loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
 import { PLOT_FIELDS, type ScriptResult, type Warning } from '../script/protocol.ts';
@@ -121,7 +121,8 @@ export class ScriptPane extends TimePane {
     for (const r of on) {
       const a = this.#analyze(r.source);
       if (!('program' in a)) { this.#held.set(r.id, { result: { id: r.id, ok: false, error: a }, time: new Float64Array(0), tf: 0 }); continue; }
-      for (const [k, f] of a.sources) filters.set(k, f);
+      // Its markets as its options name them (`exchange=options.venue`): the worker works them out from the same values.
+      for (const [k, f] of sourcesWith(a, r.options)) filters.set(k, f);
       runnable.push(r);
     }
     if (!runnable.length) return;
@@ -132,7 +133,11 @@ export class ScriptPane extends TimePane {
     for (const r of runnable) {
       const a = this.#analyze(r.source) as Analysis, w: Warning[] = [];
       for (const name of a.read) if (!(name in r.options)) w.push({ code: 'unset-option', detail: name });
-      for (const [k] of a.sources) if (k && !markets.get(k)?.length) w.push({ code: 'no-markets', detail: k.replace(/;/g, ', ') });
+      for (const [k, f] of sourcesWith(a, r.options)) {
+        if (f.venues?.includes(UNREAD_VENUE)) w.push({ code: 'unread-source' });
+        else if (k && !markets.get(k)?.length) w.push({ code: 'no-markets', detail: k.replace(/;/g, ', ') });
+      }
+      if (this.#data.liquidationsCut && (a.inputs.has('lbuy') || a.inputs.has('lsell'))) w.push({ code: 'liquidations-cut' });
       this.#warnings.set(r.id, w);
     }
     const time = inputs.time.slice(), tf = inputs.tf, started = Date.now();

@@ -47,6 +47,8 @@ export function warningText(w: Warning): string {
     case 'no-plots': return t('The script draws nothing: add a plot such as line(...) or histogram(...).');
     case 'no-markets': return t('No market on the page matches {what}: it reads 0.', { what });
     case 'unset-option': return t('Option {what} is not set: give it a value below.', { what });
+    case 'unread-source': return t('A source(...) names its markets with something only the run can work out: it reads 0. Name them with a word, an option or options.name.');
+    case 'liquidations-cut': return t('Some days held more liquidations than the source answers: the smallest are missing from lbuy and lsell.');
     default: return w.code;
   }
 }

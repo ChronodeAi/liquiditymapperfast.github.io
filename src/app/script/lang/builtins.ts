@@ -34,8 +34,14 @@ export type Builtin = (inst: Instance, args: Value[], named: Record<string, Valu
 const len = (v: Value, fallback = 1): number => { const n = Math.floor(num(v)); return Number.isFinite(n) && n >= 1 ? Math.min(n, 10_000) : fallback; };
 const finite = (v: number): boolean => Number.isFinite(v);
 
-/** The last `n - 1` values committed (a window that the current value completes). */
-function windowOf(inst: Instance): number[] { return (inst.state.w ??= []) as number[]; }
+/**
+ * The last `n - 1` values committed (a window that the current value completes). The values kept are those of the longest window asked for
+ * so far, so a window the script makes shorter (`sma(x, renderer.length < 4 ? 3 : 1)`) reads only its own newest values.
+ */
+function windowOf(inst: Instance, n = Infinity): number[] {
+  const w = (inst.state.w ??= []) as number[];
+  return n - 1 < w.length ? w.slice(w.length - Math.max(0, n - 1)) : w;
+}
 function pushWindow(inst: Instance, x: number, n: number): void {
   inst.pending = () => { const w = windowOf(inst); w.push(x); if (w.length > n - 1) w.splice(0, w.length - (n - 1)); };
 }
@@ -58,21 +64,21 @@ export const BUILTINS: Readonly<Record<string, Builtin>> = {
   /** The sum of the last `length` values (this candle's included; fewer while fewer exist). */
   sum(inst, [x, n]) {
     const v = num(x), k = len(n); if (!finite(v)) return NaN;
-    const w = windowOf(inst); let s = v; for (const y of w) s += y;
+    const w = windowOf(inst, k); let s = v; for (const y of w) s += y;
     pushWindow(inst, v, k); return s;
   },
   /** The average of the last `length` values (of those there are, while fewer exist). */
   sma(inst, [x, n]) {
     const v = num(x), k = len(n); if (!finite(v)) return NaN;
-    const w = windowOf(inst); let s = v; for (const y of w) s += y;
+    const w = windowOf(inst, k); let s = v; for (const y of w) s += y;
     pushWindow(inst, v, k); return s / (w.length + 1);
   },
-  /** The cumulative average of every value so far. */
-  cma(inst, [x]) {
-    const v = num(x); if (!finite(v)) return NaN;
-    const sum = ((inst.state.sum as number | undefined) ?? 0) + v, count = ((inst.state.count as number | undefined) ?? 0) + 1;
-    inst.pending = () => { inst.state.sum = sum; inst.state.count = count; };
-    return sum / count;
+  /** The average of this value and the function's own last `length - 1` answers, as the scripts' language computes it (a running average of itself). */
+  cma(inst, [x, n]) {
+    const v = num(x), k = len(n); if (!finite(v)) return NaN;
+    const w = windowOf(inst, k); let s = v; for (const y of w) s += y;
+    const out = s / (w.length + 1);
+    pushWindow(inst, out, k); return out;
   },
   /** The exponential average: each value weighs 2 / (length + 1); the first value starts it. */
   ema(inst, [x, n]) { return smooth(inst, num(x), 2 / (len(n) + 1)); },
@@ -81,19 +87,19 @@ export const BUILTINS: Readonly<Record<string, Builtin>> = {
   /** The highest of the last `length` values. */
   highest(inst, [x, n]) {
     const v = num(x), k = len(n); if (!finite(v)) return NaN;
-    const w = windowOf(inst); let m = v; for (const y of w) if (y > m) m = y;
+    const w = windowOf(inst, k); let m = v; for (const y of w) if (y > m) m = y;
     pushWindow(inst, v, k); return m;
   },
   /** The lowest of the last `length` values. */
   lowest(inst, [x, n]) {
     const v = num(x), k = len(n); if (!finite(v)) return NaN;
-    const w = windowOf(inst); let m = v; for (const y of w) if (y < m) m = y;
+    const w = windowOf(inst, k); let m = v; for (const y of w) if (y < m) m = y;
     pushWindow(inst, v, k); return m;
   },
   /** The least-squares line over the last `length` values, at this candle. */
   linreg(inst, [x, n]) {
     const v = num(x), k = len(n); if (!finite(v)) return NaN;
-    const ys = [...windowOf(inst), v], m = ys.length;
+    const ys = [...windowOf(inst, k), v], m = ys.length;
     pushWindow(inst, v, k);
     if (m < 2) return v;
     let sx = 0, sy = 0, sxy = 0, sxx = 0;
@@ -103,8 +109,8 @@ export const BUILTINS: Readonly<Record<string, Builtin>> = {
   },
   /** The oldest of the last `length` values: the value `length - 1` candles ago once there are that many (`last(x, 2)` is the candle before), this one before. */
   last(inst, [x, n]) {
-    const v = num(x), k = len(n, 1);
-    const w = windowOf(inst), out = w.length ? w[0]! : v;
+    const v = num(x), k = len(n, 1); if (!finite(v)) return NaN;
+    const w = windowOf(inst, k), out = w.length ? w[0]! : v;
     pushWindow(inst, v, k);
     return out;
   },
@@ -114,8 +120,7 @@ export const BUILTINS: Readonly<Record<string, Builtin>> = {
     if (!finite(c) || !finite(h) || !finite(l)) return NaN;
     const hs = (inst.state.h ??= []) as number[], ls = (inst.state.l ??= []) as number[];
     let hh = h, ll = l;
-    for (const y of hs) if (y > hh) hh = y;
-    for (const y of ls) if (y < ll) ll = y;
+    for (let j = Math.max(0, hs.length - (k - 1)); j < hs.length; j++) { if (hs[j]! > hh) hh = hs[j]!; if (ls[j]! < ll) ll = ls[j]!; }
     inst.pending = () => { hs.push(h); ls.push(l); if (hs.length > k - 1) { hs.splice(0, hs.length - (k - 1)); ls.splice(0, ls.length - (k - 1)); } };
     return 100 * (c - ll) / (hh - ll || 1);
   },
@@ -163,8 +168,9 @@ function smooth(inst: Instance, v: number, alpha: number): number {
 }
 
 function pivot(inst: Instance, v: number, left: number, right: number, beats: (a: number, b: number) => boolean): number {
-  const w = windowOf(inst), all = [...w, v];
-  pushWindow(inst, finite(v) ? v : NaN, left + right + 1);
+  if (!finite(v)) return NaN;
+  const w = windowOf(inst, left + right + 1), all = [...w, v];
+  pushWindow(inst, v, left + right + 1);
   if (all.length < left + right + 1) return NaN;
   const c = all.length - 1 - right, mid = all[c]!;
   if (!finite(mid)) return NaN;
@@ -173,6 +179,8 @@ function pivot(inst: Instance, v: number, left: number, right: number, beats: (a
 }
 
 function heikin(inst: Instance, c: Candle): Value {
+  // A candle with no prices (not recorded) has no Heikin-Ashi candle, and the next one opens from the last that had.
+  if (![c.open, c.high, c.low, c.close].every(finite)) return ohlcOf(NaN, NaN, NaN, NaN);
   const close = (c.open + c.high + c.low + c.close) / 4;
   const prev = inst.state.prev as { open: number; close: number } | undefined;
   const open = prev ? (prev.open + prev.close) / 2 : (c.open + c.close) / 2;

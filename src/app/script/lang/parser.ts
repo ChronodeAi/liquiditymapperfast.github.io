@@ -31,6 +31,7 @@ export type Stmt =
   | { k: 'if'; test: Expr; yes: Stmt; no: Stmt | null; p: Pos }
   | { k: 'for'; init: Stmt | null; test: Expr | null; update: Expr | null; body: Stmt; p: Pos }
   | { k: 'while'; test: Expr; body: Stmt; p: Pos }
+  | { k: 'dowhile'; body: Stmt; test: Expr; p: Pos }
   | { k: 'block'; body: Stmt[]; p: Pos }
   | { k: 'break' | 'continue'; p: Pos }
   | { k: 'return'; e: Expr | null; p: Pos }
@@ -45,6 +46,8 @@ const ASSIGN = new Set(['=', '+=', '-=', '*=', '/=', '%=', '**=', '<<=', '>>=', 
 const LEVELS: readonly (readonly string[])[] = [['||', '??'], ['&&'], ['|'], ['^'], ['&'], ['==', '!=', '===', '!=='], ['<', '>', '<=', '>='], ['<<', '>>', '>>>'], ['+', '-'], ['*', '/', '%']];
 /** How deeply expressions and blocks may nest: a script nested deeper is refused rather than overflowing the parser's stack. */
 const MAX_DEPTH = 200;
+/** How long one chain of operators (`a + b + c ...`), members or calls may be: each link is one level deeper in the tree. */
+const MAX_CHAIN = 400;
 
 export function parse(text: string): Stmt[] {
   const toks = tokenize(text);
@@ -99,8 +102,7 @@ export function parse(text: string): Stmt[] {
             i++; const body = statement();
             if (!isWord('while')) fail('expected', peek(), 'while');
             i++; eat('('); const test = expression(); eat(')'); end();
-            // A do-while is a while that runs its body once first.
-            return { k: 'block', body: [body, { k: 'while', test, body, p }], p };
+            return { k: 'dowhile', body, test, p };
           }
           case 'break': case 'continue': i++; end(); return { k: t.text, p };
           case 'return': { i++; const e = isOp(';') || isOp('}') || peek().kind === 'eof' || peek().nl ? null : expression(); end(); return { k: 'return', e, p }; }
@@ -189,9 +191,10 @@ export function parse(text: string): Stmt[] {
   function binary(level: number): Expr {
     if (level >= LEVELS.length) return exponent();
     let left = binary(level + 1);
-    for (;;) {
+    for (let links = 0; ; links++) {
       const t = peek();
       if (t.kind !== 'op' || !LEVELS[level]!.includes(t.text)) return left;
+      if (links >= MAX_CHAIN) fail('too-deep');
       i++;
       const right = binary(level + 1);
       left = t.text === '&&' || t.text === '||' || t.text === '??' ? { k: 'logic', op: t.text, a: left, b: right, p: left.p } : { k: 'bin', op: t.text, a: left, b: right, p: left.p };
@@ -202,7 +205,8 @@ export function parse(text: string): Stmt[] {
     const base = unary();
     if (!isOp('**')) return base;
     i++;
-    return { k: 'bin', op: '**', a: base, b: exponent(), p: base.p };
+    enter();
+    try { return { k: 'bin', op: '**', a: base, b: exponent(), p: base.p }; } finally { depth--; }
   }
 
   function unary(): Expr {
@@ -221,8 +225,9 @@ export function parse(text: string): Stmt[] {
 
   function postfix(): Expr {
     let e = primary();
-    for (;;) {
+    for (let links = 0; ; links++) {
       const t = peek();
+      if (links > MAX_CHAIN) fail('too-deep');
       if (isOp('.') || isOp('?.')) {
         const optional = t.text === '?.'; i++;
         if (optional && isOp('(')) { e = call(e); continue; }

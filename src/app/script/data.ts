@@ -22,6 +22,8 @@ export class ScriptData {
   #liqRetry = new Map<number, number>();
   /** Counts what has landed, so a reader can tell new inputs from the same ones. */
   version = 0;
+  /** Whether a day of liquidations the last inputs read held more than the source answers (the smallest are missing). */
+  liquidationsCut = false;
 
   constructor(private hub: Hub, private changed: () => void) {}
 
@@ -44,6 +46,7 @@ export class ScriptData {
     const markets = this.markets(state, filters);
     const liq = this.#liquidations(starts, tf, now);
     const sources: BarInputs['sources'] = {};
+    this.liquidationsCut = false;
     for (const [key, ids] of markets) {
       sources[key] = sourceInputs(candles.time, ids, {
         flows: list => {
@@ -52,7 +55,7 @@ export class ScriptData {
           if (!cache) { cache = new FlowCache(); this.#caches.set(k, cache); if (this.#caches.size > 64) this.#caches.delete(this.#caches.keys().next().value!); }
           return deltaFlows(cache, this.hub.flow, list, starts, tf, now).flows;
         },
-        liquidations: list => liq ? liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, Date.now()) : undefined,
+        liquidations: list => { if (!liq) return undefined; const b = liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, Date.now()); if (b.cut) this.liquidationsCut = true; return b; },
       });
     }
     return { tf, ...candles, sources };

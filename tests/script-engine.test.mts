@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze, createRunner, exchangeOf, runScript, sourceFilter } from '../src/app/script/lang/engine.ts';
+import { analyze, createRunner, exchangeOf, runScript, sourceFilter, sourcesWith } from '../src/app/script/lang/engine.ts';
 import { filterKey, type BarInputs, type SourceInputs } from '../src/app/script/inputs.ts';
 import { parse } from '../src/app/script/lang/parser.ts';
 import type { ScriptResult } from '../src/app/script/protocol.ts';
@@ -199,6 +199,47 @@ test('a run over the same closed candles runs the candle under way alone, and gi
   assert.equal(runner.startedAt, 0);
   assert.deepEqual(older.plots.map(p => [...p.fields.value!]), ok(runScript('t', src, {}, inputs(9, i => i === 2 ? { vbuy: 1 } : i === 7 ? { vbuy: 999 } : {}))).plots.map(p => [...p.fields.value!]));
   void first;
+});
+
+test('limits that a script could get round: text of a nested array, sparse arrays, nesting too deep to read', () => {
+  const nested = run('var a = ["x"]\nfor (var j = 0; j < 17; j++) a = [a, a]\nline(String(a).length)');
+  assert.ok(!nested.ok && nested.error.code === 'too-large', nested.ok ? 'ran' : nested.error.code);
+  const sparse = run('var a = []\na.length = 100000\nvar keep = []\nfor (var j = 0; j < 20; j++) keep.push(a.map(x => x))\nline(keep.length)');
+  assert.ok(!sparse.ok && sparse.error.code === 'budget', sparse.ok ? 'ran' : sparse.error.code);
+  const deep = run('line(' + '1+'.repeat(7000) + '1)');
+  assert.ok(!deep.ok && deep.error.code === 'too-deep', deep.ok ? 'ran' : deep.error.code);
+  assert.throws(() => analyze('line(' + '('.repeat(150) + '1' + ')'.repeat(150) + ' + ' + '[1].map(x => '.repeat(100) + 'x' + ')'.repeat(100) + ')'), (e: unknown) => (e as { info?: { code: string } }).info?.code === 'too-deep');
+});
+
+test('a source names its markets with options and with words joined by +, and one it cannot read reads nothing', () => {
+  const a = analyze('venue = option(default=COINBASE, type=text)\nline(source(vbuy, exchange=options.venue))\nline(source(vsell, exchange=venue))\nline(source(vbuy, exchange=BYBIT+OKEX))\nvar x = "KRAKEN"\nline(source(vbuy, exchange=x + "S"))');
+  assert.deepEqual([...a.sources.keys()].sort(), ['', 'venue=?', 'venue=bybit+okx', 'venue=coinbase/spot'].sort());
+  assert.deepEqual([...sourcesWith(a, { venue: 'BINANCE_FUTURES' }).keys()].sort(), ['', 'venue=?', 'venue=binance/perp', 'venue=bybit+okx'].sort(), 'the option set wins over the default');
+});
+
+test('the functions that keep state skip a candle that was not recorded, and read a window made shorter from its own newest values', () => {
+  const gap = inputs(4, i => i === 1 ? { vbuy: NaN } : {});
+  assert.deepEqual(values(runScript('t', 'line(last(vbuy, 2))', {}, gap)).map(v => Number.isNaN(v) ? 'na' : v), [10, 'na', 10, 30]);
+  assert.deepEqual(values(runScript('t', 'line(sma(vbuy, renderer.length < 4 ? 3 : 1))', {}, inputs(5))), [10, 15, 20, 40, 50]);
+  assert.deepEqual(values(runScript('t', 'line(highest(vbuy, renderer.length < 4 ? 3 : 1))', {}, inputs(5))), [10, 20, 30, 40, 50]);
+  assert.deepEqual(values(runScript('t', 'line(cma($price.close - 99, 3))', {}, inputs(4))), [1, 1.5, 1.833333, 2.444444]);
+  const ha = ok(runScript('t', 'candlestick(heikinashi({ open: $price.open, high: $price.high, low: $price.low, close: renderer.length === 2 ? NaN : $price.close }))', {}, inputs(4)));
+  assert.ok(Number.isNaN(ha.plots[0]!.fields.close![1]!) && Number.isFinite(ha.plots[0]!.fields.close![2]!));
+});
+
+test('JavaScript as it is: do-while, a binding per turn of a for with let, one evaluation of what is assigned to, var without a value, Number(), comparisons with arrays', () => {
+  const dw = ok(run('do { line(1); line(2) } while (false)'));
+  assert.deepEqual(dw.plots.map(p => p.fields.value![0]), [1, 2]);
+  assert.deepEqual(values(run('var x = 0\ndo { x++; break } while (true)\nline(x)')), [1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(values(run('function f(x) { return x }\nx = x + 1\nline(f(x))')), [1, 2, 3, 4, 5, 6], 'a parameter of a function does not hide a kept name outside it');
+  const ref = ok(run('var i = 0\nvar a = [1, 2]\na[i++]++\nline(i)\nline(a[0])'));
+  assert.deepEqual([ref.plots[0]!.fields.value![0], ref.plots[1]!.fields.value![0]], [1, 2]);
+  const turns = ok(run('var f = []\nfor (let i = 0; i < 3; i++) f.push(() => i)\nline(f[0]())\nline(f[1]())\nline(f[2]())'));
+  assert.deepEqual(turns.plots.map(p => p.fields.value![0]), [0, 1, 2]);
+  assert.deepEqual(values(run('var x = 5\nvar x\nline(x)')), [5, 5, 5, 5, 5, 5]);
+  assert.deepEqual(values(run('function f(x) { var x; return x }\nline(f(7))')), [7, 7, 7, 7, 7, 7]);
+  assert.deepEqual(values(run('line(Number("123") + Number.EPSILON * 0)')), [123, 123, 123, 123, 123, 123]);
+  assert.deepEqual(values(run('line(([1] == 1 ? 1 : 0) + ([2] < "10" ? 10 : 0))')), [1, 1, 1, 1, 1, 1]);
 });
 
 test('errors name the code and the place', () => {

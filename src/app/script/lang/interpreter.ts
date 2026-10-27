@@ -83,7 +83,7 @@ export function numberSites(stmts: readonly Stmt[]): Map<Expr, number> {
       case 'decl': s.items.forEach(d => walkE(d.init)); return;
       case 'if': walkE(s.test); walkS(s.yes); if (s.no) walkS(s.no); return;
       case 'for': if (s.init) walkS(s.init); walkE(s.test); walkE(s.update); walkS(s.body); return;
-      case 'while': walkE(s.test); walkS(s.body); return;
+      case 'while': case 'dowhile': walkE(s.test); walkS(s.body); return;
       case 'block': s.body.forEach(walkS); return;
       case 'return': walkE(s.e); return;
       case 'func': s.body.forEach(walkS); return;
@@ -111,7 +111,7 @@ export function declaredNames(stmts: readonly Stmt[]): Set<string> {
       case 'expr': walkE(s.e); return;
       case 'if': walkE(s.test); walkS(s.yes); if (s.no) walkS(s.no); return;
       case 'for': if (s.init) walkS(s.init); walkE(s.test); walkE(s.update); walkS(s.body); return;
-      case 'while': walkE(s.test); walkS(s.body); return;
+      case 'while': case 'dowhile': walkE(s.test); walkS(s.body); return;
       case 'block': s.body.forEach(walkS); return;
       case 'return': walkE(s.e); return;
       default: return;
@@ -158,7 +158,7 @@ export class Interpreter {
         case 'decl': if (s.kind === 'var') for (const d of s.items) if (!scope.vars.has(d.name)) scope.vars.set(d.name, { v: undefined, konst: false }); return;
         case 'if': vars(s.yes); if (s.no) vars(s.no); return;
         case 'for': if (s.init) vars(s.init); vars(s.body); return;
-        case 'while': vars(s.body); return;
+        case 'while': case 'dowhile': vars(s.body); return;
         case 'block': s.body.forEach(vars); return;
         default: return;
       }
@@ -191,7 +191,8 @@ export class Interpreter {
       case 'decl':
         for (const d of s.items) {
           const v = d.init ? this.eval(d.init, scope) : undefined;
-          if (s.kind === 'var') { const b = this.#varBinding(d.name, scope); b.v = v; }
+          // A `var` with no value names the binding and leaves what it holds (`var x;` after `x = 5` is still 5).
+          if (s.kind === 'var') { const b = this.#varBinding(d.name, scope); if (d.init) b.v = v; }
           else { if (scope.vars.has(d.name) && s.kind !== 'let') throw new ScriptRuntimeError('redeclared', d.p.line, d.p.col, d.name); scope.vars.set(d.name, { v, konst: s.kind === 'const' }); }
         }
         return;
@@ -205,15 +206,30 @@ export class Interpreter {
         }
         return;
       case 'for': {
-        const loop = new Scope(scope);
+        let loop = new Scope(scope);
         if (s.init) this.exec(s.init, loop);
-        for (; s.test ? truthy(this.eval(s.test, loop)) : true; s.update && this.eval(s.update, loop)) {
+        // `let`/`const` in the header: each turn has its own copy of them (a function made in a turn keeps that turn's value), as in JavaScript.
+        const own = s.init?.k === 'decl' && s.init.kind !== 'var' ? s.init.items.map(d => d.name) : [];
+        const turn = (): void => { if (!own.length) return; const next = new Scope(scope); for (const n of own) { const b = loop.vars.get(n); if (b) next.vars.set(n, { v: b.v, konst: b.konst }); } loop = next; };
+        turn();
+        for (;;) {
+          if (s.test && !truthy(this.eval(s.test, loop))) break;
           this.#spend(s.p);
           try { this.exec(s.body, new Scope(loop)); }
-          catch (e) { if (e instanceof Jump && e.kind === 'break') break; if (e instanceof Jump && e.kind === 'continue') continue; throw e; }
+          catch (e) { if (e instanceof Jump && e.kind === 'break') break; if (!(e instanceof Jump && e.kind === 'continue')) throw e; }
+          turn();
+          if (s.update) this.eval(s.update, loop);
         }
         return;
       }
+      case 'dowhile':
+        for (;;) {
+          this.#spend(s.p);
+          try { this.exec(s.body, new Scope(scope)); }
+          catch (e) { if (e instanceof Jump && e.kind === 'break') break; if (!(e instanceof Jump && e.kind === 'continue')) throw e; }
+          if (!truthy(this.eval(s.test, scope))) break;
+        }
+        return;
       case 'break': case 'continue': throw new Jump(s.k);
       case 'return': throw new Jump('return', s.e ? this.eval(s.e, scope) : undefined);
     }
@@ -272,8 +288,9 @@ export class Interpreter {
         return e.op === '!' ? !truthy(v) : e.op === '-' ? -num(v) : e.op === '+' ? num(v) : ~num(v);
       }
       case 'upd': {
-        const old = num(this.eval(e.target, scope)), next = e.op === '++' ? old + 1 : old - 1;
-        this.#assignTo(e.target, next, scope);
+        const ref = this.#ref(e.target, scope);
+        const old = num(ref.get()), next = e.op === '++' ? old + 1 : old - 1;
+        ref.set(next);
         return e.prefix ? next : old;
       }
       case 'bin': return this.#binary(e.op, this.eval(e.a, scope), this.eval(e.b, scope), e.p);
@@ -285,13 +302,14 @@ export class Interpreter {
       }
       case 'cond': return truthy(this.eval(e.test, scope)) ? this.eval(e.yes, scope) : this.eval(e.no, scope);
       case 'assign': {
-        if (e.op === '=') { const v = this.eval(e.value, scope); this.#assignTo(e.target, v, scope); return v; }
-        const cur = this.eval(e.target, scope);
-        if (e.op === '&&=') { if (!truthy(cur)) return cur; const v = this.eval(e.value, scope); this.#assignTo(e.target, v, scope); return v; }
-        if (e.op === '||=') { if (truthy(cur)) return cur; const v = this.eval(e.value, scope); this.#assignTo(e.target, v, scope); return v; }
-        if (e.op === '??=') { if (cur !== null && cur !== undefined) return cur; const v = this.eval(e.value, scope); this.#assignTo(e.target, v, scope); return v; }
+        const ref = this.#ref(e.target, scope);
+        if (e.op === '=') { const v = this.eval(e.value, scope); ref.set(v); return v; }
+        const cur = ref.get();
+        if (e.op === '&&=') { if (!truthy(cur)) return cur; const v = this.eval(e.value, scope); ref.set(v); return v; }
+        if (e.op === '||=') { if (truthy(cur)) return cur; const v = this.eval(e.value, scope); ref.set(v); return v; }
+        if (e.op === '??=') { if (cur !== null && cur !== undefined) return cur; const v = this.eval(e.value, scope); ref.set(v); return v; }
         const v = this.#binary(e.op.slice(0, -1), cur, this.eval(e.value, scope), e.p);
-        this.#assignTo(e.target, v, scope);
+        ref.set(v);
         return v;
       }
       case 'member': {
@@ -327,12 +345,16 @@ export class Interpreter {
     catch (err) { if (err instanceof ScriptRuntimeError && !err.line) throw new ScriptRuntimeError(err.code, p.line, p.col, err.detail); throw err; }
   }
 
-  #assignTo(target: Expr, v: Value, scope: Scope): void {
-    try {
-      if (target.k === 'id') { this.#write(target.name, v, scope, target.p); return; }
-      if (target.k === 'member') { setMember(this.eval(target.obj, scope), target.name, v); return; }
-      if (target.k === 'index') { setMember(this.eval(target.obj, scope), keyOf(this.eval(target.index, scope)), v); return; }
-    } catch (err) { if (err instanceof ScriptRuntimeError && !err.line) throw new ScriptRuntimeError(err.code, target.p.line, target.p.col, err.detail); throw err; }
+  /** What an assignment writes to: a name, or an object and a key worked out once (`a[i++]++` moves `i` once). */
+  #ref(target: Expr, scope: Scope): { get(): Value; set(v: Value): void } {
+    const at = (err: unknown): never => { if (err instanceof ScriptRuntimeError && !err.line) throw new ScriptRuntimeError(err.code, target.p.line, target.p.col, err.detail); throw err; };
+    const pay = (n: number): void => charge(this.budget, n);
+    if (target.k === 'id') return { get: () => this.#read(target.name, scope, target.p), set: v => this.#write(target.name, v, scope, target.p) };
+    if (target.k === 'member' || target.k === 'index') {
+      const obj = this.eval(target.obj, scope);
+      const key = target.k === 'member' ? target.name : keyOf(this.eval(target.index, scope));
+      return { get: () => this.#member(obj, key, target.p), set: v => { try { setMember(obj, key, v, pay); } catch (err) { at(err); } } };
+    }
     throw new ScriptRuntimeError('bad-assignment', target.p.line, target.p.col);
   }
 
@@ -441,22 +463,26 @@ export class Interpreter {
   #arrayMethod(arr: Value[], key: string, p: Pos): NativeFunction | undefined {
     const call = (fn: Value, args: Value[]): Value => this.invoke(fn, args, null, p);
     const grow = (n: number): void => { if (arr.length + n > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array'); charge(this.budget, n); };
-    const made = (out: Value[]): Value[] => { charge(this.budget, out.length); return out; };
     const methods: Record<string, (args: Value[]) => Value> = {
       push: args => { grow(args.length); return arr.push(...args); },
       pop: () => arr.pop(), shift: () => arr.shift(),
       unshift: args => { grow(args.length); return arr.unshift(...args); },
-      slice: args => made(arr.slice(args[0] === undefined ? undefined : num(args[0]), args[1] === undefined ? undefined : num(args[1]))),
-      splice: args => { const r = arr.splice(num(args[0]), args[1] === undefined ? arr.length : num(args[1]), ...args.slice(2)); grow(0); return r; },
-      concat: args => { const out = arr.concat(...args.map(a => Array.isArray(a) ? a : [a])); if (out.length > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array'); return made(out); },
+      slice: args => { charge(this.budget, arr.length); return arr.slice(args[0] === undefined ? undefined : num(args[0]), args[1] === undefined ? undefined : num(args[1])); },
+      splice: args => { grow(Math.max(0, args.length - 2)); return arr.splice(num(args[0]), args[1] === undefined ? arr.length : num(args[1]), ...args.slice(2)); },
+      concat: args => {
+        const parts = args.map(a => Array.isArray(a) ? a : [a]), total = parts.reduce((t, a) => t + a.length, arr.length);
+        if (total > MAX_ARRAY) throw new ScriptRuntimeError('too-large', p.line, p.col, 'array');
+        charge(this.budget, total);
+        return arr.concat(...parts);
+      },
       indexOf: args => arr.indexOf(args[0]), lastIndexOf: args => arr.lastIndexOf(args[0]), includes: args => arr.includes(args[0]),
       join: args => { charge(this.budget, arr.length); return madeText(this.budget, arr.map(x => x === null || x === undefined ? '' : text(x)).join(args[0] === undefined ? ',' : text(args[0]))); },
       reverse: () => arr.reverse(),
       fill: args => arr.fill(args[0], args[1] === undefined ? undefined : num(args[1]), args[2] === undefined ? undefined : num(args[2])),
       at: args => arr.at(num(args[0])),
       sort: args => { const f = args[0]; this.#spend(p, arr.length); return f === undefined ? arr.sort((a, b) => text(a) < text(b) ? -1 : text(a) > text(b) ? 1 : 0) : arr.sort((a, b) => num(call(f, [a, b]))); },
-      map: args => arr.map((x, i) => call(args[0], [x, i, arr])),
-      filter: args => arr.filter((x, i) => truthy(call(args[0], [x, i, arr]))),
+      map: args => { charge(this.budget, arr.length); return arr.map((x, i) => call(args[0], [x, i, arr])); },
+      filter: args => { charge(this.budget, arr.length); return arr.filter((x, i) => truthy(call(args[0], [x, i, arr]))); },
       forEach: args => { arr.forEach((x, i) => { call(args[0], [x, i, arr]); }); return undefined; },
       find: args => arr.find((x, i) => truthy(call(args[0], [x, i, arr]))),
       findIndex: args => arr.findIndex((x, i) => truthy(call(args[0], [x, i, arr]))),

@@ -39,6 +39,10 @@ export const STEPS_PER_CANDLE = 40_000, RUN_MS = 2_500;
 
 export interface Analysis {
   program: Stmt[];
+  /** The `source(...)` calls, for their filters (`sourcesWith`). */
+  sourceCalls: Extract<Expr, { k: 'call' }>[];
+  /** The candle inputs it reads (`vbuy`, `lsell`, ...). */
+  inputs: Set<string>;
   /** Names kept from candle to candle. */
   persistent: Set<string>;
   /** The sets of markets the script reads (`source(...)`), by key, with their filters ('' is always there). */
@@ -95,12 +99,23 @@ function staticValue(e: Expr, opt: Readonly<Record<string, Value>>, scriptNames:
   return literal(e);
 }
 
-/** A `source(...)` call's filter from its named arguments (`type`, `exchange`, `quote`; more than one exchange as `exchange=A+B` or repeated calls). */
-export function sourceFilter(named: readonly { name: string; value: Expr }[]): SourceFilter {
+/** The venue a filter names when its value cannot be read: it matches no market, so an unread filter reads 0 rather than every market. */
+export const UNREAD_VENUE = '?';
+
+/**
+ * A `source(...)` call's filter from its named arguments (`type`, `exchange`, `quote`; more than one value as `exchange=A+B`). A value is a
+ * literal or a plain word, an option (`options.venue`, or a declared option's name: read from `opt`), or the text as written (`A+B`). A value
+ * that is none of those cannot be known before the script runs: the filter then matches no market (`UNREAD_VENUE`).
+ */
+export function sourceFilter(named: readonly { name: string; value: Expr; raw?: string }[], opt: Readonly<Record<string, Value>> = {}): SourceFilter {
   const kinds: ('spot' | 'perp')[] = [], venues: string[] = [], quotes: string[] = [];
   for (const n of named) {
-    const v = literal(n.value);
-    if (typeof v !== 'string') continue;
+    if (n.name !== 'type' && n.name !== 'exchange' && n.name !== 'quote') continue;
+    let v: unknown;
+    if (n.value.k === 'member' && n.value.obj.k === 'id' && n.value.obj.name === 'options') v = opt[n.value.name];
+    else if (n.value.k === 'id' && Object.prototype.hasOwnProperty.call(opt, n.value.name)) v = opt[n.value.name];
+    else { v = literal(n.value); if (typeof v !== 'string' && n.raw && /^[\w+|, -]+$/.test(n.raw)) v = n.raw; }
+    if (typeof v !== 'string' || !v.trim()) { venues.push(UNREAD_VENUE); continue; }
     const words = v.split(/[+,|\s]+/).filter(Boolean);
     if (n.name === 'type') for (const w of words) { const k = w.toLowerCase(); if (k === 'spot') kinds.push('spot'); else if (k === 'perp' || k === 'perpetual' || k === 'futures' || k === 'linear' || k === 'inverse') kinds.push('perp'); }
     if (n.name === 'exchange') for (const w of words) { const x = exchangeOf(w); venues.push(x.kind ? `${x.venue}/${x.kind}` : x.venue); }
@@ -109,23 +124,80 @@ export function sourceFilter(named: readonly { name: string; value: Expr }[]): S
   return { ...(kinds.length ? { kinds } : {}), ...(venues.length ? { venues } : {}), ...(quotes.length ? { quotes } : {}) };
 }
 
+/** The options' values a script runs with: those set, else the declared defaults (as script values). */
+export function optionTable(declared: readonly OptionDecl[], optionValues: Readonly<Record<string, OptionValue>>): Record<string, Value> {
+  const opt = plain();
+  for (const d of declared) opt[d.name] = fromData(d.value);
+  for (const [k, v] of Object.entries(optionValues)) opt[k] = fromData(v);
+  return opt;
+}
+
+/** The sets of markets a script reads with these option values, by key ('' always there). */
+export function sourcesWith(a: Pick<Analysis, 'sourceCalls' | 'declared'>, optionValues: Readonly<Record<string, OptionValue>>): Map<string, SourceFilter> {
+  const opt = optionTable(a.declared, optionValues), out = new Map<string, SourceFilter>([['', {}]]);
+  for (const c of a.sourceCalls) { const f = sourceFilter(c.named, opt); out.set(filterKey(f), f); }
+  return out;
+}
+
+/**
+ * The names a script keeps from candle to candle: those it assigns (`x = ...`) where no declaration reaches, neither one of the function the
+ * assignment is in (its parameters, its `var`, `let`, `const` and functions) nor one outside every function.
+ */
+export function persistentNames(program: readonly Stmt[]): Set<string> {
+  const out = new Set<string>();
+  const declaredIn = (body: readonly Stmt[], params: readonly string[]): Set<string> => {
+    const names = new Set(params);
+    const walk = (x: unknown): void => {
+      if (!x || typeof x !== 'object') return;
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      const n = x as Expr | Stmt;
+      if ('k' in n) {
+        if (n.k === 'fn') return;
+        if (n.k === 'func') { names.add(n.name); return; }
+        if (n.k === 'decl') for (const d of n.items) names.add(d.name);
+      }
+      for (const v of Object.values(n)) if (v && typeof v === 'object') walk(v);
+    };
+    body.forEach(walk);
+    return names;
+  };
+  const visit = (x: unknown, scopes: readonly Set<string>[]): void => {
+    if (!x || typeof x !== 'object') return;
+    if (Array.isArray(x)) { for (const y of x) visit(y, scopes); return; }
+    const n = x as Expr | Stmt;
+    if ('k' in n) {
+      if (n.k === 'func' || n.k === 'fn') { const inner = [...scopes, declaredIn(n.body, n.params)]; visit(n.body, inner); return; }
+      if (n.k === 'assign' && n.target.k === 'id') { const name = n.target.name; if (!KNOWN_INPUTS.has(name) && !scopes.some(sc => sc.has(name))) out.add(name); }
+    }
+    for (const v of Object.values(n)) if (v && typeof v === 'object') visit(v, scopes);
+  };
+  visit(program, [declaredIn(program, [])]);
+  return out;
+}
+
 /** Read a script without running it. Throws `ScriptSyntaxError` with where it went wrong. */
 export function analyze(text: string): Analysis {
+  try { return analyzeOnce(text); }
+  catch (e) {
+    // A script nested so deeply that reading it would overflow the stack is refused, wherever it is read (the page reads scripts too).
+    if (e instanceof RangeError) throw new ScriptSyntaxError({ code: 'too-deep', line: 0, col: 0 });
+    throw e;
+  }
+}
+function analyzeOnce(text: string): Analysis {
   const program = parse(text);
   const declared = declaredNames(program);
-  const persistent = new Set<string>(), sources = new Map<string, SourceFilter>([['', {}]]), options: OptionDecl[] = [], read = new Set<string>(), warnings: Warning[] = [];
+  const persistent = persistentNames(program), options: OptionDecl[] = [], read = new Set<string>(), warnings: Warning[] = [];
+  const sourceCalls: Extract<Expr, { k: 'call' }>[] = [], inputs = new Set<string>();
   const optionNames = new Set<string>();
   const visit = (node: unknown, top: boolean): void => {
     if (!node || typeof node !== 'object') return;
     if (Array.isArray(node)) { for (const x of node) visit(x, top); return; }
     const n = node as Expr | Stmt;
     if ('k' in n) {
-      if (n.k === 'assign' && n.target.k === 'id' && !declared.has(n.target.name) && !KNOWN_INPUTS.has(n.target.name)) persistent.add(n.target.name);
       if (n.k === 'member' && n.obj.k === 'id' && n.obj.name === 'options') read.add(n.name);
-      if (n.k === 'call' && n.callee.k === 'id' && n.callee.name === 'source') {
-        const f = sourceFilter(n.named), key = filterKey(f);
-        if (!sources.has(key)) { if (sources.size >= MAX_SOURCES) throw new ScriptSyntaxError({ code: 'too-many-sources', line: n.p.line, col: n.p.col }); sources.set(key, f); }
-      }
+      if (n.k === 'call' && n.callee.k === 'id' && n.callee.name === 'source') sourceCalls.push(n);
+      if (n.k === 'id' && (n.name === 'vbuy' || n.name === 'vsell' || n.name === 'lbuy' || n.name === 'lsell' || n.name === 'cbuy' || n.name === 'csell')) inputs.add(n.name);
       if (n.k === 'assign' && n.target.k === 'id' && n.value.k === 'call' && n.value.callee.k === 'id' && n.value.callee.name === 'option') {
         const name = n.target.name;
         if (!optionNames.has(name)) { optionNames.add(name); options.push(optionDecl(name, n.value)); }
@@ -147,7 +219,10 @@ export function analyze(text: string): Analysis {
     for (const v of Object.values(x)) if (v && typeof v === 'object') refuse(v);
   };
   refuse(program);
-  return { program, persistent, sources, declared: options, read: [...read].filter(n => !optionNames.has(n)), warnings: dedupe(warnings) };
+  const a = { program, persistent, sourceCalls, inputs, declared: options, read: [...read].filter(n => !optionNames.has(n)), warnings: dedupe(warnings), sources: new Map<string, SourceFilter>() };
+  a.sources = sourcesWith(a, {});
+  if (a.sources.size > MAX_SOURCES) { const c = sourceCalls[sourceCalls.length - 1]!; throw new ScriptSyntaxError({ code: 'too-many-sources', line: c.p.line, col: c.p.col }); }
+  return a;
 }
 
 const dedupe = (w: Warning[]): Warning[] => w.filter((x, i) => w.findIndex(y => y.code === x.code && y.detail === x.detail) === i);
@@ -227,9 +302,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   let n = 0;
   const budget: Budget = { steps: 0, left: 0, deadline: 0, now };
   // The options: what was set, else the declared default; plain data copied into the script's own values.
-  const opt = plain();
-  for (const d of a.declared) opt[d.name] = fromData(d.value);
-  for (const [k, v] of Object.entries(optionValues)) opt[k] = fromData(v);
+  const opt = optionTable(a.declared, optionValues);
   const optionsObject = new HostObject('options', k => opt[k], (k, v) => { opt[k] = v; return true; }, () => Object.keys(opt));
 
   // What persists: one value per name (any case: `Total` and `total` are one), starting at 0, and its value at the end of each candle (`name[n]`).
@@ -358,7 +431,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   // interpreter is told which set to read while it does: the call is found by its place, before its arguments are read.
   const sourceSites = new Map<Expr, string>();
   const sites = numberSites(a.program);
-  for (const node of sites.keys()) if (node.k === 'call' && node.callee.k === 'id' && node.callee.name === 'source') sourceSites.set(node, filterKey(sourceFilter(node.named)));
+  for (const node of sites.keys()) if (node.k === 'call' && node.callee.k === 'id' && node.callee.name === 'source') sourceSites.set(node, filterKey(sourceFilter(node.named, opt)));
   const optionTargets = new Map<Expr, string>();
   const noteTargets = (node: unknown): void => {
     if (!node || typeof node !== 'object') return;
@@ -523,7 +596,7 @@ function mathObject(): HostObject {
   });
 }
 
-function numberObject(): HostObject {
+function numberObject(): NativeFunction {
   const consts: Record<string, number> = { EPSILON: Number.EPSILON, MAX_VALUE: Number.MAX_VALUE, MIN_VALUE: Number.MIN_VALUE, MAX_SAFE_INTEGER: Number.MAX_SAFE_INTEGER, MIN_SAFE_INTEGER: Number.MIN_SAFE_INTEGER, POSITIVE_INFINITY: Infinity, NEGATIVE_INFINITY: -Infinity, NaN };
   const fns: Record<string, NativeFunction> = {
     isFinite: new NativeFunction('isFinite', a => typeof a[0] === 'number' && Number.isFinite(a[0])),
@@ -532,8 +605,8 @@ function numberObject(): HostObject {
     parseFloat: new NativeFunction('parseFloat', a => parseFloat(text(a[0]))),
     parseInt: new NativeFunction('parseInt', a => parseInt(text(a[0]), a[1] === undefined ? 10 : num(a[1]))),
   };
-  const call = new NativeFunction('Number', a => num(a[0]));
-  return new HostObject('Number', k => own(consts, k) ?? own(fns, k) ?? (k === 'call' ? call : undefined));
+  const members = new HostObject('Number', k => own(consts, k) ?? own(fns, k));
+  return new NativeFunction('Number', a => a.length ? num(a[0]) : 0, null, members);
 }
 
 function dateObject(now: () => number): HostObject {
