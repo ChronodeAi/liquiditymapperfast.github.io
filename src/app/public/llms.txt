@@ -13,3 +13,4 @@ The page has no API and no server of its own: it reads the exchanges directly fr
 ## The page
 
 - [LiquidityMapperFast](https://liquiditymapperfast.github.io/): the map. Address parameters: ?coin=ETH (the coin), ?lang=de (the language), ?source=browser (read the exchanges from the browser), ?persist=0 (keep nothing in the browser); #guide opens the guide.
+- In a browser that offers page tools to agents (WebMCP, document.modelContext), the open page offers: get_page, get_script_language, list_scripts, get_script, read_script, try_script (runs a script once over the chart; saves nothing), propose_script (opens a draft the person saves or drops) and set_timeframe. No tool saves a script, switches one on or reaches anything beyond the page.

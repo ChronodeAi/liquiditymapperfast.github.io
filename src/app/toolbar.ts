@@ -158,6 +158,8 @@ export class Toolbar {
   #scripts = el('button', { class: 'led-btn', textContent: t('Scripts'), tip: HELP.script.tip });
   #scriptsKey = settingsKey(t('Scripts'));
   #scriptsSplit = splitButton(this.#scripts, this.#scriptsKey);
+  /** The key that opens the Scripts panel: where the panel opens from when nothing was pressed (an agent's draft). */
+  get scriptsAnchor(): HTMLElement { return this.#scriptsKey; }
   onOpenScripts: (anchor: HTMLElement) => void = () => {};
   #vwapPanel: Panel | null = null;
   /** What the page knows of the whale sums (set by the page), for the VWAP panel. */

@@ -260,6 +260,7 @@ export function llmsText(): string {
     '## The page',
     '',
     `- [LiquidityMapperFast](${SITE}): the map. Address parameters: ?coin=ETH (the coin), ?lang=de (the language), ?source=browser (read the exchanges from the browser), ?persist=0 (keep nothing in the browser); #guide opens the guide.`,
+    '- In a browser that offers page tools to agents (WebMCP, document.modelContext), the open page offers: get_page, get_script_language, list_scripts, get_script, read_script, try_script (runs a script once over the chart; saves nothing), propose_script (opens a draft the person saves or drops) and set_timeframe. No tool saves a script, switches one on or reaches anything beyond the page.',
     '',
   ].join('\n');
 }
@@ -285,7 +286,7 @@ const fmt = (v: number): string => !Number.isFinite(v) ? 'NaN' : Math.abs(v) >= 
 export const BUNDLE = { scriptChars: 30_000, lineChars: 400, options: 40, optionChars: 200, notes: 20, plots: 16, nameChars: 80 } as const;
 
 /** A text taken from the script (a name, a title, an option, a name quoted in an error) on one line and cut short: it stays one item. */
-const oneLine = (s: string, max: number = BUNDLE.nameChars): string => {
+export const oneLine = (s: string, max: number = BUNDLE.nameChars): string => {
   const flat = s.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ').trim();
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 };
@@ -293,7 +294,7 @@ const oneLine = (s: string, max: number = BUNDLE.nameChars): string => {
  * The characters a reader may take for a line break that the bundle does not (vertical tab, form feed, next line, the Unicode line and
  * paragraph separators), written as their escapes where text is kept as it is: a line of the script, an option's value.
  */
-const visible = (s: string): string => s.replace(/[\u000b\u000c\u0085\u2028\u2029]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+export const visible = (s: string): string => s.replace(/[\u000b\u000c\u0085\u2028\u2029]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 /** The same written as a JSON text, in double quotes: where it starts and where it ends is plain. */
 const quoted = (s: string, max?: number): string => JSON.stringify(oneLine(s, max));
 

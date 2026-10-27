@@ -9,7 +9,7 @@ import { errorText, warningText } from './messages.ts';
 import { exampleHeight, examples } from './examples.ts';
 import { sameOptions, statusOf, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 import { aiBundle, type BundleInput } from './lang/reference.ts';
-import { PLOT_FIELDS } from './protocol.ts';
+import { newestOf } from './protocol.ts';
 
 export { panelClosed, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 
@@ -248,12 +248,7 @@ function bundleOf(host: ScriptsHost, draft: NonNullable<ScriptsPanelState['draft
   // A run's warnings hold the reading's; the page's own (an option not set, markets it has none of) come apart.
   const page = same ? host.warningsOf(same.id) : [];
   const warnings = isError(a) ? [] : ran?.ok ? [...page, ...ran.warnings] : [...a.warnings, ...page];
-  const plots = ran?.ok && on ? ran.plots.map(p => {
-    const fields = PLOT_FIELDS[p.kind], length = Math.min(p.fields[fields[0]!]?.length ?? 0, on.candles);
-    let i = length - 1;
-    while (i >= 0 && !fields.some(f => Number.isFinite(p.fields[f]![i]!))) i--;
-    return { title: p.title, kind: p.kind, last: i >= 0 ? fields.map(f => p.fields[f]![i]!) : [NaN] };
-  }) : [];
+  const plots = ran?.ok && on ? ran.plots.map(p => ({ title: p.title, kind: p.kind, last: newestOf(p, on.candles) })) : [];
   return { name: draft.name, source: draft.source, place: draft.place, options: draft.options, errors, warnings, plots, chart: on };
 }
 
