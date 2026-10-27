@@ -20,8 +20,8 @@ export interface ScriptsHost {
   readonly running: boolean;
   /** Switch Scripts on (a script was added or switched on: the person should see it). */
   showScripts(): void;
-  /** The chart the scripts run on (for Copy for AI): its market, timeframe and how many candles it holds. */
-  readonly chart: { market: string; timeframe: string; candles: number };
+  /** The chart a script's last run worked on, as far as it is shown (for Copy for AI): its market, timeframe and candles; null without one. */
+  ranOn(id: string): { market: string; timeframe: string; candles: number } | null;
 }
 
 /** What the panel keeps while it is open: the script being written (a new one has the id `new`), its text so far, a message, and which Delete waits for its second press. */
@@ -47,8 +47,11 @@ export function unsaved(host: ScriptsHost, ui: ScriptsPanelState): boolean {
   const d = ui.draft; if (!d) return false;
   const r = host.records.find(x => x.id === ui.editing);
   if (!r) return d.source.trim() !== '' || d.name.trim() !== '';
-  return (cleanName(d.name) ?? '') !== r.name || d.source !== r.source || d.place !== r.place || stable(d.options) !== stable(r.options);
+  return (cleanName(d.name) ?? '') !== r.name || d.source !== r.source || d.place !== r.place || !sameOptions(d.options, r.options);
 }
+
+/** Whether two option sets hold the same values, whatever order they were set in. */
+export const sameOptions = (a: Readonly<Record<string, unknown>>, b: Readonly<Record<string, unknown>>): boolean => stable(a) === stable(b);
 
 /**
  * The panel closed: it opens on the list again next time, unless a script was being written and has changes not saved; that one opens again

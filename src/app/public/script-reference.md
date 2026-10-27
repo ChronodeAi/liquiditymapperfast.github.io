@@ -7,10 +7,10 @@ To write or fix a script with an assistant: open the script in the Scripts panel
 ## Rules
 
 - A script is JavaScript-shaped code run once for each candle of the chart, oldest first, drawing plots from what it reads.
-- Statements: var, let, const, if / else, for (;;), while, do ... while, break, continue, function name(...) { ... }, return; expressions as in JavaScript, arrow functions and ternaries included. A line break ends a statement; two on one line need a semicolon.
+- Statements: var, let, const, if / else, for (;;), while, do ... while, break, continue, function name(...) { ... }, return; expressions as in JavaScript, arrow functions and ternaries included. As in JavaScript, a line break ends a statement only where the next line cannot carry it on: x = 1 followed by a line + 2 is x = 3, and a line that starts with ( or [ carries on the line before it. Two statements on one line need a semicolon; end a statement with one when the next line starts with an operator or a bracket.
 - A name assigned without var, let or const anywhere in the script (x = ...) keeps its value from candle to candle and starts at 0; x[1] is its value one candle back (x[n], n candles back; the first candle reads itself). Such names are one name whatever their case. A var, let or const starts again each candle.
-- A call can name its arguments: line(x, title="CVD", color=red, lineWidth=2). A bare word as a named value is a text (title=CVD).
-- Plots are line, area, histogram, baseline, candlestick, plotbar, cloudarea, brokenarea (each also as plotline, plothistogram, ...), each with title=, color=, lineWidth=, priceScaleId=, scaleMargins={top: 0.1, bottom: 0.1}, visible=. A point can be an object: line({time: time, value: x, color: c}) colours that candle's point.
+- Plot calls, option(...) and source(...) take named arguments: line(x, title="CVD", color=red, lineWidth=2); a bare word as a named value is a text (title=CVD). Every other function takes its arguments by position only, and ignores a named one: write sma(x, 20), not sma(x, length=20).
+- Plots are line, area, histogram, baseline, candlestick, plotbar, cloudarea, brokenarea (each also as plotline, plothistogram, ...). Each takes title=, priceScaleId=, scaleMargins={top: 0.1, bottom: 0.1} and visible=, and the style its kind reads (see Plots: a candlestick has upColor and downColor, not color); a kind ignores the style it does not read. lineWidth is 1 to 6; lineStyle is 0 solid, 1 dotted, 2 dashed, 3 long dashes, 4 sparse dots. A point can be an object: line({time: time, value: x, color: c}) colours that candle's point.
 - A script draws in a row of its own under the map, or on the map, where plots on the default price scale (priceScaleId right) stand at their prices and the others on scales of their own; the Draw setting in its panel chooses. $price.color colours the map's candles.
 - A candle whose flow or liquidations were not recorded reads NaN: the functions skip it (they do not take it as 0) and a plot draws nothing there. Use nz(x) where 0 is meant.
 - Each call of a function with a history (sma, ema, cum, ...) keeps its own: call them at fixed places, not in a loop over windows (a loop would share one).
@@ -37,14 +37,15 @@ To write or fix a script with an assistant: open the script in the Scripts panel
 
 | Name | What it is |
 |---|---|
-| `option(...)` | Declares a setting shown in the panel: name = option(default=14, type=number|color|checkbox|text|list|range, label="...", min=, max=, step=, options=[...]). |
-| `source(x, ...)` | Reads x over a set of markets: source(vbuy, type=spot|perp, exchange=BINANCE, quote=USDT). Several values in one filter: exchange=BINANCE+BYBIT. Without source, x reads over the flow column's ALL VENUES markets. |
+| `option(...)` | Declares a setting shown in the panel: name = option(default=14, type=number\|color\|checkbox\|text\|list\|range, label="...", min=, max=, step=, options=[...]). |
+| `source(x, ...)` | Reads x over a set of markets: source(vbuy, type=spot\|perp, exchange=BINANCE, quote=USDT). Several values in one filter: exchange=BINANCE+BYBIT. Without source, x reads over the flow column's ALL VENUES markets. |
 | `nz(x, y)` | x, or y (default 0) when x is NaN, undefined or null. |
 | `na(x)` | Whether x is NaN, undefined or null. |
 | `rgb(r, g, b) / rgba(r, g, b, a)` | A colour text. Colours are also CSS texts ("#ff9900", "rgba(0,170,140,0.5)") or names (red, teal, transparent, ...). |
 | `Math` | abs, max, min, sqrt, pow, log, log10, log2, log1p, exp, expm1, floor, ceil, round, trunc, sign, cbrt, hypot, sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, random; PI, E, LN2, LN10, LOG2E, LOG10E, SQRT2, SQRT1_2. |
-| `Number, String, Boolean, Date, Array, Object` | As in JavaScript, in part: Number.isFinite, Number.isNaN, Date.now, Date.UTC, new Date(...), new Array(n), Array.isArray, Object.keys, Object.values. Texts have slice, substring, toUpperCase, indexOf, includes, split, replace (plain text), padStart, ...; arrays have push, pop, slice, splice, concat, indexOf, join, map, filter, reduce, find, some, every, sort, ...; numbers have toFixed and toPrecision. |
-| `isFinite, isNaN, parseFloat, parseInt, Infinity, NaN, undefined` | As in JavaScript. |
+| `Number, String, Boolean, Array, Object` | In part as in JavaScript: Number(x), Number.isFinite, Number.isNaN, Number.isInteger, Number.parseFloat, Number.parseInt and its constants (EPSILON, MAX_SAFE_INTEGER, ...); String(x), Boolean(x); new Array(n), Array.isArray, Array.from; Object.keys, Object.values. Texts have slice, substring, toUpperCase, indexOf, includes, split, replace (plain text), padStart, ...; arrays have push, pop, slice, splice, concat, indexOf, join, map, filter, reduce, find, some, every, sort, ...; numbers have toFixed and toPrecision. |
+| `Date` | Date.now() and Date.UTC(year, month, day, hours, minutes, seconds) give milliseconds since 1970 (month 0 is January). new Date(ms) takes one number of milliseconds (or a date), not a text and not a year and a month: write new Date(Date.UTC(2026, 0, 1)), or new Date(time * 1000) for the candle. A date has getTime, toISOString, getUTCFullYear, getUTCMonth, getUTCDate, getUTCDay, getUTCHours, getUTCMinutes, getUTCSeconds, and the same without UTC in the browser's time zone. |
+| `isFinite, isNaN, parseFloat, parseInt, Infinity, NaN, undefined` | As in JavaScript, except that parseInt reads base 10 unless given a base: parseInt("ff", 16) is 255, and parseInt("0x10") is 0, not 16. |
 
 ## Functions with a history
 
@@ -65,7 +66,7 @@ Each call in the text keeps its own history.
 | `stoch(close, high, low, length)` | Where close stands between the lowest low and the highest high of the last length candles, 0 to 100. |
 | `pivot_high(x, left, right)` | A swing high: the value right candles ago when it is higher than the left before it and the right after it, else NaN. |
 | `pivot_low(x, left, right)` | A swing low, likewise. |
-| `avg(a, b, ...)` | The average of the numbers given (arrays included), skipping what is not a number. |
+| `avg(a, b, ...)` | The average of the values given, the elements of an array given counted one by one. Each is made a number as Number(x) would (true is 1, null 0, "9" 9); those that come out NaN or infinite (undefined, a text that is not a number) are left out. |
 | `avg_ohlc(bar)` | The chart's candle as {open, high, low, close}, for candlestick(...). |
 | `avg_ohlc_with_gaps(bar)` | The same as avg_ohlc. |
 | `avg_close(bar)` | The chart's close. |
@@ -77,16 +78,18 @@ Each call in the text keeps its own history.
 
 ## Plots
 
+Every kind also takes title, priceScaleId, scaleMargins, visible; the style keys of the other kinds do nothing in it.
+
 | Kind | Calls | Fields of a point | Style it reads | What it draws |
 |---|---|---|---|---|
-| line | `plotline(...)`, `line(...)` | value | color, lineColor, lineWidth, plus title, priceScaleId, scaleMargins, visible | A line through one value a candle. |
-| area | `plotarea(...)`, `area(...)` | value | color, lineWidth, topColor, bottomColor, plus title, priceScaleId, scaleMargins, visible | A line with the area under it filled. |
-| histogram | `plothistogram(...)`, `histogram(...)` | value | color, base, plus title, priceScaleId, scaleMargins, visible | A bar a candle, from base (default 0) to the value. |
-| baseline | `plotbaseline(...)`, `baseline(...)` | value | baseValue, topLineColor, bottomLineColor, topFillColor1, bottomFillColor1, plus title, priceScaleId, scaleMargins, visible | A line coloured above and below baseValue, with the areas filled. |
-| candlestick | `plotcandlestick(...)`, `candlestick(...)` | open, high, low, close | upColor, downColor, plus title, priceScaleId, scaleMargins, visible | Candles from {open, high, low, close} (avg_ohlc, ohlc, cum_ohlc, heikinashi). |
-| bar | `plotbar(...)`, `bar_plot(...)` | open, high, low, close | upColor, downColor, plus title, priceScaleId, scaleMargins, visible | Bars (a tick left for the open, right for the close) from {open, high, low, close}. |
-| cloudarea | `plotcloudarea(...)`, `cloudarea(...)` | lowerValue, higherValue | positiveColor, negativeColor, higherLineColor, lowerLineColor, higherLineWidth, lowerLineWidth, plus title, priceScaleId, scaleMargins, visible | The area between two values, cloudarea(lower, higher), filled and edged. |
-| brokenarea | `plotbrokenarea(...)`, `brokenarea(...)` | lowerValue, higherValue | color, plus title, priceScaleId, scaleMargins, visible | A band from lowerValue to higherValue a candle, without joining candles (a row of colour per candle: heat maps). |
+| line | `plotline(...)`, `line(...)` | value | color, lineColor, lineWidth, lineStyle | A line through one value a candle. |
+| area | `plotarea(...)`, `area(...)` | value | color, lineColor, lineWidth, lineStyle, topColor, bottomColor | A line with the area under it filled. |
+| histogram | `plothistogram(...)`, `histogram(...)` | value | color, base | A bar a candle, from base (default 0) to the value. |
+| baseline | `plotbaseline(...)`, `baseline(...)` | value | baseValue, topLineColor, bottomLineColor, topFillColor1, bottomFillColor1, lineWidth, lineStyle | A line coloured above and below baseValue, with the areas filled. |
+| candlestick | `plotcandlestick(...)`, `candlestick(...)` | open, high, low, close | upColor, downColor | Candles from {open, high, low, close} (avg_ohlc, ohlc, cum_ohlc, heikinashi). |
+| bar | `plotbar(...)`, `bar_plot(...)` | open, high, low, close | upColor, downColor | Bars (a tick left for the open, right for the close) from {open, high, low, close}. |
+| cloudarea | `plotcloudarea(...)`, `cloudarea(...)` | lowerValue, higherValue | positiveColor, negativeColor, higherLineColor, lowerLineColor, higherLineWidth, lowerLineWidth, higherLineStyle, lowerLineStyle | The area between two values, cloudarea(lower, higher), filled and edged. |
+| brokenarea | `plotbrokenarea(...)`, `brokenarea(...)` | lowerValue, higherValue | color | A band from lowerValue to higherValue a candle, without joining candles (a row of colour per candle: heat maps). |
 
 ## Markets
 
@@ -105,7 +108,7 @@ source(x, exchange=...) takes these exchange names: BINANCE, BINANCE_FUTURES, BI
 
 ## Limits
 
-At most 20 scripts of 60,000 characters, 64 plots and 24 different sets of markets a script; about 40,000 steps a candle and 2.5 s a run; arrays of 1,000,000 elements and texts of 100,000 characters. A run that passes them stops with its line and column.
+At most 20 scripts of 60,000 characters, 64 plots and 24 different sets of markets a script (the unfiltered one counted); about 40,000 steps a candle and 2.5 s a run; arrays of 1,000,000 elements and texts of 100,000 characters. A run that passes them stops with its line and column.
 
 ## Errors
 
@@ -305,15 +308,63 @@ line(1)
 
 ### too-deep
 
-Nested too deeply. Met while the script is read, before it runs: nothing is drawn.
+Nested too deeply. Met while the script is read or while it runs. Reading stops it at brackets, blocks or chains of operators nested deeper than 200; a run stops it at calls nested deeper than 200 (a function that calls itself without end).
+
+Meets it:
+
+```js
+function f(n) { return f(n + 1) }
+line(f(0))
+```
+
+Put right:
+
+```js
+function f(n) { return n >= 10 ? n : f(n + 1) }
+line(f(0))
+```
 
 ### too-many-sources
 
-Too many different sets of markets: at most 24. Met while the script is read, before it runs: nothing is drawn.
+Too many different sets of markets: at most 24. Met while the script is read, before it runs: nothing is drawn. A set is one combination of filters (exchange, type, quote). A script has at most 24 sets, the unfiltered one (what x reads without source) always counted among them: 23 source(...) filters that differ.
+
+Meets it:
+
+```js
+// 24 different filters:
+line(source(vbuy, exchange=BINANCE, quote=USDT))
+line(source(vbuy, exchange=BINANCE, quote=USDC))
+// ... and so on, to
+line(source(vbuy, exchange=KRAKEN, quote=EUR))
+```
+
+Put right:
+
+```js
+// at most 23 filters: drop one, or read a wider set (quote= left out reads every quote currency)
+line(source(vbuy, exchange=BINANCE))
+```
 
 ### too-many-plots
 
-Too many plots: at most 64. Met while the script is read, before it runs: nothing is drawn.
+Too many plots: at most 64. Met while the script runs, at the candle where it happens. Met as the run starts, before the first candle, so nothing is drawn; Check does not count plots. Each plot call written in the text is one plot (a call in a loop is still one).
+
+Meets it:
+
+```js
+// 65 plot calls:
+line(1)
+line(2)
+// ... and so on, to
+line(65)
+```
+
+Put right:
+
+```js
+// at most 64 plot calls
+line(1)
+```
 
 ### unknown-name
 
@@ -481,7 +532,23 @@ line(s.length)
 
 ### too-slow
 
-Stopped: the script took too long. Met while the script runs, at the candle where it happens.
+Stopped: the script took too long. Met while the script runs, at the candle where it happens. The whole run, over every candle of the chart, took longer than 2.5 s; each candle on its own stayed within its steps. Work less a candle, or keep in a kept name what an earlier candle worked out.
+
+Meets it:
+
+```js
+var s = 0
+for (var i = 0; i < 8000; i++) s = s + Math.sqrt(i)
+line(s)
+```
+
+Put right:
+
+```js
+var s = 0
+for (var i = 0; i < 50; i++) s = s + Math.sqrt(i)
+line(s)
+```
 
 ### timeout
 

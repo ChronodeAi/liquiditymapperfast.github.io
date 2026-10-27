@@ -5,10 +5,10 @@
  "reference": "https://liquiditymapperfast.github.io/script-reference.md",
  "rules": [
   "A script is JavaScript-shaped code run once for each candle of the chart, oldest first, drawing plots from what it reads.",
-  "Statements: var, let, const, if / else, for (;;), while, do ... while, break, continue, function name(...) { ... }, return; expressions as in JavaScript, arrow functions and ternaries included. A line break ends a statement; two on one line need a semicolon.",
+  "Statements: var, let, const, if / else, for (;;), while, do ... while, break, continue, function name(...) { ... }, return; expressions as in JavaScript, arrow functions and ternaries included. As in JavaScript, a line break ends a statement only where the next line cannot carry it on: x = 1 followed by a line + 2 is x = 3, and a line that starts with ( or [ carries on the line before it. Two statements on one line need a semicolon; end a statement with one when the next line starts with an operator or a bracket.",
   "A name assigned without var, let or const anywhere in the script (x = ...) keeps its value from candle to candle and starts at 0; x[1] is its value one candle back (x[n], n candles back; the first candle reads itself). Such names are one name whatever their case. A var, let or const starts again each candle.",
-  "A call can name its arguments: line(x, title=\"CVD\", color=red, lineWidth=2). A bare word as a named value is a text (title=CVD).",
-  "Plots are line, area, histogram, baseline, candlestick, plotbar, cloudarea, brokenarea (each also as plotline, plothistogram, ...), each with title=, color=, lineWidth=, priceScaleId=, scaleMargins={top: 0.1, bottom: 0.1}, visible=. A point can be an object: line({time: time, value: x, color: c}) colours that candle's point.",
+  "Plot calls, option(...) and source(...) take named arguments: line(x, title=\"CVD\", color=red, lineWidth=2); a bare word as a named value is a text (title=CVD). Every other function takes its arguments by position only, and ignores a named one: write sma(x, 20), not sma(x, length=20).",
+  "Plots are line, area, histogram, baseline, candlestick, plotbar, cloudarea, brokenarea (each also as plotline, plothistogram, ...). Each takes title=, priceScaleId=, scaleMargins={top: 0.1, bottom: 0.1} and visible=, and the style its kind reads (see Plots: a candlestick has upColor and downColor, not color); a kind ignores the style it does not read. lineWidth is 1 to 6; lineStyle is 0 solid, 1 dotted, 2 dashed, 3 long dashes, 4 sparse dots. A point can be an object: line({time: time, value: x, color: c}) colours that candle's point.",
   "A script draws in a row of its own under the map, or on the map, where plots on the default price scale (priceScaleId right) stand at their prices and the others on scales of their own; the Draw setting in its panel chooses. $price.color colours the map's candles.",
   "A candle whose flow or liquidations were not recorded reads NaN: the functions skip it (they do not take it as 0) and a plot draws nothing there. Use nz(x) where 0 is meant.",
   "Each call of a function with a history (sma, ema, cum, ...) keeps its own: call them at fixed places, not in a loop over windows (a loop would share one).",
@@ -90,12 +90,16 @@
    "is": "abs, max, min, sqrt, pow, log, log10, log2, log1p, exp, expm1, floor, ceil, round, trunc, sign, cbrt, hypot, sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, random; PI, E, LN2, LN10, LOG2E, LOG10E, SQRT2, SQRT1_2."
   },
   {
-   "name": "Number, String, Boolean, Date, Array, Object",
-   "is": "As in JavaScript, in part: Number.isFinite, Number.isNaN, Date.now, Date.UTC, new Date(...), new Array(n), Array.isArray, Object.keys, Object.values. Texts have slice, substring, toUpperCase, indexOf, includes, split, replace (plain text), padStart, ...; arrays have push, pop, slice, splice, concat, indexOf, join, map, filter, reduce, find, some, every, sort, ...; numbers have toFixed and toPrecision."
+   "name": "Number, String, Boolean, Array, Object",
+   "is": "In part as in JavaScript: Number(x), Number.isFinite, Number.isNaN, Number.isInteger, Number.parseFloat, Number.parseInt and its constants (EPSILON, MAX_SAFE_INTEGER, ...); String(x), Boolean(x); new Array(n), Array.isArray, Array.from; Object.keys, Object.values. Texts have slice, substring, toUpperCase, indexOf, includes, split, replace (plain text), padStart, ...; arrays have push, pop, slice, splice, concat, indexOf, join, map, filter, reduce, find, some, every, sort, ...; numbers have toFixed and toPrecision."
+  },
+  {
+   "name": "Date",
+   "is": "Date.now() and Date.UTC(year, month, day, hours, minutes, seconds) give milliseconds since 1970 (month 0 is January). new Date(ms) takes one number of milliseconds (or a date), not a text and not a year and a month: write new Date(Date.UTC(2026, 0, 1)), or new Date(time * 1000) for the candle. A date has getTime, toISOString, getUTCFullYear, getUTCMonth, getUTCDate, getUTCDay, getUTCHours, getUTCMinutes, getUTCSeconds, and the same without UTC in the browser's time zone."
   },
   {
    "name": "isFinite, isNaN, parseFloat, parseInt, Infinity, NaN, undefined",
-   "is": "As in JavaScript."
+   "is": "As in JavaScript, except that parseInt reads base 10 unless given a base: parseInt(\"ff\", 16) is 255, and parseInt(\"0x10\") is 0, not 16."
   }
  ],
  "functions": [
@@ -167,7 +171,7 @@
   {
    "name": "avg",
    "call": "avg(a, b, ...)",
-   "is": "The average of the numbers given (arrays included), skipping what is not a number."
+   "is": "The average of the values given, the elements of an array given counted one by one. Each is made a number as Number(x) would (true is 1, null 0, \"9\" 9); those that come out NaN or infinite (undefined, a text that is not a number) are left out."
   },
   {
    "name": "avg_ohlc",
@@ -223,7 +227,12 @@
    "style": [
     "color",
     "lineColor",
-    "lineWidth"
+    "lineWidth",
+    "lineStyle",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "A line through one value a candle."
   },
@@ -238,9 +247,15 @@
    ],
    "style": [
     "color",
+    "lineColor",
     "lineWidth",
+    "lineStyle",
     "topColor",
-    "bottomColor"
+    "bottomColor",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "A line with the area under it filled."
   },
@@ -255,7 +270,11 @@
    ],
    "style": [
     "color",
-    "base"
+    "base",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "A bar a candle, from base (default 0) to the value."
   },
@@ -273,7 +292,13 @@
     "topLineColor",
     "bottomLineColor",
     "topFillColor1",
-    "bottomFillColor1"
+    "bottomFillColor1",
+    "lineWidth",
+    "lineStyle",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "A line coloured above and below baseValue, with the areas filled."
   },
@@ -291,7 +316,11 @@
    ],
    "style": [
     "upColor",
-    "downColor"
+    "downColor",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "Candles from {open, high, low, close} (avg_ohlc, ohlc, cum_ohlc, heikinashi)."
   },
@@ -309,7 +338,11 @@
    ],
    "style": [
     "upColor",
-    "downColor"
+    "downColor",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "Bars (a tick left for the open, right for the close) from {open, high, low, close}."
   },
@@ -329,7 +362,13 @@
     "higherLineColor",
     "lowerLineColor",
     "higherLineWidth",
-    "lowerLineWidth"
+    "lowerLineWidth",
+    "higherLineStyle",
+    "lowerLineStyle",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "The area between two values, cloudarea(lower, higher), filled and edged."
   },
@@ -344,7 +383,11 @@
     "higherValue"
    ],
    "style": [
-    "color"
+    "color",
+    "title",
+    "priceScaleId",
+    "scaleMargins",
+    "visible"
    ],
    "is": "A band from lowerValue to higherValue a candle, without joining candles (a row of colour per candle: heat maps)."
   }
@@ -479,17 +522,26 @@
   {
    "code": "too-deep",
    "message": "Nested too deeply.",
-   "when": "reading"
+   "when": "both",
+   "note": "Reading stops it at brackets, blocks or chains of operators nested deeper than 200; a run stops it at calls nested deeper than 200 (a function that calls itself without end).",
+   "wrong": "function f(n) { return f(n + 1) }\nline(f(0))",
+   "right": "function f(n) { return n >= 10 ? n : f(n + 1) }\nline(f(0))"
   },
   {
    "code": "too-many-sources",
    "message": "Too many different sets of markets: at most 24.",
-   "when": "reading"
+   "when": "reading",
+   "note": "A set is one combination of filters (exchange, type, quote). A script has at most 24 sets, the unfiltered one (what x reads without source) always counted among them: 23 source(...) filters that differ.",
+   "wrong": "// 24 different filters:\nline(source(vbuy, exchange=BINANCE, quote=USDT))\nline(source(vbuy, exchange=BINANCE, quote=USDC))\n// ... and so on, to\nline(source(vbuy, exchange=KRAKEN, quote=EUR))",
+   "right": "// at most 23 filters: drop one, or read a wider set (quote= left out reads every quote currency)\nline(source(vbuy, exchange=BINANCE))"
   },
   {
    "code": "too-many-plots",
    "message": "Too many plots: at most 64.",
-   "when": "reading"
+   "when": "running",
+   "note": "Met as the run starts, before the first candle, so nothing is drawn; Check does not count plots. Each plot call written in the text is one plot (a call in a loop is still one).",
+   "wrong": "// 65 plot calls:\nline(1)\nline(2)\n// ... and so on, to\nline(65)",
+   "right": "// at most 64 plot calls\nline(1)"
   },
   {
    "code": "unknown-name",
@@ -557,7 +609,10 @@
   {
    "code": "too-slow",
    "message": "Stopped: the script took too long.",
-   "when": "running"
+   "when": "running",
+   "note": "The whole run, over every candle of the chart, took longer than 2.5 s; each candle on its own stayed within its steps. Work less a candle, or keep in a kept name what an earlier candle worked out.",
+   "wrong": "var s = 0\nfor (var i = 0; i < 8000; i++) s = s + Math.sqrt(i)\nline(s)",
+   "right": "var s = 0\nfor (var i = 0; i < 50; i++) s = s + Math.sqrt(i)\nline(s)"
   },
   {
    "code": "timeout",

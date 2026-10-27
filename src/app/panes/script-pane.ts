@@ -112,8 +112,11 @@ export class ScriptPane extends TimePane {
   resultOf(id: string): ScriptResult | null { const held = this.#held.get(id); return held && this.#fresh(held) ? held.result : null; }
   warningsOf(id: string): readonly Warning[] { return this.#warnings.get(id) ?? []; }
   analysisOf(r: ScriptRecord): Analysis | ScriptError { return this.#analyze(r.source); }
-  /** The chart the scripts run on: its market, timeframe and candles (for Copy for AI). */
-  get chart(): { market: string; timeframe: string; candles: number } { const s = this.store.state; return { market: s.seriesInstrument, timeframe: s.timeframe, candles: s.candles.length }; }
+  /** The chart a script's last run worked on, as far as it is shown (in a replay, the candles closed by its moment): for Copy for AI. */
+  ranOn(id: string): { market: string; timeframe: string; candles: number } | null {
+    const held = this.#held.get(id), tf = TIMEFRAMES[this.store.state.timeframe] ?? 3_600_000;
+    return held && this.#fresh(held) ? { market: held.inst, timeframe: this.store.state.timeframe, candles: shownCount(held.time, tf) } : null;
+  }
   /** Whether Scripts is on: the scripts run and draw. */
   get running(): boolean { return this.store.state.show.script; }
   /** Switch Scripts on: a script was added or switched on, and should be seen. */
