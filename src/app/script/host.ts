@@ -70,6 +70,12 @@ export class ScriptHost {
     });
   }
 
+  /**
+   * Start loading a worker now, before any run is asked for: a page that will run scripts calls it as it starts, before its own requests take
+   * every connection to its server and the worker's file would wait behind them.
+   */
+  warm(): void { try { this.#ensure(); } catch { /* the first run reports it */ } }
+
   /** Drop the run that waits for its worker to load (its scripts were switched off): it resolves with none, and the worker goes on loading. */
   dropUnsent(): void {
     const run = this.#running;
@@ -84,8 +90,13 @@ export class ScriptHost {
     const w = this.#o.spawn();
     this.#ready = false;
     w.onmessage = e => { if (this.#worker !== w) return; if (e.data.t === 'ready') { this.#ready = true; this.#send(); } else this.#answer(e.data); };
-    // A worker that fails to load or throws outside a run answers nothing: the run is ended as one over its deadline would be.
-    w.onerror = () => { if (this.#worker === w && this.#running) this.#stop('worker-failed'); };
+    // A worker that fails to load or throws outside a run answers nothing: the run is ended as one over its deadline would be. One that
+    // fails with nothing under way (its run was dropped while it loaded) is let go too, so the next run gets a fresh one and does not wait.
+    w.onerror = () => {
+      if (this.#worker !== w) return;
+      if (this.#running) { this.#stop('worker-failed'); return; }
+      w.terminate(); this.#worker = null; this.#ready = false;
+    };
     return this.#worker = w;
   }
 

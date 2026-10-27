@@ -153,6 +153,30 @@ test('a run still waiting for its worker to load is replaced by a newer one, or 
   assert.equal((await later).results[0]!.ok, true);
   second.host.dropUnsent();
   assert.equal(second.host.busy, false, 'nothing to drop once a run was taken and answered');
+
+  // A worker whose run was dropped and that then fails to load is let go: the next run gets a fresh worker and does not wait for it.
+  const third = rig(false);
+  void third.host.run([job('a')], inputs());
+  third.host.dropUnsent();
+  third.workers[0]!.onerror?.(new Error('load'));
+  assert.equal(third.workers[0]!.ended, true);
+  void third.host.run([job('b')], inputs());
+  assert.equal(third.workers.length, 2);
+  third.workers[1]!.ready();
+  assert.deepEqual(third.workers[1]!.posted.map(m => m.jobs.map(j => j.id)), [['b']]);
+});
+
+test('a worker can be started before any run, and the first run is then sent as soon as it is asked for', async () => {
+  const { host, workers } = rig();
+  host.warm();
+  host.warm();
+  assert.equal(workers.length, 1, 'one worker');
+  assert.equal(host.busy, false);
+  await tick();
+  const p = host.run([job('a')], inputs());
+  assert.equal(workers[0]!.posted.length, 1, 'already loaded: sent at once');
+  workers[0]!.answer(workers[0]!.posted[0]!.seq, ['a']);
+  assert.equal((await p).results[0]!.ok, true);
 });
 
 test('disposing ends the worker and answers what waited with nothing and no time', async () => {

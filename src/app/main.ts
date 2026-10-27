@@ -278,6 +278,7 @@ async function main(): Promise<void> {
     if (changed.has('replay')) { ladder.invalidate(); cvd.invalidate(); heat.invalidate(); lower(); }
     if (changed.has('layers') || changed.has('layer') || changed.has('candles') || changed.has('mark') || changed.has('heat') || changed.has('show')) heat.invalidate();
     if (changed.has('oi') || changed.has('show')) { oi.invalidate(); bars.invalidate(); }
+    if (changed.has('show') && !state.show.script) script.dropPending();
     if (changed.has('lt') || changed.has('show') || changed.has('sounds')) lt.refresh();
     if (changed.has('sounds')) depth.syncSound();
     // The pane is sized again only when its rows change (which, or grouped and folded), not for every option: a height set by hand stays.

@@ -58,6 +58,8 @@ export class ScriptPane extends TimePane {
   constructor(host: HTMLElement, store: Store, view: View, private hub: Hub) {
     super(host, store, view, 'script');
     this.#data = new ScriptData(hub, () => this.invalidate());
+    // Scripts that will run: their worker loads now, while the page's own requests have not yet taken the connections to its server.
+    if (store.state.show.script && this.#records.some(r => r.on)) this.#host.warm();
     this.head.innerHTML = `<strong>${t('Scripts')}</strong><span class="readout"></span>`;
     this.head.querySelector('strong')!.after(helpButton('scriptPane'));
     setTip(this.head.querySelector('strong')!, t('Your own indicators, written as scripts over the candles and the taker flow.'));
@@ -86,12 +88,17 @@ export class ScriptPane extends TimePane {
     if (stale.some(r => this.#held.has(r.id))) { this.#held = new Map(this.#held); for (const r of stale) this.#held.delete(r.id); this.#heldGen++; this.onMapChanged(); }
     this.#records = list;
     this.#version++;
+    // A run still waiting for its worker to load holds the old scripts: dropped now, not at the next frame (the worker may load before it).
+    this.#host.dropUnsent();
     for (const id of [...this.#held.keys()]) if (!list.some(r => r.id === id)) this.#held.delete(id);
     const kept = storeScripts(list);
     this.#lastRun = 0;
     this.invalidate();
     return kept;
   }
+
+  /** Drop a run still waiting for its worker to load (Scripts was switched off): the worker then runs nothing of it. */
+  dropPending(): void { this.#host.dropUnsent(); }
 
   /** The panel's code, loaded the first time the panel opens (a page that never opens it does not carry it). */
   #panelCode: typeof import('../script/panel.ts') | null = null;
