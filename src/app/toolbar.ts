@@ -530,7 +530,8 @@ export class Toolbar {
         deck('time', t('Time'), [this.#timeframes], inCorner ? [] : [this.#recenter]),
         deck('heat', t('Heatmap'), [this.#source, this.#layer, this.#heat.style], [this.#heatScale, this.#heat.auto, this.#heat.smooth]),
         deck('panels', t('Panels'), [this.#toggles]),
-        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, this.#scriptsSplit, this.#range]),
+        // The Range tool is the map corner's Select when the map holds its tools (Karl, 2026-10-27: the deck's Range was the same button twice).
+        deck('chart', t('Chart'), [sp.footprint, sp.trades, sp.liquidations, sp.absorption], [sp.traded, sp.keyLevels, sp.vwap, this.#scriptsSplit, ...(inCorner ? [] : [this.#range])]),
         deck('alerts', t('Alerts'), [this.#alertSplits!.highlights], [this.#alertSplits!.sound]),
         tools, this.#expand, this.#notice.root, this.#coinNotice);
       this.#fit();
