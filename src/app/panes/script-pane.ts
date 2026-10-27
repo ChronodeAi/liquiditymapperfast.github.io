@@ -19,7 +19,7 @@ import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lan
 import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
 import { SCRIPT_API, loadScripts, storeScripts, type ScriptRecord } from '../script/records.ts';
 import { starterScripts } from '../script/starter.ts';
-import { PLOT_FIELDS, type ScriptResult, type Warning } from '../script/protocol.ts';
+import { PLOT_FIELDS, type PlotOut, type ScriptResult, type Warning } from '../script/protocol.ts';
 import { paintPlot, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
@@ -47,6 +47,9 @@ function shownCount(time: Float64Array, tf: number): number {
   while (lo < hi) { const m = (lo + hi) >> 1; if (time[m]! + tf <= now) lo = m + 1; else hi = m; }
   return lo;
 }
+
+/** How many of a script's plots its popup lists (the others are counted). */
+const CARD_PLOTS = 6;
 
 /** How often a script runs at most (ms), and how often it runs again anyway while nothing it reads changes (the candle under way fills in). */
 const MIN_INTERVAL = 1_000, REFRESH = 15_000;
@@ -467,14 +470,22 @@ export class ScriptPane extends TimePane {
     if (i < 0 || (i < newest && at >= time[i]! + tf)) return;
     if (withTime && !out.length) out.push({ text: clock(time[i]!, true), bold: true });
     out.push({ text: r.name, bold: true, rule: true });
+    // A band coloured point by point (a heat map's row) is read by its colour: its bounds say nothing, so it is left out beside plots that
+    // carry values. At most a few plots are listed; the others are counted.
+    const band = (plot: PlotOut): boolean => (plot.kind === 'brokenarea' || plot.kind === 'cloudarea') && plot.colors !== null;
+    const valued = res.plots.some(plot => plot.style.visible !== false && !band(plot));
+    let listed = 0, more = 0;
     res.plots.forEach((plot, j) => {
-      if (plot.style.visible === false) return;
+      if (plot.style.visible === false || (valued && band(plot))) return;
       const values = PLOT_FIELDS[plot.kind].map(f => plot.fields[f]![i]!);
       if (!values.some(Number.isFinite)) return;
       // On the map a plot on the price scale is a price, written as the price axis writes one; the others are amounts.
       const fmt = onMap && scaleIdOf(plot, r.options) === 'right' ? (v: number) => fmtPrice(v) : shortNumber;
       const text = values.length === 1 ? fmt(values[0]!) : values.map(fmt).join(plot.kind === 'cloudarea' || plot.kind === 'brokenarea' ? ' – ' : ' / ');
+      if (listed >= CARD_PLOTS) { more++; return; }
+      listed++;
       out.push({ label: plot.title || `${plot.kind} ${j + 1}`, text, color: values.length === 1 && values[0]! < 0 ? 'sell' : 'text' });
     });
+    if (more) out.push({ text: tn(more, '+{n} more plot', '+{n} more plots'), color: 'muted' });
   }
 }

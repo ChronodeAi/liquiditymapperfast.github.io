@@ -1718,5 +1718,9 @@
  "This script was written for a newer version of the script language: update the page to run it.": "该脚本是为较新版本的脚本语言编写的：请更新页面以运行它。",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "你自己的指标，以脚本形式基于 K 线和吃单流编写：画在地图上，或在地图下方单独的行中。",
  "“{name}” stopped with an error: open Scripts to see it.": "“{name}”因错误而停止：打开脚本查看。",
- "Switch this script off (it stays in Scripts…)": "关闭此脚本（它仍保留在“脚本…”中）"
+ "Switch this script off (it stays in Scripts…)": "关闭此脚本（它仍保留在“脚本…”中）",
+ "Stochastic heat map": "随机指标热图",
+ "Buyer and seller VWAPs": "买方与卖方 VWAP",
+ "Volume anomalies": "成交量异常",
+ "+{n} more plots": "另有 {n} 个绘图"
 }

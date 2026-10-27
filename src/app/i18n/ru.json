@@ -1821,5 +1821,14 @@
  "This script was written for a newer version of the script language: update the page to run it.": "Этот скрипт написан для более новой версии языка скриптов: обновите страницу, чтобы его запустить.",
  "Your own indicators, written as scripts over the candles and the taker flow: on the map, or in rows of their own under it.": "Ваши собственные индикаторы, написанные скриптами по свечам и потоку тейкеров: на карте или в отдельных строках под ней.",
  "“{name}” stopped with an error: open Scripts to see it.": "«{name}» остановлен с ошибкой: откройте Скрипты, чтобы её увидеть.",
- "Switch this script off (it stays in Scripts…)": "Выключить этот скрипт (он останется в «Скрипты…»)"
+ "Switch this script off (it stays in Scripts…)": "Выключить этот скрипт (он останется в «Скрипты…»)",
+ "Stochastic heat map": "Тепловая карта стохастика",
+ "Buyer and seller VWAPs": "VWAP покупателей и продавцов",
+ "Volume anomalies": "Аномалии объёма",
+ "+{n} more plots": {
+  "one": "ещё {n} построение",
+  "few": "ещё {n} построения",
+  "many": "ещё {n} построений",
+  "other": "ещё {n} построения"
+ }
 }

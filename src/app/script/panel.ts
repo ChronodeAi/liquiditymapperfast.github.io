@@ -6,22 +6,10 @@ import type { ScriptError } from './lang/lexer.ts';
 import type { ScriptResult, Warning } from './protocol.ts';
 import { MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, SCRIPT_API, cleanName, exportFile, importText, inferredOption, mergeScripts, newId, type OptionValue, type ScriptRecord } from './records.ts';
 import { errorText, warningText } from './messages.ts';
-import { VWAP_SOURCE } from './starter.ts';
+import { exampleHeight, examples } from './examples.ts';
 import { statusOf, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 
 export { panelClosed, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
-
-/** Scripts to start from, written for this page. */
-function examples(): { name: string; source: string; place?: ScriptRecord['place'] }[] {
-  return [
-    { name: t('Cumulative delta'), source: '// What was bought at market less what was sold, added up candle after candle.\nline(cum(vbuy - vsell), title=CVD)\n' },
-    { name: t('Spot and perpetual CVD'), source: '// The cumulative delta of the spot markets and of the perpetuals, apart.\nspotColor = option(type=color, default=#2e9bff, label=Spot)\nperpColor = option(type=color, default=#ff9f1c, label=Perpetual)\nspotDelta = source(vbuy, type=spot) - source(vsell, type=spot)\nperpDelta = source(vbuy, type=perp) - source(vsell, type=perp)\nline(cum(spotDelta), title=Spot, color=spotColor)\nline(cum(perpDelta), title=Perp, color=perpColor, priceScaleId=perp)\n' },
-    { name: t('Delta histogram'), source: '// Each candle\'s delta, in the buy colour where buyers led and the sell colour where sellers did.\nup = option(type=color, default=rgb(38,166,154), label=Buys)\ndown = option(type=color, default=rgb(239,83,80), label=Sells)\nvar delta = vbuy - vsell\nhistogram({ time: time, value: delta, color: delta > 0 ? up : down }, title=Delta)\n' },
-    { name: t('Liquidations'), source: '// Shorts liquidated (forced buys) up, longs liquidated (forced sells) down, in dollars.\nshorts = option(type=color, default=rgb(38,166,154), label=Shorts)\nlongs = option(type=color, default=rgb(239,83,80), label=Longs)\nhistogram({ time: time, value: lbuy, color: shorts }, title="Shorts liquidated")\nhistogram({ time: time, value: -lsell, color: longs }, title="Longs liquidated")\n' },
-    { name: t('Buy share'), source: '// The share of the volume bought at market over the last candles, in percent.\nlength = option(default=20, min=1, label=Candles)\nline(100 * sum(vbuy, length) / sum(vbuy + vsell, length), title="Buy share %")\nline(50, color=rgba(128,128,128,0.6), title=Even)\n' },
-    { name: t('VWAP with bands'), source: VWAP_SOURCE, place: 'map' },
-  ];
-}
 
 const isError = (a: Analysis | ScriptError): a is ScriptError => !('program' in a);
 
@@ -96,7 +84,7 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
     const place = ex.place ?? 'pane';
     const add = button(t('Add'), () => {
       host.showScripts();
-      keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place }], t('Added “{name}”.', { name: ex.name }));
+      keep([...list, { id: newId(ex.name), name: ex.name, source: ex.source, options: {}, on: true, api: SCRIPT_API, height: exampleHeight(ex.source) ?? ROW_DEFAULT, place }], t('Added “{name}”.', { name: ex.name }));
     }, t('Add a ready-made script to start from'));
     add.disabled = full;
     body.append(el('div', { class: 'layout-row script-example' }, el('span', { class: 'script-example-name', textContent: ex.name }), el('span', { class: 'layout-date', textContent: place === 'map' ? t('On the map') : t('In its own row') }), add));
