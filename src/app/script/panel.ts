@@ -8,6 +8,8 @@ import { MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, SCRIPT_API, cleanName, expo
 import { errorText, warningText } from './messages.ts';
 import { exampleHeight, examples } from './examples.ts';
 import { statusOf, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
+import { aiBundle, type BundleInput } from './lang/reference.ts';
+import { PLOT_FIELDS } from './protocol.ts';
 
 export { panelClosed, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 
@@ -114,6 +116,8 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
   exportAll.disabled = !list.length;
   body.append(heading(t('More')), el('div', { class: 'layout-tools' }, button(t('Import'), () => file.click(), t('Read scripts from a file: one written by Export, an indicator file or a workspace from another charting page, or a script as text')), exportAll, file));
   body.append(heading(t('Language')), ...reference().map(line => note(line)));
+  // The whole language, as the page publishes it for people and for AI assistants.
+  body.append(el('p', { class: 'panel-note' }, el('a', { href: './script-reference.md', target: '_blank', rel: 'noopener', textContent: t('The full language reference') })));
 }
 
 /** The short reference shown under the list. */
@@ -207,8 +211,38 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
     keep(list, t('Saved “{name}”: it runs with the next update.', { name: record.name }));
   };
   const check = (): void => { const a = host.analysisOf({ ...probe, source: draft.source }); say(isError(a) ? errorText(a) : t('The script reads.'), isError(a)); };
+  const forAi = (): void => {
+    const text = aiBundle(bundleOf(host, draft, existing, probe));
+    void copyText(text).then(ok => say(ok ? t('Copied. Paste it into your AI assistant, then paste its answer back here and press Check.') : t('This browser did not let the page copy.'), !ok));
+  };
   body.append(el('div', { class: 'layout-tools' },
     button(t('Save'), save, t('Keep the script and run it')),
+    button(t('Copy for AI'), forAi, t('Copy the script, its errors and what it drew, with the language\'s rules, to paste into an AI assistant')),
     button(t('Check'), check, t('Read the script without saving it, to see whether it reads')),
     button(t('Back'), close, t('Back to the list (what is not saved is dropped)'))));
+}
+
+/**
+ * What Copy for AI hands an assistant about the script in the editor: its text as it stands, the error that text meets on reading (else the
+ * error, warnings and plots of its last run, when the text is the one that ran), the options set, and the chart it ran on.
+ */
+function bundleOf(host: ScriptsHost, draft: NonNullable<ScriptsPanelState['draft']>, existing: ScriptRecord | null, probe: ScriptRecord): BundleInput {
+  const a = host.analysisOf({ ...probe, source: draft.source });
+  const ran = existing && existing.source === draft.source ? host.resultOf(existing.id) : null;
+  const errors = isError(a) ? [a] : ran && !ran.ok ? [ran.error] : [];
+  const warnings = isError(a) ? [] : [...a.warnings, ...(existing && ran ? host.warningsOf(existing.id) : []), ...(ran?.ok ? ran.warnings : [])];
+  const plots = ran?.ok ? ran.plots.map(p => {
+    const fields = PLOT_FIELDS[p.kind], length = p.fields[fields[0]!]?.length ?? 0;
+    let i = length - 1;
+    while (i >= 0 && !fields.some(f => Number.isFinite(p.fields[f]![i]!))) i--;
+    return { title: p.title, kind: p.kind, last: i >= 0 ? fields.map(f => p.fields[f]![i]!) : [NaN] };
+  }) : [];
+  return { name: draft.name, source: draft.source, place: draft.place, options: draft.options, errors, warnings, plots, chart: ran?.ok ? host.chart : null };
+}
+
+/** Put `text` on the clipboard: the browser's clipboard, else a selected text box copied the older way. Whether it worked. */
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* the older way below */ }
+  const box = el('textarea', { value: text }); box.style.position = 'fixed'; box.style.opacity = '0'; document.body.append(box); box.select();
+  try { return document.execCommand('copy'); } catch { return false; } finally { box.remove(); }
 }

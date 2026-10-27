@@ -49,16 +49,18 @@ export const KNOWN_INPUTS = new Set(['time', 'vbuy', 'vsell', 'cbuy', 'csell', '
 /** An exchange's name as scripts write it, as the page's exchange (and the kind its name implies, where it does). */
 export function exchangeOf(name: string): { venue: string; kind?: 'spot' | 'perp' } {
   const n = name.trim().toUpperCase();
-  const table: Record<string, { venue: string; kind?: 'spot' | 'perp' }> = {
-    BINANCE: { venue: 'binance', kind: 'spot' }, BINANCE_FUTURES: { venue: 'binance', kind: 'perp' }, BINANCE_US: { venue: 'binanceus', kind: 'spot' },
-    OKEX: { venue: 'okx' }, OKX: { venue: 'okx' }, HUOBI: { venue: 'htx' }, HTX: { venue: 'htx' }, GATEIO: { venue: 'gateio' }, GATE: { venue: 'gateio' },
-    CRYPTOCOM: { venue: 'cryptocom' }, KRAKEN: { venue: 'kraken' }, KRAKEN_FUTURES: { venue: 'kraken', kind: 'perp' }, BITFINEX: { venue: 'bitfinex' },
-    BITSTAMP: { venue: 'bitstamp', kind: 'spot' }, COINBASE: { venue: 'coinbase', kind: 'spot' }, BITMEX: { venue: 'bitmex', kind: 'perp' }, DERIBIT: { venue: 'deribit', kind: 'perp' },
-    DYDX: { venue: 'dydx', kind: 'perp' }, HYPERLIQUID: { venue: 'hyperliquid', kind: 'perp' }, BYBIT: { venue: 'bybit' }, BITGET: { venue: 'bitget' }, KUCOIN: { venue: 'kucoin' },
-    MEXC: { venue: 'mexc' }, PHEMEX: { venue: 'phemex' }, POLONIEX: { venue: 'poloniex', kind: 'spot' }, WHITEBIT: { venue: 'whitebit' }, ASTER: { venue: 'aster', kind: 'perp' },
-  };
-  return own(table, n) ?? { venue: n.toLowerCase().replace(/_futures$/, '') };
+  return own(EXCHANGES, n) ?? { venue: n.toLowerCase().replace(/_futures$/, '') };
 }
+
+/** The exchanges as scripts name them (`source(vbuy, exchange=BINANCE)`), with the page's venue and the kind of market a name implies. */
+export const EXCHANGES: Readonly<Record<string, { venue: string; kind?: 'spot' | 'perp' }>> = {
+  BINANCE: { venue: 'binance', kind: 'spot' }, BINANCE_FUTURES: { venue: 'binance', kind: 'perp' }, BINANCE_US: { venue: 'binanceus', kind: 'spot' },
+  OKEX: { venue: 'okx' }, OKX: { venue: 'okx' }, HUOBI: { venue: 'htx' }, HTX: { venue: 'htx' }, GATEIO: { venue: 'gateio' }, GATE: { venue: 'gateio' },
+  CRYPTOCOM: { venue: 'cryptocom' }, KRAKEN: { venue: 'kraken' }, KRAKEN_FUTURES: { venue: 'kraken', kind: 'perp' }, BITFINEX: { venue: 'bitfinex' },
+  BITSTAMP: { venue: 'bitstamp', kind: 'spot' }, COINBASE: { venue: 'coinbase', kind: 'spot' }, BITMEX: { venue: 'bitmex', kind: 'perp' }, DERIBIT: { venue: 'deribit', kind: 'perp' },
+  DYDX: { venue: 'dydx', kind: 'perp' }, HYPERLIQUID: { venue: 'hyperliquid', kind: 'perp' }, BYBIT: { venue: 'bybit' }, BITGET: { venue: 'bitget' }, KUCOIN: { venue: 'kucoin' },
+  MEXC: { venue: 'mexc' }, PHEMEX: { venue: 'phemex' }, POLONIEX: { venue: 'poloniex', kind: 'spot' }, WHITEBIT: { venue: 'whitebit' }, ASTER: { venue: 'aster', kind: 'perp' },
+};
 
 /** A literal value of a call's named argument read without running the script (a number, a text, a plain word, true/false, `rgb(...)`), or undefined. */
 export function literal(e: Expr): OptionValue | undefined {

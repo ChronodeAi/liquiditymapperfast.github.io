@@ -9,7 +9,7 @@ const vwap: ScriptRecord = { id: 'vwap-with-bands', name: 'VWAP with bands', sou
 function host(records: ScriptRecord[], results: Record<string, ScriptResult> = {}, running = true): ScriptsHost {
   return {
     records, running,
-    setRecords: () => true, resultOf: id => results[id] ?? null, warningsOf: () => [], analysisOf: () => ({ code: 'empty', line: 0, col: 0 }), showScripts: () => {},
+    setRecords: () => true, resultOf: id => results[id] ?? null, warningsOf: () => [], analysisOf: () => ({ code: 'empty', line: 0, col: 0 }), showScripts: () => {}, chart: { market: 'binance:BTCUSDT', timeframe: '1h', candles: 0 },
   };
 }
 const editing = (id: string, draft: Partial<NonNullable<ScriptsPanelState['draft']>> = {}): ScriptsPanelState =>

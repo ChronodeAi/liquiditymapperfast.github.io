@@ -20,6 +20,8 @@ export interface ScriptsHost {
   readonly running: boolean;
   /** Switch Scripts on (a script was added or switched on: the person should see it). */
   showScripts(): void;
+  /** The chart the scripts run on (for Copy for AI): its market, timeframe and how many candles it holds. */
+  readonly chart: { market: string; timeframe: string; candles: number };
 }
 
 /** What the panel keeps while it is open: the script being written (a new one has the id `new`), its text so far, a message, and which Delete waits for its second press. */
