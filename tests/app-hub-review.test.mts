@@ -240,3 +240,12 @@ test('the two loads a page starts (its market set, its own) take the one read it
   void hub.loadSeries(true); await turn();
   assert.equal(source.asked.length, 2, 'once it has answered, a reload reads afresh');
 });
+
+test('a switch away from the read the page started with drops it: switching back while it is out reads afresh', async () => {
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  void hub.loadSeries(true); await turn();
+  assert.equal(source.asked.length, 1, 'the read the page started with');
+  store.set({ timeframe: '5m' }); void hub.loadSeries(true); await turn();
+  store.set({ timeframe: '1h' }); void hub.loadSeries(true); await turn();
+  assert.equal(source.asked.length, 3, 'the hour asked again, not the early read taken twice');
+});

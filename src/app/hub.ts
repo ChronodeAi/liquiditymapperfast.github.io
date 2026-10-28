@@ -185,7 +185,7 @@ export class Hub {
   #refill = '';
   /** The context shown from `#seriesKept` and grown by the stream since, until a read of it answers (`rebaseLive`). */
   #fromKept: string | null = null;
-  /** The series read as the page starts, before the source has said anything (`start`), for the first load to take. */
+  /** The series read as the page starts, before the source has said anything (`start`): every load of its context takes it until one has its answer. */
   #warm: { key: string; read: Promise<{ candles: CandleRow[]; instrument: string }> } | null = null;
   /**
    * Every market order the live stream sent since the page opened, for the trade dust (memory only, never stored; empty while it is off).
@@ -448,8 +448,8 @@ export class Hub {
   /**
    * `likely`: the market the page will most likely open on, known before the source has said anything (the coin's Binance perpetual, which
    * `defaultMarket` picks wherever it is read; the store keeps no market). Its series is asked for at once, beside the bootstrap, and the
-   * first load takes it; and the bootstrap does not wait for a first live price to choose a market (up to 4 s in a page) when that one is
-   * listed: the reference market and the mark come with the first tick and the next bootstrap (`#noteBoot`).
+   * loads of its context take it (`loadSeries`); and the bootstrap does not wait for a first live price to choose a market (up to 4 s in
+   * a page) when that one is listed: the reference market and the mark come with the first tick and the next bootstrap (`#noteBoot`).
    */
   async start(likely = ''): Promise<void> {
     const expected = this.store.state.marketId || likely, timeframe = this.store.state.timeframe;
