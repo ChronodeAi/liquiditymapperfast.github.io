@@ -68,7 +68,6 @@
  "The heatmap": "热力图",
  "Each coloured cell is liquidity resting at a price at a moment: warmer and brighter means more.": "每个彩色单元格是某一时刻某个价位上挂着的流动性：越暖越亮表示越多。",
  "Colour shows size on a log scale, so a few huge walls do not hide everything else. The Contrast slider moves the colour window: right shows thinner liquidity, left keeps only the biggest walls. Auto keeps the window following the data.": "颜色以对数刻度表示大小，这样少数巨大的墙不会遮住其他一切。“对比度”滑块移动颜色窗口：向右显示更薄的流动性，向左只保留最大的墙。“自动”让窗口跟随数据。",
- "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right (until it has filled the screen, grey shows the current book copied back: the darker the grey, the bigger the wall, but it is not history).": "它在本页面打开期间录制：无法获取过去订单簿的样子，所以地图从你打开页面的那一刻开始，向右延伸（铺满屏幕之前，灰色表示当前订单簿向回复制的结果：灰色越深，墙越大，但这不是历史）。",
  "Depth pane": "深度面板",
  "Total liquidity within a chosen distance of the price, over time. Asks point up (pink), bids point down (green).": "在所选的价格距离内，流动性总量随时间的变化。卖盘向上（粉色），买盘向下（绿色）。",
  "For every moment it adds up the bids and the asks within a range of the price (1 % to 20 %, set with Range) and draws them as bars: asks up, bids down.": "对每一时刻，它把价格附近一个区间内（1 % 到 20 %，用“范围”设置）的买盘和卖盘加总，画成柱子：卖盘向上，买盘向下。",
@@ -180,8 +179,6 @@
  "candles from {instrument}": "来自 {instrument} 的 K 线",
  "Vol": "量",
  "({z}σ above its baseline)": "（比基线高 {z}σ）",
- "Grey: the current book copied back, not recorded history. Depth is recorded while this page is open": "灰色：当前订单簿向回复制的结果，不是录制的历史。深度在本页面打开期间录制",
- "Grey: copied back · recorded from {time}": "灰色：向回复制 · 自 {time} 起录制",
  "depth recorded from {time}": "深度自 {time} 起录制",
  "LEVEL MAX {value}": "价位最大值 {value}",
  "CUM MAX {value}": "累计最大值 {value}",
@@ -1914,5 +1911,6 @@
  "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "对 Breakout 和 Failed break 而言，虚线是它突破的突破位，点线是下一个价位，即它所进入区间的另一侧。指向一个标记，可查看它的价位、该 K 线的订单流、强平和持仓量，以及它相对当日、当周和当月开盘价（在一小时及以下的图表上还有当小时开盘价）的位置。",
  "{n} left out: a coin keeps 100 and the page 1,000.": "有 {n} 个未添加：每个币种最多 100 个，页面共 1,000 个。",
  "{n} drawings added.": "已添加 {n} 个绘图。",
- "Drag to size the window; a double click gives back its size": "拖动以调整窗口大小；双击恢复原来的大小"
+ "Drag to size the window; a double click gives back its size": "拖动以调整窗口大小；双击恢复原来的大小",
+ "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right, from a dashed line that says when the recording began.": "它在本页面打开期间录制：无法获取过去订单簿的样子，所以地图从你打开页面的那一刻开始，从一条标明录制开始时间的虚线向右延伸。"
 }

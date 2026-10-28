@@ -170,7 +170,7 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
     title: t('The heatmap'), guide: 'heatmap',
     tip: t('Each coloured cell is liquidity resting at a price at a moment: warmer and brighter means more.'),
     body: [t('Colour shows size on a log scale, so a few huge walls do not hide everything else. The Contrast slider moves the colour window: right shows thinner liquidity, left keeps only the biggest walls. Auto keeps the window following the data.'),
-      t('It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right (until it has filled the screen, grey shows the current book copied back: the darker the grey, the bigger the wall, but it is not history).')],
+      t('It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right, from a dashed line that says when the recording began.')],
   },
   depthPane: {
     title: t('Depth pane'), guide: 'lower-panes',

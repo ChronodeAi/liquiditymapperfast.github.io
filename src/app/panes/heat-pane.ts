@@ -108,8 +108,6 @@ function glowOf(color: string, r: number, dpr: number): { image: HTMLCanvasEleme
   glow = { image, half }; glows.set(key, glow);
   return glow;
 }
-/** A recording younger than this gets the faded placeholder to its left. */
-const PLACEHOLDER_MAX_AGE_MS = 2 * 3_600_000;
 /**
  * How long, at least, the column's estimate from the candles stands while its window or its rows move (a drag, a zoom, the price scale):
  * working it out is a pass over every bar of the window spread over the rows each covers, 24 ms at $20 rows, 93 ms at $5, 228 ms at $2 and
@@ -704,7 +702,7 @@ export class HeatPane {
     if (marked || (column && state.absorption.mode === 'auto')) { const { ids, thresholds } = this.#absorptionContext(state); this.hub.ensureAbsorption(ids, ids.map(id => thresholds.get(id) ?? null), this.view, state.absorption.sdMinutes, !marked); }
     this.#stepFootprint(state);
     // Under a dominant footprint the heatmap is gone altogether, so there is nothing to draw.
-    if (state.layer === 'liquidity' && this.#lodFrame.heatmapOpacity > 0.003) this.gl.draw(this.view, this.#style(), this.#placeholder()); else this.gl.clear();
+    if (state.layer === 'liquidity' && this.#lodFrame.heatmapOpacity > 0.003) this.gl.draw(this.view, this.#style()); else this.gl.clear();
     this.#drawDust();
     this.#paintOverlay(state);
     this.onFrame();
@@ -1181,19 +1179,6 @@ export class HeatPane {
   }
 
   /**
-   * A young recording leaves most of the map empty, and the stripe that has been recorded so far can be a few pixels wide, so where the
-   * liquidity is does not show. While the recording is under two hours old and the live edge is on screen, the current book
-   * is drawn in grey back to the left edge, darker for bigger walls (it is not history: the colour and the label say so). Looking at the past, or an
-   * old recording, never gets it.
-   */
-  #placeholder(): { boundary: number; sample: number; rgb: [number, number, number] } | null {
-    const since = this.hub.recordedSince, v = this.view, now = pageNow();
-    if (!(since > v.t0) || since >= v.t1 || now - since > PLACEHOLDER_MAX_AGE_MS || v.t1 < now - 60_000) return null;
-    // The column to copy is the current minute's: it holds every venue's book as it is now, where the first minute may hold only the venues that had connected by then.
-    return { boundary: since, sample: Math.max(since + 15_000, Math.floor(now / 60_000) * 60_000 + 15_000), rgb: rgb(this.#palette.muted) };
-  }
-
-  /**
    * Where the recorded depth begins, when that is inside the view: a page that reads the exchanges itself records only while it is
    * open, so the map to the left of this line is empty by nature and the line says so rather than leaving it to look broken.
    */
@@ -1255,16 +1240,14 @@ export class HeatPane {
   #paintHistoryStart(ctx: CanvasRenderingContext2D, pw: number, ph: number, p: Palette): void {
     const since = this.hub.recordedSince, v = this.view;
     if (!(since > v.t0 && since < v.t1)) return;
-    const x = Math.round(v.xOf(since, pw)) + 0.5, young = this.#placeholder() !== null, time = clock(since);
-    const wordings = young ? [t('Grey: the current book copied back, not recorded history. Depth is recorded while this page is open'), t('Grey: copied back · recorded from {time}', { time }), t('depth recorded from {time}', { time })]
-      : [t('depth recorded from {time}', { time })];
+    const x = Math.round(v.xOf(since, pw)) + 0.5, text = t('depth recorded from {time}', { time: clock(since) });
     ctx.save();
     ctx.strokeStyle = p.muted; ctx.globalAlpha = 0.55; ctx.setLineDash([2, 4]);
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ph); ctx.stroke(); ctx.setLineDash([]);
     ctx.font = '10px ui-sans-serif, system-ui, sans-serif'; ctx.fillStyle = p.muted; ctx.globalAlpha = 0.85; ctx.textBaseline = 'top';
-    // The longest wording that fits in the grey, left of the line (measured, so in any language); else the shortest, on the side with more room, ending in "…" if even that is too long.
-    const wide = (text: string): number => ctx.measureText(text).width, room = Math.max(x - 12, pw - x - 12);
-    const shortest = wordings[wordings.length - 1]!, fitting = wordings.find(text => wide(text) <= x - 12) ?? shortest, label = wide(fitting) <= room ? fitting : fitText(wide, shortest, room);
+    // Left of the line where it fits (measured, so in any language), else on the side with more room, ending in "…" if even that is too short.
+    const wide = (words: string): number => ctx.measureText(words).width, room = Math.max(x - 12, pw - x - 12);
+    const label = wide(text) <= room ? text : fitText(wide, text, room);
     // The legend plate takes the top-left corner of the map: a note that would run under it goes beneath it instead.
     const w = ctx.measureText(label).width, right = x >= w + 12, left = right ? x - 6 - w : x + 6, box = this.#legendBox;
     let top = left < box.right + 8 ? box.bottom + 6 : 6;

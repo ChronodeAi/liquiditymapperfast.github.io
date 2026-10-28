@@ -165,7 +165,6 @@
  "The heatmap": "Теплова карта",
  "Each coloured cell is liquidity resting at a price at a moment: warmer and brighter means more.": "Кожна кольорова клітинка — це ліквідність, що стоїть на певній ціні в певний момент: тепліший і яскравіший колір означає більше.",
  "Colour shows size on a log scale, so a few huge walls do not hide everything else. The Contrast slider moves the colour window: right shows thinner liquidity, left keeps only the biggest walls. Auto keeps the window following the data.": "Колір показує розмір у логарифмічній шкалі, тож кілька величезних стін не ховають усе інше. Повзунок «Контраст» зсуває колірне вікно: праворуч видно тоншу ліквідність, ліворуч лишаються тільки найбільші стіни. «Авто» змушує вікно стежити за даними.",
- "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right (until it has filled the screen, grey shows the current book copied back: the darker the grey, the bigger the wall, but it is not history).": "Вона записується, поки ця сторінка відкрита: отримати, як виглядали стакани в минулому, неможливо, тож карта починається з моменту, коли ви відкрили сторінку, і росте вправо (поки вона не заповнить екран, сірим показано поточний стакан, скопійований назад: чим темніший сірий, тим більша стіна, але це не історія).",
  "Depth pane": "Панель глибини",
  "Total liquidity within a chosen distance of the price, over time. Asks point up (pink), bids point down (green).": "Загальна ліквідність у межах обраної відстані від ціни з плином часу. Аски спрямовані вгору (рожеві), біди — вниз (зелені).",
  "For every moment it adds up the bids and the asks within a range of the price (1 % to 20 %, set with Range) and draws them as bars: asks up, bids down.": "Для кожного моменту вона підсумовує біди й аски в межах діапазону від ціни (від 1 % до 20 %, задається параметром «Діапазон») і малює їх смугами: аски вгору, біди вниз.",
@@ -354,8 +353,6 @@
  "candles from {instrument}": "свічки з {instrument}",
  "Vol": "Обсяг",
  "({z}σ above its baseline)": "({z}σ над базовою лінією)",
- "Grey: the current book copied back, not recorded history. Depth is recorded while this page is open": "Сірий: поточний стакан, скопійований назад, а не записана історія. Глибина записується, поки ця сторінка відкрита",
- "Grey: copied back · recorded from {time}": "Сірий: скопійовано назад · записано від {time}",
  "depth recorded from {time}": "глибину записано від {time}",
  "POC": "POC",
  "VAH": "VAH",
@@ -2052,5 +2049,6 @@
   "many": "Додано {n} малюнків.",
   "other": "Додано {n} малюнка."
  },
- "Drag to size the window; a double click gives back its size": "Потягніть, щоб змінити розмір вікна; подвійне клацання повертає його розмір"
+ "Drag to size the window; a double click gives back its size": "Потягніть, щоб змінити розмір вікна; подвійне клацання повертає його розмір",
+ "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right, from a dashed line that says when the recording began.": "Вона записується, поки ця сторінка відкрита: отримати, як виглядали стакани в минулому, неможливо, тож карта починається з моменту, коли ви відкрили сторінку, і росте вправо від пунктирної лінії, яка показує, коли почався запис."
 }

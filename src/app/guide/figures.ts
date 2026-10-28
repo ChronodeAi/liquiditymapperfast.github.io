@@ -230,8 +230,6 @@ const recording: Scene = {
     g.fillStyle = th.panel; g.fillRect(b.x, b.y, b.w, b.h);
     g.save(); g.beginPath(); g.rect(b.x, b.y, b.w, b.h); g.clip();
     const band = Math.max(3, 34 / (d.p1 - d.p0) * b.h), sx = b.x + since * b.w;
-    // grey: the current book copied back to the left edge, on the same scale
-    for (const wall of WALLS) g.fillStyle = grey(th, wall.s), g.fillRect(b.x, yOf(b, d, wall.p) - band / 2, since * b.w, band);
     // colour: what was recorded, from the moment the page was opened (walls that came later start later)
     for (const wall of [...NOISE, ...WALLS]) {
       const x0 = sx + (b.x + b.w - sx) * Math.min(0.6, wall.a * 0.4); if (x0 >= b.x + b.w) continue;
@@ -242,7 +240,7 @@ const recording: Scene = {
     const my = yOf(b, d, MARK); g.strokeStyle = th.ask; g.setLineDash([4, 3]); g.beginPath(); g.moveTo(b.x, my + 0.5); g.lineTo(b.x + b.w, my + 0.5); g.stroke();
     g.strokeStyle = th.text; g.setLineDash([2, 4]); g.beginPath(); g.moveTo(sx + 0.5, b.y); g.lineTo(sx + 0.5, b.y + b.h); g.stroke(); g.setLineDash([]);
     note(g, tg('Page open for'), 10, 12, th, 'left', th.muted, 11); note(g, tg('{n} min', { n: Math.round(e) }), 88, 12, th, 'left', th.text, 12, 700);
-    if (since > 0.3) note(g, tg('Grey: the current book, copied back'), b.x + since * b.w * 0.5, b.y + 14, th, 'center', th.text, 11, 600);
+    if (since > 0.3) note(g, tg('Not recorded'), b.x + since * b.w * 0.5, b.y + b.h / 2, th, 'center', th.muted, 11, 600);
     if (since < 0.7) note(g, tg('Colour: recorded while the page was open'), Math.max(b.x + 150, sx + (b.x + b.w - sx) / 2), b.y + b.h - 12, th, 'center', th.text, 11, 600);
     if (e < 6) note(g, tg('depth recorded from here'), Math.min(sx + 8, b.x + b.w - 130), b.y - 8, th, 'left', th.text, 10);
     note(g, tg('now'), b.x + b.w, b.y + b.h + 12, th, 'right'); note(g, tg('{n} min ago', { n: 75 }), b.x, b.y + b.h + 12, th, 'left');

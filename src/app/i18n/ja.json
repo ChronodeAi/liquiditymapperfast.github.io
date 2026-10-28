@@ -68,7 +68,6 @@
  "The heatmap": "ヒートマップ",
  "Each coloured cell is liquidity resting at a price at a moment: warmer and brighter means more.": "色のついた各セルは、ある時点のある価格に置かれている流動性です。暖かく明るいほど多いことを意味します。",
  "Colour shows size on a log scale, so a few huge walls do not hide everything else. The Contrast slider moves the colour window: right shows thinner liquidity, left keeps only the biggest walls. Auto keeps the window following the data.": "色はサイズを対数スケールで表すので、少数の巨大な壁がほかのすべてを隠すことはありません。「コントラスト」スライダーは色のウィンドウを動かします。右に動かすと薄い流動性が見え、左に動かすと最大の壁だけが残ります。「自動」はウィンドウをデータに追従させます。",
- "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right (until it has filled the screen, grey shows the current book copied back: the darker the grey, the bigger the wall, but it is not history).": "このページを開いている間に記録されます。過去のオーダーブックがどうだったかを取得する方法はないため、マップはページを開いた瞬間から始まり、右へ伸びていきます（画面が埋まるまでは、灰色が現在のブックを過去へコピーしたものを示します。灰色が濃いほど壁は大きいですが、履歴ではありません）。",
  "Depth pane": "デプスパネル",
  "Total liquidity within a chosen distance of the price, over time. Asks point up (pink), bids point down (green).": "選んだ価格距離内の流動性の合計を、時間の流れで表示します。売り板は上向き（ピンク）、買い板は下向き（緑）です。",
  "For every moment it adds up the bids and the asks within a range of the price (1 % to 20 %, set with Range) and draws them as bars: asks up, bids down.": "各時点で、価格の周りの範囲（1 % から 20 %、「範囲」で設定）の買い板と売り板を合計し、バーとして描きます。売り板は上、買い板は下です。",
@@ -180,8 +179,6 @@
  "candles from {instrument}": "{instrument} のローソク足",
  "Vol": "出来高",
  "({z}σ above its baseline)": "（基準線より {z}σ 上）",
- "Grey: the current book copied back, not recorded history. Depth is recorded while this page is open": "灰色：現在のブックを過去へコピーしたもので、記録された履歴ではありません。デプスはこのページを開いている間に記録されます",
- "Grey: copied back · recorded from {time}": "灰色：過去へコピー · {time} から記録",
  "depth recorded from {time}": "デプスは {time} から記録",
  "LEVEL MAX {value}": "レベル最大 {value}",
  "CUM MAX {value}": "累計最大 {value}",
@@ -1914,5 +1911,6 @@
  "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Breakout と Failed break では、破線が抜けたブレイクの水準、点線が次の水準、つまり向かう先のレンジの反対側です。印にカーソルを合わせると、その水準、その足の注文フロー、清算、建玉、そして日・週・月の始値（1時間以下の足では時間の始値も）に対する位置が表示されます。",
  "{n} left out: a coin keeps 100 and the page 1,000.": "{n} 件は追加されませんでした：1コイン100件、ページ全体で1,000件までです。",
  "{n} drawings added.": "{n} 件の描画を追加しました。",
- "Drag to size the window; a double click gives back its size": "ドラッグでウィンドウのサイズを変更、ダブルクリックで元のサイズに戻します"
+ "Drag to size the window; a double click gives back its size": "ドラッグでウィンドウのサイズを変更、ダブルクリックで元のサイズに戻します",
+ "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right, from a dashed line that says when the recording began.": "このページを開いている間に記録されます。過去のオーダーブックがどうだったかを取得する方法はないため、マップはページを開いた瞬間から始まり、記録の開始時刻を示す破線から右へ伸びていきます。"
 }

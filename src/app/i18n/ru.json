@@ -68,7 +68,6 @@
  "The heatmap": "Тепловая карта",
  "Each coloured cell is liquidity resting at a price at a moment: warmer and brighter means more.": "Каждая цветная ячейка — это ликвидность, стоящая на цене в момент времени: теплее и ярче означает больше.",
  "Colour shows size on a log scale, so a few huge walls do not hide everything else. The Contrast slider moves the colour window: right shows thinner liquidity, left keeps only the biggest walls. Auto keeps the window following the data.": "Цвет показывает размер в логарифмической шкале, чтобы несколько огромных стен не скрывали всё остальное. Ползунок «Контраст» двигает цветовое окно: вправо показывает более тонкую ликвидность, влево оставляет только самые крупные стены. «Авто» заставляет окно следовать за данными.",
- "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right (until it has filled the screen, grey shows the current book copied back: the darker the grey, the bigger the wall, but it is not history).": "Она записывается, пока эта страница открыта: получить, как выглядели стаканы в прошлом, невозможно, поэтому карта начинается с момента, когда вы открыли страницу, и растёт вправо (пока она не заполнит экран, серым показан текущий стакан, скопированный назад: чем темнее серый, тем больше стена, но это не история).",
  "Depth pane": "Панель глубины",
  "Total liquidity within a chosen distance of the price, over time. Asks point up (pink), bids point down (green).": "Суммарная ликвидность в выбранном расстоянии от цены во времени. Аски направлены вверх (розовые), биды — вниз (зелёные).",
  "For every moment it adds up the bids and the asks within a range of the price (1 % to 20 %, set with Range) and draws them as bars: asks up, bids down.": "Для каждого момента она складывает биды и аски в диапазоне от цены (от 1 % до 20 %, задаётся в «Диапазоне») и рисует их полосами: аски вверх, биды вниз.",
@@ -180,8 +179,6 @@
  "candles from {instrument}": "свечи с {instrument}",
  "Vol": "Объём",
  "({z}σ above its baseline)": "({z}σ выше базовой линии)",
- "Grey: the current book copied back, not recorded history. Depth is recorded while this page is open": "Серый: текущий стакан, скопированный назад, а не записанная история. Глубина записывается, пока эта страница открыта",
- "Grey: copied back · recorded from {time}": "Серый: скопировано назад · записано с {time}",
  "depth recorded from {time}": "глубина записана с {time}",
  "LEVEL MAX {value}": "УРОВЕНЬ МАКС {value}",
  "CUM MAX {value}": "НАКОПЛ МАКС {value}",
@@ -2047,5 +2044,6 @@
   "many": "Добавлено {n} рисунков.",
   "other": "Добавлено {n} рисунка."
  },
- "Drag to size the window; a double click gives back its size": "Потяните, чтобы изменить размер окна; двойной щелчок возвращает прежний размер"
+ "Drag to size the window; a double click gives back its size": "Потяните, чтобы изменить размер окна; двойной щелчок возвращает прежний размер",
+ "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right, from a dashed line that says when the recording began.": "Она записывается, пока эта страница открыта: получить, как выглядели стаканы в прошлом, невозможно, поэтому карта начинается с момента, когда вы открыли страницу, и растёт вправо от пунктирной линии, которая показывает, когда началась запись."
 }

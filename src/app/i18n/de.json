@@ -68,7 +68,6 @@
  "The heatmap": "Die Heatmap",
  "Each coloured cell is liquidity resting at a price at a moment: warmer and brighter means more.": "Jede farbige Zelle ist Liquidität, die zu einem Zeitpunkt bei einem Preis liegt: wärmer und heller bedeutet mehr.",
  "Colour shows size on a log scale, so a few huge walls do not hide everything else. The Contrast slider moves the colour window: right shows thinner liquidity, left keeps only the biggest walls. Auto keeps the window following the data.": "Die Farbe zeigt die Größe auf einer logarithmischen Skala, damit ein paar riesige Wände nicht alles andere verdecken. Der Kontrast-Regler verschiebt das Farbfenster: rechts zeigt dünnere Liquidität, links bleiben nur die größten Wände. Auto lässt das Fenster den Daten folgen.",
- "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right (until it has filled the screen, grey shows the current book copied back: the darker the grey, the bigger the wall, but it is not history).": "Sie wird aufgezeichnet, solange diese Seite offen ist: Es gibt keine Möglichkeit, abzurufen, wie die Orderbücher in der Vergangenheit aussahen. Deshalb beginnt die Karte in dem Moment, in dem du die Seite geöffnet hast, und wächst nach rechts (bis sie den Bildschirm gefüllt hat, zeigt Grau das aktuelle Buch zurückkopiert: je dunkler das Grau, desto größer die Wand, aber es ist keine Historie).",
  "Depth pane": "Tiefe-Bereich",
  "Total liquidity within a chosen distance of the price, over time. Asks point up (pink), bids point down (green).": "Gesamtliquidität innerhalb eines gewählten Abstands zum Preis im Zeitverlauf. Asks zeigen nach oben (pink), Bids nach unten (grün).",
  "For every moment it adds up the bids and the asks within a range of the price (1 % to 20 %, set with Range) and draws them as bars: asks up, bids down.": "Für jeden Zeitpunkt addiert er die Bids und die Asks innerhalb einer Spanne um den Preis (1 % bis 20 %, mit Bereich einstellbar) und zeichnet sie als Balken: Asks nach oben, Bids nach unten.",
@@ -180,8 +179,6 @@
  "candles from {instrument}": "Kerzen von {instrument}",
  "Vol": "Vol",
  "({z}σ above its baseline)": "({z}σ über seiner Basislinie)",
- "Grey: the current book copied back, not recorded history. Depth is recorded while this page is open": "Grau: das aktuelle Buch zurückkopiert, keine aufgezeichnete Historie. Die Tiefe wird aufgezeichnet, solange diese Seite offen ist",
- "Grey: copied back · recorded from {time}": "Grau: zurückkopiert · aufgezeichnet ab {time}",
  "depth recorded from {time}": "Tiefe aufgezeichnet ab {time}",
  "LEVEL MAX {value}": "NIVEAU MAX {value}",
  "CUM MAX {value}": "KUM MAX {value}",
@@ -1993,5 +1990,6 @@
   "one": "{n} Zeichnung hinzugefügt.",
   "other": "{n} Zeichnungen hinzugefügt."
  },
- "Drag to size the window; a double click gives back its size": "Ziehen, um die Größe des Fensters zu ändern; ein Doppelklick stellt seine Größe wieder her"
+ "Drag to size the window; a double click gives back its size": "Ziehen, um die Größe des Fensters zu ändern; ein Doppelklick stellt seine Größe wieder her",
+ "It is recorded while this page is open: there is no way to fetch what the order books looked like in the past, so the map starts at the moment you opened the page and grows to the right, from a dashed line that says when the recording began.": "Sie wird aufgezeichnet, solange diese Seite offen ist: Es gibt keine Möglichkeit, abzurufen, wie die Orderbücher in der Vergangenheit aussahen. Deshalb beginnt die Karte in dem Moment, in dem du die Seite geöffnet hast, und wächst nach rechts, ab einer gestrichelten Linie, die zeigt, wann die Aufzeichnung begann."
 }
