@@ -109,7 +109,7 @@ export function readout(d: Drawing, mark: number, resting: { bid: number; ask: n
     case 'level': {
       const p = a!.p, parts = [fmtPrice(p)];
       if (mark > 0) parts.push(t('{pct} from the price', { pct: pct((p - mark) / mark * 100) }));
-      if (resting) parts.push(resting.bid + resting.ask > 0 ? t('{usd} resting in the {step} row now', { usd: usd(resting.bid + resting.ask), step: fmtPrice(resting.step) }) : t('nothing resting in the {step} row now', { step: fmtPrice(resting.step) }));
+      if (resting) parts.push(resting.bid + resting.ask > 0 ? t('{usd} resting in the {step} row now', { usd: `$${usd(resting.bid + resting.ask)}`, step: `$${fmtPrice(resting.step, resting.step)}` }) : t('nothing resting in the {step} row now', { step: `$${fmtPrice(resting.step, resting.step)}` }));
       else parts.push(t('the book is not held here'));
       return parts.join(' · ');
     }

@@ -242,7 +242,7 @@ export function paintEditing(ctx: CanvasRenderingContext2D, draw: DrawController
     const s = cursor.snap;
     ctx.strokeStyle = p.text; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cursor.x, cursor.y, 6, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = p.text; ctx.beginPath(); ctx.arc(cursor.x, cursor.y, 2, 0, Math.PI * 2); ctx.fill();
-    const text = caughtText(s.field, fmtPrice(s.p), usd(s.usd ?? 0));
+    const text = caughtText(s.field, fmtPrice(s.p), `$${usd(s.usd ?? 0)}`);
     const right = cursor.x > pr.w - 170;
     label(ctx, text, right ? cursor.x - 10 : cursor.x + 10, cursor.y - 14, p.text, p, right ? 'right' : 'left');
   }
