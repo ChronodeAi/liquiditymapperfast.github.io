@@ -26,7 +26,7 @@ import { safeColor } from '../script/lang/colors.ts';
 import type { BarInputs, SourceFilter } from '../script/inputs.ts';
 import { PALETTES } from '../theme.ts';
 import { NEW_SCRIPT, unsaved, type ScriptsPanelState } from '../script/panel-state.ts';
-import { lazy } from '../lazy.ts';
+import { buildScriptsPanel, panelClosed, refreshStatuses } from '../script/panel.ts';
 
 /**
  * A script's last answer, the candles it was worked out over (their starts, timeframe and market) and the moment it was worked out at: the
@@ -268,15 +268,17 @@ export class ScriptPane extends TimePane {
     this.#refreshPanel(); this.#reportStatus(); this.#maybeRun();
   }
 
-  /** The panel's code, loaded the first time the panel opens (a page that never opens it does not carry it). */
-  #panelCode: typeof import('../script/panel.ts') | null = null;
-  readonly #build = (_tools: HTMLElement, body: HTMLElement): void => { this.#panelCode?.buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui); };
+  /**
+   * The panel's code is part of the page, never fetched at the first open: on a page whose own requests hold every connection to its server,
+   * a fetched panel waited behind them (23 s, and 38 s on a development page, 2026-10-27), and each click made meanwhile opened or closed it
+   * once more when it came, so an even number of clicks left it shut. Opened at once, a second click closes it as every settings key does.
+   */
+  readonly #build = (_tools: HTMLElement, body: HTMLElement): void => { buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui); };
   openPanel(anchor: HTMLElement = this.#button): void {
-    if (!this.#panelCode) { void lazy(() => import('../script/panel.ts')).then(m => { if (m) { this.#panelCode = m; this.openPanel(anchor); } }); return; }
-    this.#panel = togglePanel(anchor, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; this.#panelCode?.panelClosed(this, this.#ui); }, stays: true }, this.#build);
+    this.#panel = togglePanel(anchor, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; panelClosed(this, this.#ui); }, stays: true }, this.#build);
   }
   /** Write the list's statuses again with the latest results, in place (a menu or a switch under the pointer stays); not while a script is being written. */
-  #refreshPanel(): void { if (this.#panel && !this.#ui.editing) this.#panelCode?.refreshStatuses(this, this.#panel.body); }
+  #refreshPanel(): void { if (this.#panel && !this.#ui.editing) refreshStatuses(this, this.#panel.body); }
 
   #analyze(source: string): Analysis | ScriptError {
     let a = this.#analysis.get(source);
