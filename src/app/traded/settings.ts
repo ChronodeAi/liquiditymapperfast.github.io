@@ -182,9 +182,11 @@ export function readTraded(saved: unknown, strip: LegacyTop | null = null): Trad
   // profiles there when they were drawn (`pastProfiles`).
   const kind = (v: unknown): LineKind | null => LINE_KINDS.includes(v as LineKind) ? v as LineKind : null;
   const old = kind(s.period), wanted = Array.isArray(s.lines) ? s.lines as unknown[] : old ? [] : [...d.lines];
+  // A save from before the places says what its columns and its profile along the top were; one that says nothing gets the first visit's.
+  const legacy = s.metrics !== undefined || s.metric !== undefined || s.top !== undefined || strip !== null;
   return {
     // A save from when the column showed one measure (`metric`) reads as that one column.
-    placements: readProfileSet(s.placements) ?? setFromLegacy(readMetrics(Array.isArray(s.metrics) ? s.metrics : [s.metric]) ?? ['volume'], readTop(s.top) ?? strip ?? LEGACY_TOP),
+    placements: readProfileSet(s.placements) ?? (legacy ? setFromLegacy(readMetrics(Array.isArray(s.metrics) ? s.metrics : [s.metric]) ?? ['volume'], readTop(s.top) ?? strip ?? LEGACY_TOP) : defaultSet()),
     bars: oneOf(['split', 'delta'] as const, s.bars, d.bars), emphasis: flag(s.emphasis, d.emphasis),
     valueArea: flag(s.valueArea, d.valueArea), share: oneOf(SHARES, s.share, d.share), rows: oneOf(ROW_MULTIPLES, s.rows, d.rows),
     poc: flag(s.poc, d.poc), va: flag(s.va, d.va), labels: flag(s.labels, d.labels), tags: flag(s.tags, d.tags),

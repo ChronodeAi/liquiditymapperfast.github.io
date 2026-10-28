@@ -265,8 +265,9 @@ export const DEFAULT_THEME = 'light';
  * always there at first. A save from before it holds a half-life of 10 bp, the old default that every save wrote down: it reads as 100 once
  * (any other, and any chosen since, is kept). A touch screen's save from before it also has the Flow and LT panes on once (the tab bar hides
  * a tab whose pane is off, and a Flow saved off was never found again); a desktop, and a desktop window that happens to be narrow, keeps its panes.
- * No revision for 2026-10-28 (Karl: the daily profile off by default): a first visit draws the days' lines without their profiles, and so
- * does a save from before revision 2; a save since holds the profiles as it saved them, as Scripts switched on by default left a saved off.
+ * No revision for 2026-10-28 (Karl: the daily profile off by default, and the profile along the top): a first visit draws the days' lines
+ * without their profiles and the Volume profile's column without the band along the top, and a save from before revision 2 has no
+ * profiles either; a save since holds both as it saved them, as Scripts switched on by default left a saved off.
  */
 export const DEFAULTS_REV = 4;
 
@@ -294,8 +295,12 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   if (rev < 2) {
     // The days' lines, as a first visit has them; their profiles are off by default since 2026-10-28, so a save this old gets none.
     if (!state.traded.lines.length && state.traded.profiles === null) state.traded = { ...state.traded, lines: ['day'] };
-    // The strip revision 2 turned on is the profile along the top now, which shows with the Volume profile.
-    if (!phone) { state.traded = { ...state.traded, placements: withTopOn(state.traded.placements) }; state.show = { ...state.show, traded: true }; }
+    // The strip revision 2 turned on is the profile along the top now, which shows with the Volume profile. A first visit gets the Volume
+    // profile with its column and no band (off by default since 2026-10-28); a save this old gets the band it was given then.
+    if (!phone) {
+      if (Object.keys(saved).length) state.traded = { ...state.traded, placements: withTopOn(state.traded.placements) };
+      state.show = { ...state.show, traded: true };
+    }
   }
   // The panes: a touch screen only (a desktop browser window that was narrow once is not a phone, and its panes stay as it chose them).
   if (rev < 4 && phone && touch) state.show = { ...state.show, cvd: true, lt: true };

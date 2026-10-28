@@ -242,7 +242,7 @@ test('a profile over whole hours, read from the hours added together, is the sam
   assert.ok(whole.counts!.some(c => c[0] + c[1] > 0), 'the orders were counted');
 });
 
-test('the volume profile is off unless chosen: a save from before it had settings reads as off, a later choice stays; a first visit on a desktop has it, for the profile along the top', () => {
+test('the volume profile is off unless chosen: a save from before it had settings reads as off, a later choice stays; a first visit on a desktop has it, for its column (the profile along the top is off by default since 10-28)', () => {
   const g = globalThis as { window?: unknown }, had = g.window;
   const saved = (value: unknown): void => { g.window = { innerWidth: 1920, localStorage: { getItem: () => JSON.stringify(value) } }; };
   try {
