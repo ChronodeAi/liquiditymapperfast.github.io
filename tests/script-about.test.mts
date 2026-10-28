@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { setLanguage, type Entry } from '../src/app/i18n.ts';
+import { LANGUAGES, setLanguage, type Entry } from '../src/app/i18n.ts';
 import { aboutExample, aboutScript, builtinOf, exampleId } from '../src/app/script/about.ts';
 import { examples, type ExampleKey } from '../src/app/script/examples.ts';
 import { HEATMAP_ID, STARTER_ID, starterScripts } from '../src/app/script/starter.ts';
@@ -33,7 +33,7 @@ test('each description is read in the page\'s language, from every pack', () => 
   const english = new Map(examples().map(e => [e.key, aboutExample(e.key)]));
   const dir = path.join('src', 'app', 'i18n');
   const codes = fs.readdirSync(dir).filter(f => /^[a-z]{2}\.json$/.test(f)).map(f => f.slice(0, 2));
-  assert.equal(codes.length, 11);
+  assert.equal(codes.length, LANGUAGES.length - 1, 'a pack for every language but English');
   try {
     for (const code of codes) {
       const pack = JSON.parse(fs.readFileSync(path.join(dir, `${code}.json`), 'utf8')) as Record<string, Entry>;
@@ -96,7 +96,7 @@ class Fake {
 test('the Scripts panel gives the page\'s scripts a "?" in the list and every example one, and a "?" opens the description under its row', () => {
   const g = globalThis as { document?: unknown };
   const saved = g.document;
-  g.document = { createElement: (tag: string) => new Fake(tag) };
+  g.document = { createElement: (tag: string) => new Fake(tag), querySelector: () => null };
   try {
     const records = [record(STARTER_ID, 'line(1)', 'My VWAP'), record(newId('Bar patterns', () => 0.1), 'line(2)', 'Bar patterns')];
     const host: ScriptsHost = { records, running: true, setRecords: () => true, resultOf: () => null, warningsOf: () => [], analysisOf: () => ({ code: 'empty', line: 0, col: 0 }), showScripts: () => {}, ranOn: () => null };

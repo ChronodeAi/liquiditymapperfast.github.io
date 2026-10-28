@@ -40,7 +40,8 @@ function aboutToggle(ui: ScriptsPanelState, redraw: () => void, key: string, abo
   ask.classList.toggle('open', open);
   ask.setAttribute('aria-expanded', String(open));
   ask.dataset.focus = `about-${key}`;
-  ask.onclick = () => { ui.about = open ? null : key; redraw(); };
+  // Opened, its box is brought into view: on a phone a row low in the list would open it below the fold.
+  ask.onclick = () => { ui.about = open ? null : key; redraw(); if (!open) document.querySelector('.panel .script-about')?.scrollIntoView({ block: 'nearest' }); };
   if (!open) return { button: ask, box: null };
   const box = el('div', { class: 'help-inline script-about' });
   explain(box, about);
