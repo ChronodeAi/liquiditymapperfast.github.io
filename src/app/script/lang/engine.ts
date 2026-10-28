@@ -4,7 +4,7 @@ import { Interpreter, charge, type Budget, type Host } from './interpreter.ts';
 import { declaredNames, numberSites } from './walk.ts';
 import { MAX_PLOTS, PLOTS, RUN_MS, STEPS_PER_CANDLE, analyze, literal, optionTable, sourceFilter, type Analysis } from './analysis.ts';
 import { DateValue, HostObject, NativeFunction, ScriptRuntimeError, isPlain, num, own, plain, text, toData, truthy, type Value } from './values.ts';
-import { BUILTINS, makeInstance, type Instance } from './builtins.ts';
+import { BUILTINS, makeInstance, type Candle, type Instance } from './builtins.ts';
 import { COLOR_NAMES, interpolateColors, rgb, safeColor } from './colors.ts';
 import { PLOT_FIELDS, type PlotKind, type PlotOut, type ScriptResult } from '../protocol.ts';
 import { filterKey, type BarInputs, type SourceInputs } from '../inputs.ts';
@@ -133,6 +133,8 @@ export function createRunner(id: string, source: string, optionValues: Record<st
   const src = (): SourceInputs | undefined => inputs.sources[sourceStack[sourceStack.length - 1]!] ?? inputs.sources[''];
   const at = (arr: Float64Array | undefined): number => arr ? arr[i]! : NaN;
   const price = { color: '' as string, borderColor: '', wickColor: '' };
+  // The chart's candle as the functions of a bar read it (`avg_ohlc(bar)`): one object, set at each candle, since no function keeps it.
+  const candle: Candle = { open: NaN, high: NaN, low: NaN, close: NaN };
   let candleColors: string[] = [];
   let colored = false;
   const priceObject = new HostObject('$price', k => {
@@ -237,7 +239,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
       if (builtin) {
         const inst = instanceAt(site);
         if (!inst.touched) { inst.touched = true; touched.push(inst); }
-        return builtin(inst, args, named, { open: inputs.open[i]!, high: inputs.high[i]!, low: inputs.low[i]!, close: inputs.close[i]! });
+        return builtin(inst, args, named, candle);
       }
       return fn.call(args, named);
     },
@@ -294,16 +296,23 @@ export function createRunner(id: string, source: string, optionValues: Record<st
     // A call with no value (only named arguments) makes its plot and draws nothing.
     if (!args.length) return;
     const point = args[0];
-    const setColor = (c: Value): void => { if (typeof c !== 'string' || !c) return; const color = c.length <= 64 ? safeColor(c, '') : ''; if (!color) return; if (!p!.colors) p!.colors = new Array<string>(n).fill(''); p!.colors[i] = color; };
     if (isPlain(point)) {
       for (const f of PLOT_FIELDS[kind]) { const v = point[f]; p.fields[f]![i] = typeof v === 'number' ? v : v === undefined || v === null ? NaN : num(v); }
       if (kind === 'line' || kind === 'area' || kind === 'histogram' || kind === 'baseline') { if (point.value === undefined && typeof point.close === 'number') p.fields.value![i] = point.close; }
-      setColor(point.color);
+      setColor(p, point.color);
       return;
     }
     const fields = PLOT_FIELDS[kind];
     for (let f = 0; f < fields.length; f++) { const v = args[f]; p.fields[fields[f]!]![i] = typeof v === 'number' ? v : v === undefined || v === null ? NaN : num(v); }
-    if (named && typeof named.color === 'string' && kind === 'histogram') setColor(named.color);
+    if (named && typeof named.color === 'string' && kind === 'histogram') setColor(p, named.color);
+  }
+  /** A point's own colour, when it reads as one. */
+  function setColor(p: PlotBuild, c: Value): void {
+    if (typeof c !== 'string' || !c) return;
+    const color = c.length <= 64 ? safeColor(c, '') : '';
+    if (!color) return;
+    if (!p.colors) p.colors = new Array<string>(n).fill('');
+    p.colors[i] = color;
   }
   /** A histogram bar of 0 is not drawn (an empty candle leaves no stub). */
   const dropZeros = (): void => { for (const p of plots.values()) if (p.kind === 'histogram') { const v = p.fields.value!; for (let k = 0; k < n; k++) if (v[k] === 0) v[k] = NaN; } };
@@ -315,6 +324,8 @@ export function createRunner(id: string, source: string, optionValues: Record<st
     sourceStack.push(key);
     try { return run(); } finally { sourceStack.pop(); }
   };
+  // Only those calls: wrapping every call cost each one a function made for it.
+  host.wrapsCall = node => sourceSites.has(node);
   // A plot's named arguments are its style, read on its first call; `source`, `option` and the stateful functions take theirs from the text.
   host.wantsNamed = (fn, site) => own(PLOTS, fn.name) !== undefined ? !styled.has(site) : !(fn.name === 'source' || fn.name === 'option' || own(BUILTINS, fn.name));
   host.construct = (name, args) => {
@@ -399,6 +410,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
       try {
         for (i = start; i < n; i++) {
           price.color = ''; price.borderColor = ''; price.wickColor = '';
+          candle.open = inputs.open[i]!; candle.high = inputs.high[i]!; candle.low = inputs.low[i]!; candle.close = inputs.close[i]!;
           interp.runOnce();
           for (const inst of touched) { inst.commit(); inst.touched = false; }
           touched.length = 0;
