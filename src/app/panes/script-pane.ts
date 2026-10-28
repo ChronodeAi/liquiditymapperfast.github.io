@@ -459,6 +459,13 @@ export class ScriptPane extends TimePane {
       if (!results.length) { this.refresh(); return; }
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
       if (version !== this.#version) { this.refresh(); return; }
+      // The oldest candle a run alerts at: the last one closed, or the newest when none is under way.
+      const since = time.length ? time[Math.max(0, time.length - (inputs.forming ? 2 : 1))]! : 0;
+      // Alerts only from a live answer for the chart as it is now, with Scripts on: one that comes after Scripts was switched off, the chart
+      // changed or a replay began says nothing. Taken before the theme is checked: an alert says what the chart did, not in which colours,
+      // and the run that replaces one thrown away for its colours may no longer meet it.
+      const cur = this.store.state, live = at === Infinity && !replaying() && cur.show.script && cur.seriesInstrument === inst && (TIMEFRAMES[cur.timeframe] ?? 3_600_000) === tf;
+      if (live) for (const res of results) { const r = runnable.find(x => x.id === res.id); if (r && res.ok) this.#takeAlerts(r, res, inst, tf, since); }
       // The theme changed while it ran (picked, or previewed from the menu): its colours are the other theme's, and the next run is due.
       if (theme !== this.#theme) { this.refresh(); return; }
       // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often, spaced
@@ -466,12 +473,6 @@ export class ScriptPane extends TimePane {
       this.#runMs = ms; this.#lastRun = Date.now() - ms;
       for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst, at });
       this.#held = new Map(this.#held); this.#heldGen++;
-      // The oldest candle a run alerts at: the last one closed, or the newest when none is under way.
-      const since = time.length ? time[Math.max(0, time.length - (inputs.forming ? 2 : 1))]! : 0;
-      // Alerts only from a live answer for the chart as it is now, with Scripts on: one that comes after Scripts was switched off, the chart
-      // changed or a replay began says nothing.
-      const cur = this.store.state, live = at === Infinity && !replaying() && cur.show.script && cur.seriesInstrument === inst && (TIMEFRAMES[cur.timeframe] ?? 3_600_000) === tf;
-      if (live) for (const res of results) { const r = runnable.find(x => x.id === res.id); if (r && res.ok) this.#takeAlerts(r, res, inst, tf, since); }
       this.invalidate();
       this.onMapChanged();
       this.#refreshPanel();
