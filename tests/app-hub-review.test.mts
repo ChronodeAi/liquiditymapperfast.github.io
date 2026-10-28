@@ -77,7 +77,7 @@ test('a live candle of a coarser timeframe is the sum of its minutes, not the bi
 });
 
 test('an older request for the series does not put its answer over a newer one, and a live candle that opens a candle the answer lacks is kept', async () => {
-  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  const { hub, store, source, handlers } = await rig({ marketId: '', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });  // no market known before the start, so no read is started with it: the two loads read apart
   const row = (close: number): CandleRow => [10 * HOUR, 1, 1, 1, close, 1, 1];
   void hub.loadSeries(true);                                                              // asked first
   await turn();
@@ -178,7 +178,7 @@ test('a series that came back empty before any reference market was known is rea
 });
 
 test('an older read of the same series that answers first does not let the stream start the series while the newer one is out', async () => {
-  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  const { hub, store, source, handlers } = await rig({ marketId: '', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });  // no market known before the start, so no read is started with it: the two loads read apart
   void hub.loadSeries(true); await turn();
   void hub.loadSeries(true); await turn();
   source.asked[0]!.resolve([[10 * HOUR, 1, 1, 1, 1, 1, 1]]); await turn();                                 // the older answers: not taken
@@ -228,4 +228,15 @@ test('an empty reload of a series on screen does not frame it again when the nex
   void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([]); await turn();
   void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([[T, 1, 1, 1, 2, 1, 1]]); await turn();
   assert.equal(refilled, 0);
+});
+
+test('the two loads a page starts (its market set, its own) take the one read it started with: one candle request, not two', async () => {
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  void hub.loadSeries(true); void hub.loadSeries(true); await turn();
+  assert.equal(source.asked.length, 1, 'the read the page started with, taken by both');
+  const T = Math.floor(Date.now() / HOUR) * HOUR;
+  source.asked[0]!.resolve([[T, 1, 1, 1, 3, 1, 1]]); await turn();
+  assert.equal(store.state.candles.at(-1)?.[4], 3);
+  void hub.loadSeries(true); await turn();
+  assert.equal(source.asked.length, 2, 'once it has answered, a reload reads afresh');
 });

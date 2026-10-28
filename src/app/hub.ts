@@ -617,10 +617,13 @@ export class Hub {
     this.#reading = reading;
     try {
       // A read already out for this series is taken (the one the page started with, or one read ahead); where it failed, it is asked again.
-      const warm = this.#warm?.key === key ? this.#warm.read : null, shared = warm ?? this.#prefetchReads.get(key);
-      this.#warm = null;
+      // The page's first read is taken by every load of its context until one of them has its answer: the page starts two (one when the
+      // store is given its market, one of its own), and a second read behind the first would hold a server that answers one at a time.
+      if (this.#warm && this.#warm.key !== key) this.#warm = null;
+      const warm = this.#warm?.read ?? null, shared = warm ?? this.#prefetchReads.get(key);
       try { ({ candles, instrument: seriesInstrument } = await (shared ?? this.#readSeries(marketId, timeframe))); }
-      catch (error) { if (!shared) throw error; ({ candles, instrument: seriesInstrument } = await this.#readSeries(marketId, timeframe)); }
+      catch (error) { if (this.#warm?.read === warm) this.#warm = null; if (!shared) throw error; ({ candles, instrument: seriesInstrument } = await this.#readSeries(marketId, timeframe)); }
+      if (warm && this.#warm?.read === warm) this.#warm = null;
       // The page's first read was asked before the reference market was known, so it did not fall back to it.
       if (!candles.length && seriesInstrument === marketId && this.#reference && this.#reference !== marketId) ({ candles, instrument: seriesInstrument } = await this.#readSeries(this.#reference, timeframe));
     } catch (error) {
