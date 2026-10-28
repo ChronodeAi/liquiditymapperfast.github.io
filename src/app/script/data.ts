@@ -3,13 +3,13 @@ import { TIMEFRAMES } from '../hub.ts';
 import type { AppState } from '../store.ts';
 import { FlowCache } from '../delta/candles.ts';
 import { deltaFlows, deltaIds, ensureDeltaFlow } from '../delta/flows.ts';
-import { flowLoadIds } from '../cvd/ids.ts';
+import { flowFeedSpotId, flowLoadIds } from '../cvd/ids.ts';
 import { DAY_MS, liquidationBuckets, type LiquidationDay } from '../panes/bar-stats.ts';
 import { LIQUIDATIONS_PER_ANSWER, LIQUIDATION_RETENTION_MS } from '../../shared/liquidations.ts';
 import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { oiPartsUntil, oiUsdChangeByTime } from '../oi-change.ts';
-import { candleArrays, filterKey, marketInfo, marketsMatching, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
+import { candleArrays, filterKey, marketInfo, marketsMatching, ofTimeframe, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
 import { TakerRows } from '../measures/taker-rows.ts';
 import { candleSides, candleUsd } from '../measures/volume-strip.ts';
 
@@ -52,14 +52,15 @@ export class ScriptData {
     const rows = replaying() ? state.candles.filter(r => r[0] + tf <= now) : state.candles;
     const candles = candleArrays(rows, tf, now);
     const n = candles.time.length;
-    if (!n) return null;
+    if (!n || !ofTimeframe(candles.time, tf)) return null;
     const starts = Array.from(candles.time);
     ensureDeltaFlow(this.hub, flowLoadIds(state, this.hub.flow.ids), starts[0]!, Date.now());
     const markets = this.markets(state, filters);
     const liq = this.#liquidations(starts, tf, now);
     const sources: BarInputs['sources'] = {};
     this.liquidationsCut = false;
-    const chart = state.seriesInstrument || state.marketId;
+    // The chart's market as the sets name it: Binance spot is `binance:BTCUSDT:spot` on the chart, `binancespot:BTCUSDT` in the flow feeds.
+    const chart = state.seriesInstrument || state.marketId, chartSpot = flowFeedSpotId(chart);
     const taker = withCandleFlow ? this.#taker.get(this.hub, state, tf, starts[0]!, () => { this.version++; this.changed(); }) : null;
     const sides = (start: number): readonly [number, number] | null => {
       const own = taker?.get(start), s = own ? candleSides(own, candleUsd(own)) : null;
@@ -77,7 +78,7 @@ export class ScriptData {
           return read.flows;
         },
         liquidations: list => { if (!liq) return undefined; const b = liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, now); if (b.cut) this.liquidationsCut = true; return b; },
-        candle: list => taker && list.includes(chart) ? { from: earliest.get(list.join(',')) ?? null, sides } : null,
+        candle: list => taker && (list.includes(chart) || (chartSpot !== null && list.includes(chartSpot))) ? { from: earliest.get(list.join(',')) ?? null, sides } : null,
       });
     }
     return { tf, ...candles, sources, ...(withOi ? { oichg: ScriptData.oiChange(state, candles.time, candles.close, tf, now) } : {}) };

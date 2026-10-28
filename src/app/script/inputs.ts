@@ -101,6 +101,18 @@ export function candleArrays(rows: readonly CandleRow[], tf: number, now: number
   return { time: f(0), open: f(1), high: f(2), low: f(3), close: f(4), volume: f(5), forming: n > 0 && kept[n - 1]![0] + tf > now };
 }
 
+/**
+ * Whether candles are the timeframe's: right after a change of timeframe the candles of the one before stay until the new ones land, and
+ * read under the new one they would be paired with other flow and other candles of the market. Most neighbours are one timeframe apart
+ * (a gap in the exchange's candles leaves a few that are not).
+ */
+export function ofTimeframe(time: Float64Array, tf: number): boolean {
+  if (time.length < 3) return true;
+  let even = 0;
+  for (let i = 1; i < time.length; i++) if (time[i]! - time[i - 1]! === tf) even++;
+  return even * 2 >= time.length - 1;
+}
+
 /** What `sourceInputs` reads: each candle's flow over a set of markets (`delta/flows.ts deltaFlows`) and the liquidations by candle start. */
 export interface SourceReader {
   flows(ids: readonly string[]): readonly (CandleFlow | null)[];
