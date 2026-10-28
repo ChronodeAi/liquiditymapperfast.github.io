@@ -23,7 +23,8 @@ import { PLOT_FIELDS, type PlotOut, type ScriptResult, type Warning } from '../s
 import { paintPlot, plotColorAt, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
-import type { SourceFilter } from '../script/inputs.ts';
+import type { BarInputs, SourceFilter } from '../script/inputs.ts';
+import { PALETTES } from '../theme.ts';
 import { NEW_SCRIPT, unsaved, type ScriptsPanelState } from '../script/panel-state.ts';
 import { lazy } from '../lazy.ts';
 
@@ -296,7 +297,7 @@ export class ScriptPane extends TimePane {
     // A run under way is waited for; one still waiting for its worker to load is replaced by a newer request; one being asked for is not asked twice.
     if (this.#starting || (this.#running && !this.#host.loading)) return;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
-    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replayKey(tf), theme: state.theme };
+    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replayKey(tf), theme: this.#theme };
     const was = this.#seen, now = Date.now();
     const changed = !was || Object.keys(seen).some(k => (seen as Record<string, unknown>)[k] !== (was as Record<string, unknown>)[k]);
     // Nothing changed: run again at the refresh anyway (the candle under way fills in from the flow), on a timer, so a quiet page still refreshes.
@@ -316,6 +317,16 @@ export class ScriptPane extends TimePane {
     if (this.#timer) window.clearTimeout(this.#timer);
     this.#wakeAt = at;
     this.#timer = window.setTimeout(() => { this.#timer = 0; this.#wakeAt = 0; this.refresh(); }, at - Date.now());
+  }
+
+  /** The theme this pane draws in (the one picked, or one previewed from the menu): its scripts read its colours (`theme`). */
+  #theme = 'light';
+  override setPalette(name: string): void { this.#theme = name; super.setPalette(name); }
+  /** Inputs with the colours of the theme the pane draws in. */
+  #withTheme(inputs: BarInputs | null): BarInputs | null {
+    if (!inputs) return null;
+    const p = PALETTES[this.#theme] ?? PALETTES.light!;
+    return { ...inputs, theme: { dark: p.dark, background: p.bg, text: p.text, up: p.candleUp, down: p.candleDown } };
   }
 
   /** What a script reads that the page cannot give it: an option it reads but does not declare that is not set, a set of markets with none. */
@@ -346,7 +357,7 @@ export class ScriptPane extends TimePane {
     if (!('program' in a)) return { result: { id: 'trial', ok: false, error: a }, warnings: [], candles: 0 };
     if (this.#trialBusy) return 'busy';
     const state = this.store.state, filters = new Map<string, SourceFilter>([['', {}], ...sourcesWith(a, options)]);
-    const inputs = this.#data.inputs(state, filters);
+    const inputs = this.#withTheme(this.#data.inputs(state, filters));
     if (!inputs) return null;
     const warnings = this.#pageWarnings(a, options, this.#data.markets(state, filters));
     // Counted now: the run hands the inputs' arrays over to the worker, which leaves them empty here.
@@ -399,14 +410,14 @@ export class ScriptPane extends TimePane {
     }
     // A look that runs nothing is paced like a run, or a map drawn again for its errors would look again at once, frame after frame.
     if (!runnable.length) { this.#host.dropUnsent(); this.#lastRun = Date.now(); return; }
-    const inputs = this.#data.inputs(state, filters);
+    const inputs = this.#withTheme(this.#data.inputs(state, filters));
     if (!inputs) { this.#host.dropUnsent(); return; }
     const markets = this.#data.markets(state, filters);
     for (const r of runnable) this.#warnings.set(r.id, this.#pageWarnings(this.#analyze(r.source) as Analysis, r.options, markets));
     const time = inputs.time.slice(), tf = inputs.tf, inst = state.seriesInstrument, at = replaying() ? pageNow() : Infinity, started = Date.now();
     const token = ++this.#runToken;
     this.#running = true; this.#lastRun = started;
-    const version = this.#version;
+    const version = this.#version, theme = this.#theme;
     void this.#host.run(runnable.map(r => ({ id: r.id, source: r.source, options: r.options, api: r.api })), inputs).then(({ results, ms }) => {
       // A newer request replaced this one before its worker took it: the newer one's answer is the one that counts.
       if (token !== this.#runToken) return;
@@ -415,6 +426,8 @@ export class ScriptPane extends TimePane {
       if (!results.length) { this.refresh(); return; }
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
       if (version !== this.#version) { this.refresh(); return; }
+      // The theme changed while it ran (picked, or previewed from the menu): its colours are the other theme's, and the next run is due.
+      if (theme !== this.#theme) { this.refresh(); return; }
       // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often, spaced
       // from when it started in its worker.
       this.#runMs = ms; this.#lastRun = Date.now() - ms;

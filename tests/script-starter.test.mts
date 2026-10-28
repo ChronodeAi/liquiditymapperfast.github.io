@@ -4,7 +4,7 @@ import { analyze, runScript } from '../src/app/script/lang/engine.ts';
 import { SCRIPTS_KEY, loadScripts, storeScripts } from '../src/app/script/records.ts';
 import { HEATMAP_ID, HEATMAP_SOURCE, STARTER_ID, VWAP_SOURCE, starterScripts, updateStarters } from '../src/app/script/starter.ts';
 import { PREVIOUS_HEATMAP_SOURCES } from '../src/app/script/starter-previous.ts';
-import { sameCandles } from '../src/app/script/lang/engine.ts';
+import { createRunner, sameCandles } from '../src/app/script/lang/engine.ts';
 import type { BarInputs, ScriptTheme } from '../src/app/script/inputs.ts';
 
 const MIN = 60_000;
@@ -87,12 +87,19 @@ test('the heat map reads the theme: red-orange low and blue high, light ends on 
     if (theme.dark) assert.ok(light(colours[29]!) > 400 && light(colours[59]!) > 400, 'light ends on a dark chart');
     else assert.ok(light(colours[29]!) < 450 && light(colours[59]!) < 450, 'dark ends on a light chart');
     const avg = r.plots.find(p => p.title === 'Average')!;
-    assert.equal(String(avg.style.color), theme.text, "the average in the theme's text colour");
+    assert.equal(String(avg.style.color), theme.dark ? '#f2f2f2' : '#1c1c1c', 'the average off-white on a dark chart, near-black on a light one');
   }
-  // The middle is a little off the background: a neutral reading is not the same as no reading.
-  const flat = { ...inputs(40), theme: DARK };
-  const mid = runScript('heat', HEATMAP_SOURCE, {}, { ...flat, high: flat.close.map(c => c + 1), low: flat.close.map(c => c - 1), close: flat.close.map((c, i) => i % 2 ? c + 0.0 : c) });
-  assert.ok(mid.ok);
+  // A reading of 50 is the neutral middle, a little off the background (a neutral reading is not the same as none), on both kinds of chart.
+  for (const [theme, grey] of [[DARK, [46, 46, 46]], [LIGHT, [232, 232, 232]]] as const) {
+    const flat = inputs(40), close = flat.close.map(() => 100);
+    const mid = runScript('heat', HEATMAP_SOURCE, {}, { ...flat, theme, open: close, close, high: close.map(c => c + 1), low: close.map(c => c - 1) });
+    assert.ok(mid.ok);
+    assert.deepEqual(rgbOf(mid.plots.find(p => p.kind === 'brokenarea')!.colors![39]!), [...grey], theme.dark ? 'dark' : 'light');
+  }
+  // A candle that was not recorded draws nothing in any row, rather than the colour of 0.
+  const gap = swing(DARK), holed = runScript('heat', HEATMAP_SOURCE, {}, { ...gap, close: gap.close.map((c, i) => i === 45 ? NaN : c) });
+  assert.ok(holed.ok);
+  assert.ok(holed.plots.filter(p => p.kind === 'brokenarea').every(p => /transparent|rgba\(0, ?0, ?0, ?0\)/.test(p.colors![45]!)), holed.plots[0]!.colors![45]);
   // With twelve steps, readings inside one step share a colour.
   const stepped = runScript('heat', HEATMAP_SOURCE, { steps: true }, swing(DARK)), smooth = runScript('heat', HEATMAP_SOURCE, {}, swing(DARK));
   assert.ok(stepped.ok && smooth.ok);
@@ -110,6 +117,10 @@ test('a script reads the theme, a member it does not have is warned of, and a ru
   assert.ok(given.ok && given.plots[0]!.fields.value![0] === 1, 'no theme given: the default dark one');
   assert.ok(sameCandles({ ...inputs(), theme: DARK }, { ...inputs(), theme: DARK }, 8));
   assert.ok(!sameCandles({ ...inputs(), theme: DARK }, { ...inputs(), theme: LIGHT }, 8), 'other colours are other inputs');
+  // A runner kept between runs: the candle under way alone runs again under the same theme, everything under another.
+  const runner = createRunner('t', HEATMAP_SOURCE, {}), forming = { ...swing(), forming: true };
+  const starts = [DARK, DARK, LIGHT, LIGHT].map(theme => { runner.run({ ...forming, theme }); return runner.startedAt; });
+  assert.deepEqual(starts.map(s => s > 0), [false, true, false, true], String(starts));
 });
 
 test('a kept heat map of an earlier version is brought to the current one, unless the person edited or coloured it', () => {
@@ -118,6 +129,12 @@ test('a kept heat map of an earlier version is brought to the current one, unles
   assert.deepEqual(updateStarters([{ ...old, options: { scale: 2 } }])[0]!.options, { scale: 2 }, 'its other options stay');
   assert.equal(updateStarters([{ ...old, options: { scale: 2 } }])[0]!.source, HEATMAP_SOURCE);
   assert.equal(updateStarters([{ ...old, options: { highColor: '#ff0000' } }])[0]!.source, old.source, 'coloured by the person: kept');
+  // A save in the old editor wrote every default down: those are untouched colours, and go with the old text.
+  const saved = { scale: 2, lowColor: 'rgb(41,121,255)', midColor: 'rgba(128,128,128,0.12)', highColor: 'rgb(255,152,0)', lineColor: 'rgb(213,0,249)' };
+  const moved = updateStarters([{ ...old, options: saved }])[0]!;
+  assert.deepEqual([moved.source === HEATMAP_SOURCE, moved.options], [true, { scale: 2 }]);
+  assert.equal(updateStarters([{ ...old, options: { ...saved, lineColor: 'rgb(0,0,0)' } }])[0]!.source, old.source, 'one colour of their own: kept');
+  assert.equal(updateStarters([{ ...old, source: old.source.replace(/\n/g, '\r\n') }])[0]!.source, HEATMAP_SOURCE, 'written with Windows line ends');
   assert.equal(updateStarters([{ ...old, source: old.source + '\n// mine' }])[0]!.source, old.source + '\n// mine', 'edited: kept');
   assert.equal(updateStarters([{ ...old, id: 'copy' }])[0]!.source, old.source, 'only the starter itself');
   const current = { ...old, source: HEATMAP_SOURCE };

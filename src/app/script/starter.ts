@@ -53,15 +53,17 @@ colorCandles = option(type=checkbox, default=false, label="Colour the candles")
 
 // The colours from 0 to 100, every 10. They follow the page's theme: light ends on a dark chart, dark ends on a light one. Equal
 // changes of the reading look equal on both sides (worked out in Oklab, a colour space made for that), and the two sides stay
-// apart for colour-blind eyes. The middle is a little off the chart's own background, so a neutral reading is not mistaken for none.
+// apart for colour-blind eyes. The middle is a neutral grey a little off the chart's background, so a neutral reading is not
+// mistaken for none.
 var ramp = theme.dark
   ? ["#f49884", "#c98272", "#a06c60", "#78574f", "#52423e", "#2e2e2e", "#3d4752", "#4c6279", "#5b7ea3", "#6a9bce", "#79b9fb"]
   : ["#a44937", "#b46959", "#c3897c", "#d1a89f", "#ddc8c3", "#e8e8e8", "#c2cfdd", "#9cb6d3", "#789dc7", "#5284bb", "#2a6bae"]
-ramp[5] = interpolate(0.12, theme.background, theme.dark ? "#ffffff" : "#000000")
 
 // A function of your own: the colour of a reading from 0 to 100. With steps on, a reading takes the colour of the middle of its
 // step: below 5, 5 to 10, then every 10, 90 to 94, and 94 and over.
 function shade(k) {
+  // A window without a reading (a candle that was not recorded) draws nothing, rather than the colour of 0.
+  if (!isFinite(k)) return "transparent"
   if (steps) k = k < 5 ? 2.5 : k < 10 ? 7.5 : k >= 94 ? 97 : k >= 90 ? 92 : Math.floor(k / 10) * 10 + 5
   return interpolate(k / 100, ramp)
 }
@@ -106,9 +108,9 @@ brokenarea({ time: time, lowerValue: 81.25, higherValue: 87.5, color: shade(k14)
 brokenarea({ time: time, lowerValue: 87.5, higherValue: 93.75, color: shade(k15) })
 brokenarea({ time: time, lowerValue: 93.75, higherValue: 100, color: shade(k16) })
 
-// The average in the theme's text colour: it stands apart from both sides of the scale.
+// The average in off-white on a dark chart and near-black on a light one: it stands apart from both sides of the scale.
 var average = (k1 + k2 + k3 + k4 + k5 + k6 + k7 + k8 + k9 + k10 + k11 + k12 + k13 + k14 + k15 + k16) / 16
-if (showAverage) line(average, title="Average", color=theme.text, lineWidth=2)
+if (showAverage) line(average, title="Average", color=theme.dark ? "#f2f2f2" : "#1c1c1c", lineWidth=2)
 
 // $price.color colours the map's candle: here by the average, when switched on.
 if (colorCandles) $price.color = shade(average)
@@ -130,13 +132,22 @@ export function starterScripts(): ScriptRecord[] {
   ];
 }
 
-/** The options the heat map had before 2026-10-27 that it no longer has: its colours, now the theme's. */
-const OLD_HEATMAP_OPTIONS = ['lowColor', 'midColor', 'highColor', 'lineColor'];
+/**
+ * The options the heat map had before 2026-10-27 that it no longer has, with their values then: its colours, now the theme's. A save in
+ * the editor wrote these defaults down even when nobody touched them.
+ */
+const OLD_HEATMAP_OPTIONS: Readonly<Record<string, string>> = { lowColor: 'rgb(41,121,255)', midColor: 'rgba(128,128,128,0.12)', highColor: 'rgb(255,152,0)', lineColor: 'rgb(213,0,249)' };
 
 /**
- * A kept list with the heat map as an earlier version of the page wrote it (its text the same and none of its old colours set) gets the
- * current one, so a change to the starter reaches the browsers that kept it. One the person edited, or coloured, stays as it is.
+ * A kept list with the heat map as an earlier version of the page wrote it (its text the same, its old colours as they were) gets the
+ * current one, so a change to the starter reaches the browsers that kept it; its other options stay and the old colours go. One the person
+ * edited, or coloured, stays as it is.
  */
 export function updateStarters(list: ScriptRecord[]): ScriptRecord[] {
-  return list.map(r => r.id === HEATMAP_ID && PREVIOUS_HEATMAP_SOURCES.includes(r.source) && !OLD_HEATMAP_OPTIONS.some(k => k in r.options) ? { ...r, source: HEATMAP_SOURCE } : r);
+  return list.map(r => {
+    if (r.id !== HEATMAP_ID || !PREVIOUS_HEATMAP_SOURCES.includes(r.source.replace(/\r\n?/g, '\n'))) return r;
+    const old = Object.keys(r.options).filter(k => Object.prototype.hasOwnProperty.call(OLD_HEATMAP_OPTIONS, k));
+    if (old.some(k => r.options[k] !== OLD_HEATMAP_OPTIONS[k])) return r;
+    return { ...r, source: HEATMAP_SOURCE, options: Object.fromEntries(Object.entries(r.options).filter(([k]) => !old.includes(k))) };
+  });
 }

@@ -266,7 +266,7 @@ export const DEFAULT_THEME = 'light';
  * (any other, and any chosen since, is kept). A touch screen's save from before it also has the Flow and LT panes on once (the tab bar hides
  * a tab whose pane is off, and a Flow saved off was never found again); a desktop, and a desktop window that happens to be narrow, keeps its panes.
  */
-export const DEFAULTS_REV = 5;
+export const DEFAULTS_REV = 4;
 
 export function initialState(phone: boolean = isPhone(), touch: boolean = isCoarse()): AppState {
   const saved = readSaved();
@@ -298,9 +298,6 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   if (rev < 4 && phone && touch) state.show = { ...state.show, cvd: true, lt: true };
   // The half-life: every screen. The old default is not a choice (every save wrote it down); another value is.
   if (rev < 4 && state.lt.halfLifeBp === LT_OLD_HALF_LIFE_BP) state.lt = { ...state.lt, halfLifeBp: LT_DEFAULTS.halfLifeBp };
-  // Scripts: on for every screen once (Karl, 2026-10-27: the stochastic heat map is part of the default view). It shipped switched off
-  // the same day, and every save since wrote the off down whether chosen or not, so an off from before this revision is not a choice.
-  if (rev < 5) state.show = { ...state.show, script: true };
   state.defaultsRev = DEFAULTS_REV;
   state.theme = resolveThemeId(state.theme);
   if (!state.themePicked && state.theme === 'terminal') state.theme = DEFAULT_THEME;

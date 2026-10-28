@@ -62,7 +62,7 @@ test('revision 3: a save of revision 2 carries its measure strip into the profil
   // off" rule does not switch off what the strip carried in.
   saved({ defaultsRev: 2, show: { ...DEFAULT_SHOW, traded: false }, measureStrip: { on: true, kind: 'oi' } }, () => { const s = initialState(); assert.deepEqual([topOf(s.traded), s.show.traded], [{ on: true, metric: 'oi' }, true]); });
   saved({ defaultsRev: 2, show: { ...DEFAULT_SHOW, traded: true }, measureStrip: { on: false, kind: 'oi' } }, () => assert.equal(initialState().show.traded, false, 'with the strip off, the old rule stands'));
-  assert.equal(DEFAULTS_REV, 5, 'revision 5 is Scripts on (below)');
+  assert.equal(DEFAULTS_REV, 4);
 });
 
 test('revision 4: the Liquidity Tracker is at 100 bp on every screen unless another half-life was chosen, and a touch screen has the Flow and LT panes on once', () => {
@@ -124,9 +124,10 @@ test('the top bar starts unfolded; a fold is kept in this browser, never in a la
   assert.equal((LAYOUT_KEYS as readonly string[]).includes('barCollapsed'), false);
 });
 
-test('revision 5: Scripts is on for a first visit, and once for a save from before (its off was written down by every save, not chosen)', () => {
+test('Scripts is on for a first visit and for a save from before it existed; a save that holds it off keeps it off (it may have been chosen)', () => {
   assert.equal(DEFAULT_SHOW.script, true);
   saved(null, () => assert.equal(initialState().show.script, true));
-  saved({ defaultsRev: 4, show: { ...DEFAULT_SHOW, script: false } }, () => { const s = initialState(); assert.deepEqual([s.show.script, s.defaultsRev], [true, DEFAULTS_REV]); });
-  saved({ defaultsRev: DEFAULTS_REV, show: { ...DEFAULT_SHOW, script: false } }, () => assert.equal(initialState().show.script, false, 'switched off since: kept'));
+  const { script: _, ...older } = DEFAULT_SHOW;
+  saved({ defaultsRev: 4, show: older }, () => assert.equal(initialState().show.script, true));
+  saved({ defaultsRev: 4, show: { ...DEFAULT_SHOW, script: false } }, () => assert.equal(initialState().show.script, false));
 });

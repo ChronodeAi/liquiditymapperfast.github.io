@@ -8,7 +8,6 @@ import { DAY_MS, liquidationBuckets, type LiquidationDay } from '../panes/bar-st
 import { LIQUIDATIONS_PER_ANSWER, LIQUIDATION_RETENTION_MS } from '../../shared/liquidations.ts';
 import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
-import { PALETTES } from '../theme.ts';
 import { candleArrays, filterKey, marketInfo, marketsMatching, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
 
 /**
@@ -61,9 +60,7 @@ export class ScriptData {
         liquidations: list => { if (!liq) return undefined; const b = liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, now); if (b.cut) this.liquidationsCut = true; return b; },
       });
     }
-    // The page's colours, for scripts that colour themselves from the theme the person picked.
-    const p = PALETTES[state.theme] ?? PALETTES.dark!;
-    return { tf, ...candles, sources, theme: { dark: p.dark, background: p.bg, text: p.text, up: p.candleUp, down: p.candleDown } };
+    return { tf, ...candles, sources };
   }
 
   /** A filter's key (the same `filterKey` the scripts' analysis gives). */
