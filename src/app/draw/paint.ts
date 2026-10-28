@@ -217,7 +217,7 @@ function caughtText(field: SnapField, price: string, size: string): string {
 export function paintEditing(ctx: CanvasRenderingContext2D, draw: DrawController, pr: Projection, p: Palette): void {
   plotBox = { x0: -CUT, y0: -CUT, x1: pr.w + CUT, y1: pr.h + CUT };
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pr.w, pr.h); ctx.clip();
-  const hovered = draw.hover && draw.hover.id !== draw.selected ? draw.get(draw.hover.id) : null;
+  const hovered = draw.hover && draw.hover.id !== draw.selected ? draw.shown().find(d => d.id === draw.hover!.id) ?? null : null;
   if (hovered) strokeSegments(ctx, strokesOf(hovered, pr), colorOf(hovered.style.color, p), hovered.style.width + 3, false, p, 0.3);
   const sel = draw.shown().find(d => d.id === draw.selected);
   if (sel) {

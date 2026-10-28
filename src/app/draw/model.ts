@@ -151,7 +151,7 @@ export function readDoc(raw: unknown): DrawDoc | null {
   const coins: Record<string, Drawing[]> = {};
   if (s.coins && typeof s.coins === 'object') {
     for (const [coin, list] of Object.entries(s.coins as Record<string, unknown>)) {
-      if (!COIN.test(coin) || !Array.isArray(list)) continue;
+      if (!COIN.test(coin) || coin.startsWith('__') || !Array.isArray(list)) continue;
       const seen = new Set<string>(), kept: Drawing[] = [];
       for (const item of list) { const d = readDrawing(item); if (d && !seen.has(d.id)) { seen.add(d.id); kept.push(d); } }
       if (kept.length) coins[coin] = kept.sort((a, b) => a.created - b.created).slice(-MAX_PER_COIN);

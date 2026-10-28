@@ -145,8 +145,13 @@ export function editorPlace(d: Drawing, pr: Projection, size: { w: number; h: nu
   if (x1 < 0 || x0 > pr.w || y1 < 0 || y0 > pr.h || x1 < x0) return null;
   const gap = 12, x = Math.max(left, Math.min(pr.w - size.w - 4, (x0 + x1) / 2 - size.w / 2));
   const above = y0 - gap - size.h, below = y1 + gap;
-  const low = Math.max(top, below), y = above >= top ? above : low + size.h <= pr.h - 4 ? low : Math.max(top, Math.min(pr.h - size.h - 4, above));
-  return { x, y };
+  const low = Math.max(top, below);
+  if (above >= top) return { x, y: above };
+  if (low + size.h <= pr.h - 4) return { x, y: low };
+  const y = Math.max(top, Math.min(pr.h - size.h - 4, (y0 + y1) / 2 - size.h / 2));
+  if (x1 + gap + size.w <= pr.w - 4) return { x: x1 + gap, y };
+  if (x0 - gap - size.w >= left) return { x: x0 - gap - size.w, y };
+  return { x, y: Math.max(top, Math.min(pr.h - size.h - 4, above)) };
 }
 
 export interface DrawBarHost {
@@ -269,7 +274,8 @@ export class DrawBar {
     const d = this.draw, sel = d.open ? d.shown().find(x => x.id === d.selected) ?? null : null, phone = compactBar();
     if (sel) this.#syncFigures(performance.now());
     const railRight = this.rail.hidden ? 4 : 6 + this.#sizes.railW + 6, room = `${Math.max(160, f.pr.w - railRight - 8)}px`;
-    if (!phone && this.editor.style.maxWidth !== room) this.editor.style.maxWidth = room;
+    const width = phone ? '' : room;
+    if (this.editor.style.maxWidth !== width) this.editor.style.maxWidth = width;
     let editor = '';
     if (sel && !phone) {
       const at = editorPlace(sel, f.pr, { w: this.#sizes.editorW, h: this.#sizes.editorH }, f.legendBottom + 6, railRight, sel.kind === 'note' ? d.noteSize(sel) : undefined);
@@ -404,7 +410,7 @@ export class DrawBar {
     const file = el('input', { type: 'file', accept: 'application/json,.json', hidden: true });
     file.onchange = () => {
       const f = file.files?.[0]; if (!f) return;
-      if (f.size > MAX_IMPORT_CHARS * 3) { d.message = { text: t('That file is too large to be drawings from this page.'), warn: true }; this.sync(); file.value = ''; return; }
+      if (f.size > MAX_IMPORT_CHARS) { d.message = { text: t('That file is too large to be drawings from this page.'), warn: true }; this.sync(); file.value = ''; return; }
       void f.text().then(text => { const said = d.importText(text), failed = d.message?.warn ? d.message.text : ''; d.message = failed ? { text: `${said} ${failed}`, warn: true } : { text: said, warn: false }; this.sync(); });
       file.value = '';
     };

@@ -129,7 +129,11 @@ export class DrawController {
     return { x: q => v.xOf(q, w), y: p => v.yOf(p, h), t: x => v.tOf(x, w), p: y => v.pOf(y, h), w, h };
   }
 
-  #changed(): void { this.onChange(); this.host.redraw(); }
+  #changed(): void {
+    if (this.selected && !this.shown().some(d => d.id === this.selected)) this.selected = null;
+    if (this.hover && !this.shown().some(d => d.id === this.hover!.id)) this.hover = null;
+    this.onChange(); this.host.redraw();
+  }
 
   /** Write this coin's list, as a step Undo can take back (`step`) or as part of one still under way (a drag), and keep it. */
   #write(next: readonly Drawing[], step: { before: readonly Drawing[] } | null): void {
@@ -327,7 +331,7 @@ export class DrawController {
     if (!fits({ ...d, ...patch })) return;
     this.#write(before.map(x => x.id === id ? { ...x, ...patch } : x), { before });
     // A drawing hidden is let go: nothing unseen stays selected (Delete would remove it with nothing on screen).
-    if (patch.hidden === true && this.selected === id) this.selected = null;
+    if (patch.hidden === true) { if (this.selected === id) this.selected = null; if (this.hover?.id === id) this.hover = null; }
     this.#changed();
   }
 
@@ -344,7 +348,9 @@ export class DrawController {
     if (this.readOnly) return;
     const before = this.list(), d = before.find(x => x.id === id); if (!d) return;
     if (capReached(this.#doc, this.#coin)) { this.message = { text: t('This coin has as many drawings as it can keep (100): delete one to add another.'), warn: true }; this.onChange(); return; }
-    const v = this.host.view, down = copyOf(d, (v.t1 - v.t0) * 0.03, -(v.p1 - v.p0) * 0.03), copy = fits(down) ? down : copyOf(d, (v.t1 - v.t0) * 0.03, (v.p1 - v.p0) * 0.03);
+    const v = this.host.view, dt = (v.t1 - v.t0) * 0.03, dp = (v.p1 - v.p0) * 0.03;
+    const copy = [copyOf(d, dt, -dp), copyOf(d, dt, dp), copyOf(d, -dt, -dp), copyOf(d, -dt, dp)].find(fits);
+    if (!copy) { this.message = { text: t('A drawing needs its points on the chart, at prices above zero.'), warn: true }; this.onChange(); return; }
     this.#write([...before, copy], { before });
     this.selected = copy.id;
     this.#changed();
@@ -411,7 +417,8 @@ export class DrawController {
   /** Centre the map on a drawing. */
   find(id: string): void {
     let d = this.get(id); if (!d) return;
-    if (d.hidden && !this.readOnly) { this.update(id, { hidden: false }); d = this.get(id); if (!d) return; }
+    if (d.hidden) { if (this.readOnly) return; this.update(id, { hidden: false }); d = this.get(id); if (!d) return; }
+    if (!this.host.settings().shown) this.host.reveal();
     const v = this.host.view, ts = d.points.map(q => q.t), ps = d.points.map(q => q.p);
     const time = d.kind === 'level' ? { t0: v.t0, t1: v.t1 } : { t0: Math.min(...ts), t1: Math.max(...ts) };
     const prices = d.kind === 'vline' ? { p0: v.p0, p1: v.p1 } : { p0: Math.min(...ps), p1: Math.max(...ps) };
