@@ -299,4 +299,26 @@ test('a kept series brought up to date: a read ahead of it is taken as a first r
   assert.equal(c.store.state.candles.at(-1)![5], 30);
   await answer(c.source, [B, 1, 1, 1, 1, 120, 1]);
   assert.deepEqual(c.store.state.candles.slice(-2).map(x => [x[0] - B, x[5]]), [[0, 120], [5 * MIN, 30]]);
+  // ... with the open and range the stream gave it, not the last minute's alone.
+  const d = await kept();
+  d.handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [B + 5 * MIN, 10, 15, 5, 12, 10] } }));
+  d.handlers().onTick(tick({ asOf: now + 60_000, candles: { 'ref:BTC': [B + 6 * MIN, 12, 13, 11, 12, 20] } }));
+  await answer(d.source, [B, 1, 1, 1, 1, 120, 1]);
+  const open = d.store.state.candles.at(-1)!;
+  assert.deepEqual([open[0] - B, open[1], open[2], open[3], open[5]], [5 * MIN, 10, 15, 5, 30]);
+});
+
+test('a kept one-minute series brought up to date by a read behind the stream keeps the larger volume', async t => {
+  const M = Math.floor(BASE / MIN) * MIN, now = M + 20_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '1m', seriesInstrument: 'ref:BTC', candles: [] });
+  void hub.loadSeries(true); await turn();
+  await answer(source, [M, 1, 1, 1, 1, 100, 1]);
+  store.set({ timeframe: '5m' }); void hub.loadSeries(true); await turn();
+  await answer(source, [Math.floor(M / (5 * MIN)) * (5 * MIN), 1, 1, 1, 1, 500, 1]);
+  store.set({ timeframe: '1m' }); void hub.loadSeries(true); await turn();                               // the kept minute, at once
+  handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [M, 1, 1, 1, 1, 120] } }));
+  assert.equal(store.state.candles.at(-1)![5], 120);
+  await answer(source, [M, 1, 1, 1, 1, 105, 1]);
+  assert.equal(store.state.candles.at(-1)![5], 120, 'a read behind the stream lowers nothing');
 });

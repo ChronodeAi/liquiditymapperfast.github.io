@@ -166,6 +166,7 @@ test('a series that came back empty before any reference market was known is rea
   const hub = new Hub(store, source as unknown as DataSource);
   (hub.worker as unknown as FakeWorker).onmessage!({ data: { type: 'ready' } });
   await hub.start();
+  let refilled = 0; hub.onSeriesRefilled = () => refilled++;
   void hub.loadSeries(true); await turn();
   source.asked[0]!.resolve([]); await turn();                                                              // the market's own: nothing
   assert.equal(store.state.candles.length, 0);
@@ -173,6 +174,7 @@ test('a series that came back empty before any reference market was known is rea
   source.asked.at(-1)!.resolve([]); await turn();                                                          // its own again: nothing
   source.asked.at(-1)!.resolve([[10 * HOUR, 1, 1, 1, 7, 1, 1]]); await turn();                             // then the reference's
   assert.deepEqual([store.state.candles.length, store.state.seriesInstrument], [1, 'ref:BTC']);
+  assert.equal(refilled, 1, 'the page is told, to frame them');
 });
 
 test('an older read of the same series that answers first does not let the stream start the series while the newer one is out', async () => {
@@ -184,4 +186,15 @@ test('an older read of the same series that answers first does not let the strea
   assert.equal(store.state.candles.length, 0, 'no candle of a minute while the newer read is out');
   source.asked[1]!.resolve([[11 * HOUR, 1, 1, 1, 1, 9, 1]]); await turn();
   assert.equal(store.state.candles.length, 1);
+});
+
+test('an empty answer leaves what was kept of the series', async () => {
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  const T = Math.floor(Date.now() / HOUR) * HOUR;
+  void hub.loadSeries(true); await turn(); source.asked[0]!.resolve([[T, 1, 1, 1, 5, 1, 1]]); await turn();
+  void hub.loadSeries(true); await turn(); source.asked[1]!.resolve([]); await turn();                     // the minute's reload: nothing this time
+  store.set({ timeframe: '5m' }); void hub.loadSeries(true); await turn(); source.asked[2]!.resolve([[T, 1, 1, 1, 6, 1, 1]]); await turn();
+  let shown = 0;
+  store.set({ timeframe: '1h' }); void hub.loadSeries(true, () => shown++); await turn();
+  assert.deepEqual([shown, store.state.candles.at(-1)?.[4]], [1, 5], 'the hour kept from before the empty answer');
 });

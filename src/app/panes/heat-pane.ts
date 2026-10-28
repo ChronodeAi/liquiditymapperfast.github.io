@@ -541,7 +541,10 @@ export class HeatPane {
     const recent = candles.slice(Math.max(0, from));
     let lo = Infinity, hi = -Infinity;
     for (const c of recent) { lo = Math.min(lo, c[3]); hi = Math.max(hi, c[2]); }
-    if (!(hi > lo)) { const p = mark.price || 1; lo = p * 0.99; hi = p * 1.01; }
+    // Neither candles nor a price yet (a start that did not wait for one): nothing to frame, so the view stays unset and the first frame
+    // that has either frames it (`#render`), rather than a price axis around 1 that the price recentres but never widens.
+    if (!(hi > lo) && !(mark.price > 0)) return;
+    if (!(hi > lo)) { const p = mark.price; lo = p * 0.99; hi = p * 1.01; }
     const pad = (hi - lo) * 0.18;
     const now = pageNow();
     let span = tf * Math.max(40, Math.min(110, recent.length || 80));

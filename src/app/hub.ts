@@ -284,6 +284,8 @@ export class Hub {
     return h;
   }
   onLiquidationsChanged: () => void = () => {};
+  /** A series that came back empty was read again once the reference market was known, and has candles now: the page frames them. */
+  onSeriesRefilled: () => void = () => {};
   /** 'unavailable': the source has no liquidations (a server from before them); asked again a minute later. */
   liquidationsState: 'ready' | 'unavailable' = 'ready';
   #liquidationsWindow: { t0: number; t1: number; min: number; cut: boolean; live: boolean } | null = null;
@@ -543,7 +545,11 @@ export class Hub {
   #learnReference(id: string): void {
     if (this.#reference || !id) return;
     this.#reference = id;
-    if (this.#emptyRead && this.#emptyRead === this.#series) { this.#emptyRead = ''; void this.loadSeries(true).catch(() => undefined); }
+    if (this.#emptyRead && this.#emptyRead === this.#series) {
+      const key = this.#emptyRead;
+      this.#emptyRead = '';
+      void this.loadSeries(true).then(() => { if (this.#onScreen === key && this.store.state.candles.length) this.onSeriesRefilled(); }, () => undefined);
+    }
   }
 
   /** The last 500 candles of a market's timeframe, or the reference market's where it has none. */
@@ -555,10 +561,10 @@ export class Hub {
   }
 
   #keep(key: string, candles: CandleRow[], instrument: string): void {
-    this.#seriesKept.delete(key);
-    // A source that could not read a market answers with nothing: that is not kept to be shown, nor taken as read (it is asked again).
+    // A source that could not read a market answers with nothing: that is not kept to be shown, nor taken as read (it is asked again), and
+    // what was kept of it before stays.
     if (!candles.length) return;
-    this.#seriesKept.set(key, { candles, instrument, at: Date.now() });
+    this.#seriesKept.delete(key); this.#seriesKept.set(key, { candles, instrument, at: Date.now() });
     while (this.#seriesKept.size > SERIES_KEPT) this.#seriesKept.delete(this.#seriesKept.keys().next().value!);
   }
 
@@ -1221,20 +1227,22 @@ export interface LiveTrack { bucket: number; base: number; minutes: Map<number, 
 
 /**
  * A kept series brought up to date by its read (`loadSeries`), against what was shown of it (the kept candles and what the stream added).
- * The stream on a candle the read does not have yet keeps its track (the live candle goes on the read, `#show`). A read no further on than
- * what was shown (taken before the stream's latest) leaves the open candle's volume and track as they were, its range widened. A read
- * further on holds the minutes the kept candles missed: it is taken as a first read is (the track starts again, from the next tick's
- * minute), its range widened by what was shown. (`keepGrowth` would put those minutes on the minute under way, and the stream could not
- * raise it again until it had passed them.) As for any first read, what traded in the minute under way between the read and that tick is
- * not told apart.
+ * Candles the stream opened after the read's newest are kept as shown, with their track (their open and range are the stream's). A read
+ * no further on than what was shown (taken before the stream's latest) leaves the open candle's volume and track as they were, its range
+ * widened (a one-minute series has no track: its volume is the larger). A read further on holds the minutes the kept candles missed: it is
+ * taken as a first read is (the track starts again, from the next tick's minute), its range widened by what was shown. (`keepGrowth` would
+ * put those minutes on the minute under way, and the stream could not raise it again until it had passed them.) As for any first read,
+ * what traded in the minute under way between the read and that tick is not told apart.
  */
 export function rebaseLive(loaded: CandleRow[], shown: readonly CandleRow[], track: { current: LiveTrack | null }): CandleRow[] {
-  const last = loaded[loaded.length - 1], seen = track.current, was = shown[shown.length - 1];
+  const last = loaded[loaded.length - 1];
   if (!last) { track.current = null; return loaded; }
-  if (seen && seen.bucket > last[0]) return loaded;
+  const newer = shown.filter(c => c[0] > last[0]);
+  if (newer.length) return [...loaded, ...newer];
+  const was = shown[shown.length - 1];
   if (!was || was[0] !== last[0]) { track.current = null; return loaded; }
   const high = Math.max(last[2], was[2]), low = Math.min(last[3], was[3]);
-  if (seen && seen.bucket === last[0] && was[5] >= last[5]) return [...loaded.slice(0, -1), [last[0], last[1], high, low, last[4], was[5], last[6]]];
+  if (was[5] >= last[5]) return [...loaded.slice(0, -1), [last[0], last[1], high, low, last[4], was[5], last[6]]];
   track.current = null;
   return [...loaded.slice(0, -1), [last[0], last[1], high, low, last[4], last[5], last[6]]];
 }

@@ -233,6 +233,8 @@ async function main(): Promise<void> {
   // Trades recovered from a venue's history (the browser engine): no flow burst is sounded over them.
   hub.onRecovered = (id, _from, to) => { alerts.recovered.set(id, Math.max(alerts.recovered.get(id) ?? 0, to)); };
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
+  // Candles that came after the first frame (an exchange blocked here, the reference market read once known) are framed, unless the map was moved.
+  hub.onSeriesRefilled = () => { if (store.state.followLive) heat.fit(); lower(); };
   toolbar.keyHistory = hub.keyHistory;
   toolbar.profileHistory = barMs => hub.profileHistory(barMs);
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
