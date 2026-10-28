@@ -45,7 +45,6 @@ export function readTheme(): Theme {
     lut: dark ? (lutDark ??= buildLut(true)) : (lutLight ??= buildLut(false)) };
 }
 const ramp = (th: Theme, s: number, alpha = 1): string => { const i = Math.round(clamp(s) * 255) * 4; return `rgba(${th.lut[i]}, ${th.lut[i + 1]}, ${th.lut[i + 2]}, ${alpha})`; };
-const grey = (th: Theme, s: number): string => { const m = /^#?([0-9a-f]{6})$/i.exec(th.muted.replace('#', '')); const c = m ? parseInt(m[1]!, 16) : 0x808080; return `rgba(${c >> 16 & 255}, ${c >> 8 & 255}, ${c & 255}, ${(0.16 + 0.74 * clamp(s)).toFixed(3)})`; };
 
 // ---- a small made-up market ---------------------------------------------------------------------------------------------------------
 
@@ -74,7 +73,7 @@ function niceStep(span: number, target: number): number {
   return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * mag;
 }
 
-interface ChartOptions { heat?: 'colour' | 'grey' | 'none'; candles?: boolean; mark?: boolean; axis?: boolean; timeGrid?: boolean; tFrom?: number; window?: [number, number]; candleSlots?: number }
+interface ChartOptions { heat?: 'colour' | 'none'; candles?: boolean; mark?: boolean; axis?: boolean; timeGrid?: boolean; tFrom?: number; window?: [number, number]; candleSlots?: number }
 
 /** The chart: grid, the map as streaks, candles and the mark line, clipped to `b`. `window` shifts which sizes get a colour (the contrast slider). */
 function chart(g: Ctx, b: Box, d: Dom, th: Theme, o: ChartOptions = {}): void {
@@ -92,7 +91,7 @@ function chart(g: Ctx, b: Box, d: Dom, th: Theme, o: ChartOptions = {}): void {
     for (const w of [...NOISE, ...WALLS]) {
       const s = (w.s - lo) / span; if (s <= 0.02) continue;
       const a = Math.max(w.a, o.tFrom ?? 0), x0 = xOf(b, d, a), x1 = xOf(b, d, w.b); if (x1 <= x0) continue;
-      g.fillStyle = o.heat === 'grey' ? grey(th, s) : ramp(th, clamp(s), clamp(s * 3));
+      g.fillStyle = ramp(th, clamp(s), clamp(s * 3));
       g.fillRect(x0, yOf(b, d, w.p) - band / 2, x1 - x0, band);
     }
   }

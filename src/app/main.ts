@@ -2,6 +2,7 @@ import { Hub } from './hub.ts';
 import { ServerSource } from './server-source.ts';
 import { BrowserSource } from './browser-source.ts';
 import { chooseCoin, currentCoin, forCoin, keepCoinRecordings, scaledUsd, type CoinChoice } from './coin.ts';
+import { instrumentIdFor } from '../shared/coins.ts';
 import { withAnchor } from './vwap/settings.ts';
 import type { DataSource } from './source.ts';
 import { loadKernels } from './kernels.ts';
@@ -364,7 +365,8 @@ async function main(): Promise<void> {
   layout(); ladder.syncControls(); lt.refresh();
   arrange.setPaneHeight('bars', tableHeight(store.state.barStats, store.state.barStatOptions));
   toolbar.sync(store.state, heat.window);
-  await hub.start();
+  // The page opens on the coin's Binance perpetual wherever it is read (`defaultMarket`): its series is asked for as the page starts.
+  await hub.start(instrumentIdFor('binance', choice.coin) ?? '');
   await hub.loadSeries(true);
   heat.fit(); lower();
   // A tab saved from the last visit is already showing: what it covers draws nothing from the start, not from the first tap (the dock only tells of a change).

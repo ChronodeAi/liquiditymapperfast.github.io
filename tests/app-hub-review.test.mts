@@ -126,20 +126,33 @@ test('the page starts on the Binance perpetual where it reads one, else the refe
 
 test('a timeframe read before is shown the moment it is chosen, then brought up to date; the others are read nearest first', async () => {
   const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
-  const row = (t: number, close: number): CandleRow => [t, 1, 1, 1, close, 1, 1];
+  const row = (t: number, close: number): CandleRow => [t, 1, 1, 1, close, 1, 1], T = Math.floor(Date.now() / HOUR) * HOUR;
   void hub.loadSeries(true); await turn();
-  source.asked[0]!.resolve([row(10 * HOUR, 100)]); await turn();
+  source.asked[0]!.resolve([row(T, 100)]); await turn();
   store.set({ timeframe: '5m' });
   let shown = 0;
   void hub.loadSeries(true, () => shown++); await turn();
   assert.equal(shown, 0, 'nothing kept of 5m yet: it waits for its read');
-  source.asked[1]!.resolve([row(10 * HOUR, 50)]); await turn();
+  source.asked[1]!.resolve([row(T, 50)]); await turn();
   store.set({ timeframe: '1h' });
   void hub.loadSeries(true, () => shown++); await turn();
   assert.equal(shown, 1, 'the hour kept from before');
   assert.deepEqual(store.state.candles.map(c => c[4]), [100], 'shown before its read answers');
-  source.asked[2]!.resolve([row(10 * HOUR, 120)]); await turn();
+  source.asked[2]!.resolve([row(T, 120)]); await turn();
   assert.deepEqual(store.state.candles.map(c => c[4]), [120], 'then up to date');
   assert.deepEqual(prefetchOrder('1h'), ['30m', '4h', '15m', '1d', '5m', '1m']);
   assert.deepEqual(prefetchOrder('1m'), ['5m', '15m', '30m', '1h', '4h', '1d']);
+});
+
+test('a second switch before the first one answers leaves nothing of the one between, and the stream starts no series while its read is out', async () => {
+  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  void hub.loadSeries(true); await turn();
+  source.asked[0]!.resolve([[10 * HOUR, 1, 1, 1, 1, 1, 1]]); await turn();
+  store.set({ marketId: 'sel:BTC' });
+  void hub.loadSeries(true); await turn();
+  handlers().onTick(tick({ candles: { 'sel:BTC': [10 * HOUR, 5, 5, 5, 5, 2] } }));
+  assert.equal(store.state.candles.length, 0, 'no candle of a minute stands for the one under way while the read is out');
+  store.set({ timeframe: '5m' });
+  void hub.loadSeries(true); await turn();
+  assert.deepEqual([store.state.candles.length, store.state.candlesTimeframe, store.state.seriesInstrument], [0, '5m', 'sel:BTC']);
 });

@@ -144,12 +144,12 @@ export function openPanel(anchor: HTMLElement, options: PanelOptions, build: (to
     grip.addEventListener('pointerdown', event => {
       if (event.button !== 0 || compactBar()) return;
       event.preventDefault(); event.stopPropagation();
-      drag.hold();
       const r = root.getBoundingClientRect(), fromLeft = grip.classList.contains('left'), id = event.pointerId;
       const start = { x: event.clientX, y: event.clientY, left: r.left, top: r.top, width: r.width, height: r.height };
-      let at = { x: start.x, y: start.y }, frame = 0;
+      let at = { x: start.x, y: start.y }, frame = 0, held = false;
       const apply = (): void => {
         frame = 0;
+        if (!held) { held = true; drag.hold(); }
         const vw = window.innerWidth, vh = window.innerHeight, dx = at.x - start.x;
         const most = fromLeft ? start.left + start.width - EDGE : vw - EDGE - start.left, tallest = vh - start.top - EDGE;
         const w = Math.max(Math.min(PANEL_MIN.width, most), Math.min(most, start.width + (fromLeft ? -dx : dx)));
@@ -165,7 +165,8 @@ export function openPanel(anchor: HTMLElement, options: PanelOptions, build: (to
         root.classList.remove('being-sized');
         window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end);
         try { grip.releasePointerCapture(id); } catch { /* never held */ }
-        if (sized && options.resizable) writeSize(options.resizable, sized);
+        if (!held) return;
+        if (sized && options.resizable) writeSize(options.resizable, { width: Math.max(PANEL_MIN.width, sized.width), height: Math.max(PANEL_MIN.height, sized.height) });
         drag.clamp();
       };
       root.classList.add('being-sized');

@@ -103,7 +103,18 @@ const SERIES_KEPT = 16;
  * The other timeframes are read this long after a series is shown (the first time longer, while the page's own first reads are out), one
  * at a time with a pause between them, and again once what is kept of them is this old.
  */
-const PREFETCH_FIRST_MS = 4_000, PREFETCH_AFTER_MS = 1_500, PREFETCH_GAP_MS = 400, PREFETCH_FRESH_MS = 3 * MINUTE;
+const PREFETCH_FIRST_MS = 4_000, PREFETCH_AFTER_MS = 1_500, PREFETCH_GAP_MS = 400, PREFETCH_FRESH_MS = 3 * MINUTE, PREFETCH_DEADLINE_MS = 20_000;
+/** A kept series is shown at once while its newest candle is at most this far behind now (or three of its candles, when longer). */
+const KEPT_GAP_MS = 10 * MINUTE;
+
+/** A promise that rejects once `ms` have passed without an answer (a timer that never holds a test's process open). */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('No answer in time')), ms);
+    (timer as { unref?: () => void }).unref?.();
+    promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
+}
 
 /** The other timeframes in the order they are read ahead: the nearest to the one on screen first, the shorter before the longer. */
 export function prefetchOrder(timeframe: string): string[] {
@@ -163,7 +174,14 @@ export class Hub {
   /** A read ahead still out, by its series: a switch to that timeframe takes its answer rather than asking again behind it. */
   readonly #prefetchReads = new Map<string, Promise<{ candles: CandleRow[]; instrument: string }>>();
   #prefetchTimer: ReturnType<typeof setTimeout> | null = null;
-  #prefetching = false; #prefetched = false;
+  /** `#prefetchAgain`: a round was asked for while another was out (another market's, say): it starts when that one ends. */
+  #prefetching = false; #prefetched = false; #prefetchAgain = false;
+  /** The context whose candles are on screen (or none of them, after a switch), whether or not a read of it has answered yet. */
+  #onScreen = '';
+  /** The context whose series read is out (`loadSeries`), so the stream does not start it from its live candle meanwhile. */
+  #reading = '';
+  /** The context shown from `#seriesKept` and grown by the stream since, until a read of it answers (`rebaseLive`). */
+  #fromKept: string | null = null;
   /** The series read as the page starts, before the source has said anything (`start`), for the first load to take. */
   #warm: { key: string; read: Promise<{ candles: CandleRow[]; instrument: string }> } | null = null;
   /**
@@ -422,19 +440,21 @@ export class Hub {
 
   #post(message: WorkerIn, transfer: Transferable[] = []): void { this.worker.postMessage(message, transfer); }
 
-  async start(): Promise<void> {
-    // A returning visitor's market and timeframe are known before the source has said anything: their series is asked for at once, beside the
-    // bootstrap (which in a page waits for the first live price, up to 4 s), and the first load takes it.
-    const saved = this.store.state.marketId, timeframe = this.store.state.timeframe;
-    if (saved) {
+  /**
+   * `likely`: the market the page will most likely open on, known before the source has said anything (the coin's Binance perpetual, which
+   * `defaultMarket` picks wherever it is read; the store keeps no market). Its series is asked for at once, beside the bootstrap, and the
+   * first load takes it; and the bootstrap does not wait for a first live price to choose a market (up to 4 s in a page) when that one is
+   * listed: the reference market and the mark come with the first tick and the next bootstrap (`#noteBoot`).
+   */
+  async start(likely = ''): Promise<void> {
+    const expected = this.store.state.marketId || likely, timeframe = this.store.state.timeframe;
+    if (expected) {
       const tf = TIMEFRAMES[timeframe] ?? 3_600_000, now = Date.now();
-      const read = this.source.candles(saved, timeframe, now - 500 * tf, now + tf).then(candles => ({ candles, instrument: saved }));
+      const read = this.source.candles(expected, timeframe, now - 500 * tf, now + tf).then(candles => ({ candles, instrument: expected }));
       read.catch(() => undefined);
-      this.#warm = { key: `${saved}|${timeframe}`, read };
+      this.#warm = { key: `${expected}|${timeframe}`, read };
     }
-    // With its market known the page does not wait for a first live price to choose one (about 2 s in a page): the reference market and the
-    // mark come with the first tick and the next bootstrap (`#noteBoot`).
-    const boot = await this.source.bootstrap(saved ? { quick: true } : undefined);
+    const boot = await this.source.bootstrap(expected ? { prefer: expected } : undefined);
     if (Number.isFinite(boot.now) && boot.now > 0) this.#sourceSkew = Date.now() - boot.now;
     const marketId = this.store.state.marketId || defaultMarket(boot.markets, boot.markInstrumentId);
     this.#noteRecorded(boot.recorded);
@@ -476,6 +496,8 @@ export class Hub {
       onOiPush: items => this.#oiPush(items),
     });
     this.#live.tape(this.#tapeOn);
+    // A hidden page reads nothing ahead (`#prefetch`): shown again, it reads what went stale meanwhile.
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (!document.hidden && this.#prefetched) this.#schedulePrefetch(); });
   }
 
   #noteRecorded(recorded: Record<string, { first: number }> | undefined): void {
@@ -487,7 +509,7 @@ export class Hub {
   async refreshMarkets(): Promise<void> {
     const boot = await this.source.bootstrap().catch(() => null);
     if (!boot) return;
-    this.#noteBoot(boot);
+    this.#noteBoot(boot); this.#noteRecorded(boot.recorded);
     const key = (list: readonly { instrumentId?: string }[]): string => list.map(m => m.instrumentId).join(',');
     const { markets, marketId } = this.store.state;
     if (key(boot.markets) === key(markets)) return;
@@ -506,8 +528,9 @@ export class Hub {
     else if (tick.instrumentId === state.marketId || !state.marketId || !(state.mark.price > 0)) patch.mark = { price: tick.price, asOf: tick.asOf };
     else if (selected && selected[4] > 0 && tick.asOf - selected[0] <= 2 * MINUTE) patch.mark = { price: selected[4], asOf: tick.asOf };
     const live = tick.candles[state.seriesInstrument || state.marketId];
-    // A market with no history yet starts its series from the live candle: waiting for history that is not coming leaves the chart empty.
-    if (live) patch.candles = mergeLive(state.candles, live, TIMEFRAMES[state.timeframe] ?? 3_600_000, this.#liveTrack);
+    // A market with no history yet starts its series from the live candle: waiting for history that is not coming leaves the chart empty;
+    // but while the read of a series just chosen is out, its live candle alone would stand for the candle under way (a minute of a day).
+    if (live && !(this.#loaded === null && this.#reading === `${state.marketId}|${state.timeframe}`)) patch.candles = mergeLive(state.candles, live, TIMEFRAMES[state.timeframe] ?? 3_600_000, this.#liveTrack);
     this.store.set(patch);
   }
 
@@ -525,15 +548,21 @@ export class Hub {
   }
 
   #keep(key: string, candles: CandleRow[], instrument: string): void {
-    this.#seriesKept.delete(key); this.#seriesKept.set(key, { candles, instrument, at: Date.now() });
+    this.#seriesKept.delete(key);
+    // A source that could not read a market answers with nothing: that is not kept to be shown, nor taken as read (it is asked again).
+    if (!candles.length) return;
+    this.#seriesKept.set(key, { candles, instrument, at: Date.now() });
     while (this.#seriesKept.size > SERIES_KEPT) this.#seriesKept.delete(this.#seriesKept.keys().next().value!);
   }
 
-  /** Put a series on screen, with the live candle on top where it opens one the series lacks (see `loadSeries`). */
-  #show(key: string, candles: CandleRow[], seriesInstrument: string, timeframe: string, again: boolean): void {
+  /**
+   * Put a series on screen, with the live candle on top where it opens one the series lacks (see `loadSeries`); `bridge` false: not where it
+   * would stand past a hole (a series kept from before, framed now; the next tick sets it).
+   */
+  #show(key: string, candles: CandleRow[], seriesInstrument: string, timeframe: string, again: boolean, bridge = true): void {
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000, live = this.#liveCandles[seriesInstrument], last = candles[candles.length - 1];
-    const opens = live !== undefined && (!last || Math.floor(live[0] / tf) * tf > last[0]);
-    this.#loaded = { key, instrument: seriesInstrument };
+    const bucket = live ? Math.floor(live[0] / tf) * tf : 0, opens = live !== undefined && (!last || bucket > last[0]) && (bridge || !last || bucket - last[0] <= tf);
+    this.#loaded = { key, instrument: seriesInstrument }; this.#onScreen = key;
     // Open interest belongs to the candles it was loaded for: another timeframe's or market's bars are not shown under these while theirs are on their way.
     this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, candlesTimeframe: timeframe, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
   }
@@ -552,16 +581,20 @@ export class Hub {
     // Open interest that is still on its way for the context just left must not land in this one.
     this.#oiGen++; this.#oiKey = '';
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000;
-    const kept = this.#loaded?.key !== key ? this.#seriesKept.get(key) : undefined;
-    if (kept) { this.#liveTrack.current = null; this.#show(key, kept.candles, kept.instrument, timeframe, false); shown?.(); }
-    else if (this.#loaded && this.#loaded.key !== key) {
-      // Nothing kept of it: the last context's candles are not drawn under this one's label and spacing while its read is out (the map
-      // draws the exchange's candles meanwhile, from its price history).
-      this.#loaded = null; this.#liveTrack.current = null;
+    // What is kept is shown at once only while it ends near enough to now to frame (`fit` frames the latest run of candles without a hole
+    // wider than three; a page hidden for a while keeps a series of long ago), and without the live candle set past such a hole.
+    const held = this.#loaded?.key !== key ? this.#seriesKept.get(key) : undefined, end = held?.candles[held.candles.length - 1]?.[0];
+    const kept = held && end !== undefined && Math.floor(Date.now() / tf) * tf - end <= Math.max(3 * tf, KEPT_GAP_MS) ? held : undefined;
+    if (kept) { this.#liveTrack.current = null; this.#show(key, kept.candles, kept.instrument, timeframe, false, false); this.#fromKept = key; shown?.(); }
+    else if (this.#onScreen && this.#onScreen !== key) {
+      // Nothing kept of it: the last context's candles (or what the stream added to a screen cleared for one whose read never came) are not
+      // drawn under this one's label and spacing while its read is out (the map draws the exchange's candles meanwhile, from its price history).
+      this.#loaded = null; this.#liveTrack.current = null; this.#fromKept = null; this.#onScreen = key;
       this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] });
     }
     let seriesInstrument = marketId;
     let candles: CandleRow[];
+    this.#reading = key;
     try {
       // A read already out for this series is taken (the one the page started with, or one read ahead); where it failed, it is asked again.
       const warm = this.#warm?.key === key ? this.#warm.read : null, shared = warm ?? this.#prefetchReads.get(key);
@@ -571,20 +604,24 @@ export class Hub {
       // The page's first read was asked before the reference market was known, so it did not fall back to it.
       if (!candles.length && seriesInstrument === marketId && this.#reference && this.#reference !== marketId) ({ candles, instrument: seriesInstrument } = await this.#readSeries(this.#reference, timeframe));
     } catch (error) {
+      if (this.#reading === key) this.#reading = '';
       if (key === this.#series && generation === this.#seriesGen) {
         // A refresh of what is on screen that fails leaves it as it is; candles (and open interest) of another timeframe or market are not left standing under this label.
-        if (this.#loaded?.key !== key) { this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; }
+        if (this.#loaded?.key !== key) { this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; this.#onScreen = key; }
         this.#series = this.#loaded?.key ?? '';
       }
       throw error;
     }
+    if (this.#reading === key) this.#reading = '';
     // Only the newest request may answer: an older one for the same context (a forced reload, a quick change and back) would put the series as it was then over what a newer one has set.
     if (key !== this.#series || generation !== this.#seriesGen) return;
     // A reload of what is on screen keeps what the stream has added to the open candle since the snapshot was taken, and goes on counting its minutes.
     const again = this.#loaded?.key === key && this.#loaded.instrument === seriesInstrument;
     if (!again) this.#liveTrack.current = null;
     this.#keep(key, candles, seriesInstrument);
-    candles = keepGrowth(candles, again ? this.store.state.candles : [], this.#liveTrack.current, tf, Date.now());
+    if (again && this.#fromKept === key) rebaseLive(candles, this.#liveTrack);
+    else candles = keepGrowth(candles, again ? this.store.state.candles : [], this.#liveTrack.current, tf, Date.now());
+    this.#fromKept = null;
     // Within a candle the stream and the snapshot cannot be put in order (the last tick may be older or newer than the moment the snapshot was taken), and the next tick settles it:
     // the live candle goes on top only where nothing in the snapshot can be later than it, a candle the snapshot does not have yet.
     this.#show(key, candles, seriesInstrument, timeframe, again);
@@ -604,11 +641,12 @@ export class Hub {
 
   /**
    * The market's other timeframes, read one at a time, the nearest first (`prefetchOrder`), each where what is kept of it is missing or
-   * older than `PREFETCH_FRESH_MS`. One read at a time keeps the source's connections for what the screen asks; another market, a hidden
-   * page or a failed read ends the round (the next series shown starts another).
+   * older than `PREFETCH_FRESH_MS`. One read at a time keeps the source's connections for what the screen asks; another market or a hidden
+   * page ends the round (the next series shown, or the page shown again, starts another); a read that fails or hangs past its deadline is
+   * left for the next round.
    */
   async #prefetch(): Promise<void> {
-    if (this.#prefetching) return;
+    if (this.#prefetching) { this.#prefetchAgain = true; return; }
     this.#prefetching = true;
     const { marketId, timeframe } = this.store.state;
     try {
@@ -616,13 +654,17 @@ export class Hub {
         if (this.store.state.marketId !== marketId || (typeof document !== 'undefined' && document.hidden)) return;
         const key = `${marketId}|${tf}`, held = this.#seriesKept.get(key);
         if (key === this.#series || (held && Date.now() - held.at < PREFETCH_FRESH_MS)) continue;
-        const read = this.#readSeries(marketId, tf);
+        const read = withDeadline(this.#readSeries(marketId, tf), PREFETCH_DEADLINE_MS);
         this.#prefetchReads.set(key, read);
         try { const { candles, instrument } = await read; this.#keep(key, candles, instrument); }
+        catch { /* asked again in the next round; the farther timeframes are read meanwhile */ }
         finally { if (this.#prefetchReads.get(key) === read) this.#prefetchReads.delete(key); }
         await new Promise(resolve => { const gap = setTimeout(resolve, PREFETCH_GAP_MS); (gap as { unref?: () => void }).unref?.(); });
       }
-    } catch { /* a read that fails is asked again in the next round */ } finally { this.#prefetching = false; }
+    } finally {
+      this.#prefetching = false;
+      if (this.#prefetchAgain) { this.#prefetchAgain = false; this.#schedulePrefetch(); }
+    }
   }
 
   /**
@@ -1164,6 +1206,18 @@ export class Hub {
 
 /** The live minutes folded into one display candle that spans several: what the candle held before the first of them, and each minute's latest volume. */
 export interface LiveTrack { bucket: number; base: number; minutes: Map<number, number> }
+
+/**
+ * A kept series brought up to date by its read (`loadSeries`): the open candle is the snapshot's, which holds the minutes the kept one
+ * missed, and the live track goes on from it with the minute under way as the stream last said it. (`keepGrowth` would put the minutes
+ * missed on the minute under way, and the stream could not raise it again until it had passed them.)
+ */
+export function rebaseLive(loaded: readonly CandleRow[], track: { current: LiveTrack | null }): void {
+  const last = loaded[loaded.length - 1], seen = track.current;
+  if (!last || !seen || seen.bucket !== last[0] || !seen.minutes.size) { track.current = null; return; }
+  const at = Math.max(...seen.minutes.keys()), minute = seen.minutes.get(at) ?? 0;
+  track.current = { bucket: last[0], base: Math.max(0, last[5] - minute), minutes: new Map([[at, minute]]) };
+}
 
 /**
  * The open candle of a series that is loaded again, with what the page already had of it. Its volume and its range only grow, so a

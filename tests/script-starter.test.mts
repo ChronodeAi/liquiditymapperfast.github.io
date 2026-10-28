@@ -20,7 +20,7 @@ function inputs(n = 8): BarInputs {
   };
 }
 
-test('a browser that never kept scripts starts with the heat map on and the VWAP off; one that kept a list, an empty one too, keeps it', () => {
+test('a browser that never kept scripts starts with the VWAP on and the heat map off; one that kept a list, an empty one too, keeps it', () => {
   const kept = new Map<string, string>();
   const storage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => { kept.set(k, v); } };
   const first = loadScripts(storage, starterScripts);

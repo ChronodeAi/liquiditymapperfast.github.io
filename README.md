@@ -57,7 +57,7 @@ The chips are the venues that have a book on the map. A venue that was chosen bu
 
 **Help is built in.** Every control has a tooltip (`src/app/tip.ts`), and a **?** beside each pane explains it (`src/app/help.ts` holds the text both use). The **Guide** button opens a ten-minute tour with a contents list and moving pictures (`src/app/guide/`; an address like `#guide/mirror` opens it at a section). **Screenshot** (or `S`) freezes the page, lets you drag a region or click a pane (the top bar takes the whole page, every open pane and the flow column included), draw on it, pixelate or blur anything private, then copy or save a PNG (`src/app/screenshot/`; it draws the page itself, so nothing is asked of the browser). **Install** appears when the browser can install the page as an app, and **Author** says who made it.
 
-On a young recording the empty left of the heatmap is filled with the current book in grey (darker grey for bigger walls) so the map reads from the first second; grey is never history, and real colour starts at the dashed line.
+On a young recording the heatmap is empty left of the dashed line that marks when the recording began: nothing is drawn where nothing was recorded, so every colour on the map is real.
 
 ## Phones and tablets
 

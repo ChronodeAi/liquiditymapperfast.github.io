@@ -261,3 +261,20 @@ test('a mark that crosses a step of the price grid starts the walls over, and do
   for (let s = 26; s <= 40; s += 2) for (const signal of at(s, 175_010, 30_000_000)) seen.push(signal.kind);
   assert.deepEqual(seen, ['appeared'], 'the level is where it was: only the bin it is counted in changed');
 });
+
+test('a kept series brought up to date counts the minute under way on from its read, not on top of the minutes the kept one missed', async t => {
+  const B = Math.floor(BASE / (5 * MIN)) * (5 * MIN), now = B + 3 * MIN + 20_000;
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '5m', seriesInstrument: 'ref:BTC', candles: [] });
+  void hub.loadSeries(true); await turn();
+  await answer(source, [B, 1, 1, 1, 1, 100, 1]);                                                         // kept with 100
+  store.set({ timeframe: '1h' }); void hub.loadSeries(true); await turn();
+  await answer(source, [Math.floor(B / HOUR) * HOUR, 1, 1, 1, 1, 500, 1]);
+  store.set({ timeframe: '5m' }); void hub.loadSeries(true); await turn();                               // the kept candle, at once
+  assert.equal(store.state.candles.at(-1)![5], 100);
+  handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 20] } }));
+  await answer(source, [B, 1, 1, 1, 1, 300, 1]);                                                         // the read holds what the kept one missed
+  assert.equal(store.state.candles.at(-1)![5], 300);
+  handlers().onTick(tick({ asOf: now + 500, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 30] } }));
+  assert.equal(store.state.candles.at(-1)![5], 310, 'the minute under way went from 20 to 30');
+});
