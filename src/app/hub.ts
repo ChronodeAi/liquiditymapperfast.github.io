@@ -530,12 +530,12 @@ export class Hub {
   }
 
   /** Put a series on screen, with the live candle on top where it opens one the series lacks (see `loadSeries`). */
-  #show(key: string, candles: CandleRow[], seriesInstrument: string, tf: number, again: boolean): void {
-    const live = this.#liveCandles[seriesInstrument], last = candles[candles.length - 1];
+  #show(key: string, candles: CandleRow[], seriesInstrument: string, timeframe: string, again: boolean): void {
+    const tf = TIMEFRAMES[timeframe] ?? 3_600_000, live = this.#liveCandles[seriesInstrument], last = candles[candles.length - 1];
     const opens = live !== undefined && (!last || Math.floor(live[0] / tf) * tf > last[0]);
     this.#loaded = { key, instrument: seriesInstrument };
     // Open interest belongs to the candles it was loaded for: another timeframe's or market's bars are not shown under these while theirs are on their way.
-    this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
+    this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, candlesTimeframe: timeframe, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
   }
 
   /**
@@ -553,12 +553,12 @@ export class Hub {
     this.#oiGen++; this.#oiKey = '';
     const tf = TIMEFRAMES[timeframe] ?? 3_600_000;
     const kept = this.#loaded?.key !== key ? this.#seriesKept.get(key) : undefined;
-    if (kept) { this.#liveTrack.current = null; this.#show(key, kept.candles, kept.instrument, tf, false); shown?.(); }
+    if (kept) { this.#liveTrack.current = null; this.#show(key, kept.candles, kept.instrument, timeframe, false); shown?.(); }
     else if (this.#loaded && this.#loaded.key !== key) {
       // Nothing kept of it: the last context's candles are not drawn under this one's label and spacing while its read is out (the map
       // draws the exchange's candles meanwhile, from its price history).
       this.#loaded = null; this.#liveTrack.current = null;
-      this.store.set({ candles: [], seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] });
+      this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] });
     }
     let seriesInstrument = marketId;
     let candles: CandleRow[];
@@ -573,7 +573,7 @@ export class Hub {
     } catch (error) {
       if (key === this.#series && generation === this.#seriesGen) {
         // A refresh of what is on screen that fails leaves it as it is; candles (and open interest) of another timeframe or market are not left standing under this label.
-        if (this.#loaded?.key !== key) { this.store.set({ candles: [], seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; }
+        if (this.#loaded?.key !== key) { this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; }
         this.#series = this.#loaded?.key ?? '';
       }
       throw error;
@@ -587,7 +587,7 @@ export class Hub {
     candles = keepGrowth(candles, again ? this.store.state.candles : [], this.#liveTrack.current, tf, Date.now());
     // Within a candle the stream and the snapshot cannot be put in order (the last tick may be older or newer than the moment the snapshot was taken), and the next tick settles it:
     // the live candle goes on top only where nothing in the snapshot can be later than it, a candle the snapshot does not have yet.
-    this.#show(key, candles, seriesInstrument, tf, again);
+    this.#show(key, candles, seriesInstrument, timeframe, again);
     this.#schedulePrefetch();
     // Open interest follows on its own: the page frames the candles the moment they are shown, not once the open interest's history (pages
     // of it from several venues) has come too.

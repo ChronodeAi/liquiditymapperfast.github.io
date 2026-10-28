@@ -54,6 +54,7 @@ import { BROWSER_RETENTION_MS, RETENTION_MS } from '../../shared/recorder.ts';
 import { MAX_BACK_MS, barMsFor, keyLines, neededFrom, type KeyLine } from '../keylevels/levels.ts';
 import { anyLine } from '../keylevels/settings.ts';
 import { historyTarget, profileCompanion, profileTarget, type HistoryTarget } from '../keylevels/history.ts';
+import { TakerRows } from '../measures/taker-rows.ts';
 import { paintKeyLevels, paintKeyTags, periodDate, placeKeyTags, underTag, type KeyTag } from '../keylevels/paint.ts';
 import { sessionsOf, vwapBarMs, vwapSeries, whaleSeries } from '../vwap/vwap.ts';
 import { anchorsOf } from '../vwap/settings.ts';
@@ -315,7 +316,7 @@ export class HeatPane {
   #profileHits: ProfileHit[] = [];
   /** The volume strip's recorded rows (kept while what they come from is), and what it drew last frame, for the pointer. */
   #stripRows: { key: string; rows: TimeRows } | null = null;
-  #takerRows: { key: string; rows: Map<number, CandleRow> } | null = null;
+  readonly #takerRows = new TakerRows();
   #strip: StripState | null = null;
   /** The market orders of the strip's candles pointed at (the footprint's statistics of the strip's markets, read on hover). */
   #orders = new StripOrderCache();
@@ -770,18 +771,7 @@ export class HeatPane {
    * price of one snapshot: the chart's candle under way moves on between the minutes it is read).
    */
   takerRows(state: AppState, tf: number, from: number): Map<number, CandleRow> | null {
-    const series = state.seriesInstrument || state.marketId, target = historyTarget(series, currentCoin()), venue = target?.id.slice(0, target.id.indexOf(':')) ?? '';
-    if (!target || !target.own || (venue !== 'binance' && venue !== 'binancespot')) return null;
-    const h = this.hub.candleTaker(tf);
-    h.ensure(target, from, tf, () => this.invalidate());
-    const key = `${tf}|${h.id}|${h.version}`;
-    if (this.#takerRows?.key !== key) {
-      const rows = new Map<number, CandleRow>();
-      // A candle with nothing traded is one too (its trades and quote volume 0): its readers guard their own division by its volume.
-      for (const b of h.bars) { const tb = (b as readonly (number | undefined)[])[7]; if (tb !== undefined && b[5] >= 0) rows.set(b[0], b); }
-      this.#takerRows = { key, rows };
-    }
-    return this.#takerRows.rows;
+    return this.#takerRows.get(this.hub, state, tf, from, () => this.invalidate());
   }
 
   /** The Delta pane's divergences on the price: the two swings joined above the highs (sellers', ask colour) or below the lows (buyers', bid colour). */

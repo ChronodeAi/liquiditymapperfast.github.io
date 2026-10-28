@@ -1,4 +1,4 @@
-import { PREVIOUS_HEATMAP_SOURCES } from './starter-previous.ts';
+import { PREVIOUS_HEATMAP_SOURCES, PREVIOUS_VWAP_SOURCES } from './starter-previous.ts';
 import { t } from '../i18n.ts';
 import { ROW_DEFAULT, SCRIPT_API, type ScriptRecord } from './records.ts';
 
@@ -16,15 +16,16 @@ mult = option(type=number, default=1.8, min=0.2, step=0.1, label="Band width (de
 midColor = option(type=color, default="rgba(255,64,255,0.95)", label="VWAP")
 bandColor = option(type=color, default="rgba(255,64,255,0.6)", label="Bands")
 
-// A var is worked out again on every candle. vbuy and vsell are the dollars bought and sold at market in the candle.
+// A var is worked out again on every candle. $price.volume is what the candle traded, in coins, as its exchange reports it:
+// every candle has it, whether or not this page recorded it, as for the VWAP the chart draws.
 var typical = ($price.high + $price.low + $price.close) / 3
-var vol = vbuy + vsell
+var vol = $price.volume
 var num = sma(typical * vol, len)
 var den = sma(vol, len)
 var num2 = sma(typical * typical * vol, len)
 
 // A name set without var keeps its value from candle to candle: mid[1] would be the VWAP one candle back.
-// Where the flow was not recorded, vbuy reads NaN: with no volume to weigh by, the lines leave a gap there.
+// A candle with no volume reported leaves a gap, and the candles after it go on from the others.
 mid = den > 0 ? num / den : NaN
 var sd = Math.sqrt(Math.max(0, num2 / den - mid * mid))
 upper = mid + mult * sd
@@ -146,9 +147,12 @@ const OLD_HEATMAP_OPTIONS: Readonly<Record<string, string>> = { lowColor: 'rgb(4
  */
 export function updateStarters(list: ScriptRecord[]): ScriptRecord[] {
   return list.map(r => {
+    // An untouched VWAP with bands, the starter or a copy added from the examples: the current text, its settings as they were.
+    if (PREVIOUS_VWAP_SOURCES.includes(r.source.replace(/\r\n?/g, '\n'))) return { ...r, source: VWAP_SOURCE, api: Math.max(r.api, SCRIPT_API) };
     if (r.id !== HEATMAP_ID || !PREVIOUS_HEATMAP_SOURCES.includes(r.source.replace(/\r\n?/g, '\n'))) return r;
     const old = Object.keys(r.options).filter(k => Object.prototype.hasOwnProperty.call(OLD_HEATMAP_OPTIONS, k));
     if (old.some(k => r.options[k] !== OLD_HEATMAP_OPTIONS[k])) return r;
-    return { ...r, source: HEATMAP_SOURCE, options: Object.fromEntries(Object.entries(r.options).filter(([k]) => !old.includes(k))) };
+    // Its new text reads `theme`, which version 2 brought: a page older than that says so rather than run it.
+    return { ...r, source: HEATMAP_SOURCE, api: Math.max(r.api, SCRIPT_API), options: Object.fromEntries(Object.entries(r.options).filter(([k]) => !old.includes(k))) };
   });
 }
