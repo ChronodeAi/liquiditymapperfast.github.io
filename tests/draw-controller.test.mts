@@ -14,20 +14,20 @@ function setup(o: { settings?: Partial<DrawSettings>; replay?: boolean; doc?: Dr
   const view = new View({ t0: T, t1: T + 10 * H, p0: 100, p1: 200 });
   let settings: DrawSettings = { ...DRAW_DEFAULTS, ...o.settings };
   let coin = 'BTC', saved: DrawDoc | null = o.doc === undefined ? { version: 1, coins: {} } : o.doc;
-  const calls: string[] = [], alerts: string[] = [], inspected: unknown[] = [];
+  const calls: string[] = [], alerts: string[] = [], inspected: unknown[] = [], focused: { t0: number; t1: number; p0: number; p1: number }[] = [];
   let failSave = false, other: (() => void) | null = null;
   const host: DrawHost = {
     view, plotW: () => 1000, plotH: () => 500,
     candleAt: x => (x >= 200 && x < 300 ? { t: T + 2.5 * H, x: 250, open: 150, high: 160, low: 140, close: 155, y: p => view.yOf(p, 500) } : null),
     closesOnly: () => false, wallsAt: () => o.walls ?? [], restingAt: () => ({ bid: 1e6, ask: 0, step: 1 }),
     mark: () => 150, coin: () => coin, now: () => T + 9 * H, replaying: () => o.replay === true, settings: () => settings, reveal: () => { settings = { ...settings, shown: true }; },
-    holdStill: () => calls.push('hold'), disarmOthers: () => calls.push('disarm-others'), focus: () => calls.push('focus'),
+    holdStill: () => calls.push('hold'), disarmOthers: () => calls.push('disarm-others'), focus: box => { calls.push('focus'); focused.push(box); },
     inspect: box => inspected.push(box), alert: text => alerts.push(text), redraw: () => {},
   };
   const store: DrawStore = { load: () => saved, save: doc => { if (failSave) return false; saved = JSON.parse(JSON.stringify(doc)); return true; }, onOtherTab: l => { other = l; } };
   const draw = new DrawController(host, store);
   return {
-    draw, calls, alerts, inspected, view,
+    draw, calls, alerts, inspected, focused, view,
     get saved() { return saved; }, set coin(c: string) { coin = c; }, set settings(s: Partial<DrawSettings>) { settings = { ...settings, ...s }; },
     set failSave(v: boolean) { failSave = v; }, otherTab(doc: DrawDoc) { saved = doc; other?.(); },
   };
@@ -206,4 +206,32 @@ test('a drag stops where a drawing could not be kept; Undo never goes past the c
   n.draw.arm('level'); assert.equal(n.draw.tool, null);
   const l = setup({ settings: { locked: true } });
   assert.match(l.draw.importText('{"format":"liquiditymapperfast-drawings","version":1,"coins":{}}'), /locked/);
+});
+
+test('Find centres a level without zooming out (each press the same view); Undo that would pass the cap of the page is refused', () => {
+  const s = setup({ settings: { magnet: 'off' } });
+  s.draw.arm('level'); s.draw.click({ x: 500, y: y(130) }, false, false);
+  const id = s.draw.selected!;
+  s.draw.find(id); s.draw.find(id);
+  for (const box of s.focused) { assert.equal(box.t0, box.t1, 'no span of time of its own'); assert.equal(box.p0, 130); assert.equal(box.p1, 130); }
+  // Nine coins of a hundred and 99 on ETH: 999. BTC places one and deletes it; ETH then takes the last place on the page.
+  const many = (n: number) => Array.from({ length: n }, (_, i) => newDrawing('level', [{ t: T + i, p: 150 }], T + i));
+  const coins: Record<string, ReturnType<typeof many>> = Object.fromEntries(Array.from({ length: 9 }, (_, k) => [`C${k}`, many(MAX_PER_COIN)]));
+  coins.ETH = many(99);
+  const c = setup({ settings: { magnet: 'off' }, doc: { version: 1, coins } });
+  c.draw.arm('level'); c.draw.click({ x: 500, y: 250 }, false, false);
+  c.draw.remove(c.draw.selected!);
+  c.coin = 'ETH'; c.draw.arm('level'); c.draw.click({ x: 500, y: 250 }, false, false);
+  assert.equal(c.draw.list().length, 100);
+  c.coin = 'BTC';
+  assert.equal(c.draw.undo(), false, 'bringing the deleted one back would make 1,001');
+  assert.equal(c.draw.list().length, 0);
+  assert.match(c.draw.message?.text ?? '', /1,000|100/);
+  // A locked drawing is still hidden and shown.
+  const l = setup({ settings: { magnet: 'off' } });
+  l.draw.arm('level'); l.draw.click({ x: 500, y: 250 }, false, false);
+  const lid = l.draw.selected!;
+  l.draw.update(lid, { locked: true }); l.draw.update(lid, { hidden: true });
+  assert.equal(l.draw.get(lid)!.hidden, true); l.draw.update(lid, { hidden: false }); assert.equal(l.draw.get(lid)!.hidden, false);
+  l.draw.update(lid, { text: 'no' }); assert.equal(l.draw.get(lid)!.text, '', 'nothing else changes it');
 });

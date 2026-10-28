@@ -273,7 +273,7 @@ export class DrawBar {
   place(f: DrawFrame): void {
     const d = this.draw, sel = d.open ? d.shown().find(x => x.id === d.selected) ?? null : null, phone = compactBar();
     if (sel) this.#syncFigures(performance.now());
-    const railRight = this.rail.hidden ? 4 : 6 + this.#sizes.railW + 6, room = `${Math.max(160, f.pr.w - railRight - 8)}px`;
+    const railRight = this.rail.hidden ? 4 : 6 + this.#sizes.railW + 6, room = `${Math.min(560, Math.max(160, f.pr.w - railRight - 8))}px`;
     const width = phone ? '' : room;
     if (this.editor.style.maxWidth !== width) this.editor.style.maxWidth = width;
     let editor = '';
@@ -331,28 +331,28 @@ export class DrawBar {
       const b = el('button', { type: 'button', class: 'draw-swatch', ariaLabel: colorName(c), tip: colorName(c) });
       b.style.setProperty('--swatch', colorOf(c, p));
       b.onclick = () => { const cur = d.get(id); if (cur) set({ style: { ...cur.style, color: c } }); };
-      this.#syncEdit.push(x => { b.classList.toggle('on', x.style.color === c); b.setAttribute('aria-pressed', String(x.style.color === c)); b.style.setProperty('--swatch', colorOf(c, this.host.palette())); b.disabled = x.locked; });
+      this.#syncEdit.push(x => { b.classList.toggle('on', x.style.color === c); b.setAttribute('aria-pressed', String(x.style.color === c)); b.style.setProperty('--swatch', colorOf(c, this.host.palette())); b.disabled = x.locked || d.readOnly; });
       swatches.append(b);
     }
     const widths = el('div', { class: 'seg draw-widths', role: 'group', ariaLabel: t('Line width') });
     for (const w of DRAW_WIDTHS) {
       const b = el('button', { type: 'button', textContent: String(w), ariaLabel: t('Line width {n} px', { n: String(w) }), tip: t('Line width {n} px', { n: String(w) }) });
       b.onclick = () => { const cur = d.get(id); if (cur) set({ style: { ...cur.style, width: w } }); };
-      this.#syncEdit.push(x => { b.classList.toggle('on', x.style.width === w); b.disabled = x.locked; });
+      this.#syncEdit.push(x => { b.classList.toggle('on', x.style.width === w); b.disabled = x.locked || d.readOnly; });
       widths.append(b);
     }
-    // A switch of the drawing's: pressed while it is on, and, but for Lock, not to be changed while the drawing is locked.
+    // A switch of the drawing's: pressed while it is on, and, but for Lock, not to be changed while the drawing is locked; none while nothing can change.
     const toggle = (name: GlyphName, label: string, tip: string, read: (x: Drawing) => boolean, write: (x: Drawing, on: boolean) => Partial<Drawing>, lockable = true): HTMLButtonElement => {
       const b = iconButton(name, label, tip);
       b.onclick = () => { const cur = d.get(id); if (cur) set(write(cur, !read(cur))); };
-      this.#syncEdit.push(x => { b.classList.toggle('on', read(x)); b.setAttribute('aria-pressed', String(read(x))); b.disabled = lockable && x.locked; });
+      this.#syncEdit.push(x => { b.classList.toggle('on', read(x)); b.setAttribute('aria-pressed', String(read(x))); b.disabled = (lockable && x.locked) || d.readOnly; });
       return b;
     };
     const controls: HTMLElement[] = [swatches, widths, toggle('dashed', t('Dashed'), t('A dashed line'), x => x.style.dashed, (x, on) => ({ style: { ...x.style, dashed: on } }))];
     if (first.kind === 'level') controls.push(toggle('ray', t('Ray'), t('From its point to the right only, rather than across the whole map'), x => !x.extendLeft, (_x, on) => ({ extendLeft: !on })));
     if (first.kind === 'trend' || first.kind === 'channel') controls.push(
-      toggle('left', t('Extend left'), t('Run the line on past its first point'), x => x.extendLeft, (_x, on) => ({ extendLeft: on })),
-      toggle('right', t('Extend right'), t('Run the line on past its last point'), x => x.extendRight, (_x, on) => ({ extendRight: on })));
+      toggle('left', t('Extend left'), t('Run the line on to the left edge of the map'), x => x.extendLeft, (_x, on) => ({ extendLeft: on })),
+      toggle('right', t('Extend right'), t('Run the line on to the right edge of the map'), x => x.extendRight, (_x, on) => ({ extendRight: on })));
     if (first.kind === 'zone' || first.kind === 'fib') controls.push(toggle('right', t('Extend right'), t('Run it on to the right edge of the map'), x => x.extendRight, (_x, on) => ({ extendRight: on })));
     if (first.kind === 'note') controls.push(toggle('leader', t('Leader'), t('A line from the note to the point it is about'), x => x.leader, (_x, on) => ({ leader: on })));
     // The text: a note's words, or the label of any other kind; kept when the field is left or Enter is pressed (Esc puts it back).
@@ -360,7 +360,7 @@ export class DrawBar {
     const keep = (): void => { const cur = d.get(id); if (cur && cur.text !== text.value) set({ text: text.value }); };
     text.onchange = keep;
     text.onkeydown = e => { if (e.key === 'Enter') { keep(); text.blur(); } else if (e.key === 'Escape') { text.value = d.get(id)?.text ?? ''; text.blur(); } e.stopPropagation(); };
-    this.#syncEdit.push(x => { if (document.activeElement !== text) text.value = x.text; text.disabled = x.locked; });
+    this.#syncEdit.push(x => { if (document.activeElement !== text) text.value = x.text; text.disabled = x.locked || d.readOnly; });
     controls.push(text);
     if (first.kind === 'level') controls.push(toggle('bell', t('Alert'), t('Sound when the price reaches this level (through Sound, which must be on)'), x => x.alert, (_x, on) => ({ alert: on })));
     if (first.kind === 'level' || first.kind === 'zone') {
@@ -373,7 +373,7 @@ export class DrawBar {
     copy.onclick = () => d.duplicate(id);
     const remove = iconButton('trash', t('Delete'), t('Delete this drawing (Delete key)'), 'draw-icon danger');
     remove.onclick = () => d.remove(id);
-    this.#syncEdit.push(x => { remove.disabled = x.locked; });
+    this.#syncEdit.push(x => { copy.disabled = d.readOnly; remove.disabled = x.locked || d.readOnly; });
     controls.push(copy, remove);
     this.#controls.append(...controls);
   }
@@ -402,7 +402,7 @@ export class DrawBar {
       const eye = iconButton(x.hidden ? 'eyeOff' : 'eye', x.hidden ? t('Show it on the map') : t('Hide it from the map'), x.hidden ? t('Hidden: show it on the map again') : t('Shown: hide it from the map, keeping it'), 'draw-icon draw-action');
       eye.onclick = () => d.update(x.id, { hidden: !x.hidden }); eye.disabled = d.readOnly;
       const lock = el('button', { type: 'button', class: 'draw-action', textContent: x.locked ? t('Unlock') : t('Lock'), disabled: d.readOnly, onclick: () => d.update(x.id, { locked: !x.locked }) });
-      const del = el('button', { type: 'button', class: 'draw-action danger', textContent: t('Delete'), disabled: x.locked, onclick: () => d.remove(x.id) });
+      const del = el('button', { type: 'button', class: 'draw-action danger', textContent: t('Delete'), disabled: x.locked || d.readOnly, onclick: () => d.remove(x.id) });
       const swatch = el('i', { class: 'draw-list-swatch' }); swatch.style.background = colorOf(x.style.color, this.host.palette());
       rows.append(el('div', { class: 'draw-list-row' + (x.hidden ? ' hidden-one' : '') }, swatch, name, eye, lock, del));
     }
@@ -411,7 +411,10 @@ export class DrawBar {
     file.onchange = () => {
       const f = file.files?.[0]; if (!f) return;
       if (f.size > MAX_IMPORT_CHARS) { d.message = { text: t('That file is too large to be drawings from this page.'), warn: true }; this.sync(); file.value = ''; return; }
-      void f.text().then(text => { const said = d.importText(text), failed = d.message?.warn ? d.message.text : ''; d.message = failed ? { text: `${said} ${failed}`, warn: true } : { text: said, warn: false }; this.sync(); });
+      void f.text().then(text => {
+        const before = d.message, said = d.importText(text), after = d.message, failed = after && after !== before && after.warn ? after.text : '';
+        d.message = { text: failed ? `${said} ${failed}` : said, warn: !!failed || d.readOnly }; this.sync();
+      });
       file.value = '';
     };
     const save = button(t('Save to a file'), () => { const url = URL.createObjectURL(new Blob([d.exportText()], { type: 'application/json' })); el('a', { href: url, download: 'liquiditymapperfast-drawings.json' }).click(); window.setTimeout(() => URL.revokeObjectURL(url), 10_000); }, t('Every coin\'s drawings, in a file to keep or to read on another computer'));

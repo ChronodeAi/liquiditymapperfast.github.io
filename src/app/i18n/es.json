@@ -1927,9 +1927,9 @@
  "Ray": "Rayo",
  "From its point to the right only, rather than across the whole map": "Desde su punto solo hacia la derecha, en vez de cruzar todo el mapa",
  "Extend left": "Extender a la izquierda",
- "Run the line on past its first point": "Prolongar la línea más allá de su primer punto",
+ "Run the line on to the left edge of the map": "Prolongar la línea hasta el borde izquierdo del mapa",
  "Extend right": "Extender a la derecha",
- "Run the line on past its last point": "Prolongar la línea más allá de su último punto",
+ "Run the line on to the right edge of the map": "Prolongar la línea hasta el borde derecho del mapa",
  "Run it on to the right edge of the map": "Prolongarla hasta el borde derecho del mapa",
  "Leader": "Línea guía",
  "A line from the note to the point it is about": "Una línea desde la nota hasta el punto al que se refiere",
@@ -2019,5 +2019,6 @@
   "one": "{n} dibujo añadido.",
   "many": "{n} dibujos añadidos.",
   "other": "{n} dibujos añadidos."
- }
+ },
+ "Drag to size the window; a double click gives back its size": "Arrastra para cambiar el tamaño de la ventana; un doble clic le devuelve su tamaño"
 }

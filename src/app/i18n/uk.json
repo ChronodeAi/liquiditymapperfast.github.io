@@ -1956,9 +1956,9 @@
  "Ray": "Промінь",
  "From its point to the right only, rather than across the whole map": "Від своєї точки лише праворуч, а не через усю карту",
  "Extend left": "Продовжити ліворуч",
- "Run the line on past its first point": "Продовжити лінію за її першу точку",
+ "Run the line on to the left edge of the map": "Продовжити лінію до лівого краю карти",
  "Extend right": "Продовжити праворуч",
- "Run the line on past its last point": "Продовжити лінію за її останню точку",
+ "Run the line on to the right edge of the map": "Продовжити лінію до правого краю карти",
  "Run it on to the right edge of the map": "Продовжити до правого краю карти",
  "Leader": "Виноска",
  "A line from the note to the point it is about": "Лінія від нотатки до точки, якої вона стосується",
@@ -2051,5 +2051,6 @@
   "few": "Додано {n} малюнки.",
   "many": "Додано {n} малюнків.",
   "other": "Додано {n} малюнка."
- }
+ },
+ "Drag to size the window; a double click gives back its size": "Потягніть, щоб змінити розмір вікна; подвійне клацання повертає його розмір"
 }

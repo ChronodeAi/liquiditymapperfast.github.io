@@ -1951,9 +1951,9 @@
  "Ray": "Луч",
  "From its point to the right only, rather than across the whole map": "От своей точки только вправо, а не через всю карту",
  "Extend left": "Продлить влево",
- "Run the line on past its first point": "Продлить линию за её первую точку",
+ "Run the line on to the left edge of the map": "Продлить линию до левого края карты",
  "Extend right": "Продлить вправо",
- "Run the line on past its last point": "Продлить линию за её последнюю точку",
+ "Run the line on to the right edge of the map": "Продлить линию до правого края карты",
  "Run it on to the right edge of the map": "Продлить до правого края карты",
  "Leader": "Выноска",
  "A line from the note to the point it is about": "Линия от заметки к точке, к которой она относится",
@@ -2046,5 +2046,6 @@
   "few": "Добавлено {n} рисунка.",
   "many": "Добавлено {n} рисунков.",
   "other": "Добавлено {n} рисунка."
- }
+ },
+ "Drag to size the window; a double click gives back its size": "Потяните, чтобы изменить размер окна; двойной щелчок возвращает прежний размер"
 }

@@ -1903,9 +1903,9 @@
  "Ray": "Strahl",
  "From its point to the right only, rather than across the whole map": "Von ihrem Punkt nur nach rechts statt quer über die ganze Karte",
  "Extend left": "Nach links verlängern",
- "Run the line on past its first point": "Die Linie über ihren ersten Punkt hinaus verlängern",
+ "Run the line on to the left edge of the map": "Die Linie bis an den linken Rand der Karte verlängern",
  "Extend right": "Nach rechts verlängern",
- "Run the line on past its last point": "Die Linie über ihren letzten Punkt hinaus verlängern",
+ "Run the line on to the right edge of the map": "Die Linie bis an den rechten Rand der Karte verlängern",
  "Run it on to the right edge of the map": "Bis an den rechten Rand der Karte verlängern",
  "Leader": "Hinweislinie",
  "A line from the note to the point it is about": "Eine Linie von der Notiz zu dem Punkt, um den es geht",
@@ -1992,5 +1992,6 @@
  "{n} drawings added.": {
   "one": "{n} Zeichnung hinzugefügt.",
   "other": "{n} Zeichnungen hinzugefügt."
- }
+ },
+ "Drag to size the window; a double click gives back its size": "Ziehen, um die Größe des Fensters zu ändern; ein Doppelklick stellt seine Größe wieder her"
 }

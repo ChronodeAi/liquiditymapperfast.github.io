@@ -120,15 +120,16 @@ if (colorCandles) $price.color = shade(average)
 export const STARTER_ID = 'vwap-with-bands', HEATMAP_ID = 'stochastic-heat-map';
 
 /**
- * The scripts a page starts with before it has kept any: the stochastic heat map in a row under the map, on (Karl, 2026-10-27: shown to
- * every visitor), and the rolling VWAP for the map, off until switched on, so the Scripts panel opens on two to read, change and learn from.
+ * The scripts a page starts with before it has kept any: the rolling VWAP with its bands on the map, on (Karl, 2026-10-28: shown to every
+ * visitor), and the stochastic heat map in a row under the map, off until switched on (it was on from 2026-10-27; a row under the map takes
+ * height from it), so the Scripts panel opens on two to read, change and learn from.
  * Deleting one keeps the list as it is left; its example brings it back. A browser that already kept a list keeps it as it is, but for an
  * untouched heat map of an earlier version (`updateStarters`).
  */
 export function starterScripts(): ScriptRecord[] {
   return [
-    { id: STARTER_ID, name: t('VWAP with bands'), source: VWAP_SOURCE, options: {}, on: false, api: SCRIPT_API, height: ROW_DEFAULT, place: 'map' },
-    { id: HEATMAP_ID, name: t('Stochastic heat map'), source: HEATMAP_SOURCE, options: {}, on: true, api: SCRIPT_API, height: 160, place: 'pane' },
+    { id: STARTER_ID, name: t('VWAP with bands'), source: VWAP_SOURCE, options: {}, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: 'map' },
+    { id: HEATMAP_ID, name: t('Stochastic heat map'), source: HEATMAP_SOURCE, options: {}, on: false, api: SCRIPT_API, height: 160, place: 'pane' },
   ];
 }
 

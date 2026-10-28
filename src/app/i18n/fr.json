@@ -1927,9 +1927,9 @@
  "Ray": "Demi-droite",
  "From its point to the right only, rather than across the whole map": "De son point vers la droite seulement, plutôt qu'à travers toute la carte",
  "Extend left": "Prolonger à gauche",
- "Run the line on past its first point": "Prolonger la ligne au-delà de son premier point",
+ "Run the line on to the left edge of the map": "Prolonger la ligne jusqu'au bord gauche de la carte",
  "Extend right": "Prolonger à droite",
- "Run the line on past its last point": "Prolonger la ligne au-delà de son dernier point",
+ "Run the line on to the right edge of the map": "Prolonger la ligne jusqu'au bord droit de la carte",
  "Run it on to the right edge of the map": "La prolonger jusqu'au bord droit de la carte",
  "Leader": "Ligne de rappel",
  "A line from the note to the point it is about": "Une ligne de la note au point qu'elle concerne",
@@ -2019,5 +2019,6 @@
   "one": "{n} dessin ajouté.",
   "many": "{n} dessins ajoutés.",
   "other": "{n} dessins ajoutés."
- }
+ },
+ "Drag to size the window; a double click gives back its size": "Faites glisser pour redimensionner la fenêtre ; un double clic lui rend sa taille"
 }

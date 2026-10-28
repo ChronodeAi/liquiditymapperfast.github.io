@@ -24,7 +24,7 @@ test('a browser that never kept scripts starts with the heat map on and the VWAP
   const kept = new Map<string, string>();
   const storage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => { kept.set(k, v); } };
   const first = loadScripts(storage, starterScripts);
-  assert.deepEqual(first.map(r => [r.id, r.on, r.place]), [[STARTER_ID, false, 'map'], [HEATMAP_ID, true, 'pane']], 'the heat map on in a row; the VWAP for the map, off');
+  assert.deepEqual(first.map(r => [r.id, r.on, r.place]), [[STARTER_ID, true, 'map'], [HEATMAP_ID, false, 'pane']], 'the VWAP on the map, on; the heat map in a row, off');
   assert.equal(first[1]!.height, 160, "the heat map's row has room for its sixteen bands");
   assert.equal(first[0]!.source, VWAP_SOURCE);
   assert.equal(kept.size, 0, 'nothing is written until the person changes the list');

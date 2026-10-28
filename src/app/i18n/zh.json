@@ -1833,9 +1833,9 @@
  "Ray": "射线",
  "From its point to the right only, rather than across the whole map": "从其点只向右延伸，而不是横穿整个地图",
  "Extend left": "向左延伸",
- "Run the line on past its first point": "将线延伸到第一个点之外",
+ "Run the line on to the left edge of the map": "将线延伸到地图左边缘",
  "Extend right": "向右延伸",
- "Run the line on past its last point": "将线延伸到最后一个点之外",
+ "Run the line on to the right edge of the map": "将线延伸到地图右边缘",
  "Run it on to the right edge of the map": "延伸到地图右边缘",
  "Leader": "引线",
  "A line from the note to the point it is about": "从备注指向其所说的点的一条线",
@@ -1913,5 +1913,6 @@
  "Wall {usd} at {price}": "{price} 处的大单墙 {usd}",
  "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "对 Breakout 和 Failed break 而言，虚线是它突破的突破位，点线是下一个价位，即它所进入区间的另一侧。指向一个标记，可查看它的价位、该 K 线的订单流、强平和持仓量，以及它相对当日、当周和当月开盘价（在一小时及以下的图表上还有当小时开盘价）的位置。",
  "{n} left out: a coin keeps 100 and the page 1,000.": "有 {n} 个未添加：每个币种最多 100 个，页面共 1,000 个。",
- "{n} drawings added.": "已添加 {n} 个绘图。"
+ "{n} drawings added.": "已添加 {n} 个绘图。",
+ "Drag to size the window; a double click gives back its size": "拖动以调整窗口大小；双击恢复原来的大小"
 }

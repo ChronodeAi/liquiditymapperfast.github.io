@@ -1833,9 +1833,9 @@
  "Ray": "레이",
  "From its point to the right only, rather than across the whole map": "지도 전체가 아니라 그 점에서 오른쪽으로만",
  "Extend left": "왼쪽으로 연장",
- "Run the line on past its first point": "선을 첫 점 너머로 연장",
+ "Run the line on to the left edge of the map": "선을 지도의 왼쪽 끝까지 연장",
  "Extend right": "오른쪽으로 연장",
- "Run the line on past its last point": "선을 마지막 점 너머로 연장",
+ "Run the line on to the right edge of the map": "선을 지도의 오른쪽 끝까지 연장",
  "Run it on to the right edge of the map": "지도의 오른쪽 끝까지 연장",
  "Leader": "지시선",
  "A line from the note to the point it is about": "메모에서 대상 점까지 이어지는 선",
@@ -1913,5 +1913,6 @@
  "Wall {usd} at {price}": "{price}의 벽 {usd}",
  "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Breakout과 Failed break에서 파선은 뚫고 지나간 돌파 수준, 점선은 다음 수준, 즉 들어가는 범위의 반대편입니다. 표시에 포인터를 올리면 그 수준, 그 캔들의 주문 흐름, 청산, 미결제약정, 그리고 일·주·월 시가(1시간 이하 차트에서는 시간 시가도)에 대한 위치를 볼 수 있습니다.",
  "{n} left out: a coin keeps 100 and the page 1,000.": "{n}개는 추가되지 않았습니다: 코인당 100개, 페이지 전체 1,000개까지입니다.",
- "{n} drawings added.": "드로잉 {n}개를 추가했습니다."
+ "{n} drawings added.": "드로잉 {n}개를 추가했습니다.",
+ "Drag to size the window; a double click gives back its size": "끌어서 창 크기를 바꾸고, 두 번 클릭하면 원래 크기로 돌아갑니다"
 }

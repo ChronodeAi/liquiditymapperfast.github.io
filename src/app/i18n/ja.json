@@ -1833,9 +1833,9 @@
  "Ray": "レイ",
  "From its point to the right only, rather than across the whole map": "マップ全体ではなく、その点から右側だけに引きます",
  "Extend left": "左に延長",
- "Run the line on past its first point": "線を最初の点の先まで延長します",
+ "Run the line on to the left edge of the map": "線をマップの左端まで延長します",
  "Extend right": "右に延長",
- "Run the line on past its last point": "線を最後の点の先まで延長します",
+ "Run the line on to the right edge of the map": "線をマップの右端まで延長します",
  "Run it on to the right edge of the map": "マップの右端まで延長します",
  "Leader": "引き出し線",
  "A line from the note to the point it is about": "メモから対象の点への線",
@@ -1913,5 +1913,6 @@
  "Wall {usd} at {price}": "{price} の壁 {usd}",
  "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Breakout と Failed break では、破線が抜けたブレイクの水準、点線が次の水準、つまり向かう先のレンジの反対側です。印にカーソルを合わせると、その水準、その足の注文フロー、清算、建玉、そして日・週・月の始値（1時間以下の足では時間の始値も）に対する位置が表示されます。",
  "{n} left out: a coin keeps 100 and the page 1,000.": "{n} 件は追加されませんでした：1コイン100件、ページ全体で1,000件までです。",
- "{n} drawings added.": "{n} 件の描画を追加しました。"
+ "{n} drawings added.": "{n} 件の描画を追加しました。",
+ "Drag to size the window; a double click gives back its size": "ドラッグでウィンドウのサイズを変更、ダブルクリックで元のサイズに戻します"
 }

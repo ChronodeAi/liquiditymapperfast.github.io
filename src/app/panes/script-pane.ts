@@ -316,7 +316,7 @@ export class ScriptPane extends TimePane {
    */
   readonly #build = (_tools: HTMLElement, body: HTMLElement): void => { buildScriptsPanel(this, body, () => this.#panel?.render(this.#build), this.#ui); };
   openPanel(anchor: HTMLElement = this.#button): void {
-    this.#panel = togglePanel(anchor, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; panelClosed(this, this.#ui); }, stays: true }, this.#build);
+    this.#panel = togglePanel(anchor, { title: t('Scripts'), width: 520, align: 'right', onClose: () => { this.#panel = null; panelClosed(this, this.#ui); }, stays: true, resizable: 'scripts' }, this.#build);
   }
   /** Write the list's statuses again with the latest results, in place (a menu or a switch under the pointer stays); not while a script is being written. */
   #refreshPanel(): void { if (this.#panel && !this.#ui.editing) refreshStatuses(this, this.#panel.body); }

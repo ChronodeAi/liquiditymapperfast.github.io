@@ -303,6 +303,17 @@ pre.fatal { position: fixed; inset: 20px; color: var(--ask); white-space: pre-wr
   box-shadow: 3px 3px 0 var(--shadow); font-size: 12px; }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px 8px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto; cursor: grab; user-select: none; touch-action: none; }
 .panel-head button { cursor: pointer; }
+/* A panel sized by its lower corners (ui.ts): its body takes the height, and a field marked to fill (a script's text) the room left in it. */
+.panel.sized .panel-body { flex: 1 1 auto; }
+.panel.sized .panel-body:has(> [data-fill]) { display: flex; flex-direction: column; }
+.panel.sized .panel-body:has(> [data-fill]) > * { flex: 0 0 auto; }
+.panel.sized .panel-body > [data-fill] { flex: 1 0 220px; resize: none; }
+.panel-grip { position: absolute; bottom: 0; z-index: 1; width: 18px; height: 18px; touch-action: none; opacity: .75; }
+.panel-grip.right { right: 0; cursor: nwse-resize; background: linear-gradient(135deg, transparent 0 58%, var(--muted) 58% 63%, transparent 63% 74%, var(--muted) 74% 79%, transparent 79%); }
+.panel-grip.left { left: 0; cursor: nesw-resize; background: linear-gradient(225deg, transparent 0 58%, var(--muted) 58% 63%, transparent 63% 74%, var(--muted) 74% 79%, transparent 79%); }
+.panel-grip:hover, .being-sized .panel-grip { opacity: 1; }
+.being-sized, .being-sized * { user-select: none; }
+html:is([data-layout^="phone"], [data-bar="compact"]) .panel-grip { display: none; }
 /* A window that is being dragged (panels, the venue picker, the guide): the hand stays closed wherever the pointer is, and nothing is selected on the way. */
 .being-moved, .being-moved * { cursor: grabbing !important; user-select: none; }
 dialog.venues h3 { cursor: grab; touch-action: none; user-select: none; }

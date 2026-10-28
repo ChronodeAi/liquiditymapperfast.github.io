@@ -113,6 +113,7 @@ export class DrawController {
 
   /** The timeframe, the market or the chart type changed: a drawing half placed is dropped (its points stay what they are on any chart). */
   contextChanged(): void {
+    this.#lastMark = 0;
     if (this.#drag) this.#abortDrag();
     if (this.draft) { this.draft = null; this.cursor = null; this.#changed(); }
   }
@@ -161,6 +162,7 @@ export class DrawController {
       this.message = { text: t('These drawings were saved by a newer version of the page: reload it to see and change them.'), warn: true };
       this.#changed(); return;
     }
+    if (this.#newer) { this.#newer = false; if (this.message?.warn) this.message = null; }
     this.#doc = doc; this.#histories.clear(); this.draft = null; this.cursor = null; this.#drag = null;
     if (this.selected && !this.get(this.selected)) this.selected = null;
     this.#changed();
@@ -323,11 +325,11 @@ export class DrawController {
     if (this.selected || this.hover || this.tool) { this.selected = null; this.hover = null; this.tool = null; this.draft = null; this.cursor = null; this.#changed(); }
   }
 
-  /** Change a drawing (its look, its options, its text, a point typed in), as one step; a locked drawing changes only to be unlocked. */
+  /** Change a drawing (its look, its options, its text, a point typed in), as one step; a locked drawing is only unlocked, hidden or shown. */
   update(id: string, patch: Partial<Omit<Drawing, 'id' | 'kind' | 'created'>>): void {
     if (this.readOnly) return;
     const before = this.list(), d = before.find(x => x.id === id); if (!d) return;
-    if (d.locked && !(Object.keys(patch).length === 1 && 'locked' in patch)) return;
+    if (d.locked && Object.keys(patch).some(k => k !== 'locked' && k !== 'hidden')) return;
     if (!fits({ ...d, ...patch })) return;
     this.#write(before.map(x => x.id === id ? { ...x, ...patch } : x), { before });
     // A drawing hidden is let go: nothing unseen stays selected (Delete would remove it with nothing on screen).
@@ -420,8 +422,9 @@ export class DrawController {
     if (d.hidden) { if (this.readOnly) return; this.update(id, { hidden: false }); d = this.get(id); if (!d) return; }
     if (!this.host.settings().shown) this.host.reveal();
     const v = this.host.view, ts = d.points.map(q => q.t), ps = d.points.map(q => q.p);
-    const time = d.kind === 'level' ? { t0: v.t0, t1: v.t1 } : { t0: Math.min(...ts), t1: Math.max(...ts) };
-    const prices = d.kind === 'vline' ? { p0: v.p0, p1: v.p1 } : { p0: Math.min(...ps), p1: Math.max(...ps) };
+    const tm = (v.t0 + v.t1) / 2, pm = (v.p0 + v.p1) / 2;
+    const time = d.kind === 'level' ? { t0: tm, t1: tm } : { t0: Math.min(...ts), t1: Math.max(...ts) };
+    const prices = d.kind === 'vline' ? { p0: pm, p1: pm } : { p0: Math.min(...ps), p1: Math.max(...ps) };
     this.selected = id; this.host.focus({ ...time, ...prices });
     this.#changed();
   }

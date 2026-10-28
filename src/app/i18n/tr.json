@@ -1903,9 +1903,9 @@
  "Ray": "Işın",
  "From its point to the right only, rather than across the whole map": "Noktasından yalnızca sağa doğru, haritanın tamamı boyunca değil",
  "Extend left": "Sola uzat",
- "Run the line on past its first point": "Çizgiyi ilk noktasının ötesine uzat",
+ "Run the line on to the left edge of the map": "Çizgiyi haritanın sol kenarına kadar uzat",
  "Extend right": "Sağa uzat",
- "Run the line on past its last point": "Çizgiyi son noktasının ötesine uzat",
+ "Run the line on to the right edge of the map": "Çizgiyi haritanın sağ kenarına kadar uzat",
  "Run it on to the right edge of the map": "Haritanın sağ kenarına kadar uzat",
  "Leader": "Bağlantı çizgisi",
  "A line from the note to the point it is about": "Nottan ilgili olduğu noktaya bir çizgi",
@@ -1992,5 +1992,6 @@
  "{n} drawings added.": {
   "one": "{n} çizim eklendi.",
   "other": "{n} çizim eklendi."
- }
+ },
+ "Drag to size the window; a double click gives back its size": "Pencereyi boyutlandırmak için sürükleyin; çift tıklama boyutunu geri getirir"
 }

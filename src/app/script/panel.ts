@@ -166,6 +166,8 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
   const source = el('textarea', { class: 'script-source', spellcheck: false, rows: 16, ariaLabel: t('Script'), placeholder: t('line(cum(vbuy - vsell), title=CVD)'), value: draft.source });
   source.maxLength = MAX_SOURCE_CHARS;
   source.wrap = 'off';
+  // In a window sized by its corners the text takes the room left (`.panel.sized`).
+  source.dataset.fill = '';
   source.oninput = () => { draft.source = source.value; };
   // A tab key writes two spaces rather than leaving the box.
   source.onkeydown = e => {
