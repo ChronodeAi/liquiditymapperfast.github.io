@@ -3,7 +3,7 @@ import { TIMEFRAMES } from '../hub.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import type { Store } from '../store.ts';
 import type { View } from '../view.ts';
-import { helpButton } from '../help.ts';
+import { helpButton, toggleExplanation } from '../help.ts';
 import { setTip } from '../tip.ts';
 import { t, tn } from '../i18n.ts';
 import { clock, price as fmtPrice } from '../format.ts';
@@ -29,6 +29,7 @@ import type { BarInputs, SourceFilter } from '../script/inputs.ts';
 import { PALETTES } from '../theme.ts';
 import { NEW_SCRIPT, unsaved, type ScriptsPanelState } from '../script/panel-state.ts';
 import { buildScriptsPanel, panelClosed, refreshStatuses } from '../script/panel.ts';
+import { aboutScript, builtinOf } from '../script/about.ts';
 
 /**
  * A script's last answer, the candles it was worked out over (their starts, timeframe and market) and the moment it was worked out at: the
@@ -140,7 +141,7 @@ export class ScriptPane extends TimePane {
 
   /** Whether a script that is on draws in a row of this pane: the pane is shown only then (and only while Scripts is on). */
   get hasRows(): boolean { return this.#records.some(r => r.on && r.place === 'pane'); }
-  /** The buttons beside each row's name (open the script, switch it off), a layer over the canvas; placed again only when a row moves. */
+  /** The buttons beside each row's name (what it is, hide it, open it, switch it off), a layer over the canvas; placed again only when a row moves. */
   #rowTools = el('div', { class: 'script-row-tools' });
   #rowToolsKey = '';
 
@@ -168,7 +169,7 @@ export class ScriptPane extends TimePane {
   /** Put each row's buttons beside its name (`places` in the plot's coordinates); nothing changes while no row moved. */
   #placeRowTools(places: readonly { id: string; x: number; y: number }[]): void {
     const dx = this.canvas.offsetLeft + leftGutter(this.store.state), dy = this.canvas.offsetTop;
-    const key = `${dx},${dy}|${places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}:${this.#hiddenOf(p.id)}`).join('|')}`;
+    const key = `${dx},${dy}|${places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}:${this.#hiddenOf(p.id)}:${this.#toolsOf(p.id)}`).join('|')}`;
     if (key === this.#rowToolsKey) return;
     this.#rowToolsKey = key;
     this.#syncTools(this.#rowTools, this.#rowButtons, places, dx, dy);
@@ -179,7 +180,7 @@ export class ScriptPane extends TimePane {
   readonly legendTools = el('div', { class: 'script-row-tools script-legend-tools' });
   #legendToolsKey = '';
   placeLegendTools(places: readonly { id: string; x: number; y: number }[]): void {
-    const key = places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}:${this.#hiddenOf(p.id)}`).join('|');
+    const key = places.map(p => `${p.id}:${Math.round(p.x)},${Math.round(p.y)}:${this.#hiddenOf(p.id)}:${this.#toolsOf(p.id)}`).join('|');
     if (key === this.#legendToolsKey) return;
     this.#legendToolsKey = key;
     this.#syncTools(this.legendTools, this.#legendButtons, places, 0, 0);
@@ -187,11 +188,14 @@ export class ScriptPane extends TimePane {
   #legendButtons = new Map<string, HTMLElement>();
 
   #hiddenOf(id: string): boolean { return this.#records.find(r => r.id === id)?.hidden === true; }
+  /** How many buttons a script has beside its name: a "?" first for one of the page's own (`builtinOf`), then the three every script has. */
+  #toolsOf(id: string): number { const r = this.#records.find(x => x.id === id); return r && builtinOf(r) ? 4 : 3; }
 
   /**
-   * Each script's three buttons, hide or show, open and switch off, at its place (offset by `dx`, `dy`) in `layer`: a script's buttons are made
-   * once and moved after, so a panel opened from one keeps its anchor and a focused one keeps the focus; a script no longer listed loses its
-   * buttons. The first says whether the script is hidden.
+   * Each script's buttons, what it is (one of the page's own scripts only), hide or show, open and switch off, at its place (offset by `dx`, `dy`)
+   * in `layer`: a script's buttons are made once and moved after, so a panel opened from one keeps its anchor and a focused one keeps the
+   * focus; a script no longer listed loses its buttons. The eye says whether the script is hidden. The "?" opens the script's description in a
+   * panel of its own, as every "?" outside a panel does; it is added or taken away only when a script's text makes it the page's or not.
    */
   #syncTools(layer: HTMLElement, made: Map<string, HTMLElement>, places: readonly { id: string; x: number; y: number }[], dx: number, dy: number): void {
     const wanted = new Set(places.map(p => p.id));
@@ -208,6 +212,13 @@ export class ScriptPane extends TimePane {
         box = el('span', { class: 'script-row-tool' }, hide, open, off);
         made.set(place.id, box); layer.append(box);
       }
+      const record = this.#records.find(r => r.id === place.id), about = record ? aboutScript(record) : null;
+      const asked = box.querySelector<HTMLButtonElement>('.script-row-about');
+      if (about && !asked) {
+        const ask = el('button', { type: 'button', class: 'script-row-about', ariaLabel: t('Explain: {topic}', { topic: about.title }), tip: t('What is this? {topic}', { topic: about.title }) });
+        ask.onclick = () => { const r = this.#records.find(x => x.id === place.id), now = r ? aboutScript(r) : null; if (now) toggleExplanation(ask, now); };
+        box.prepend(ask);
+      } else if (!about && asked) asked.remove();
       const hide = box.querySelector<HTMLButtonElement>('.script-row-hide')!, hidden = this.#hiddenOf(place.id);
       if (hide.dataset.hidden !== String(hidden)) {
         hide.dataset.hidden = String(hidden);
@@ -229,12 +240,13 @@ export class ScriptPane extends TimePane {
     for (const r of this.#records) {
       if (!r.on || r.place !== 'map') continue;
       // A hidden script is listed, muted and with no values, so its eye can show it again.
-      if (r.hidden) { out.push({ id: r.id, name: r.name, color: '', text: '', tone: 'muted' }); continue; }
+      const tools = this.#toolsOf(r.id);
+      if (r.hidden) { out.push({ id: r.id, name: r.name, color: '', text: '', tone: 'muted', tools }); continue; }
       // Only the first `valued` lines show values (the legend lists a few, and none on a phone): the others are named, not worked out.
       const withValues = out.length < valued;
       const kept = this.#held.get(r.id), held = kept && this.#fresh(kept) ? kept : undefined;
-      if (!held) { out.push({ id: r.id, name: r.name, color: '', text: t('running…'), tone: 'muted' }); continue; }
-      if (!held.result.ok) { out.push({ id: r.id, name: r.name, color: '', text: errorText(held.result.error), tone: 'error' }); continue; }
+      if (!held) { out.push({ id: r.id, name: r.name, color: '', text: t('running…'), tone: 'muted', tools }); continue; }
+      if (!held.result.ok) { out.push({ id: r.id, name: r.name, color: '', text: errorText(held.result.error), tone: 'error', tools }); continue; }
       const res = held.result, time = held.time, shown = shownCount(time, tf);
       const i = at === null ? shown - 1 : indexAt(time, tf, at, shown);
       const band = (plot: PlotOut): boolean => (plot.kind === 'brokenarea' || plot.kind === 'cloudarea') && plot.colors !== null;
@@ -254,7 +266,7 @@ export class ScriptPane extends TimePane {
         });
         text = texts.join(' · ') + (from.length > 3 ? ' …' : '');
       }
-      out.push({ id: r.id, name: r.name, color, text, tone: 'text' });
+      out.push({ id: r.id, name: r.name, color, text, tone: 'text', tools });
     }
     return out;
   }
