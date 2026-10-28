@@ -9,7 +9,7 @@ import { LIQUIDATIONS_PER_ANSWER, LIQUIDATION_RETENTION_MS } from '../../shared/
 import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { oiPartsUntil, oiUsdChangeByTime } from '../oi-change.ts';
-import { candleArrays, filterKey, marketInfo, marketsMatching, ofTimeframe, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
+import { candleArrays, filterKey, marketInfo, marketsMatching, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
 import { TakerRows } from '../measures/taker-rows.ts';
 import { candleSides, candleUsd } from '../measures/volume-strip.ts';
 
@@ -48,11 +48,14 @@ export class ScriptData {
    */
   inputs(state: AppState, filters: ReadonlyMap<string, SourceFilter>, withOi = false, withCandleFlow = false): BarInputs | null {
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, now = pageNow();
+    // Right after a change of timeframe the candles of the one before are still there: read under the new one, they would be paired with
+    // its flow and its market candles. Nothing until the new ones land.
+    if (state.candlesTimeframe !== undefined && state.candlesTimeframe !== state.timeframe) return null;
     // In a replay a script reads only the candles that had closed by its moment: the candle under way then is not known yet, nor anything after.
     const rows = replaying() ? state.candles.filter(r => r[0] + tf <= now) : state.candles;
     const candles = candleArrays(rows, tf, now);
     const n = candles.time.length;
-    if (!n || !ofTimeframe(candles.time, tf)) return null;
+    if (!n) return null;
     const starts = Array.from(candles.time);
     ensureDeltaFlow(this.hub, flowLoadIds(state, this.hub.flow.ids), starts[0]!, Date.now());
     const markets = this.markets(state, filters);

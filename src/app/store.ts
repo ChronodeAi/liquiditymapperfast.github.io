@@ -77,6 +77,11 @@ export interface AppState {
   layer: Layer;
   layers: Record<string, LayerLevel[]>;
   candles: CandleRow[];
+  /**
+   * The timeframe the candles were loaded for: after a change of timeframe the candles of the one before stay until the new ones land, and
+   * a reader that pairs them with other data of the new timeframe waits for them. Absent until a first load: the chart's.
+   */
+  candlesTimeframe?: string;
   oi: OiBar[];
   /** Instrument the OI bars belong to (the market's own, or a reference perp when the market has no OI history); empty while venues are added together. */
   oiInstrument: string;

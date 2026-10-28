@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buysAndSells, candleArrays, filterKey, liquidationOrderSide, marketInfo, marketsMatching, ofTimeframe, sourceInputs, transferables, type BarInputs, type SourceInputs } from '../src/app/script/inputs.ts';
+import { buysAndSells, candleArrays, filterKey, liquidationOrderSide, marketInfo, marketsMatching, sourceInputs, transferables, type BarInputs, type SourceInputs } from '../src/app/script/inputs.ts';
 import { liquidationBuckets } from '../src/app/panes/bar-stats.ts';
 import type { CandleRow } from '../src/app/store.ts';
 import type { CandleFlow } from '../src/app/delta/candles.ts';
@@ -131,15 +131,4 @@ test('every flow example draws over a chart the page never recorded, from the ch
     const drawn = r.plots.filter(p => p.fields.value && [...p.fields.value].slice(30).every(v => Number.isFinite(v)));
     assert.ok(drawn.length > 0, `${name} draws over the candles the page never recorded`);
   }
-});
-
-test('candles left from the timeframe before are not this timeframe\'s: a run waits for the new ones', () => {
-  const H = 3_600_000, Q = 900_000;
-  const hours = Float64Array.from({ length: 20 }, (_, i) => i * H);
-  assert.ok(ofTimeframe(hours, H));
-  assert.ok(!ofTimeframe(hours, Q), 'hourly candles read as quarter hours: every start is a quarter-hour start, and still not these');
-  assert.ok(!ofTimeframe(Float64Array.from({ length: 20 }, (_, i) => i * Q), H));
-  const gap = Float64Array.from([0, H, 2 * H, 5 * H, 6 * H, 7 * H]);
-  assert.ok(ofTimeframe(gap, H), 'a gap in the exchange\'s candles is still the timeframe');
-  assert.ok(ofTimeframe(Float64Array.from([0, 7 * H]), H), 'too few to tell: taken as they are');
 });

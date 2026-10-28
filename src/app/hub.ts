@@ -492,7 +492,7 @@ export class Hub {
     } catch (error) {
       if (key === this.#series && generation === this.#seriesGen) {
         // A refresh of what is on screen that fails leaves it as it is; candles (and open interest) of another timeframe or market are not left standing under this label.
-        if (this.#loaded?.key !== key) { this.store.set({ candles: [], seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; }
+        if (this.#loaded?.key !== key) { this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; }
         this.#series = this.#loaded?.key ?? '';
       }
       throw error;
@@ -509,7 +509,7 @@ export class Hub {
     const opens = live !== undefined && (!last || Math.floor(live[0] / tf) * tf > last[0]);
     this.#loaded = { key, instrument: seriesInstrument };
     // Open interest belongs to the candles it was loaded for: another timeframe's or market's bars are not shown under these while theirs are on their way.
-    this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
+    this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, candlesTimeframe: timeframe, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
     await this.loadOi();
   }
 
