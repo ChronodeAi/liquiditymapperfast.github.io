@@ -1834,7 +1834,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "Ses couleurs suivent le thème de la page et restent distinctes pour les yeux daltoniens, et une option colore les bougies de la carte selon la moyenne. Il dit où le prix se situe dans ses fourchettes, pas où il va : un marché peut rester bleu longtemps pendant qu'il monte.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Indique ce que chaque bougie a fait de la fourchette de la précédente, et marque les figures qui en découlent.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "« in » marque une bougie intérieure (dans la fourchette de la précédente), « out » une bougie extérieure (au-delà de ses deux extrémités). Des flèches marquent les figures : Breakout (la sortie d'une bougie intérieure), Failed break (une cassure que la bougie suivante a reprise), Rejection (une longue mèche au-delà de la bougie précédente, qui clôture de nouveau à l'intérieur : marteaux et étoiles filantes) et Engulfing (une bougie englobante).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Pour un Breakout ou un Failed break, la ligne en tirets est le niveau de cassure franchi et la ligne pleine le niveau suivant, l'autre bord de la fourchette vers laquelle il va. Survolez une marque pour ses niveaux, le flux d'ordres, les liquidations et l'open interest de sa bougie, et sa position face aux ouvertures du jour, de la semaine et du mois.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Elles décrivent ce qu'ont fait les bougies : aucun test n'a montré qu'elles disent où le prix va ensuite. Une marque sur la bougie en cours peut encore changer ; une alerte, désactivée par défaut, sonne quand un Breakout ou un Failed break se forme.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Deux moyennes sur les 48 dernières bougies : le prix payé par les acheteurs agressifs et celui obtenu par les vendeurs agressifs, chacune avec sa bande.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Les acheteurs et vendeurs agressifs sont des ordres au marché, exécutés aussitôt contre les ordres qui attendent dans le carnet. La ligne des acheteurs pondère le prix typique de chaque bougie par ce qui a été acheté ainsi, celle des vendeurs par ce qui a été vendu. Là où celle des acheteurs est au-dessus, on a acheté plus cher qu'on n'a vendu sur la fenêtre ; là où elle est en dessous, c'est l'inverse.",
@@ -1994,8 +1993,6 @@
  "That file is too large to be drawings from this page.": "Ce fichier est trop gros pour contenir des dessins de cette page.",
  "That file was written by a newer version of the page.": "Ce fichier a été écrit par une version plus récente de la page.",
  "That file is not drawings from this page.": "Ce fichier ne contient pas de dessins de cette page.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "Dessins ajoutés : {added} ; laissés de côté : {skipped}, car une crypto en garde 100 et la page 1 000.",
- "{added} drawings added.": "Dessins ajoutés : {added}.",
  "Price reached {price}: {label}": "Le prix a atteint {price} : {label}",
  "Price reached your level at {price}": "Le prix a atteint votre niveau à {price}",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Outils de dessin : niveaux, zones, lignes et notes (Suppr retire celui sélectionné, Ctrl+Z annule)",
@@ -2011,5 +2008,16 @@
  "High {price}": "Plus haut {price}",
  "Low {price}": "Plus bas {price}",
  "Close {price}": "Clôture {price}",
- "Wall {usd} at {price}": "Mur de {usd} à {price}"
+ "Wall {usd} at {price}": "Mur de {usd} à {price}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Pour un Breakout ou un Failed break, la ligne en tirets est le niveau de cassure franchi et la ligne pointillée le niveau suivant, l'autre bord de la fourchette vers laquelle il va. Survolez une marque pour ses niveaux, le flux d'ordres, les liquidations et l'open interest de sa bougie, et sa position face aux ouvertures du jour, de la semaine et du mois (et de l'heure, sur les graphiques d'une heure ou moins).",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} laissé de côté : une crypto en garde 100 et la page 1 000.",
+  "many": "{n} laissés de côté : une crypto en garde 100 et la page 1 000.",
+  "other": "{n} laissés de côté : une crypto en garde 100 et la page 1 000."
+ },
+ "{n} drawings added.": {
+  "one": "{n} dessin ajouté.",
+  "many": "{n} dessins ajoutés.",
+  "other": "{n} dessins ajoutés."
+ }
 }

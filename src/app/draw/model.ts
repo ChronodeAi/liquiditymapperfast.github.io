@@ -190,7 +190,7 @@ export function importInto(doc: DrawDoc, text: string, now: number = Date.now())
   const taken = new Set(Object.values(coins).flatMap(list => list.map(d => d.id)));
   let added = 0, skipped = 0, total = totalOf(doc);
   for (const [coin, list] of Object.entries(read.coins)) {
-    const into = coins[coin] ?? (coins[coin] = []);
+    const into = Object.hasOwn(coins, coin) ? coins[coin]! : (coins[coin] = []);
     for (const d of list) {
       if (into.length >= MAX_PER_COIN || total >= MAX_TOTAL) { skipped++; continue; }
       const id = taken.has(d.id) ? newId(now) : d.id;

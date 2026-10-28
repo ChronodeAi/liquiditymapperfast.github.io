@@ -1811,7 +1811,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "Renkleri sayfanın temasını izler ve renk körü gözler için de ayırt edilir; bir seçenek haritadaki mumları ortalamaya göre boyar. Fiyatın aralıklarında nerede durduğunu söyler, nereye gideceğini değil: bir piyasa yükselirken uzun süre mavi kalabilir.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Her mumun bir önceki mumun aralığına ne yaptığını etiketler ve bundan çıkan formasyonları işaretler.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "“in” bir iç mumu (öncekinin aralığı içinde), “out” bir dış mumu (iki ucunun da ötesinde) işaretler. Oklar formasyonları işaretler: Breakout (bir iç mumdan çıkış), Failed break (sonraki mumun geri aldığı bir kırılım), Rejection (önceki mumun ötesine uzanan, tekrar içeride kapanan uzun bir fitil: çekiçler ve kayan yıldızlar) ve Engulfing (yutan mum).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Breakout ve Failed break için kesikli çizgi geçilen kırılım seviyesi, düz çizgi ise bir sonraki seviyedir: girdiği aralığın öbür ucu. Seviyelerini, mumunun emir akışını, tasfiyelerini ve açık pozisyonunu, gün, hafta ve ay açılışlarına göre nerede durduğunu görmek için bir işaretin üzerine gelin.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Bunlar mumların ne yaptığını anlatır: hiçbir test fiyatın sonra nereye gideceğini söylediklerini göstermedi. Süren mumdaki bir işaret hâlâ değişebilir; varsayılan olarak kapalı bir uyarı, bir Breakout ya da Failed break oluştuğunda çalar.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Son 48 mum üzerinden iki ortalama: agresif alıcıların ödediği fiyat ve agresif satıcıların aldığı fiyat, her biri bir bantla.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Agresif alıcılar ve satıcılar, defterde bekleyen emirlere karşı hemen gerçekleşen piyasa emirleridir. Alıcı çizgisi her mumun tipik fiyatını böyle alınanla, satıcı çizgisi satılanla ağırlıklandırır. Alıcı çizgisi satıcınınkinin üstündeyse pencerede satıştan daha yüksek fiyatlardan alım yapılmıştır; altındaysa tersi.",
@@ -1969,8 +1968,6 @@
  "That file is too large to be drawings from this page.": "Bu dosya, bu sayfanın çizimleri olamayacak kadar büyük.",
  "That file was written by a newer version of the page.": "Bu dosya sayfanın daha yeni bir sürümüyle yazılmış.",
  "That file is not drawings from this page.": "Bu dosya bu sayfanın çizimlerini içermiyor.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "{added} çizim eklendi; {skipped} tanesi dışarıda kaldı: bir coin 100, sayfa 1.000 çizim tutar.",
- "{added} drawings added.": "{added} çizim eklendi.",
  "Price reached {price}: {label}": "Fiyat {price} seviyesine ulaştı: {label}",
  "Price reached your level at {price}": "Fiyat {price} seviyenize ulaştı",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Çizim araçları: seviyeler, bölgeler, çizgiler ve notlar (Delete seçili olanı siler, Ctrl+Z geri alır)",
@@ -1986,5 +1983,14 @@
  "High {price}": "En yüksek {price}",
  "Low {price}": "En düşük {price}",
  "Close {price}": "Kapanış {price}",
- "Wall {usd} at {price}": "{price} seviyesinde {usd} duvar"
+ "Wall {usd} at {price}": "{price} seviyesinde {usd} duvar",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Breakout ve Failed break için kesikli çizgi geçilen kırılım seviyesi, noktalı çizgi ise bir sonraki seviyedir: girdiği aralığın öbür ucu. Seviyelerini, mumunun emir akışını, tasfiyelerini ve açık pozisyonunu, gün, hafta ve ay açılışlarına (bir saat ve altındaki grafiklerde saat açılışına da) göre nerede durduğunu görmek için bir işaretin üzerine gelin.",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} tanesi eklenmedi: coin başına 100, sayfada toplam 1.000 tutulur.",
+  "other": "{n} tanesi eklenmedi: coin başına 100, sayfada toplam 1.000 tutulur."
+ },
+ "{n} drawings added.": {
+  "one": "{n} çizim eklendi.",
+  "other": "{n} çizim eklendi."
+ }
 }

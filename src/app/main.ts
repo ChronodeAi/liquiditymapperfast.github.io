@@ -32,7 +32,6 @@ import { DrawController } from './draw/controller.ts';
 import { DrawBar } from './draw/bar.ts';
 import { browserStore } from './draw/storage.ts';
 import { PALETTES } from './theme.ts';
-import { openedPanel } from './ui.ts';
 import { openedSheet } from './sheet.ts';
 import { topShown } from './measures/strip.ts';
 import { tableHeight } from './panes/bar-stats.ts';
@@ -189,6 +188,7 @@ async function main(): Promise<void> {
     view: heat.view, plotW: () => heat.plotW, plotH: () => heat.plotH,
     candleAt: x => heat.candleAt(x), closesOnly: () => store.state.chartType === 'line', wallsAt: x => heat.wallsAt(x), restingAt: price => heat.restingAt(price),
     mark: () => store.state.mark.price, coin: () => currentCoin().coin, now: pageNow, replaying, settings: () => store.state.draw,
+    reveal: () => store.set({ draw: { ...store.state.draw, shown: true } }),
     holdStill: () => { if (store.state.followLive) store.set({ followLive: false }); },
     disarmOthers: () => { if (store.state.rangeTool) range.stop(); if (store.state.vwapAnchoring) store.set({ vwapAnchoring: false }); },
     focus: box => heat.focusOn(box),
@@ -199,7 +199,7 @@ async function main(): Promise<void> {
   heat.draw = draw;
   const drawBar = new DrawBar(draw, {
     settings: () => store.state.draw, setSettings: patch => store.set({ draw: { ...store.state.draw, ...patch } }),
-    palette: () => PALETTES[store.state.theme] ?? PALETTES.light!, mark: () => store.state.mark.price, restingAt: price => heat.restingAt(price), replaying,
+    palette: () => PALETTES[store.state.theme] ?? PALETTES.light!, mark: () => store.state.mark.price, restingAt: price => heat.restingAt(price), replaying, redraw: () => heat.invalidate(),
   });
   heat.root.append(drawBar.rail, drawBar.editor, drawBar.say, drawBar.phoneButton);
   heat.onDrawFrame = f => drawBar.place(f);
@@ -254,7 +254,8 @@ async function main(): Promise<void> {
   // The keyboard shortcuts (shortcuts.ts: the table, and when a key is left alone).
   window.addEventListener('keydown', e => {
     // The drawing tools' keys first (Esc, Delete, Undo and Redo), when no field or window has them.
-    if (draw.key(e, document.querySelector('dialog[open]') !== null || openedPanel() !== null || openedSheet() !== null)) { e.preventDefault(); return; }
+    const inPanel = document.activeElement instanceof HTMLElement && document.activeElement.closest('.panel') !== null;
+    if (draw.key(e, document.querySelector('dialog[open]') !== null || openedSheet() !== null || inPanel)) { e.preventDefault(); return; }
     const hit = matchShortcut(e, document.querySelector('dialog[open]') !== null);
     if (!hit) return;
     e.preventDefault();
@@ -313,6 +314,7 @@ async function main(): Promise<void> {
     // Placing a VWAP anchor, selecting a Range and placing a drawing all take the next press on the map: arming one ends the others.
     if (changed.has('rangeTool') && state.rangeTool && state.vwapAnchoring) store.set({ vwapAnchoring: false });
     if ((changed.has('rangeTool') && state.rangeTool) || (changed.has('vwapAnchoring') && state.vwapAnchoring)) draw.disarm();
+    if (changed.has('draw')) draw.settingsChanged();
     if (changed.has('draw') || changed.has('theme') || changed.has('replay')) { heat.invalidate(); drawBar.sync(); }
     // A drawing half placed belongs to the chart it was begun on; a level with an alert is watched as the price moves.
     if (changed.has('timeframe') || changed.has('marketId') || changed.has('chartType') || changed.has('replay')) draw.contextChanged();

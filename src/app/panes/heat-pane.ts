@@ -1466,7 +1466,7 @@ export class HeatPane {
       const top = Math.min(yo, yc), height = Math.max(1.5, Math.abs(yc - yo));
       if (type === 'bars') {
         // A line from the low to the high, the open a tick to the left and the close a tick to the right, over the same halo as a candle.
-        const tick = Math.max(2, Math.min(8, body / 2)), path = (): void => { ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.moveTo(cx - tick, Math.round(yo) + 0.5); ctx.lineTo(cx, Math.round(yo) + 0.5); ctx.moveTo(cx, Math.round(yc) + 0.5); ctx.lineTo(cx + tick, Math.round(yc) + 0.5); };
+        const tick = bar < 4 ? 0 : Math.min(8, bar / 2 - 1), path = (): void => { ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); if (tick > 0) { ctx.moveTo(cx - tick, Math.round(yo) + 0.5); ctx.lineTo(cx, Math.round(yo) + 0.5); ctx.moveTo(cx, Math.round(yc) + 0.5); ctx.lineTo(cx + tick, Math.round(yc) + 0.5); } };
         ctx.globalAlpha = outline; ctx.lineWidth = 3.6; ctx.strokeStyle = halo; path(); ctx.stroke();
         ctx.globalAlpha = 1; ctx.lineWidth = 1.6; ctx.strokeStyle = color; path(); ctx.stroke();
         ctx.lineWidth = 1;
@@ -2899,10 +2899,10 @@ export class HeatPane {
       tap: p => {
         if (this.store.state.vwapAnchoring && p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH) { this.onAnchor?.(this.view.tOf(p.x, this.plotW)); return; }
         if (this.#bands.onHeader(p.x, p.y) || this.#onHiddenTag(p.x, p.y)) { this.onTopProfile(); return; }
-        if (p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH && this.draw?.click(p, false, true)) { this.#unpin(); return; }
+        if (p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH && this.draw?.click(p, false, true)) { this.#drawClickAt = performance.now(); this.#unpin(); return; }
         if (this.#pinActive() && Math.hypot(this.#pin!.x - p.x, this.#pin!.y - p.y) < 28) this.#unpin(); else this.#pinAt(p);
       },
-      doubleTap: () => { if (this.draw?.placing) return; this.#unpin(); this.fit(); },
+      doubleTap: () => { if (this.draw?.placing || performance.now() - this.#drawClickAt < 600) return; this.#unpin(); this.fit(); },
       // A short tick under the finger says the hold registered (where the browser allows it: it wants the page to have been used first).
       hold: p => { if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(8); this.#pinAt(p); },
       holdMove: p => this.#pinAt(p),

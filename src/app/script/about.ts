@@ -24,7 +24,7 @@ const about = (): Readonly<Record<ExampleKey, { tip: string; body: readonly stri
   'bar-patterns': {
     tip: t('Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.'),
     body: [t('“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.'),
-      t('For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle\'s order flow, liquidations and open interest, and where it stood against the day\'s, week\'s and month\'s opens.'),
+      t('For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle\'s order flow, liquidations and open interest, and where it stood against the day\'s, week\'s and month\'s opens (and the hour\'s, on charts of an hour or less).'),
       t('These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.')],
   },
   'buyer-and-seller-vwaps': {

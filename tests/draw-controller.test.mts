@@ -20,7 +20,7 @@ function setup(o: { settings?: Partial<DrawSettings>; replay?: boolean; doc?: Dr
     view, plotW: () => 1000, plotH: () => 500,
     candleAt: x => (x >= 200 && x < 300 ? { t: T + 2.5 * H, x: 250, open: 150, high: 160, low: 140, close: 155, y: p => view.yOf(p, 500) } : null),
     closesOnly: () => false, wallsAt: () => o.walls ?? [], restingAt: () => ({ bid: 1e6, ask: 0, step: 1 }),
-    mark: () => 150, coin: () => coin, now: () => T + 9 * H, replaying: () => o.replay === true, settings: () => settings,
+    mark: () => 150, coin: () => coin, now: () => T + 9 * H, replaying: () => o.replay === true, settings: () => settings, reveal: () => { settings = { ...settings, shown: true }; },
     holdStill: () => calls.push('hold'), disarmOthers: () => calls.push('disarm-others'), focus: () => calls.push('focus'),
     inspect: box => inspected.push(box), alert: text => alerts.push(text), redraw: () => {},
   };

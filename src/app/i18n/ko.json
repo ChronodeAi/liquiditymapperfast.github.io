@@ -1744,7 +1744,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "색은 페이지의 테마를 따르고 색각 이상이 있는 눈에도 구별되며, 옵션으로 지도의 캔들을 평균에 따라 칠할 수 있습니다. 가격이 범위 안에서 어디에 있는지를 말할 뿐, 다음에 어디로 갈지는 말하지 않습니다. 시장은 오르는 동안 오랫동안 파랑으로 남을 수 있습니다.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "각 캔들이 이전 캔들의 범위에 무엇을 했는지 표시하고, 거기서 나오는 패턴을 표시합니다.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "“in”은 안쪽 캔들(이전 캔들의 범위 안), “out”은 바깥쪽 캔들(그 양 끝을 모두 넘은 캔들)을 표시합니다. 화살표는 패턴입니다. Breakout(안쪽 캔들에서의 돌파), Failed break(다음 캔들이 되돌린 돌파), Rejection(이전 캔들을 넘어 긴 꼬리를 달고 다시 안에서 마감한 캔들: 망치형과 유성형), Engulfing(장악형 캔들)입니다.",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Breakout과 Failed break에서 점선은 뚫고 지나간 돌파 수준, 실선은 다음 수준, 즉 들어가는 범위의 반대편입니다. 표시에 포인터를 올리면 그 수준, 그 캔들의 주문 흐름, 청산, 미결제약정, 그리고 일·주·월 시가에 대한 위치를 볼 수 있습니다.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "이것들은 캔들이 한 일을 설명할 뿐이며, 가격이 다음에 어디로 갈지 알려 준다는 것을 보인 검증은 없습니다. 진행 중인 캔들의 표시는 아직 바뀔 수 있습니다. 기본으로 꺼져 있는 알림은 Breakout이나 Failed break가 생길 때 울립니다.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "최근 캔들 48개에 대한 두 평균입니다. 공격적인 매수자가 치른 가격과 공격적인 매도자가 받은 가격이며, 각각 밴드가 있습니다.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "공격적인 매수자와 매도자란 시장가 주문으로, 호가창에서 기다리는 주문과 즉시 체결됩니다. 매수자 선은 각 캔들의 대표 가격을 그렇게 매수된 금액으로, 매도자 선은 매도된 금액으로 가중합니다. 매수자 선이 매도자 선보다 위에 있으면 그 기간 동안 매도보다 높은 가격에 매수가 이루어졌고, 아래에 있으면 그 반대입니다.",
@@ -1896,8 +1895,6 @@
  "That file is too large to be drawings from this page.": "이 파일은 너무 커서 이 페이지의 드로잉일 수 없습니다.",
  "That file was written by a newer version of the page.": "이 파일은 더 새로운 버전의 페이지에서 작성되었습니다.",
  "That file is not drawings from this page.": "이 파일은 이 페이지의 드로잉이 아닙니다.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "드로잉 {added}개를 추가했고 {skipped}개는 제외했습니다. 코인당 100개, 페이지 전체 1,000개까지입니다.",
- "{added} drawings added.": "드로잉 {added}개를 추가했습니다.",
  "Price reached {price}: {label}": "가격이 {price}에 도달: {label}",
  "Price reached your level at {price}": "가격이 내 수평선 {price}에 도달했습니다",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "드로잉 도구: 수평선, 구간, 선, 메모 (Delete로 선택한 것 삭제, Ctrl+Z로 실행 취소)",
@@ -1913,5 +1910,8 @@
  "High {price}": "고가 {price}",
  "Low {price}": "저가 {price}",
  "Close {price}": "종가 {price}",
- "Wall {usd} at {price}": "{price}의 벽 {usd}"
+ "Wall {usd} at {price}": "{price}의 벽 {usd}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Breakout과 Failed break에서 파선은 뚫고 지나간 돌파 수준, 점선은 다음 수준, 즉 들어가는 범위의 반대편입니다. 표시에 포인터를 올리면 그 수준, 그 캔들의 주문 흐름, 청산, 미결제약정, 그리고 일·주·월 시가(1시간 이하 차트에서는 시간 시가도)에 대한 위치를 볼 수 있습니다.",
+ "{n} left out: a coin keeps 100 and the page 1,000.": "{n}개는 추가되지 않았습니다: 코인당 100개, 페이지 전체 1,000개까지입니다.",
+ "{n} drawings added.": "드로잉 {n}개를 추가했습니다."
 }

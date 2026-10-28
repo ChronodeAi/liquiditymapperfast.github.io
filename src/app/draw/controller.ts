@@ -1,4 +1,4 @@
-import { t } from '../i18n.ts';
+import { t, tn } from '../i18n.ts';
 import { price as fmtPrice } from '../format.ts';
 import type { View } from '../view.ts';
 import { ANCHORS, MAX_PER_COIN, MAX_TOTAL, capReached, duplicate as copyOf, exportText, fits, importInto, moved, newDrawing, totalOf, type Anchor, type DrawDoc, type DrawKind, type Drawing } from './model.ts';
@@ -34,6 +34,8 @@ export interface DrawHost {
   now(): number;
   replaying(): boolean;
   settings(): DrawSettings;
+  /** Switch the drawings back on (a tool armed while they are hidden). */
+  reveal(): void;
   /** A drawing is begun or dragged: the map stops following the market, so the points stay where they are put. */
   holdStill(): void;
   /** A tool is armed: Range and VWAP anchoring, which take the next press too, are put away. */
@@ -166,7 +168,8 @@ export class DrawController {
   arm(kind: DrawKind): void {
     if (this.host.replaying()) { this.message = { text: t('Drawings are added on the live chart, not during a replay.'), warn: false }; this.onChange(); return; }
     if (this.host.settings().locked) { this.message = { text: t('The drawings are locked: unlock them in Drawings to add one.'), warn: false }; this.onChange(); return; }
-    if (this.#newer) return;
+    if (this.#newer) { this.onChange(); return; }
+    if (!this.host.settings().shown) this.host.reveal();
     this.host.disarmOthers();
     this.tool = kind; this.draft = null; this.cursor = null; this.selected = null; this.message = null;
     this.#changed();
@@ -283,7 +286,7 @@ export class DrawController {
         const pr = this.#proj(), prev = points[points.length - 2]!;
         if (Math.hypot(pr.x(prev.t) - c.x, (kind === 'vline' ? c.y : pr.y(prev.p)) - c.y) < 4) return true;
       }
-      if (!this.draft) this.host.holdStill();
+      if (!this.draft && ANCHORS[kind] > 1) this.host.holdStill();
       if (points.length < ANCHORS[kind]) { this.draft = { kind, points }; this.#held = null; this.#changed(); return true; }
       this.#commit(newDrawing(kind, points));
       return true;
@@ -310,6 +313,12 @@ export class DrawController {
 
   // ---- editing --------------------------------------------------------------------------------------------------------------
 
+  /** The drawings were switched off (or other settings changed): what cannot be seen is not selected, hovered or being placed. */
+  settingsChanged(): void {
+    if (this.host.settings().shown) return;
+    if (this.selected || this.hover || this.tool) { this.selected = null; this.hover = null; this.tool = null; this.draft = null; this.cursor = null; this.#changed(); }
+  }
+
   /** Change a drawing (its look, its options, its text, a point typed in), as one step; a locked drawing changes only to be unlocked. */
   update(id: string, patch: Partial<Omit<Drawing, 'id' | 'kind' | 'created'>>): void {
     if (this.readOnly) return;
@@ -317,6 +326,8 @@ export class DrawController {
     if (d.locked && !(Object.keys(patch).length === 1 && 'locked' in patch)) return;
     if (!fits({ ...d, ...patch })) return;
     this.#write(before.map(x => x.id === id ? { ...x, ...patch } : x), { before });
+    // A drawing hidden is let go: nothing unseen stays selected (Delete would remove it with nothing on screen).
+    if (patch.hidden === true && this.selected === id) this.selected = null;
     this.#changed();
   }
 
@@ -390,16 +401,21 @@ export class DrawController {
     if (read.error === 'version') return t('That file was written by a newer version of the page.');
     if (read.error) return t('That file is not drawings from this page.');
     this.#doc = read.doc;
-    this.#history().push(before, this.list());
+    const after = this.list();
+    if (after.length !== before.length) this.#history().push(before, after);
     this.#save(); this.#changed();
-    return read.skipped ? t('{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.', { added: String(read.added), skipped: String(read.skipped) }) : t('{added} drawings added.', { added: String(read.added) });
+    const added = tn(read.added, '{n} drawing added.', '{n} drawings added.');
+    return read.skipped ? `${added} ${tn(read.skipped, '{n} left out: a coin keeps 100 and the page 1,000.', '{n} left out: a coin keeps 100 and the page 1,000.')}` : added;
   }
 
   /** Centre the map on a drawing. */
   find(id: string): void {
-    const d = this.get(id); if (!d) return;
-    const ts = d.points.map(q => q.t), ps = d.points.map(q => q.p);
-    this.selected = id; this.host.focus({ t0: Math.min(...ts), t1: Math.max(...ts), p0: Math.min(...ps), p1: Math.max(...ps) });
+    let d = this.get(id); if (!d) return;
+    if (d.hidden && !this.readOnly) { this.update(id, { hidden: false }); d = this.get(id); if (!d) return; }
+    const v = this.host.view, ts = d.points.map(q => q.t), ps = d.points.map(q => q.p);
+    const time = d.kind === 'level' ? { t0: v.t0, t1: v.t1 } : { t0: Math.min(...ts), t1: Math.max(...ts) };
+    const prices = d.kind === 'vline' ? { p0: v.p0, p1: v.p1 } : { p0: Math.min(...ps), p1: Math.max(...ps) };
+    this.selected = id; this.host.focus({ ...time, ...prices });
     this.#changed();
   }
 
@@ -433,7 +449,7 @@ export class DrawController {
     if (e.defaultPrevented || dialogOpen || (target && (target.isContentEditable === true || (typeof target.tagName === 'string' && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))))) return false;
     const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
     if (e.key === 'Escape' && !mod && !e.altKey) return this.cancel();
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !mod && !e.altKey) { const d = this.get(this.selected); if (!d || d.locked || this.readOnly) return false; this.remove(d.id); return true; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !mod && !e.altKey) { const d = this.shown().find(x => x.id === this.selected); if (!d || d.locked || this.readOnly) return false; this.remove(d.id); return true; }
     if (mod && !e.altKey && key === 'z') return e.shiftKey ? this.redo() : this.undo();
     if (mod && !e.altKey && !e.shiftKey && key === 'y') return this.redo();
     return false;

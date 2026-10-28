@@ -1744,7 +1744,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "它的颜色随页面主题变化，色盲人士也能分辨，另有一个选项可按平均值给地图上的 K 线着色。它说明价格在各个区间中所处的位置，而不是接下来去向哪里：市场上涨时可能长时间保持蓝色。",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "标出每根 K 线相对前一根的区间做了什么，并标记由此而来的形态。",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "“in”标记内包线（在前一根的区间之内），“out”标记外包线（超出其两端）。箭头标记形态：Breakout（内包线后的突破）、Failed break（被下一根 K 线收回的突破）、Rejection（越过前一根 K 线、又收回区间内的长影线：锤子线和流星线）以及 Engulfing（吞没线）。",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "对 Breakout 和 Failed break 而言，虚线是它突破的突破位，实线是下一个价位，即它所进入区间的另一侧。指向一个标记，可查看它的价位、该 K 线的订单流、强平和持仓量，以及它相对当日、当周和当月开盘价的位置。",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "这些只描述 K 线做了什么：没有任何检验表明它们能说明价格接下来去向哪里。进行中的 K 线上的标记仍可能改变；一个默认关闭的提醒会在 Breakout 或 Failed break 形成时响起。",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "最近 48 根 K 线上的两条平均线：主动买方支付的价格和主动卖方得到的价格，各带一条通道。",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "主动买方和卖方就是市价单，它们立即与订单簿中挂着等待的订单成交。买方线按以这种方式买入的金额为每根 K 线的典型价格加权，卖方线则按卖出的金额加权。买方线在卖方线上方时，窗口内的买入价格高于卖出价格；在下方时则相反。",
@@ -1896,8 +1895,6 @@
  "That file is too large to be drawings from this page.": "该文件太大，不可能是本页面的绘图。",
  "That file was written by a newer version of the page.": "该文件由较新版本的页面写入。",
  "That file is not drawings from this page.": "该文件不是本页面的绘图。",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "已添加 {added} 个绘图；{skipped} 个未加入：每个币种最多 100 个，整个页面最多 1,000 个。",
- "{added} drawings added.": "已添加 {added} 个绘图。",
  "Price reached {price}: {label}": "价格到达 {price}：{label}",
  "Price reached your level at {price}": "价格到达你的水平线 {price}",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "绘图工具：水平线、区域、线条和备注（Delete 删除选中的，Ctrl+Z 撤销）",
@@ -1913,5 +1910,8 @@
  "High {price}": "最高 {price}",
  "Low {price}": "最低 {price}",
  "Close {price}": "收盘 {price}",
- "Wall {usd} at {price}": "{price} 处的大单墙 {usd}"
+ "Wall {usd} at {price}": "{price} 处的大单墙 {usd}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "对 Breakout 和 Failed break 而言，虚线是它突破的突破位，点线是下一个价位，即它所进入区间的另一侧。指向一个标记，可查看它的价位、该 K 线的订单流、强平和持仓量，以及它相对当日、当周和当月开盘价（在一小时及以下的图表上还有当小时开盘价）的位置。",
+ "{n} left out: a coin keeps 100 and the page 1,000.": "有 {n} 个未添加：每个币种最多 100 个，页面共 1,000 个。",
+ "{n} drawings added.": "已添加 {n} 个绘图。"
 }

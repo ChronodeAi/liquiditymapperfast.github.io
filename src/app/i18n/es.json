@@ -1834,7 +1834,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "Sus colores siguen el tema de la página y se distinguen también para la vista daltónica, y una opción colorea las velas del mapa según la media. Dice dónde está el precio dentro de sus rangos, no adónde va: un mercado puede seguir azul mucho tiempo mientras sube.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Indica qué hizo cada vela con el rango de la anterior y marca los patrones que se siguen de ello.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "«in» marca una vela interior (dentro del rango de la anterior), «out» una exterior (más allá de sus dos extremos). Las flechas marcan patrones: Breakout (la ruptura de una vela interior), Failed break (una ruptura que la vela siguiente deshizo), Rejection (una mecha larga más allá de la vela anterior que cierra de nuevo dentro: martillos y estrellas fugaces) y Engulfing (una vela envolvente).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "En un Breakout o un Failed break, la línea discontinua es el nivel de ruptura que atravesó y la continua el nivel siguiente, el otro lado del rango hacia el que se mueve. Pasa sobre una marca para ver sus niveles, el flujo de órdenes, las liquidaciones y el interés abierto de su vela, y dónde quedó frente a las aperturas del día, la semana y el mes.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Describen lo que hicieron las velas: ninguna prueba ha mostrado que digan adónde irá el precio. Una marca en la vela en curso aún puede cambiar; una alerta, apagada por defecto, suena cuando se forma un Breakout o un Failed break.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Dos medias de las últimas 48 velas: el precio que pagaron los compradores agresivos y el que obtuvieron los vendedores agresivos, cada una con su banda.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Los compradores y vendedores agresivos son órdenes a mercado, que se ejecutan al instante contra las órdenes que esperan en el libro. La línea de los compradores pondera el precio típico de cada vela por lo comprado así; la de los vendedores, por lo vendido. Donde la de los compradores está por encima, en la ventana se compró a precios más altos que los de la venta; donde está por debajo, fue al revés.",
@@ -1994,8 +1993,6 @@
  "That file is too large to be drawings from this page.": "Ese archivo es demasiado grande para ser dibujos de esta página.",
  "That file was written by a newer version of the page.": "Ese archivo lo escribió una versión más nueva de la página.",
  "That file is not drawings from this page.": "Ese archivo no contiene dibujos de esta página.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "Dibujos añadidos: {added}; omitidos: {skipped}, porque una moneda guarda 100 y la página 1000.",
- "{added} drawings added.": "Dibujos añadidos: {added}.",
  "Price reached {price}: {label}": "El precio alcanzó {price}: {label}",
  "Price reached your level at {price}": "El precio alcanzó tu nivel en {price}",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Herramientas de dibujo: niveles, zonas, líneas y notas (Supr borra el seleccionado, Ctrl+Z deshace)",
@@ -2011,5 +2008,16 @@
  "High {price}": "Máximo {price}",
  "Low {price}": "Mínimo {price}",
  "Close {price}": "Cierre {price}",
- "Wall {usd} at {price}": "Muro de {usd} en {price}"
+ "Wall {usd} at {price}": "Muro de {usd} en {price}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "En un Breakout o un Failed break, la línea discontinua es el nivel de ruptura que atravesó y la punteada el nivel siguiente, el otro lado del rango hacia el que se mueve. Pasa sobre una marca para ver sus niveles, el flujo de órdenes, las liquidaciones y el interés abierto de su vela, y dónde quedó frente a las aperturas del día, la semana y el mes (y de la hora, en gráficos de una hora o menos).",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} se ha quedado fuera: una moneda guarda 100 y la página 1.000.",
+  "many": "{n} se han quedado fuera: una moneda guarda 100 y la página 1.000.",
+  "other": "{n} se han quedado fuera: una moneda guarda 100 y la página 1.000."
+ },
+ "{n} drawings added.": {
+  "one": "{n} dibujo añadido.",
+  "many": "{n} dibujos añadidos.",
+  "other": "{n} dibujos añadidos."
+ }
 }

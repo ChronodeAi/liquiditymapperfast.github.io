@@ -1834,7 +1834,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "I suoi colori seguono il tema della pagina e restano distinguibili anche per chi non distingue bene i colori, e un'opzione colora le candele della mappa secondo la media. Dice dove sta il prezzo nei suoi intervalli, non dove andrà: un mercato può restare blu a lungo mentre sale.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Indica che cosa ha fatto ogni candela all'intervallo della precedente e segna i pattern che ne seguono.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "«in» segna una candela interna (dentro l'intervallo della precedente), «out» una esterna (oltre entrambi i suoi estremi). Le frecce segnano i pattern: Breakout (l'uscita da una candela interna), Failed break (una rottura che la candela successiva ha annullato), Rejection (una lunga ombra oltre la candela precedente che richiude dentro: martelli e stelle cadenti) ed Engulfing (una candela che avvolge la precedente).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "In un Breakout o un Failed break, la linea tratteggiata è il livello di rottura attraversato e quella continua il livello successivo, l'altro lato dell'intervallo verso cui si muove. Passa su un segno per i suoi livelli, il flusso degli ordini, le liquidazioni e l'open interest della sua candela, e dove stava rispetto alle aperture del giorno, della settimana e del mese.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Descrivono ciò che hanno fatto le candele: nessun test ha mostrato che dicano dove andrà il prezzo. Un segno sulla candela in corso può ancora cambiare; un avviso, spento di default, suona quando si forma un Breakout o un Failed break.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Due medie sulle ultime 48 candele: il prezzo pagato dagli acquirenti aggressivi e quello ottenuto dai venditori aggressivi, ciascuna con la sua banda.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Acquirenti e venditori aggressivi sono ordini a mercato, eseguiti all'istante contro gli ordini in attesa nel libro. La linea degli acquirenti pondera il prezzo tipico di ogni candela per quanto è stato comprato così, quella dei venditori per quanto è stato venduto. Dove la linea degli acquirenti è sopra, nella finestra si è comprato a prezzi più alti di quelli di vendita; dove è sotto, è il contrario.",
@@ -1994,8 +1993,6 @@
  "That file is too large to be drawings from this page.": "Quel file è troppo grande per contenere disegni di questa pagina.",
  "That file was written by a newer version of the page.": "Quel file è stato scritto da una versione più recente della pagina.",
  "That file is not drawings from this page.": "Quel file non contiene disegni di questa pagina.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "Disegni aggiunti: {added}; esclusi: {skipped}, perché una moneta ne conserva 100 e la pagina 1.000.",
- "{added} drawings added.": "Disegni aggiunti: {added}.",
  "Price reached {price}: {label}": "Il prezzo ha raggiunto {price}: {label}",
  "Price reached your level at {price}": "Il prezzo ha raggiunto il tuo livello a {price}",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Strumenti di disegno: livelli, zone, linee e note (Canc elimina quello selezionato, Ctrl+Z annulla)",
@@ -2011,5 +2008,16 @@
  "High {price}": "Massimo {price}",
  "Low {price}": "Minimo {price}",
  "Close {price}": "Chiusura {price}",
- "Wall {usd} at {price}": "Muro di {usd} a {price}"
+ "Wall {usd} at {price}": "Muro di {usd} a {price}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "In un Breakout o un Failed break, la linea tratteggiata è il livello di rottura attraversato e quella punteggiata il livello successivo, l'altro lato dell'intervallo verso cui si muove. Passa su un segno per i suoi livelli, il flusso degli ordini, le liquidazioni e l'open interest della sua candela, e dove stava rispetto alle aperture del giorno, della settimana e del mese (e dell'ora, sui grafici di un'ora o meno).",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} lasciato fuori: una moneta ne tiene 100 e la pagina 1.000.",
+  "many": "{n} lasciati fuori: una moneta ne tiene 100 e la pagina 1.000.",
+  "other": "{n} lasciati fuori: una moneta ne tiene 100 e la pagina 1.000."
+ },
+ "{n} drawings added.": {
+  "one": "{n} disegno aggiunto.",
+  "many": "{n} disegni aggiunti.",
+  "other": "{n} disegni aggiunti."
+ }
 }

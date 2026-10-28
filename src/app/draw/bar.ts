@@ -3,9 +3,9 @@ import { el } from '../dom.ts';
 import { clock, price as fmtPrice, usd } from '../format.ts';
 import { compactBar, isCoarse } from '../device.ts';
 import { togglePanel, switchRow, segmented, heading, note, button, type Panel } from '../ui.ts';
-import { DRAW_COLORS, DRAW_WIDTHS, type DrawColor, type DrawKind, type Drawing } from './model.ts';
+import { DRAW_COLORS, DRAW_WIDTHS, MAX_IMPORT_CHARS, type DrawColor, type DrawKind, type Drawing } from './model.ts';
 import { MAGNET_MODES, type MagnetMode } from './magnet.ts';
-import { handlesOf, type Projection } from './geometry.ts';
+import { handlesOf, noteBox, type Projection } from './geometry.ts';
 import type { DrawController } from './controller.ts';
 import type { DrawSettings } from './settings.ts';
 import { colorOf } from './paint.ts';
@@ -134,8 +134,9 @@ export function readout(d: Drawing, mark: number, resting: { bid: number; ask: n
  * drawing in view, above it where there is room under the legend, else below it; inside the plot and right of the rail (`left`) always.
  * Null where none of it is in view.
  */
-export function editorPlace(d: Drawing, pr: Projection, size: { w: number; h: number }, top: number, left = 4): { x: number; y: number } | null {
+export function editorPlace(d: Drawing, pr: Projection, size: { w: number; h: number }, top: number, left = 4, note?: { w: number; h: number }): { x: number; y: number } | null {
   const hs = handlesOf(d, pr);
+  if (d.kind === 'note' && note) { const b = noteBox(d, pr, note); hs.push({ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y + b.h }); }
   let x0 = Math.min(...hs.map(h => h.x)), x1 = Math.max(...hs.map(h => h.x)), y0 = Math.min(...hs.map(h => h.y)), y1 = Math.max(...hs.map(h => h.y));
   if (d.kind === 'level') { x0 = d.extendLeft ? 0 : Math.max(0, x0); x1 = pr.w; }
   if (d.kind === 'vline') { y0 = top + 30; y1 = top + 30; }
@@ -144,7 +145,7 @@ export function editorPlace(d: Drawing, pr: Projection, size: { w: number; h: nu
   if (x1 < 0 || x0 > pr.w || y1 < 0 || y0 > pr.h || x1 < x0) return null;
   const gap = 12, x = Math.max(left, Math.min(pr.w - size.w - 4, (x0 + x1) / 2 - size.w / 2));
   const above = y0 - gap - size.h, below = y1 + gap;
-  const y = above >= top ? above : below + size.h <= pr.h - 4 ? below : Math.max(top, Math.min(pr.h - size.h - 4, above));
+  const low = Math.max(top, below), y = above >= top ? above : low + size.h <= pr.h - 4 ? low : Math.max(top, Math.min(pr.h - size.h - 4, above));
   return { x, y };
 }
 
@@ -155,6 +156,8 @@ export interface DrawBarHost {
   mark(): number;
   restingAt(price: number): { bid: number; ask: number; step: number } | null;
   replaying(): boolean;
+  /** Draw the map again (the rail is placed as the map draws). */
+  redraw(): void;
 }
 
 /** Where the controls go this frame: the plot's left edge in the pane, its projection, and the legend's foot (the rail starts under it). */
@@ -187,6 +190,8 @@ export class DrawBar {
   #placed = '';
   /** When the selected drawing's figures were last taken (a level's change with the price and the book). */
   #figuresAt = 0;
+  /** The rail's and the editor's sizes, kept by a ResizeObserver, so a frame never reads the layout back. */
+  #sizes = { railW: 36, railH: 0, editorW: 300, editorH: 56 };
 
   constructor(private draw: DrawController, private host: DrawBarHost) {
     for (const node of [this.rail, this.editor, this.say]) node.setAttribute('data-no-capture', '');
@@ -213,6 +218,13 @@ export class DrawBar {
     this.#cancel.onclick = () => this.draw.cancel();
     this.say.append(this.#sayText, this.#cancel);
     this.draw.onChange = () => this.sync();
+    if (typeof ResizeObserver === 'function') {
+      const measure = new ResizeObserver(() => {
+        this.#sizes = { railW: this.rail.offsetWidth || 36, railH: this.rail.offsetHeight, editorW: this.editor.offsetWidth || 300, editorH: this.editor.offsetHeight || 56 };
+        this.#placed = ''; this.host.redraw();
+      });
+      measure.observe(this.rail); measure.observe(this.editor);
+    }
     this.sync();
   }
 
@@ -220,7 +232,7 @@ export class DrawBar {
   toggle(on = !this.draw.open): void {
     this.draw.open = on;
     if (!on) { this.draw.disarm(); if (this.draw.selected) this.draw.cancel(); this.#panel?.close(); }
-    this.sync();
+    this.sync(); this.host.redraw();
   }
 
   /** Show what the controller holds: the armed tool, the magnet, Undo and Redo, the count, the selection's bar and the line at the foot. */
@@ -229,7 +241,7 @@ export class DrawBar {
     this.rail.hidden = !open;
     for (const node of [this.rail, this.editor, this.say]) node.classList.toggle('phone', phone);
     for (const b of [this.button, this.phoneButton]) { b.dataset.state = open ? 'on' : 'off'; b.setAttribute('aria-pressed', String(open)); }
-    for (const [kind, b] of this.#toolButtons) { b.classList.toggle('on', d.tool === kind); b.setAttribute('aria-pressed', String(d.tool === kind)); b.disabled = d.readOnly; }
+    for (const [kind, b] of this.#toolButtons) { b.classList.toggle('on', d.tool === kind); b.setAttribute('aria-pressed', String(d.tool === kind)); b.classList.toggle('idle', d.readOnly); }
     (this.#magnet.lastChild as HTMLElement).textContent = magnetWord(s.magnet);
     this.#magnet.classList.toggle('on', s.magnet !== 'off');
     this.#magnet.setAttribute('aria-label', t('Magnet: {mode}', { mode: magnetWord(s.magnet) }));
@@ -255,15 +267,15 @@ export class DrawBar {
    */
   place(f: DrawFrame): void {
     const d = this.draw, sel = d.open ? d.shown().find(x => x.id === d.selected) ?? null : null, phone = compactBar();
-    if (sel?.kind === 'level') this.#syncFigures(performance.now());
-    const railRight = this.rail.hidden ? 4 : 6 + (this.rail.offsetWidth || 36) + 6, room = `${Math.max(160, f.pr.w - railRight - 8)}px`;
+    if (sel) this.#syncFigures(performance.now());
+    const railRight = this.rail.hidden ? 4 : 6 + this.#sizes.railW + 6, room = `${Math.max(160, f.pr.w - railRight - 8)}px`;
     if (!phone && this.editor.style.maxWidth !== room) this.editor.style.maxWidth = room;
     let editor = '';
     if (sel && !phone) {
-      const at = editorPlace(sel, f.pr, { w: this.editor.offsetWidth || 300, h: this.editor.offsetHeight || 56 }, f.legendBottom + 6, railRight);
+      const at = editorPlace(sel, f.pr, { w: this.#sizes.editorW, h: this.#sizes.editorH }, f.legendBottom + 6, railRight, sel.kind === 'note' ? d.noteSize(sel) : undefined);
       editor = at ? `${Math.round(f.left + at.x)},${Math.round(at.y)}` : 'none';
     }
-    const key = `${f.left}|${Math.round(f.legendBottom)}|${f.pr.w}|${f.pr.h}|${editor}|${phone}|${phone ? `${this.rail.offsetHeight}|${this.editor.offsetHeight}|${this.editor.hidden}` : ''}`;
+    const key = `${f.left}|${Math.round(f.legendBottom)}|${f.pr.w}|${f.pr.h}|${editor}|${phone}|${phone ? `${this.#sizes.railH}|${this.#sizes.editorH}|${this.editor.hidden}` : ''}`;
     if (key === this.#placed) return;
     this.#placed = key;
     if (!phone) {
@@ -273,9 +285,9 @@ export class DrawBar {
     } else {
       // A phone: the strip along the map's foot (two rows when it needs them), the selected drawing's bar and the next step stacked over it.
       for (const node of [this.rail, this.say]) { node.style.left = ''; node.style.top = ''; node.style.maxHeight = ''; }
-      const over = 28 + (this.rail.hidden ? 0 : this.rail.offsetHeight) + 6;
+      const over = 28 + (this.rail.hidden ? 0 : this.#sizes.railH) + 6;
       this.editor.style.bottom = `${over}px`;
-      this.say.style.bottom = `${over + (this.editor.hidden ? 0 : this.editor.offsetHeight + 6)}px`;
+      this.say.style.bottom = `${over + (!sel ? 0 : this.#sizes.editorH + 6)}px`;
     }
     const show = !!sel && editor !== 'none';
     this.editor.hidden = !show;
@@ -382,8 +394,8 @@ export class DrawBar {
       const name = el('button', { type: 'button', class: 'draw-list-name' + (x.id === d.selected ? ' on' : ''), textContent: describe(x), tip: t('Select it and show it on the map') });
       name.onclick = () => d.find(x.id);
       const eye = iconButton(x.hidden ? 'eyeOff' : 'eye', x.hidden ? t('Show it on the map') : t('Hide it from the map'), x.hidden ? t('Hidden: show it on the map again') : t('Shown: hide it from the map, keeping it'), 'draw-icon draw-action');
-      eye.onclick = () => d.update(x.id, { hidden: !x.hidden });
-      const lock = el('button', { type: 'button', class: 'draw-action', textContent: x.locked ? t('Unlock') : t('Lock'), onclick: () => d.update(x.id, { locked: !x.locked }) });
+      eye.onclick = () => d.update(x.id, { hidden: !x.hidden }); eye.disabled = d.readOnly;
+      const lock = el('button', { type: 'button', class: 'draw-action', textContent: x.locked ? t('Unlock') : t('Lock'), disabled: d.readOnly, onclick: () => d.update(x.id, { locked: !x.locked }) });
       const del = el('button', { type: 'button', class: 'draw-action danger', textContent: t('Delete'), disabled: x.locked, onclick: () => d.remove(x.id) });
       const swatch = el('i', { class: 'draw-list-swatch' }); swatch.style.background = colorOf(x.style.color, this.host.palette());
       rows.append(el('div', { class: 'draw-list-row' + (x.hidden ? ' hidden-one' : '') }, swatch, name, eye, lock, del));
@@ -392,6 +404,7 @@ export class DrawBar {
     const file = el('input', { type: 'file', accept: 'application/json,.json', hidden: true });
     file.onchange = () => {
       const f = file.files?.[0]; if (!f) return;
+      if (f.size > MAX_IMPORT_CHARS * 3) { d.message = { text: t('That file is too large to be drawings from this page.'), warn: true }; this.sync(); file.value = ''; return; }
       void f.text().then(text => { const said = d.importText(text), failed = d.message?.warn ? d.message.text : ''; d.message = failed ? { text: `${said} ${failed}`, warn: true } : { text: said, warn: false }; this.sync(); });
       file.value = '';
     };

@@ -23,7 +23,8 @@ test('every script that comes with the page has a description: a lead sentence a
     assert.ok(about.tip.endsWith('.') && words(about.tip) <= 30, `${ex.key}: the lead is one short sentence`);
     assert.ok(about.body.length >= 2 && about.body.length <= 4, `${ex.key}: ${about.body.length} paragraphs`);
     const total = words([about.tip, ...about.body].join(' '));
-    assert.ok(total >= 80 && total <= 180, `${ex.key}: ${total} words`);
+    // Compact enough to read in the popover (Bar patterns, the longest, says which line is which and when the hour's open is there).
+    assert.ok(total >= 80 && total <= 190, `${ex.key}: ${total} words`);
   }
   // Honest about what the patterns are: they describe, and no test has shown them to say where price goes.
   assert.match(aboutExample('bar-patterns').body.join(' '), /no test has shown/);

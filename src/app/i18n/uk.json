@@ -1862,7 +1862,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "Його кольори йдуть за темою сторінки й розрізняються й для дальтоніків, а одна з опцій фарбує свічки на карті за середнім. Він каже, де ціна стоїть у своїх діапазонах, а не куди вона піде: ринок може довго лишатися синім, поки росте.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Підписує, що кожна свічка зробила з діапазоном попередньої, і позначає патерни, що з цього випливають.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "«in» позначає внутрішню свічку (у межах діапазону попередньої), «out» — зовнішню (за обома її краями). Стрілки позначають патерни: Breakout (вихід із внутрішньої свічки), Failed break (пробій, який наступна свічка відіграла), Rejection (довга тінь за попередню свічку із закриттям знову всередині: молоти й падучі зірки) та Engulfing (поглинальна свічка).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Для Breakout і Failed break пунктир — рівень пробою, крізь який пройшла ціна, а суцільна лінія — наступний рівень, дальній бік діапазону, в який вона йде. Наведіть на позначку, щоб побачити її рівні, потік ордерів, ліквідації й відкритий інтерес її свічки та положення щодо відкриття дня, тижня й місяця.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Вони описують, що зробили свічки: жодна перевірка не показала, що вони кажуть, куди піде ціна. Позначка на поточній свічці ще може змінитися; сповіщення, типово вимкнене, лунає, коли формується Breakout або Failed break.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Два середні за останні 48 свічок: ціна, яку платили агресивні покупці, і ціна, яку отримували агресивні продавці, кожне зі своєю смугою.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Агресивні покупці й продавці — це ринкові ордери, які одразу виконуються проти заявок, що чекають у стакані. Лінія покупців зважує типову ціну кожної свічки тим, що куплено так, лінія продавців — тим, що продано. Де лінія покупців вища за лінію продавців, за вікно купували за вищими цінами, ніж продавали; де нижча — навпаки.",
@@ -2024,8 +2023,6 @@
  "That file is too large to be drawings from this page.": "Цей файл завеликий для малюнків цієї сторінки.",
  "That file was written by a newer version of the page.": "Цей файл записано новішою версією сторінки.",
  "That file is not drawings from this page.": "Цей файл не містить малюнків цієї сторінки.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "Додано малюнків: {added}; пропущено: {skipped} — монета зберігає 100, сторінка 1000.",
- "{added} drawings added.": "Додано малюнків: {added}.",
  "Price reached {price}: {label}": "Ціна досягла {price}: {label}",
  "Price reached your level at {price}": "Ціна досягла вашого рівня {price}",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Інструменти малювання: рівні, зони, лінії та нотатки (Delete видаляє вибраний, Ctrl+Z скасовує)",
@@ -2041,5 +2038,18 @@
  "High {price}": "Максимум {price}",
  "Low {price}": "Мінімум {price}",
  "Close {price}": "Закриття {price}",
- "Wall {usd} at {price}": "Стіна {usd} на {price}"
+ "Wall {usd} at {price}": "Стіна {usd} на {price}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Для Breakout і Failed break пунктир — рівень пробою, крізь який пройшла ціна, а точкова лінія — наступний рівень, дальній бік діапазону, в який вона йде. Наведіть на позначку, щоб побачити її рівні, потік ордерів, ліквідації й відкритий інтерес її свічки та положення щодо відкриття дня, тижня й місяця (і години — на графіках із таймфреймом до години).",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} не додано: монета зберігає 100, сторінка — 1000.",
+  "few": "{n} не додано: монета зберігає 100, сторінка — 1000.",
+  "many": "{n} не додано: монета зберігає 100, сторінка — 1000.",
+  "other": "{n} не додано: монета зберігає 100, сторінка — 1000."
+ },
+ "{n} drawings added.": {
+  "one": "Додано {n} малюнок.",
+  "few": "Додано {n} малюнки.",
+  "many": "Додано {n} малюнків.",
+  "other": "Додано {n} малюнка."
+ }
 }

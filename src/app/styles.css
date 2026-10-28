@@ -225,7 +225,7 @@ main { --side-w: max(clamp(350px, 26.25vw, 420px), 19.1vw); --flow-w: max(clamp(
 /* On a window this narrow the three buttons over the top right of the map would hide the title and the figures beside it: they shrink to their drawings. */
 @media (max-width: 1560px) {
   html[data-layout="desktop"] .pane.heat .map-tools :is(.map-goto, .map-select, .map-recenter, .map-draw) { font-size: 0; gap: 0; padding: 0 7px; }
-  html[data-layout="desktop"] .pane.heat .map-tools .map-select { padding-left: 21px; }
+  html[data-layout="desktop"] .pane.heat .map-tools .map-select, html[data-layout="desktop"] .pane.heat .map-tools .map-draw { padding-left: 21px; }
 }
 .pane.ladder { flex: 1 1 auto; }
 .pane.cvd { flex: 1 1 auto; }
@@ -764,7 +764,7 @@ html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px
 .draw-rail .draw-icon, .draw-editor .draw-icon { display: inline-flex; align-items: center; justify-content: center; gap: 3px; width: 28px; height: 28px; padding: 0; border-color: transparent; background: transparent; }
 .draw-rail .draw-icon:hover, .draw-editor .draw-icon:hover { border-color: var(--line); }
 .draw-rail .draw-icon.on, .draw-editor .draw-icon.on { background: var(--text); color: var(--bg); border-color: var(--text); }
-.draw-icon:disabled { opacity: 0.35; cursor: default; }
+.draw-icon:disabled, .draw-rail .draw-tool.idle { opacity: 0.35; cursor: default; }
 .draw-sep { flex: 0 0 1px; align-self: stretch; margin: 2px; background: var(--line); }
 .draw-rail .draw-magnet { flex-direction: column; height: 38px; gap: 0; width: auto; min-width: 28px; padding: 0 3px; }
 .draw-rail .draw-magnet.on { background: transparent; color: var(--text); border-color: var(--line); }
@@ -783,7 +783,7 @@ html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px
 .draw-text { width: 120px; height: 26px; box-sizing: border-box; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 2px 6px; }
 .draw-editor .draw-icon.danger, .draw-files button.danger, .draw-action.danger { color: var(--ask, #d20f39); }
 .draw-say { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; transform: translateX(-50%); color: var(--text); white-space: nowrap; }
-.draw-say.warn { color: #e6a700; }
+.draw-say.warn { box-shadow: inset 4px 0 0 #e6a700, 3px 3px 0 var(--shadow); border-color: #e6a700; }
 .draw-cancel { padding: 2px 8px; font-size: 11px; }
 .draw-cancel[hidden] { display: none; }
 .draw-list { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 8px; }

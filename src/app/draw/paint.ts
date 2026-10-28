@@ -15,6 +15,7 @@ import type { SnapField } from './magnet.ts';
  */
 
 const AMBER = '#f5a524';
+const CUT_FAR = 1e7;
 /** A colour role on this theme: the text's, a blue and an amber that read on every background, the point of control's purple, buy, sell. */
 export function colorOf(c: DrawColor, p: Palette): string {
   switch (c) {
@@ -32,8 +33,14 @@ const FONT = '600 11px ui-sans-serif, system-ui, sans-serif', NOTE_FONT = '12px 
 const NOTE_W = 220, NOTE_LINES = 4;
 
 const halo = (p: Palette): string => p.dark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.8)';
+/** The plot the strokes are cut to (set by each paint; a clip still bounds what shows). */
+let plotBox = { x0: -CUT_FAR, y0: -CUT_FAR, x1: CUT_FAR, y1: CUT_FAR };
+const cutToPlot = (s: Segment): Segment | null => extendSegment(s.a, s.b, false, false, plotBox);
 
-function strokeSegments(ctx: CanvasRenderingContext2D, segs: readonly Segment[], color: string, width: number, dashed: boolean, p: Palette, alpha = 1): void {
+/** Far past the plot's edges, where a stroke is cut. */
+const CUT = 24;
+function strokeSegments(ctx: CanvasRenderingContext2D, all: readonly Segment[], color: string, width: number, dashed: boolean, p: Palette, alpha = 1): void {
+  const segs = all.map(s => cutToPlot(s)).filter((s): s is Segment => s !== null);
   if (!segs.length) return;
   const path = (): void => { ctx.beginPath(); for (const s of segs) { ctx.moveTo(s.a.x, s.a.y); ctx.lineTo(s.b.x, s.b.y); } };
   ctx.save();
@@ -103,6 +110,7 @@ function bell(ctx: CanvasRenderingContext2D, x: number, y: number, color: string
 
 /** One drawing, as it looks committed (`alpha` below 1: the one being placed). */
 export function paintDrawing(ctx: CanvasRenderingContext2D, d: Drawing, pr: Projection, p: Palette, alpha = 1): void {
+  plotBox = { x0: -CUT, y0: -CUT, x1: pr.w + CUT, y1: pr.h + CUT };
   const color = colorOf(d.style.color, p), w = d.style.width, dash = d.style.dashed;
   switch (d.kind) {
     case 'level': {
@@ -207,6 +215,7 @@ function caughtText(field: SnapField, price: string, size: string): string {
 
 /** What belongs to editing, on its own canvas: the hovered drawing lit, the selection's handles, the drawing being placed, the magnet's catch. */
 export function paintEditing(ctx: CanvasRenderingContext2D, draw: DrawController, pr: Projection, p: Palette): void {
+  plotBox = { x0: -CUT, y0: -CUT, x1: pr.w + CUT, y1: pr.h + CUT };
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pr.w, pr.h); ctx.clip();
   const hovered = draw.hover && draw.hover.id !== draw.selected ? draw.get(draw.hover.id) : null;
   if (hovered) strokeSegments(ctx, strokesOf(hovered, pr), colorOf(hovered.style.color, p), hovered.style.width + 3, false, p, 0.3);

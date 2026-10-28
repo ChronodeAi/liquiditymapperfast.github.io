@@ -1857,7 +1857,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "Его цвета следуют теме страницы и различимы и для дальтоников, а одна из опций красит свечи на карте по среднему. Он говорит, где цена стоит в своих диапазонах, а не куда она пойдёт: рынок может долго оставаться синим, пока растёт.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Подписывает, что каждая свеча сделала с диапазоном предыдущей, и отмечает паттерны, которые из этого следуют.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "«in» отмечает внутреннюю свечу (в пределах диапазона предыдущей), «out» — внешнюю (за обоими её краями). Стрелки отмечают паттерны: Breakout (выход из внутренней свечи), Failed break (пробой, который следующая свеча отыграла), Rejection (длинная тень за предыдущую свечу с закрытием обратно внутри: молоты и падающие звёзды) и Engulfing (поглощающая свеча).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Для Breakout и Failed break пунктир — уровень пробоя, через который прошла цена, а сплошная линия — следующий уровень, дальняя сторона диапазона, в который она идёт. Наведите на отметку, чтобы увидеть её уровни, поток ордеров, ликвидации и открытый интерес её свечи и положение относительно открытия дня, недели и месяца.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Они описывают, что сделали свечи: ни одна проверка не показала, что они говорят, куда пойдёт цена. Отметка на текущей свече ещё может измениться; оповещение, по умолчанию выключенное, звучит, когда формируется Breakout или Failed break.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Два средних за последние 48 свечей: цена, которую платили агрессивные покупатели, и цена, которую получали агрессивные продавцы, у каждого своя полоса.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Агрессивные покупатели и продавцы — это рыночные ордера, которые сразу исполняются против заявок, ждущих в стакане. Линия покупателей взвешивает типичную цену каждой свечи тем, что куплено так, линия продавцов — тем, что продано. Где линия покупателей выше линии продавцов, за окно покупали по более высоким ценам, чем продавали; где ниже — наоборот.",
@@ -2019,8 +2018,6 @@
  "That file is too large to be drawings from this page.": "Этот файл слишком большой для рисунков этой страницы.",
  "That file was written by a newer version of the page.": "Этот файл записан более новой версией страницы.",
  "That file is not drawings from this page.": "Этот файл не содержит рисунков этой страницы.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "Добавлено рисунков: {added}; пропущено: {skipped} — монета хранит 100, страница 1000.",
- "{added} drawings added.": "Добавлено рисунков: {added}.",
  "Price reached {price}: {label}": "Цена достигла {price}: {label}",
  "Price reached your level at {price}": "Цена достигла вашего уровня {price}",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Инструменты рисования: уровни, зоны, линии и заметки (Delete удаляет выбранный, Ctrl+Z отменяет)",
@@ -2036,5 +2033,18 @@
  "High {price}": "Максимум {price}",
  "Low {price}": "Минимум {price}",
  "Close {price}": "Закрытие {price}",
- "Wall {usd} at {price}": "Стена {usd} на {price}"
+ "Wall {usd} at {price}": "Стена {usd} на {price}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Для Breakout и Failed break пунктир — уровень пробоя, через который прошла цена, а точечная линия — следующий уровень, дальняя сторона диапазона, в который она идёт. Наведите на отметку, чтобы увидеть её уровни, поток ордеров, ликвидации и открытый интерес её свечи и положение относительно открытия дня, недели и месяца (и часа — на графиках с таймфреймом до часа).",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} не добавлен: монета хранит 100, страница — 1000.",
+  "few": "{n} не добавлено: монета хранит 100, страница — 1000.",
+  "many": "{n} не добавлено: монета хранит 100, страница — 1000.",
+  "other": "{n} не добавлено: монета хранит 100, страница — 1000."
+ },
+ "{n} drawings added.": {
+  "one": "Добавлен {n} рисунок.",
+  "few": "Добавлено {n} рисунка.",
+  "many": "Добавлено {n} рисунков.",
+  "other": "Добавлено {n} рисунка."
+ }
 }

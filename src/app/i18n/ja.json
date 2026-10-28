@@ -1744,7 +1744,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "色はページのテーマに従い、色覚に違いのある人にも見分けられるようにしてあります。オプションでマップのローソク足を平均で色分けできます。価格がレンジのどこにあるかを示すもので、次にどこへ向かうかは示しません。上昇中の相場が長く青のままでいることもあります。",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "各足が前の足のレンジに対して何をしたかを表示し、そこから生まれるパターンに印を付けます。",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "「in」は内側の足（前の足のレンジ内）、「out」は外側の足（その両端を超えた足）を示します。矢印はパターンの印です。Breakout（内側の足からのブレイク）、Failed break（次の足に取り戻されたブレイク）、Rejection（前の足を越えて長いヒゲを付け、内側に戻って引けた足。ハンマーや流れ星）、Engulfing（包み足）です。",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Breakout と Failed break では、破線が抜けたブレイクの水準、実線が次の水準、つまり向かう先のレンジの反対側です。印にカーソルを合わせると、その水準、その足の注文フロー、清算、建玉、そして日・週・月の始値に対する位置が表示されます。",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "これらは足が何をしたかを述べるもので、価格が次にどこへ向かうかを示すと確かめた検証はありません。進行中の足の印はまだ変わることがあります。初期設定ではオフのアラートが、Breakout や Failed break ができたときに鳴ります。",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "直近 48 本の足での 2 つの平均です。積極的な買い手が払った価格と、積極的な売り手が受け取った価格で、それぞれにバンドが付きます。",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "積極的な買い手と売り手とは成行注文のことで、板で待っている注文にすぐ約定します。買い手の線は各足の典型価格をそうして買われた額で、売り手の線は売られた額で重み付けします。買い手の線が売り手の線より上なら、期間中は売りより高い価格で買われており、下ならその逆です。",
@@ -1896,8 +1895,6 @@
  "That file is too large to be drawings from this page.": "このファイルは大きすぎて、このページの描画ではありません。",
  "That file was written by a newer version of the page.": "このファイルは新しいバージョンのページで書かれています。",
  "That file is not drawings from this page.": "このファイルはこのページの描画ではありません。",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "{added} 件の描画を追加し、{skipped} 件は除外しました（1 通貨 100 件、ページ全体で 1,000 件まで）。",
- "{added} drawings added.": "{added} 件の描画を追加しました。",
  "Price reached {price}: {label}": "価格が {price} に到達：{label}",
  "Price reached your level at {price}": "価格が水平線 {price} に到達しました",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "描画ツール：水平線、ゾーン、線、メモ（Delete で選択中のものを削除、Ctrl+Z で元に戻す）",
@@ -1913,5 +1910,8 @@
  "High {price}": "高値 {price}",
  "Low {price}": "安値 {price}",
  "Close {price}": "終値 {price}",
- "Wall {usd} at {price}": "{price} の壁 {usd}"
+ "Wall {usd} at {price}": "{price} の壁 {usd}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Breakout と Failed break では、破線が抜けたブレイクの水準、点線が次の水準、つまり向かう先のレンジの反対側です。印にカーソルを合わせると、その水準、その足の注文フロー、清算、建玉、そして日・週・月の始値（1時間以下の足では時間の始値も）に対する位置が表示されます。",
+ "{n} left out: a coin keeps 100 and the page 1,000.": "{n} 件は追加されませんでした：1コイン100件、ページ全体で1,000件までです。",
+ "{n} drawings added.": "{n} 件の描画を追加しました。"
 }

@@ -1811,7 +1811,6 @@
  "Its colours follow the page's theme and stay apart for colour-blind eyes, and an option colours the map's candles by the average. It says where price sits in its ranges, not where it goes next: a market can stay blue for a long time while it climbs.": "Ihre Farben folgen dem Design der Seite und bleiben auch für farbenblinde Augen unterscheidbar, und eine Option färbt die Kerzen der Karte nach dem Durchschnitt. Sie sagt, wo der Preis in seinen Spannen steht, nicht, wohin er als Nächstes geht: Ein Markt kann lange blau bleiben, während er steigt.",
  "Labels what each candle did to the range of the one before it, and marks the patterns that follow from that.": "Benennt, was jede Kerze mit der Spanne der vorigen getan hat, und markiert die Muster, die daraus folgen.",
  "“in” marks an inside candle (within the range of the one before), “out” an outside one (past both its ends). Arrows mark patterns: a breakout of an inside candle, a failed break (one the next candle took back), a rejection (a long wick past the candle before, closing back inside: hammers and shooting stars) and an engulfing candle.": "„in“ markiert eine Innenkerze (innerhalb der Spanne der vorigen), „out“ eine Außenkerze (über beide Enden hinaus). Pfeile markieren Muster: Breakout (Ausbruch aus einer Innenkerze), Failed break (ein Ausbruch, den die nächste Kerze zurücknahm), Rejection (ein langer Docht über die vorige Kerze hinaus, der wieder innerhalb schließt: Hammer und Shooting Star) und Engulfing (eine umschließende Kerze).",
- "For a breakout or failed break, the dashed line is the break level it went through and the solid one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens.": "Bei Breakout und Failed break ist die gestrichelte Linie das durchbrochene Ausbruchsniveau und die durchgezogene das nächste Niveau, die gegenüberliegende Seite der Spanne, in die er läuft. Zeige auf eine Markierung für ihre Niveaus, Orderflow, Liquidationen und Open Interest ihrer Kerze und wo sie gegenüber der Eröffnung von Tag, Woche und Monat stand.",
  "These describe what candles did: no test has shown that they say where price goes next. A mark on the candle under way can still change; an alert, off by default, sounds when a breakout or failed break forms.": "Sie beschreiben, was Kerzen getan haben: Kein Test hat gezeigt, dass sie sagen, wohin der Preis als Nächstes geht. Eine Markierung auf der laufenden Kerze kann sich noch ändern; ein Alarm, standardmäßig aus, ertönt, wenn sich ein Breakout oder Failed break bildet.",
  "Two averages over the last 48 candles: the price aggressive buyers paid and the price aggressive sellers got, each with a band.": "Zwei Durchschnitte über die letzten 48 Kerzen: der Preis, den aggressive Käufer zahlten, und der, den aggressive Verkäufer erhielten, jeder mit einem Band.",
  "Aggressive buyers and sellers are market orders, which trade at once against the orders waiting in the book. The buyers' line weighs each candle's typical price by what was bought that way, the sellers' line by what was sold. Where the buyers' line is above the sellers', buying was done at higher prices than selling over the window; where it is below, selling was.": "Aggressive Käufer und Verkäufer sind Market-Orders, die sofort gegen die im Orderbuch wartenden Orders ausgeführt werden. Die Käuferlinie gewichtet den typischen Preis jeder Kerze mit dem, was so gekauft wurde, die Verkäuferlinie mit dem, was verkauft wurde. Liegt die Käuferlinie über der Verkäuferlinie, wurde im Fenster zu höheren Preisen gekauft als verkauft; liegt sie darunter, war es umgekehrt.",
@@ -1969,8 +1968,6 @@
  "That file is too large to be drawings from this page.": "Diese Datei ist zu groß für Zeichnungen dieser Seite.",
  "That file was written by a newer version of the page.": "Diese Datei wurde von einer neueren Version der Seite geschrieben.",
  "That file is not drawings from this page.": "Diese Datei enthält keine Zeichnungen dieser Seite.",
- "{added} drawings added; {skipped} left out: a coin keeps 100 and the page 1,000.": "Zeichnungen hinzugefügt: {added}; ausgelassen: {skipped}, denn ein Coin behält 100 und die Seite 1.000.",
- "{added} drawings added.": "Zeichnungen hinzugefügt: {added}.",
  "Price reached {price}: {label}": "Der Preis hat {price} erreicht: {label}",
  "Price reached your level at {price}": "Der Preis hat dein Niveau bei {price} erreicht",
  "Drawing tools: levels, zones, lines and notes (Delete removes the one selected, Ctrl+Z undoes)": "Zeichenwerkzeuge: Niveaus, Zonen, Linien und Notizen (Entf löscht die ausgewählte, Strg+Z macht rückgängig)",
@@ -1986,5 +1983,14 @@
  "High {price}": "Hoch {price}",
  "Low {price}": "Tief {price}",
  "Close {price}": "Schluss {price}",
- "Wall {usd} at {price}": "Wall {usd} bei {price}"
+ "Wall {usd} at {price}": "Wall {usd} bei {price}",
+ "For a breakout or failed break, the dashed line is the break level it went through and the dotted one the next level, the far side of the range it moves into. Point at a mark for its levels, its candle's order flow, liquidations and open interest, and where it stood against the day's, week's and month's opens (and the hour's, on charts of an hour or less).": "Bei Breakout und Failed break ist die gestrichelte Linie das durchbrochene Ausbruchsniveau und die gepunktete das nächste Niveau, die gegenüberliegende Seite der Spanne, in die er läuft. Zeige auf eine Markierung für ihre Niveaus, Orderflow, Liquidationen und Open Interest ihrer Kerze und wo sie gegenüber der Eröffnung von Tag, Woche und Monat stand (auf Charts von einer Stunde oder weniger auch der Stunde).",
+ "{n} left out: a coin keeps 100 and the page 1,000.": {
+  "one": "{n} ausgelassen: ein Coin behält 100, die Seite 1.000.",
+  "other": "{n} ausgelassen: ein Coin behält 100, die Seite 1.000."
+ },
+ "{n} drawings added.": {
+  "one": "{n} Zeichnung hinzugefügt.",
+  "other": "{n} Zeichnungen hinzugefügt."
+ }
 }
