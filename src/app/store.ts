@@ -49,7 +49,7 @@ export interface LayerLevel { id: string; side: string; price: number; notionalU
  * Which panes are on the first time. No pane under the map is (Karl, 2026-10-17: depth and open interest were, and no extra pane should be):
  * each is one switch away. The flow column and the book beside the map are on.
  */
-export const DEFAULT_SHOW: AppState['show'] = { profile: true, traded: false, depth: false, oi: false, delta: false, ls: false, candles: true, footprint: false, stats: false, lt: false, mirror: true, volume: true, bubbles: true, cvd: true, book: true, script: false };
+export const DEFAULT_SHOW: AppState['show'] = { profile: true, traded: false, depth: false, oi: false, delta: false, ls: false, candles: true, footprint: false, stats: false, lt: false, mirror: true, volume: true, bubbles: true, cvd: true, book: true, script: true };
 /**
  * The panes a first visit starts with. The flow column and the book each take a few hundred pixels beside the map, so on a window that is wide enough
  * for the map to stay readable with both (a phone has its tabs instead) they start on; a medium window (a tablet held sideways, a small laptop)
@@ -266,7 +266,7 @@ export const DEFAULT_THEME = 'light';
  * (any other, and any chosen since, is kept). A touch screen's save from before it also has the Flow and LT panes on once (the tab bar hides
  * a tab whose pane is off, and a Flow saved off was never found again); a desktop, and a desktop window that happens to be narrow, keeps its panes.
  */
-export const DEFAULTS_REV = 4;
+export const DEFAULTS_REV = 5;
 
 export function initialState(phone: boolean = isPhone(), touch: boolean = isCoarse()): AppState {
   const saved = readSaved();
@@ -298,6 +298,9 @@ export function initialState(phone: boolean = isPhone(), touch: boolean = isCoar
   if (rev < 4 && phone && touch) state.show = { ...state.show, cvd: true, lt: true };
   // The half-life: every screen. The old default is not a choice (every save wrote it down); another value is.
   if (rev < 4 && state.lt.halfLifeBp === LT_OLD_HALF_LIFE_BP) state.lt = { ...state.lt, halfLifeBp: LT_DEFAULTS.halfLifeBp };
+  // Scripts: on for every screen once (Karl, 2026-10-27: the stochastic heat map is part of the default view). It shipped switched off
+  // the same day, and every save since wrote the off down whether chosen or not, so an off from before this revision is not a choice.
+  if (rev < 5) state.show = { ...state.show, script: true };
   state.defaultsRev = DEFAULTS_REV;
   state.theme = resolveThemeId(state.theme);
   if (!state.themePicked && state.theme === 'terminal') state.theme = DEFAULT_THEME;

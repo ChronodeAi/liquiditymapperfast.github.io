@@ -18,7 +18,7 @@ import { ScriptData } from '../script/data.ts';
 import { UNREAD_VENUE, analyze, sourcesWith, type Analysis } from '../script/lang/analysis.ts';
 import { ScriptSyntaxError, type ScriptError } from '../script/lang/lexer.ts';
 import { SCRIPT_API, loadScripts, storeScripts, type OptionValue, type ScriptRecord } from '../script/records.ts';
-import { starterScripts } from '../script/starter.ts';
+import { starterScripts, updateStarters } from '../script/starter.ts';
 import { PLOT_FIELDS, type PlotOut, type ScriptResult, type Warning } from '../script/protocol.ts';
 import { paintPlot, plotColorAt, scaleIdOf, scalesOf, shortNumber, visibleRange, yOf, type Frame } from '../script/paint.ts';
 import { errorText } from '../script/messages.ts';
@@ -77,7 +77,7 @@ const MIN_INTERVAL = 1_000, REFRESH = 15_000;
  * script cannot keep a core busy. The Scripts… button opens the panel that lists, writes, imports and exports them (script/panel.ts).
  */
 export class ScriptPane extends TimePane {
-  #records: ScriptRecord[] = loadScripts(undefined, starterScripts);
+  #records: ScriptRecord[] = updateStarters(loadScripts(undefined, starterScripts));
   #version = 0;
   #host = new ScriptHost({ spawn: spawnScriptWorker });
   #data: ScriptData;
@@ -86,7 +86,7 @@ export class ScriptPane extends TimePane {
   #held = new Map<string, Held>();
   #warnings = new Map<string, Warning[]>();
   #lastRun = 0; #runMs = 0; #timer = 0; #running = false; #runToken = 0; #starting = false;
-  #seen: { candles: unknown; loads: number; data: number; version: number; tf: string; markets: unknown; venues: unknown; scope: string } | null = null;
+  #seen: { candles: unknown; loads: number; data: number; version: number; tf: string; markets: unknown; venues: unknown; scope: string; theme: string } | null = null;
   #card = new HoverCard();
   #lines: InfoLine[] | null = null;
   #panel: Panel | null = null;
@@ -296,7 +296,7 @@ export class ScriptPane extends TimePane {
     // A run under way is waited for; one still waiting for its worker to load is replaced by a newer request; one being asked for is not asked twice.
     if (this.#starting || (this.#running && !this.#host.loading)) return;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
-    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replayKey(tf) };
+    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replayKey(tf), theme: state.theme };
     const was = this.#seen, now = Date.now();
     const changed = !was || Object.keys(seen).some(k => (seen as Record<string, unknown>)[k] !== (was as Record<string, unknown>)[k]);
     // Nothing changed: run again at the refresh anyway (the candle under way fills in from the flow), on a timer, so a quiet page still refreshes.

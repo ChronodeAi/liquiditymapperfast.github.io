@@ -30,6 +30,7 @@ To write or fix a script with an assistant: open the script in the Scripts panel
 | `$price` | The chart's candle: $price.open, .high, .low, .close, .time (seconds). Setting $price.color = "<colour>" colours the map's candle. |
 | `bar` | The same candle and flow as one object: bar.open, .high, .low, .close, .vbuy, .vsell, .lbuy, .lsell, .timestamp (seconds). |
 | `renderer` | renderer.length is the number of candles so far, this one included; renderer.timestamp the candle's start (seconds), renderer.timeframe its length (seconds). |
+| `theme` | The page's colours, read-only: theme.dark (whether the chart's background is dark), theme.background, theme.text, theme.up and theme.down (its candles' colours), as colour texts. A script coloured from them follows the theme the person picks, and runs again when it changes. |
 | `options` | options.name is the value of the option called name (declared with option(...) or set in the panel). |
 | `fns` | fns[k] is the k-th call of a function that keeps a history (sma, ema, cum, ...), counted in the order they are written; fns[k].state = {} starts it again. |
 

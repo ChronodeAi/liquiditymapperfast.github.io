@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyze, runScript } from '../src/app/script/lang/engine.ts';
 import { SCRIPTS_KEY, loadScripts, storeScripts } from '../src/app/script/records.ts';
-import { HEATMAP_ID, STARTER_ID, VWAP_SOURCE, starterScripts } from '../src/app/script/starter.ts';
-import type { BarInputs } from '../src/app/script/inputs.ts';
+import { HEATMAP_ID, HEATMAP_SOURCE, STARTER_ID, VWAP_SOURCE, starterScripts, updateStarters } from '../src/app/script/starter.ts';
+import { PREVIOUS_HEATMAP_SOURCES } from '../src/app/script/starter-previous.ts';
+import { sameCandles } from '../src/app/script/lang/engine.ts';
+import type { BarInputs, ScriptTheme } from '../src/app/script/inputs.ts';
 
 const MIN = 60_000;
 /** Candles 0..n-1 whose typical price is 100 + i, with 15·(i+1) dollars traded in each. */
@@ -18,11 +20,11 @@ function inputs(n = 8): BarInputs {
   };
 }
 
-test('a browser that never kept scripts starts with the VWAP and the heat map; one that kept a list, an empty one too, keeps it', () => {
+test('a browser that never kept scripts starts with the heat map on and the VWAP off; one that kept a list, an empty one too, keeps it', () => {
   const kept = new Map<string, string>();
   const storage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => { kept.set(k, v); } };
   const first = loadScripts(storage, starterScripts);
-  assert.deepEqual(first.map(r => [r.id, r.on, r.place]), [[STARTER_ID, true, 'map'], [HEATMAP_ID, true, 'pane']], 'both on: the VWAP on the map, the heat map in a row');
+  assert.deepEqual(first.map(r => [r.id, r.on, r.place]), [[STARTER_ID, false, 'map'], [HEATMAP_ID, true, 'pane']], 'the heat map on in a row; the VWAP for the map, off');
   assert.equal(first[1]!.height, 160, "the heat map's row has room for its sixteen bands");
   assert.equal(first[0]!.source, VWAP_SOURCE);
   assert.equal(kept.size, 0, 'nothing is written until the person changes the list');
@@ -59,4 +61,65 @@ test('the VWAP reads, runs without a warning and draws its line inside its bands
   assert.ok(g.ok);
   assert.ok(g.plots.every(p => Number.isNaN(p.fields.value![3]!)), 'a gap, not the close');
   assert.ok(Number.isFinite(g.plots[0]!.fields.value![4]!) && Math.abs(g.plots[0]!.fields.value![4]! - 100) < 10);
+});
+
+const DARK: ScriptTheme = { dark: true, background: '#000000', text: '#00ff00', up: '#11af00', down: '#ff6363' };
+const LIGHT: ScriptTheme = { dark: false, background: '#ffffff', text: '#1b1d21', up: '#12a150', down: '#e0115f' };
+/** Candles that climb for 30 and fall for 30: every window's stochastic goes high, then low. */
+function swing(theme?: ScriptTheme): BarInputs {
+  const base = inputs(60), close = Float64Array.from(base.time, (_, i) => i < 30 ? 100 + i : 160 - i);
+  return { ...base, open: close, close, high: close.map(c => c + 1), low: close.map(c => c - 1), ...(theme ? { theme } : {}) };
+}
+const rgbOf = (c: string): number[] => (/rgba?\(([^)]+)\)/.exec(c)?.[1] ?? '').split(',').map(Number).slice(0, 3);
+
+test('the heat map reads the theme: red-orange low and blue high, light ends on a dark chart and dark ends on a light one, a neutral middle', () => {
+  const a = analyze(HEATMAP_SOURCE);
+  assert.ok(!('code' in a) || !a.code, 'it reads');
+  for (const theme of [DARK, LIGHT]) {
+    const r = runScript('heat', HEATMAP_SOURCE, {}, swing(theme));
+    assert.ok(r.ok, JSON.stringify(!r.ok && r.error));
+    assert.deepEqual(r.warnings, [], 'no warning: theme is an input it knows');
+    const top = r.plots.filter(p => p.kind === 'brokenarea')[15]!, colours = top.colors!;
+    const [hr, , hb] = rgbOf(colours[29]!), [lr, , lb] = rgbOf(colours[59]!);
+    assert.ok(hb > hr, `high is blue: ${colours[29]}`);
+    assert.ok(lr > lb, `low is red-orange: ${colours[59]}`);
+    const light = (c: string): number => rgbOf(c).reduce((x, y) => x + y, 0);
+    if (theme.dark) assert.ok(light(colours[29]!) > 400 && light(colours[59]!) > 400, 'light ends on a dark chart');
+    else assert.ok(light(colours[29]!) < 450 && light(colours[59]!) < 450, 'dark ends on a light chart');
+    const avg = r.plots.find(p => p.title === 'Average')!;
+    assert.equal(String(avg.style.color), theme.text, "the average in the theme's text colour");
+  }
+  // The middle is a little off the background: a neutral reading is not the same as no reading.
+  const flat = { ...inputs(40), theme: DARK };
+  const mid = runScript('heat', HEATMAP_SOURCE, {}, { ...flat, high: flat.close.map(c => c + 1), low: flat.close.map(c => c - 1), close: flat.close.map((c, i) => i % 2 ? c + 0.0 : c) });
+  assert.ok(mid.ok);
+  // With twelve steps, readings inside one step share a colour.
+  const stepped = runScript('heat', HEATMAP_SOURCE, { steps: true }, swing(DARK)), smooth = runScript('heat', HEATMAP_SOURCE, {}, swing(DARK));
+  assert.ok(stepped.ok && smooth.ok);
+  const distinct = (r: typeof stepped): number => r.ok ? new Set(r.plots.filter(p => p.kind === 'brokenarea').flatMap(p => p.colors ?? [])).size : 0;
+  assert.ok(distinct(stepped) <= 12 && distinct(smooth) > 12, `${distinct(stepped)} colours stepped, ${distinct(smooth)} smooth`);
+});
+
+test('a script reads the theme, a member it does not have is warned of, and a run under another theme starts again', () => {
+  const r = runScript('t', 'line(theme.dark ? 1 : 0)\nline(theme.background == "#ffffff" ? 1 : 0)', {}, { ...inputs(), theme: LIGHT });
+  assert.ok(r.ok);
+  assert.deepEqual(r.plots.map(p => p.fields.value![0]), [0, 1]);
+  const a = analyze('line(theme.colour == "x" ? 1 : 0)');
+  assert.ok('warnings' in a && a.warnings.some(w => w.code === 'unsupported-member' && w.detail === 'theme.colour'));
+  const given = runScript('t', 'line(theme.dark ? 1 : 0)', {}, inputs());
+  assert.ok(given.ok && given.plots[0]!.fields.value![0] === 1, 'no theme given: the default dark one');
+  assert.ok(sameCandles({ ...inputs(), theme: DARK }, { ...inputs(), theme: DARK }, 8));
+  assert.ok(!sameCandles({ ...inputs(), theme: DARK }, { ...inputs(), theme: LIGHT }, 8), 'other colours are other inputs');
+});
+
+test('a kept heat map of an earlier version is brought to the current one, unless the person edited or coloured it', () => {
+  const old = { id: HEATMAP_ID, name: 'Stochastic heat map', source: PREVIOUS_HEATMAP_SOURCES[0]!, options: {}, on: true, api: 1, height: 160, place: 'pane' as const };
+  assert.equal(updateStarters([old])[0]!.source, HEATMAP_SOURCE);
+  assert.deepEqual(updateStarters([{ ...old, options: { scale: 2 } }])[0]!.options, { scale: 2 }, 'its other options stay');
+  assert.equal(updateStarters([{ ...old, options: { scale: 2 } }])[0]!.source, HEATMAP_SOURCE);
+  assert.equal(updateStarters([{ ...old, options: { highColor: '#ff0000' } }])[0]!.source, old.source, 'coloured by the person: kept');
+  assert.equal(updateStarters([{ ...old, source: old.source + '\n// mine' }])[0]!.source, old.source + '\n// mine', 'edited: kept');
+  assert.equal(updateStarters([{ ...old, id: 'copy' }])[0]!.source, old.source, 'only the starter itself');
+  const current = { ...old, source: HEATMAP_SOURCE };
+  assert.equal(updateStarters([current])[0], current, 'the current one is left as it is');
 });

@@ -7,7 +7,7 @@ import { DateValue, HostObject, NativeFunction, ScriptRuntimeError, isPlain, num
 import { BUILTINS, makeInstance, type Instance } from './builtins.ts';
 import { COLOR_NAMES, interpolateColors, rgb, safeColor } from './colors.ts';
 import { PLOT_FIELDS, type PlotKind, type PlotOut, type ScriptResult } from '../protocol.ts';
-import { filterKey, type BarInputs, type SourceInputs } from '../inputs.ts';
+import { DEFAULT_SCRIPT_THEME, filterKey, type BarInputs, type SourceInputs } from '../inputs.ts';
 import type { OptionValue } from '../records.ts';
 
 /**
@@ -77,6 +77,8 @@ const NO_INPUTS: BarInputs = { tf: 60_000, time: new Float64Array(0), open: new 
 /** Whether candles [0, m) of two inputs are the same (NaN where both are NaN): the only candles a run may take over from the one before. */
 export function sameCandles(a: BarInputs, b: BarInputs, m: number): boolean {
   if (a.tf !== b.tf || m > a.time.length || m > b.time.length) return false;
+  const ta = a.theme ?? DEFAULT_SCRIPT_THEME, tb = b.theme ?? DEFAULT_SCRIPT_THEME;
+  if (ta.dark !== tb.dark || ta.background !== tb.background || ta.text !== tb.text || ta.up !== tb.up || ta.down !== tb.down) return false;
   const ka = Object.keys(a.sources), kb = Object.keys(b.sources);
   if (ka.length !== kb.length || ka.some(k => !(k in b.sources))) return false;
   const eq = (x: Float64Array, y: Float64Array): boolean => { for (let k = 0; k < m; k++) { const u = x[k]!, v = y[k]!; if (u !== v && !(u !== u && v !== v)) return false; } return true; };
@@ -153,6 +155,8 @@ export function createRunner(id: string, source: string, optionValues: Record<st
       default: return undefined;
     }
   });
+  // The page's colours, read-only: whether its background is dark, and its background, text, up and down colours.
+  const themeObject = new HostObject('theme', k => { const th = inputs.theme ?? DEFAULT_SCRIPT_THEME; return k === 'dark' ? th.dark : k === 'background' || k === 'text' || k === 'up' || k === 'down' ? th[k] : undefined; });
   const rendererObject = new HostObject('renderer', k => {
     switch (k) {
       case 'length': return i + 1;
@@ -209,6 +213,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
         case '$price': return { known: true, value: priceObject };
         case 'options': return { known: true, value: optionsObject };
         case 'renderer': return { known: true, value: rendererObject };
+        case 'theme': return { known: true, value: themeObject };
         case 'fns': return { known: true, value: fnsObject };
       }
       if (Object.prototype.hasOwnProperty.call(globals, name)) return { known: true, value: globals[name] };

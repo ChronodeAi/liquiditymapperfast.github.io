@@ -46,7 +46,9 @@ export interface Analysis {
 
 /** What `renderer` answers when a script runs (the engine's `rendererObject`); any other member reads nothing and is warned of. */
 export const RENDERER_MEMBERS = new Set(['length', 'timestamp', 'localTimestamp', 'timeframe', 'type', 'lastTradeTimestamp']);
-export const KNOWN_INPUTS = new Set(['time', 'vbuy', 'vsell', 'cbuy', 'csell', 'lbuy', 'lsell', 'bar', '$price', 'options', 'renderer', 'fns', 'Math', 'Number', 'String', 'Boolean', 'Date', 'Array', 'Object', 'JSON', 'Infinity', 'NaN', 'undefined', 'isFinite', 'isNaN', 'parseFloat', 'parseInt', 'rgb', 'rgba', 'option', 'source', 'nz', 'na']);
+/** What `theme` answers (the engine's `themeObject`). */
+export const THEME_MEMBERS = new Set(['dark', 'background', 'text', 'up', 'down']);
+export const KNOWN_INPUTS = new Set(['time', 'vbuy', 'vsell', 'cbuy', 'csell', 'lbuy', 'lsell', 'bar', '$price', 'options', 'renderer', 'theme', 'fns', 'Math', 'Number', 'String', 'Boolean', 'Date', 'Array', 'Object', 'JSON', 'Infinity', 'NaN', 'undefined', 'isFinite', 'isNaN', 'parseFloat', 'parseInt', 'rgb', 'rgba', 'option', 'source', 'nz', 'na']);
 
 /** An exchange's name as scripts write it, as the page's exchange (and the kind its name implies, where it does). */
 export function exchangeOf(name: string): { venue: string; kind?: 'spot' | 'perp' } {
@@ -180,6 +182,7 @@ function analyzeOnce(text: string): Analysis {
       }
       if (n.k === 'decl') for (const d of n.items) if (d.init?.k === 'call' && d.init.callee.k === 'id' && d.init.callee.name === 'option' && !optionNames.has(d.name)) { optionNames.add(d.name); options.push(optionDecl(d.name, d.init)); }
       if (n.k === 'member' && n.obj.k === 'id' && n.obj.name === 'renderer' && !RENDERER_MEMBERS.has(n.name)) warnings.push({ code: 'unsupported-member', detail: `renderer.${n.name}` });
+      if (n.k === 'member' && n.obj.k === 'id' && n.obj.name === 'theme' && !THEME_MEMBERS.has(n.name)) warnings.push({ code: 'unsupported-member', detail: `theme.${n.name}` });
       if (n.k === 'id' && n.name.startsWith('$') && n.name !== '$price') warnings.push({ code: 'unknown-reference', detail: n.name });
       if (n.k === 'id' && (n.name === 'cbuy' || n.name === 'csell') && !warnings.some(w => w.code === 'no-counts')) warnings.push({ code: 'no-counts' });
     }

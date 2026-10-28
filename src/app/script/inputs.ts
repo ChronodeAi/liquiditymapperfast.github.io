@@ -44,6 +44,14 @@ export function marketInfo(markets: readonly Market[], id: string): MarketInfo {
 /** One set of markets, candle by candle (USD; NaN where not recorded). */
 export interface SourceInputs { vbuy: Float64Array; vsell: Float64Array; lbuy: Float64Array; lsell: Float64Array; markets: number }
 
+/**
+ * The page's colours as a script reads them (`theme`): whether the chart's background is dark, the background and text colours, and the
+ * up and down colours of its candles, as colour texts. A script coloured from them follows the theme the person picked.
+ */
+export interface ScriptTheme { dark: boolean; background: string; text: string; up: string; down: string }
+/** What a run given no theme reads (a test's inputs): the page's default dark theme. */
+export const DEFAULT_SCRIPT_THEME: ScriptTheme = { dark: true, background: '#121215', text: '#fffcf0', up: '#00d9b8', down: '#ff4d4d' };
+
 export interface BarInputs {
   /** The chart's timeframe (ms). */
   tf: number;
@@ -56,6 +64,8 @@ export interface BarInputs {
   sources: Record<string, SourceInputs>;
   /** Whether the newest candle is still under way. */
   forming: boolean;
+  /** The page's colours (`theme`; `DEFAULT_SCRIPT_THEME` when absent). Another theme is other inputs: a run under it starts from the first candle. */
+  theme?: ScriptTheme;
 }
 
 /**
