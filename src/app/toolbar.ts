@@ -574,15 +574,25 @@ export class Toolbar {
     // The bevel frame is not scaled: held, a button's borders go from 1 + 1 px to 2 + 0, and under a fractional zoom those snap apart (1 + 1 px, then 1 + 0:
     // the box loses a pixel when it is pressed or switched on). It takes the two balanced rows at its own size instead.
     const floor = document.documentElement.dataset.frame === 'bevel' ? 1 : BAR_ZOOM_FLOOR;
-    const first = measure(1), available = first.available;
-    let widths = first.widths, fit = fitBar(widths, gap, pad, available, floor), at = 1;
+    const first = measure(1), available = first.available, measured = new Set([1]);
+    let widths = first.widths, fit = fitBar(widths, gap, pad, available, floor);
     // A scaled bar is measured again at its scale, and fitted with each deck's widest width so far, until the scale it takes is one it was
-    // measured at: what it is fitted with is never narrower than what it draws, so no row it is given overflows.
-    for (let tries = 0; tries < 4 && fit.zoom !== at; tries++) {
-      const there = measure(fit.zoom).widths; at = fit.zoom;
+    // measured at: what it is fitted with is never narrower than what it draws at that scale, so no row it is given overflows. A scale is a
+    // hundredth from 1 down to the floor, so this ends within as many measurements (the bound is only a guard).
+    for (let tries = 0; tries < 20 && !measured.has(fit.zoom); tries++) {
+      const there = measure(fit.zoom).widths; measured.add(fit.zoom);
       widths = widths.map((w, k) => Math.max(w, there[k] ?? 0));
       fit = fitBar(widths, gap, pad, available, floor);
     }
+    // Its own width is where it starts in its row, not what its contents would ask for (a grid of even columns asks for its widest times
+    // their number), and half a pixel under it, so that rounding never moves a deck of a row that just fits onto the next: the row is broken
+    // where the fit broke it. Written whenever it changes (a theme or a font can change a deck and not the fit), and only then, so a refit
+    // that finds the same answer writes nothing.
+    decks.forEach((d, k) => {
+      const grow = String(Math.round(widths[k]!)), basis = `${Math.max(0, widths[k]! - 0.5).toFixed(2)}px`;
+      if (d.style.getPropertyValue('--deck-grow') !== grow) d.style.setProperty('--deck-grow', grow);
+      if (d.style.getPropertyValue('--deck-w') !== basis) d.style.setProperty('--deck-w', basis);
+    });
     const was = this.#fitted;
     if (was && was.zoom === fit.zoom && was.breaks.join() === fit.breaks.join()) return;
     this.#fitted = fit;
@@ -593,10 +603,6 @@ export class Toolbar {
       const at = decks[k]; if (!at) continue;
       const b = el('span', { class: 'deck-break', ariaHidden: 'true' }); at.before(b); this.#deckBreaks.push(b);
     }
-    // Its own width is where it starts in its row, not what its contents would ask for (a grid of even columns asks for its widest times
-    // their number), and half a pixel under it, so that rounding never moves a deck of a row that just fits onto the next: the row is broken
-    // where the fit broke it.
-    decks.forEach((d, k) => { d.style.setProperty('--deck-grow', String(Math.round(widths[k]!))); d.style.setProperty('--deck-w', `${Math.max(0, widths[k]! - 0.5).toFixed(2)}px`); });
     bar.classList.toggle('wrapped', this.#deckBreaks.length > 0);
   }
   /** The compact bar is not scaled or broken: what the full bar applied is let go. */
