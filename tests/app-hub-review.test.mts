@@ -156,3 +156,32 @@ test('a second switch before the first one answers leaves nothing of the one bet
   void hub.loadSeries(true); await turn();
   assert.deepEqual([store.state.candles.length, store.state.candlesTimeframe, store.state.seriesInstrument], [0, '5m', 'sel:BTC']);
 });
+
+test('a series that came back empty before any reference market was known is read again, from the reference, the moment one is', async () => {
+  // No bootstrap names a reference market (no venue has a price yet): the first tick does.
+  class NoReferenceYet extends FakeSource {
+    override async bootstrap(): Promise<BootstrapState> { return { ...await super.bootstrap(), markInstrumentId: '' }; }
+  }
+  const store = new Store({ ...initialState(), marketId: 'sel:BTC', timeframe: '1h', candles: [] }), source = new NoReferenceYet();
+  const hub = new Hub(store, source as unknown as DataSource);
+  (hub.worker as unknown as FakeWorker).onmessage!({ data: { type: 'ready' } });
+  await hub.start();
+  void hub.loadSeries(true); await turn();
+  source.asked[0]!.resolve([]); await turn();                                                              // the market's own: nothing
+  assert.equal(store.state.candles.length, 0);
+  source.handlers!.onTick(tick({ instrumentId: 'ref:BTC' })); await turn();                                // a reference market now
+  source.asked.at(-1)!.resolve([]); await turn();                                                          // its own again: nothing
+  source.asked.at(-1)!.resolve([[10 * HOUR, 1, 1, 1, 7, 1, 1]]); await turn();                             // then the reference's
+  assert.deepEqual([store.state.candles.length, store.state.seriesInstrument], [1, 'ref:BTC']);
+});
+
+test('an older read of the same series that answers first does not let the stream start the series while the newer one is out', async () => {
+  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  void hub.loadSeries(true); await turn();
+  void hub.loadSeries(true); await turn();
+  source.asked[0]!.resolve([[10 * HOUR, 1, 1, 1, 1, 1, 1]]); await turn();                                 // the older answers: not taken
+  handlers().onTick(tick({ candles: { 'ref:BTC': [11 * HOUR, 5, 5, 5, 5, 2] } }));
+  assert.equal(store.state.candles.length, 0, 'no candle of a minute while the newer read is out');
+  source.asked[1]!.resolve([[11 * HOUR, 1, 1, 1, 1, 9, 1]]); await turn();
+  assert.equal(store.state.candles.length, 1);
+});

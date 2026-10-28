@@ -262,19 +262,41 @@ test('a mark that crosses a step of the price grid starts the walls over, and do
   assert.deepEqual(seen, ['appeared'], 'the level is where it was: only the bin it is counted in changed');
 });
 
-test('a kept series brought up to date counts the minute under way on from its read, not on top of the minutes the kept one missed', async t => {
+test('a kept series brought up to date: a read ahead of it is taken as a first read, one behind it takes nothing away, the stream on a newer candle keeps its count', async t => {
   const B = Math.floor(BASE / (5 * MIN)) * (5 * MIN), now = B + 3 * MIN + 20_000;
   t.mock.timers.enable({ apis: ['Date'], now });
-  const { hub, store, source, handlers } = await rig({ marketId: 'ref:BTC', timeframe: '5m', seriesInstrument: 'ref:BTC', candles: [] });
-  void hub.loadSeries(true); await turn();
-  await answer(source, [B, 1, 1, 1, 1, 100, 1]);                                                         // kept with 100
-  store.set({ timeframe: '1h' }); void hub.loadSeries(true); await turn();
-  await answer(source, [Math.floor(B / HOUR) * HOUR, 1, 1, 1, 1, 500, 1]);
-  store.set({ timeframe: '5m' }); void hub.loadSeries(true); await turn();                               // the kept candle, at once
-  assert.equal(store.state.candles.at(-1)![5], 100);
-  handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 20] } }));
-  await answer(source, [B, 1, 1, 1, 1, 300, 1]);                                                         // the read holds what the kept one missed
-  assert.equal(store.state.candles.at(-1)![5], 300);
-  handlers().onTick(tick({ asOf: now + 500, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 30] } }));
-  assert.equal(store.state.candles.at(-1)![5], 310, 'the minute under way went from 20 to 30');
+  const kept = async () => {
+    const r = await rig({ marketId: 'ref:BTC', timeframe: '5m', seriesInstrument: 'ref:BTC', candles: [] });
+    void r.hub.loadSeries(true); await turn();
+    await answer(r.source, [B, 1, 1, 1, 1, 100, 1]);                                                     // kept with 100
+    r.store.set({ timeframe: '1h' }); void r.hub.loadSeries(true); await turn();
+    await answer(r.source, [Math.floor(B / HOUR) * HOUR, 1, 1, 1, 1, 500, 1]);
+    r.store.set({ timeframe: '5m' }); void r.hub.loadSeries(true); await turn();                         // the kept candle, at once
+    assert.equal(r.store.state.candles.at(-1)![5], 100);
+    return r;
+  };
+  // Ahead: it holds the minutes the kept candle missed; the next tick's minute is counted from it, and the stream raises it from there.
+  const a = await kept();
+  a.handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 20] } }));
+  await answer(a.source, [B, 1, 1, 1, 1, 300, 1]);
+  assert.equal(a.store.state.candles.at(-1)![5], 300);
+  a.handlers().onTick(tick({ asOf: now + 500, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 30] } }));
+  a.handlers().onTick(tick({ asOf: now + 1_000, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 40] } }));
+  assert.equal(a.store.state.candles.at(-1)![5], 310, 'not frozen: ten more after the tick counted from the read');
+  // Behind: taken before the stream's latest, it lowers neither the volume nor the high.
+  const b = await kept();
+  b.handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [B + 3 * MIN, 1, 1, 1, 1, 20] } }));
+  b.handlers().onTick(tick({ asOf: now + 500, candles: { 'ref:BTC': [B + 3 * MIN, 1, 3, 1, 1, 30] } }));
+  assert.deepEqual([b.store.state.candles.at(-1)![2], b.store.state.candles.at(-1)![5]], [3, 110]);
+  await answer(b.source, [B, 1, 2, 1, 1, 105, 1]);
+  assert.deepEqual([b.store.state.candles.at(-1)![2], b.store.state.candles.at(-1)![5]], [3, 110], 'what the stream saw stands');
+  b.handlers().onTick(tick({ asOf: now + 1_000, candles: { 'ref:BTC': [B + 3 * MIN, 1, 3, 1, 1, 31] } }));
+  assert.equal(b.store.state.candles.at(-1)![5], 111);
+  // The stream on the next candle, which the read does not have: what it counted of it stays.
+  const c = await kept();
+  c.handlers().onTick(tick({ asOf: now, candles: { 'ref:BTC': [B + 5 * MIN, 1, 1, 1, 1, 10] } }));
+  c.handlers().onTick(tick({ asOf: now + 60_000, candles: { 'ref:BTC': [B + 6 * MIN, 1, 1, 1, 1, 20] } }));
+  assert.equal(c.store.state.candles.at(-1)![5], 30);
+  await answer(c.source, [B, 1, 1, 1, 1, 120, 1]);
+  assert.deepEqual(c.store.state.candles.slice(-2).map(x => [x[0] - B, x[5]]), [[0, 120], [5 * MIN, 30]]);
 });
