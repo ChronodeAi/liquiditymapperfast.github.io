@@ -43,9 +43,11 @@ class FakeSource {
   async flow(): Promise<FlowFrame> { return { from: 0, to: 0, instruments: [] }; }
   async footprint() { return { step: 0, fine: 0, bars: [] }; }
 }
-async function rig(patch: Partial<AppState> = {}) {
+/** `auto`: candle answers given before the hub starts (its first read of a market it knows is asked as it starts). */
+async function rig(patch: Partial<AppState> = {}, auto: Record<string, CandleRow[]> = {}) {
   // One market's open interest (the chart market's, a reference standing in): what these tests are about; added together has its own.
   const store = new Store({ ...initialState(), oiMarkets: 'chart', ...patch }), source = new FakeSource();
+  for (const [tf, rows] of Object.entries(auto)) source.auto.set(tf, rows);
   const hub = new Hub(store, source as unknown as DataSource);
   (hub.worker as unknown as FakeWorker).onmessage!({ data: { type: 'ready' } });
   await hub.start();
@@ -129,8 +131,7 @@ test('the same holds for a one minute series, and the snapshot of another timefr
 // ---- 8: open interest for the timeframe that was just left ------------------------------------------------------------------------------------------
 
 test('an open-interest answer for the timeframe that was just left does not fill the new one, and a failed request leaves no candles of the old one', async () => {
-  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
-  source.auto.set('1h', [[BASE, 1, 1, 1, 1, 5, 1]]);
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] }, { '1h': [[BASE, 1, 1, 1, 1, 5, 1]] });
   void hub.loadSeries(true); await turn(); await turn();                                                  // the 1h candles are in and its open interest is being asked for
   assert.equal(source.oiCalls.length, 1);
   store.set({ timeframe: '5m' });
@@ -142,8 +143,7 @@ test('an open-interest answer for the timeframe that was just left does not fill
 });
 
 test('open interest goes with the candles it belongs to: another timeframe takes it away, also when that one fails to load, and a refresh of the same series keeps it', async () => {
-  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
-  source.auto.set('1h', [[BASE, 1, 1, 1, 1, 5, 1]]); source.auto.set('5m', [[BASE, 1, 1, 1, 1, 5, 1]]);
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] }, { '1h': [[BASE, 1, 1, 1, 1, 5, 1]], '5m': [[BASE, 1, 1, 1, 1, 5, 1]] });
   void hub.loadSeries(true); await turn(); await turn();
   source.oiCalls.at(-1)!.resolve([[BASE, 1, 1, 1, 1]]); await turn(); await turn();
   assert.equal(store.state.oi.length, 1, 'the one hour bars are here');

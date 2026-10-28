@@ -272,6 +272,9 @@ export class HeatPane {
   #overviewPoints: { answer: PriceHistoryAnswer; cut: number; runs: PricePoint[][] } | null = null;
   /** The line as drawn: the runs without the parts the chart's candles cover, worked out again only when the answer or what the candles cover changes. */
   #overviewDrawn: { runs: PricePoint[][]; key: string; drawn: { t: number; price: number }[][]; covered: Covered[] } | null = null;
+  /** The exchange's candles drawn where the chart's own do not reach (`historyCandles`), and the two together in time order. */
+  #history: { answer: PriceHistoryAnswer; key: string; rows: CandleRow[] } | null = null;
+  #allCandles: { history: readonly CandleRow[]; candles: readonly CandleRow[]; rows: readonly CandleRow[] } | null = null;
   /** A Go to needing price history may fit it on arrival, only while time and price stay where that action put them. */
   #priceFit: Bounds | null = null;
   #dataVersion = 0; #rasteredVersion = -1; #rasteredKey = ''; #lastRasterAt = 0;
@@ -929,7 +932,7 @@ export class HeatPane {
    */
   candleAt(x: number): CandleUnder | null {
     const state = this.store.state; if (!state.show.candles) return null;
-    const candles = state.candles, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, pw = this.plotW, ph = this.plotH;
+    const candles = this.candlesDrawn(state), tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, pw = this.plotW, ph = this.plotH;
     if (!candles.length || !(pw > 0)) return null;
     const bar = Math.max(1, pw * tf / (v.t1 - v.t0)), layout = footprintLayout(bar), narrowing = this.#lodFrame.narrowing;
     const at = v.tOf(x, pw);
@@ -1024,7 +1027,8 @@ export class HeatPane {
 
   #paintLegend(ctx: CanvasRenderingContext2D, state: AppState): void {
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, p = this.#palette;
-    const hovered = state.hover ? state.candles.find(c => state.hover!.t >= c[0] && state.hover!.t < c[0] + tf) : undefined;
+    const under = (c: CandleRow): boolean => state.hover!.t >= c[0] && state.hover!.t < c[0] + tf;
+    const hovered = state.hover ? state.candles.find(under) ?? this.historyCandles(state).find(under) : undefined;
     const c = hovered ?? state.candles[state.candles.length - 1];
     const name = state.marketId.replace(':', ' · ');
     const borrowed = state.seriesInstrument && state.seriesInstrument !== state.marketId ? `  ·  ${t('candles from {instrument}', { instrument: state.seriesInstrument.replace(':', ' · ') })}` : '';
@@ -1130,6 +1134,40 @@ export class HeatPane {
     return this.#overviewDrawn.drawn;
   }
 
+  /** Whether the price history is drawn as candles: it is of the chart's timeframe and of the market the chart's candles are of. */
+  #historyAsCandles(state: AppState, answer: PriceHistoryAnswer): boolean {
+    return answer.tfMs === (TIMEFRAMES[state.timeframe] ?? 3_600_000) && answer.instrumentId === priceInstrument(state.seriesInstrument || state.marketId);
+  }
+
+  /**
+   * The exchange's candles of the chart's own timeframe and market where the chart's candles do not reach (before them, in a hole between
+   * them, or all of them while the chart's are on their way), from the price history (Karl, 2026-10-28: history drawn as the recorded
+   * candles are, not as a line). They are drawn as candles, said under the pointer, caught by the magnet and added to the Volume bars as
+   * the candles' part. None while the history is coarser (a long view: the line stands in for it) or of another market (its line is dashed).
+   */
+  historyCandles(state: AppState): readonly CandleRow[] {
+    const answer = this.hub.priceHistory.answer, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
+    if (!this.#overview || !answer || !answer.candles.length || !this.#historyAsCandles(state, answer)) return [];
+    const candles = state.candles, at = pageNow(), replay = replaying(), cut = replay ? Math.floor(at / tf) : 0;
+    const key = `${candles.length}|${candles[0]?.[0] ?? 0}|${candles[candles.length - 1]?.[0] ?? 0}|${cut}`;
+    if (this.#history?.answer !== answer || this.#history.key !== key) {
+      const starts = new Set(candles.map(c => c[0])), last = candles[candles.length - 1]?.[0] ?? Infinity;
+      this.#history = { answer, key, rows: answer.candles.filter(c => c[0] < last && !starts.has(c[0]) && (!replay || c[0] + tf <= at)) as CandleRow[] };
+    }
+    return this.#history.rows;
+  }
+
+  /** The chart's candles with the exchange's before them and in their holes (`historyCandles`), in time order. */
+  candlesDrawn(state: AppState): readonly CandleRow[] {
+    const history = this.historyCandles(state), candles = state.candles;
+    if (!history.length) return candles;
+    if (this.#allCandles?.history !== history || this.#allCandles.candles !== candles) {
+      const before = !candles.length || history[history.length - 1]![0] < candles[0]![0];
+      this.#allCandles = { history, candles, rows: before ? [...history, ...candles] : [...history, ...candles].sort((a, b) => a[0] - b[0]) };
+    }
+    return this.#allCandles.rows;
+  }
+
   #fitOverview(): void {
     const pending = this.#priceFit, v = this.view, answer = this.hub.priceHistory.answer;
     if (!pending || !answer || !this.#overviewTarget) return;
@@ -1151,7 +1189,7 @@ export class HeatPane {
       // The price only where the line is drawn: over a candle the candle says it, and the line's close would be one nothing on the chart shows.
       this.#overviewLine(state);
       const at = state.hover?.t ?? Math.min(pageNow(), this.view.t1);
-      const point = isCovered(this.#overviewDrawn?.covered ?? [], at) ? null : pricePointAt(this.#overviewRuns(), at, a.tfMs);
+      const point = this.#historyAsCandles(state, a) || isCovered(this.#overviewDrawn?.covered ?? [], at) ? null : pricePointAt(this.#overviewRuns(), at, a.tfMs);
       if (point) text += `  ${fmtPrice(point.price)}`;
     }
     const status = h.status === 'stale' ? t('Price history is stale; trying again in a minute.') : h.status === 'failed' ? t('Price history could not be loaded; trying again in a minute.') : h.status === 'empty' ? t('No price history for this time.') : !a?.candles.length ? t('Reading price history…') : '';
@@ -1160,7 +1198,7 @@ export class HeatPane {
 
   /** A true price series; separate paths preserve exchange gaps and never splice a reference market into the selected market's live trades. */
   #paintOverview(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number): void {
-    const answer = this.hub.priceHistory.answer; if (!this.#overview || !answer) return;
+    const answer = this.hub.priceHistory.answer; if (!this.#overview || !answer || this.#historyAsCandles(state, answer)) return;
     const runs = this.#overviewLine(state), v = this.view, p = this.#palette;
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, ph); ctx.clip(); ctx.lineJoin = 'round';
     ctx.globalAlpha = 0.9 * (1 - 0.85 * this.#lodFrame.barAlpha);
@@ -1290,7 +1328,7 @@ export class HeatPane {
    */
   #paintVolume(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, narrowing: number): void {
     this.#strip = null;
-    if (!state.show.volume || !state.candles.length) return;
+    if (!state.show.volume || !this.candlesDrawn(state).length) return;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, p = this.#palette;
     const slot = Math.max(1, pw * tf / (v.t1 - v.t0)), layout = footprintLayout(slot);
     const normal = candleBody(slot), body = Math.max(1, (normal + (Math.max(1, layout.body) - normal) * narrowing));
@@ -1314,11 +1352,11 @@ export class HeatPane {
     // The candles are the series the chart reads (`seriesInstrument`: another market's when the chart's own has none), named and split as it.
     const series = state.seriesInstrument || state.marketId, target = historyTarget(series, currentCoin()), venue = target?.id.slice(0, target.id.indexOf(':')) ?? '';
     const binance = !!target && target.own && (venue === 'binance' || venue === 'binancespot'), market = venueLabel(target?.own ? target.id : series);
-    const earliest = state.candles.find(c => c[0] + tf >= v.t0 - margin)?.[0] ?? v.t0;
+    const candles = this.candlesDrawn(state), earliest = candles.find(c => c[0] + tf >= v.t0 - margin)?.[0] ?? v.t0;
     let own: Map<number, CandleRow> | null = null;
     if (binance && (since === null || earliest < since)) own = this.takerRows(state, tf, earliest);
     const place = (start: number): { x: number; w: number } => { const xc = v.xOf(start + tf / 2, pw); return { x: xc + (v.xOf(start, pw) + layout.candleCenter - xc) * narrowing, w: body }; };
-    const all = stripBars(state.candles, tf, rows, since, now, v.t0 - margin, v.t1, place, start => own?.get(start), replaying());
+    const all = stripBars(candles, tf, rows, since, now, v.t0 - margin, v.t1, place, start => own?.get(start), replaying());
     const first = all.findIndex(b => b.t + tf >= v.t0), cut = first < 0 ? all.length : first, bars = all.slice(cut);
     const found = state.highlight.on ? stripHighlights(all, state.highlight) : null, highlights = found ? { flag: found.flag.slice(cut), threshold: found.threshold.slice(cut) } : null;
     const height = volumeBand(ph), top = ph - height - 6;
@@ -1439,8 +1477,10 @@ export class HeatPane {
     // candles are outlines always; OHLC bars and the line are drawn their own way (chart-type.ts).
     const type = this.previewChartType ?? state.chartType, hollow = type === 'outline' || this.#dustOn(state);
     if (type === 'line') { this.#paintCloseLine(ctx, state, pw, ph, tf, layout, narrowing, hot); return; }
-    for (let ci = 0; ci < state.candles.length; ci++) {
-      const c = state.candles[ci]!;
+    const history = this.historyCandles(state), count = history.length + state.candles.length;
+    for (let k = 0; k < count; k++) {
+      // The exchange's candles before the chart's own, which are drawn over them; Highlights rings only the chart's own (its baseline is theirs).
+      const ci = k - history.length, c = ci < 0 ? history[k]! : state.candles[ci]!;
       if (c[0] + tf < v.t0 || c[0] > v.t1) continue;
       // Every candle, the one still forming too, has the same body and stands in the middle of its slot, so the spacing is the same all along.
       const xClassic = v.xOf(c[0] + tf / 2, pw), x = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing, up = c[4] >= c[1];
@@ -1475,7 +1515,7 @@ export class HeatPane {
         if (body >= 3) { ctx.globalAlpha = outline; ctx.strokeStyle = edge; ctx.strokeRect(x - body / 2 + 0.5, top + 0.5, body - 1, Math.max(0.5, height - 1)); }
       }
       // Hollow, filled or a bar, a candle of unusual volume keeps its ring (Highlights).
-      if (hot(ci)) { // unusually large volume: a glowing ring in the candle's own colour
+      if (ci >= 0 && hot(ci)) { // unusually large volume: a glowing ring in the candle's own colour
         ctx.save(); ctx.globalAlpha = 1; ctx.shadowColor = color; ctx.shadowBlur = 12; ctx.strokeStyle = color; ctx.lineWidth = 2.4;
         ctx.strokeRect(x - body / 2 - 2.5, top - 2.5, body + 5, height + 5); ctx.restore();
       }
@@ -1489,11 +1529,13 @@ export class HeatPane {
    */
   #paintCloseLine(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, tf: number, layout: { candleCenter: number }, narrowing: number, hot: (i: number) => boolean): void {
     const v = this.view, p = this.#palette, points: { x: number; y: number; i: number; t: number }[] = [];
-    for (let ci = 0; ci < state.candles.length; ci++) {
-      const c = state.candles[ci]!;
+    // Through the exchange's closes before the chart's own and in their holes (`candlesDrawn`); only the chart's own are ringed.
+    const all = this.candlesDrawn(state), own = all === state.candles ? null : new Map(state.candles.map((c, i) => [c[0], i]));
+    for (let k = 0; k < all.length; k++) {
+      const c = all[k]!;
       if (c[0] + tf < v.t0 - tf || c[0] > v.t1 + tf) continue;
       const xClassic = v.xOf(c[0] + tf / 2, pw), x = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing;
-      points.push({ x, y: v.yOf(c[4], ph), i: ci, t: c[0] });
+      points.push({ x, y: v.yOf(c[4], ph), i: own ? own.get(c[0]) ?? -1 : k, t: c[0] });
     }
     const path = (): void => {
       ctx.beginPath();
@@ -1502,7 +1544,7 @@ export class HeatPane {
     ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.strokeStyle = p.dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.75)'; ctx.lineWidth = 4; path(); ctx.stroke();
     ctx.strokeStyle = p.text; ctx.lineWidth = 1.8; path(); ctx.stroke();
-    for (const q of points) if (hot(q.i)) { const color = this.candleColor(q.t) || p.text; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.strokeStyle = color; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0; }
+    for (const q of points) if (q.i >= 0 && hot(q.i)) { const color = this.candleColor(q.t) || p.text; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.strokeStyle = color; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0; }
     ctx.restore();
   }
 

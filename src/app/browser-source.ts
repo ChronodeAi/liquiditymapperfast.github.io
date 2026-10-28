@@ -185,13 +185,15 @@ export class BrowserSource implements DataSource, VenueControl {
     }));
   }
 
-  async bootstrap(): Promise<BootstrapState> {
+  async bootstrap(options?: { quick?: boolean }): Promise<BootstrapState> {
     await this.#ready;
     let boot = await this.#call({ method: 'bootstrap' });
     // Only the first call waits (later ones come from the series loader and must not stall). A venue is live before it has a price, and a
-    // blocked or slow one never does, so the page waits for the first one that has a price and opens on that market.
+    // blocked or slow one never does, so the page waits for the first one that has a price and opens on that market; a page that has its
+    // market already does not (every market is listed from the start).
     if (!this.#waited) {
       this.#waited = true;
+      if (options?.quick) return { ...boot, dataMode: 'browser', layers: {} };
       const deadline = Date.now() + FIRST_PRICE_MS;
       while (!boot.markInstrumentId && Date.now() < deadline) { await new Promise<void>(resolve => setTimeout(resolve, 250)); boot = await this.#call({ method: 'bootstrap' }); }
     }

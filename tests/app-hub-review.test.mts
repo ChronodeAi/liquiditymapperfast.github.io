@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Hub, mergeLive, defaultMarket } from '../src/app/hub.ts';
+import { Hub, mergeLive, defaultMarket, prefetchOrder } from '../src/app/hub.ts';
 import { Store, initialState, type CandleRow } from '../src/app/store.ts';
 import type { BootstrapState, DataSource, LiveHandlers, TickMessage } from '../src/app/source.ts';
 import type { FlowFrame } from '../src/shared/flow.ts';
@@ -110,4 +110,24 @@ test('the page starts on the Binance perpetual where it reads one, else the refe
   assert.equal(defaultMarket(markets.slice(0, 2), 'hyperliquid:BTC'), 'hyperliquid:BTC', 'no Binance perpetual: the reference');
   assert.equal(defaultMarket(markets.slice(0, 2), ''), 'hyperliquid:BTC', 'no reference either: the first');
   assert.equal(defaultMarket([], ''), '');
+});
+
+test('a timeframe read before is shown the moment it is chosen, then brought up to date; the others are read nearest first', async () => {
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  const row = (t: number, close: number): CandleRow => [t, 1, 1, 1, close, 1, 1];
+  void hub.loadSeries(true); await turn();
+  source.asked[0]!.resolve([row(10 * HOUR, 100)]); await turn();
+  store.set({ timeframe: '5m' });
+  let shown = 0;
+  void hub.loadSeries(true, () => shown++); await turn();
+  assert.equal(shown, 0, 'nothing kept of 5m yet: it waits for its read');
+  source.asked[1]!.resolve([row(10 * HOUR, 50)]); await turn();
+  store.set({ timeframe: '1h' });
+  void hub.loadSeries(true, () => shown++); await turn();
+  assert.equal(shown, 1, 'the hour kept from before');
+  assert.deepEqual(store.state.candles.map(c => c[4]), [100], 'shown before its read answers');
+  source.asked[2]!.resolve([row(10 * HOUR, 120)]); await turn();
+  assert.deepEqual(store.state.candles.map(c => c[4]), [120], 'then up to date');
+  assert.deepEqual(prefetchOrder('1h'), ['30m', '4h', '15m', '1d', '5m', '1m']);
+  assert.deepEqual(prefetchOrder('1m'), ['5m', '15m', '30m', '1h', '4h', '1d']);
 });

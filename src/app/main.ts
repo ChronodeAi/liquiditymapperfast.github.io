@@ -303,7 +303,11 @@ async function main(): Promise<void> {
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('status') || changed.has('connected') || changed.has('mark')) showStatus();
     if (changed.has('show')) layout(); else if (changed.has('traded')) gutters();
-    if (changed.has('marketId') || changed.has('timeframe')) void hub.loadSeries(true).then(() => { heat.fit(); lower(); });
+    if (changed.has('marketId') || changed.has('timeframe')) {
+      // A series kept from before is framed the moment it is shown; one read afresh when it comes (framing it again then would undo a pan made meanwhile).
+      let framed = false;
+      void hub.loadSeries(true, () => { framed = true; heat.fit(); lower(); }).then(() => { if (!framed) heat.fit(); lower(); });
+    }
     if (changed.has('disabledVenues') || changed.has('heatmapSource') || changed.has('scope')) { heat.dataChanged(); depth.refresh(); lt.refresh(); cvd.refresh(); }
     if (changed.has('markets')) cvd.invalidate();
     // Open interest added up over the venues switched on: another choice of them is another series.
