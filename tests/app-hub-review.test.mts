@@ -91,14 +91,14 @@ test('an older request for the series does not put its answer over a newer one, 
   assert.equal(store.state.candles.at(-1)![4], 300, 'the older answer arrives last and rewinds nothing (it set the close back to 100)');
 });
 
-test('the candles say which timeframe they were loaded for: those of the timeframe before are told apart while the new ones load', async () => {
+test('the candles say which timeframe they were loaded for, and those of the timeframe before do not stand under the new one while it loads', async () => {
   const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
   void hub.loadSeries(true); await turn();
   source.asked[0]!.resolve([[10 * HOUR, 1, 1, 1, 1, 1, 1]]); await turn();
   assert.equal(store.state.candlesTimeframe, '1h');
   store.set({ timeframe: '15m' });
   void hub.loadSeries(); await turn();
-  assert.equal(store.state.candlesTimeframe, '1h', 'the hourly candles stay while the quarter hours are on their way');
+  assert.deepEqual([store.state.candles.length, store.state.candlesTimeframe], [0, '15m'], 'nothing kept of the quarter hours: no hourly candles under their label while they are on their way');
   source.asked[1]!.resolve([[10 * HOUR, 1, 1, 1, 1, 1, 1]]); await turn();
   assert.equal(store.state.candlesTimeframe, '15m');
 });
