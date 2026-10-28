@@ -10,6 +10,8 @@ import { BROWSER_RETENTION_MS } from '../../shared/recorder.ts';
 import { pageNow, replaying } from '../replay/clock.ts';
 import { oiPartsUntil, oiUsdChangeByTime } from '../oi-change.ts';
 import { candleArrays, filterKey, marketInfo, marketsMatching, sourceInputs, type BarInputs, type SourceFilter } from './inputs.ts';
+import { TakerRows } from '../measures/taker-rows.ts';
+import { candleSides, candleUsd } from '../measures/volume-strip.ts';
 
 /**
  * Gathers what the scripts read from what the page holds: the chart's candles, the taker flow of the flow column's ALL VENUES markets (the
@@ -36,8 +38,15 @@ export class ScriptData {
     return out;
   }
 
-  /** The inputs over the chart's candles for each filter (and the change in open interest, `withOi`); null while there are no candles. */
-  inputs(state: AppState, filters: ReadonlyMap<string, SourceFilter>, withOi = false): BarInputs | null {
+  /** The chart market's own candles that say who bought, for the flow the page did not record. */
+  readonly #taker = new TakerRows();
+
+  /**
+   * The inputs over the chart's candles for each filter (and the change in open interest, `withOi`); null while there are no candles. With
+   * `withCandleFlow` (a script reads the flow), a candle whose flow the page did not record takes the chart market's own candle's buys and
+   * sells, in each set that holds that market (`sourceInputs`).
+   */
+  inputs(state: AppState, filters: ReadonlyMap<string, SourceFilter>, withOi = false, withCandleFlow = false): BarInputs | null {
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, now = pageNow();
     // In a replay a script reads only the candles that had closed by its moment: the candle under way then is not known yet, nor anything after.
     const rows = replaying() ? state.candles.filter(r => r[0] + tf <= now) : state.candles;
@@ -50,15 +59,25 @@ export class ScriptData {
     const liq = this.#liquidations(starts, tf, now);
     const sources: BarInputs['sources'] = {};
     this.liquidationsCut = false;
+    const chart = state.seriesInstrument || state.marketId;
+    const taker = withCandleFlow ? this.#taker.get(this.hub, state, tf, starts[0]!, () => { this.version++; this.changed(); }) : null;
+    const sides = (start: number): readonly [number, number] | null => {
+      const own = taker?.get(start), s = own ? candleSides(own, candleUsd(own)) : null;
+      return s ? [s.buy, s.sell] : null;
+    };
+    const earliest = new Map<string, number | null>();
     for (const [key, ids] of markets) {
       sources[key] = sourceInputs(candles.time, ids, {
         flows: list => {
           const k = list.join(',');
           let cache = this.#caches.get(k);
           if (!cache) { cache = new FlowCache(); this.#caches.set(k, cache); if (this.#caches.size > 64) this.#caches.delete(this.#caches.keys().next().value!); }
-          return deltaFlows(cache, this.hub.flow, list, starts, tf, now).flows;
+          const read = deltaFlows(cache, this.hub.flow, list, starts, tf, now);
+          earliest.set(k, read.earliest);
+          return read.flows;
         },
         liquidations: list => { if (!liq) return undefined; const b = liquidationBuckets(this.#liqDays, list, starts, tf, liq.cover, now); if (b.cut) this.liquidationsCut = true; return b; },
+        candle: list => taker && list.includes(chart) ? { from: earliest.get(list.join(',')) ?? null, sides } : null,
       });
     }
     return { tf, ...candles, sources, ...(withOi ? { oichg: ScriptData.oiChange(state, candles.time, candles.close, tf, now) } : {}) };

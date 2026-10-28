@@ -87,7 +87,11 @@ export function sameCandles(a: BarInputs, b: BarInputs, m: number): boolean {
   const eq = (x: Float64Array, y: Float64Array): boolean => { for (let k = 0; k < m; k++) { const u = x[k]!, v = y[k]!; if (u !== v && !(u !== u && v !== v)) return false; } return true; };
   if (!eq(a.time, b.time) || !eq(a.open, b.open) || !eq(a.high, b.high) || !eq(a.low, b.low) || !eq(a.close, b.close) || !eq(a.volume, b.volume)) return false;
   if (!a.oichg !== !b.oichg || (a.oichg && b.oichg && !eq(a.oichg, b.oichg))) return false;
-  for (const k of ka) { const x = a.sources[k]!, y = b.sources[k]!; if (!eq(x.vbuy, y.vbuy) || !eq(x.vsell, y.vsell) || !eq(x.lbuy, y.lbuy) || !eq(x.lsell, y.lsell)) return false; }
+  for (const k of ka) {
+    const x = a.sources[k]!, y = b.sources[k]!;
+    if (!eq(x.vbuy, y.vbuy) || !eq(x.vsell, y.vsell) || !eq(x.lbuy, y.lbuy) || !eq(x.lsell, y.lsell)) return false;
+    if (!x.recorded !== !y.recorded || (x.recorded && y.recorded && !eq(x.recorded, y.recorded))) return false;
+  }
   return true;
 }
 
@@ -158,6 +162,7 @@ export function createRunner(id: string, source: string, optionValues: Record<st
       case 'timestamp': return inputs.time[i]! / 1000;
       case 'vbuy': return at(s?.vbuy); case 'vsell': return at(s?.vsell); case 'lbuy': return at(s?.lbuy); case 'lsell': return at(s?.lsell);
       case 'cbuy': case 'csell': return NaN;
+      case 'recorded': return at(s?.recorded);
       case 'oichg': return inputs.oichg ? inputs.oichg[i] : NaN;
       case 'open': return inputs.open[i]; case 'high': return inputs.high[i]; case 'low': return inputs.low[i]; case 'close': return inputs.close[i];
       case 'volume': return inputs.volume[i];
