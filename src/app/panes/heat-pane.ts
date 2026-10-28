@@ -73,6 +73,11 @@ import { TapeGL, type DustStyle } from '../tape/gl.ts';
 import { TraceIndex, gapMarks, secondsPath, traceGapColumns } from '../tape/trace.ts';
 import { curveColors } from './ladder-curves.ts';
 import { priceInstrument, priceTarget, type PriceHistoryAnswer, type PriceTarget } from '../../shared/price-history.ts';
+import type { DrawController } from '../draw/controller.ts';
+import { paintDrawings, paintEditing } from '../draw/paint.ts';
+import type { Projection } from '../draw/geometry.ts';
+import { wallRows, type CandleUnder } from '../draw/magnet.ts';
+import type { ChartType } from '../chart-type.ts';
 import { candleCoverage, candlePriceRange, isCovered, priceBounds, priceOverviewNeeded, pricePointAt, pricePoints, priceWindow, uncoveredRuns, type Covered, type PricePoint, type PriceWindow } from '../price-history.ts';
 
 /** The colour of a flag on a candle's wick: amber reads on every theme and is neither side's colour. */
@@ -226,6 +231,25 @@ export class HeatPane {
   candleColor: (t: number) => string = () => '';
   /** The scripts placed on the map draw here, over the candles and the lines, in the map's price and time (set by the Scripts pane). */
   scriptLayer: ((ctx: CanvasRenderingContext2D, pw: number, ph: number) => void) | null = null;
+  /**
+   * The drawing tools (draw/controller.ts, set by the page): their drawings are painted over the scripts, what belongs to editing on a canvas
+   * of their own above the map (left out of a screenshot), and the pointer goes to them first.
+   */
+  draw: DrawController | null = null;
+  /** Each frame, where the drawing tools' controls go: the plot's left edge in the pane, its projection and the legend's foot (set by the page). */
+  onDrawFrame: ((f: { left: number; pr: Projection; legendBottom: number }) => void) | null = null;
+  /** A chart type pointed at in its menu, drawn without being kept (null: the one kept, `state.chartType`). */
+  previewChartType: ChartType | null = null;
+  readonly #drawEdit = document.createElement('canvas');
+  #drawEditCtx: CanvasRenderingContext2D;
+  /** The levels' tags on the price axis this frame, placed with the key levels'. */
+  #drawTags: KeyTag[] = [];
+  /** A mouse press on the plot (where, and whether it has moved far enough to be a pan): one that did not is a click, for the drawing tools. */
+  #press: { x: number; y: number; moved: boolean } | null = null;
+  /** A finger dragging a drawing's handle or the drawing itself. */
+  #touchDraw = false;
+  /** When the drawing tools last took a click: a double click on a drawing selects it and does not recentre the map. */
+  #drawClickAt = 0;
   /** The popup lines of the person's scripts drawn on the map, at the candle starting at `t` (set by the Scripts pane). */
   scriptHover: (t: number) => InfoLine[] = () => [];
   /** The popup of a script's mark under the pointer (`x`, `y` in the plot), its colour and its box; null where none is (set by the Scripts pane). */
@@ -262,7 +286,7 @@ export class HeatPane {
   #forceBaseline = true;
   /** The venues and size the colour window was taken for. */
   #baselineKey = '';
-  #drag: { x: number; y: number; shift: boolean } | null = null;
+  #drag: { x: number; y: number; shift: boolean; panning: boolean } | null = null;
   /** The Range tool (set by the page), and a selection being dragged here: where it began, and where a finger last was. */
   range: RangeTool | null = null;
   #selecting: { x: number; y: number } | null = null;
@@ -377,10 +401,12 @@ export class HeatPane {
     this.root.className = 'pane heat';
     this.#pulse.className = 'pulse';
     this.#dustCanvas.className = 'dust';
-    this.root.append(this.#glCanvas, this.#dustCanvas, this.#pulse, this.overlay);
+    this.#drawEdit.className = 'draw-edit'; this.#drawEdit.setAttribute('data-no-capture', '');
+    this.root.append(this.#glCanvas, this.#dustCanvas, this.#pulse, this.#drawEdit, this.overlay);
     host.append(this.root);
     this.gl = new HeatGL(this.#glCanvas);
     this.#ctx = this.overlay.getContext('2d')!;
+    this.#drawEditCtx = this.#drawEdit.getContext('2d')!;
     new ResizeObserver(() => this.#resize()).observe(this.root);
     this.hub.onRaster = result => this.#onRaster(result);
     this.hub.onColumns = () => { this.#dataVersion++; this.invalidate(); };
@@ -436,6 +462,8 @@ export class HeatPane {
     this.overlay.style.width = `${this.#paneW}px`; this.overlay.style.height = `${this.#h}px`;
     this.#pulse.width = this.overlay.width; this.#pulse.height = this.overlay.height;
     this.#pulse.style.width = this.overlay.style.width; this.#pulse.style.height = this.overlay.style.height;
+    this.#drawEdit.width = this.overlay.width; this.#drawEdit.height = this.overlay.height;
+    this.#drawEdit.style.width = this.overlay.style.width; this.#drawEdit.style.height = this.overlay.style.height;
     this.#positionGl();
     this.#rasteredKey = ''; this.onView(); this.invalidate();
   }
@@ -814,6 +842,7 @@ export class HeatPane {
     this.#keyTags = state.keyLevels.on ? paintKeyLevels(ctx, this.#keyLevelLines(state), v, pw, ph, p, state.keyLevels, pageNow(), this.#keyLevelContext(state).zone, this.#labels) : [];
     this.#vwapTags = state.vwap.on ? paintVwap(ctx, this.#vwapLines(state), v, pw, ph, p, state.vwap, this.#labels) : [];
     this.scriptLayer?.(ctx, pw, ph);
+    this.#drawTags = this.draw ? paintDrawings(ctx, this.draw, this.drawProjection(), p) : [];
     // Replay: nothing after its moment is shown (the heatmap under this canvas included), and a line marks it.
     if (replaying()) {
       const x = Math.max(0, Math.min(pw, v.xOf(pageNow(), pw)));
@@ -840,7 +869,7 @@ export class HeatPane {
     const markY = Math.min(ph - 8, Math.max(8, v.yOf(mark, ph))), tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
     const clockText = mark > 0 && state.show.candles && !isPhone() ? countdown(pageNow(), tf) : null, clockBelow = markY + 9 + COUNTDOWN_H <= ph;
     const band = { y0: markY - 9 - (clockText && !clockBelow ? COUNTDOWN_H : 0), y1: markY + 9 + (clockText && clockBelow ? COUNTDOWN_H : 0) };
-    const keyTags = placeKeyTags([...this.#valueTags, ...this.#keyTags, ...this.#vwapTags], mark > 0 ? [band] : [], ph);
+    const keyTags = placeKeyTags([...this.#drawTags, ...this.#valueTags, ...this.#keyTags, ...this.#vwapTags], mark > 0 ? [band] : [], ph);
     for (let q = Math.ceil(v.p0 / pStep) * pStep; q <= v.p1; q += pStep) { const y = v.yOf(q, ph); if (y > 6 && y < ph - 6 && !underTag(keyTags, y) && !(mark > 0 && y > band.y0 && y < band.y1)) ctx.fillText(fmtPrice(q, pStep), axisX + 6, y); }
     paintKeyTags(ctx, keyTags, axisX, AXIS_W, p);
     if (mark > 0) {
@@ -873,6 +902,76 @@ export class HeatPane {
     }
     this.#paintRange(ctx, state, pw, ph);
     this.#paintCrosshair(ctx, state, pw, ph);
+    this.#paintDrawEdit();
+  }
+
+  /** What belongs to editing the drawings, on its own canvas over the map, in the plot's coordinates as the overlay draws. */
+  #paintDrawEdit(): void {
+    const ctx = this.#drawEditCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, this.#drawEdit.width, this.#drawEdit.height);
+    if (!this.draw) return;
+    ctx.setTransform(this.#dpr, 0, 0, this.#dpr, this.#dpr * this.#left, 0);
+    const pr = this.drawProjection();
+    paintEditing(ctx, this.draw, pr, this.#palette);
+    this.onDrawFrame?.({ left: this.#left, pr, legendBottom: this.#legendBox.bottom });
+  }
+
+  /** The map's time and price in the plot's pixels and back, for the drawing tools. */
+  drawProjection(): Projection {
+    const v = this.view, w = this.plotW, h = this.plotH;
+    return { x: t => v.xOf(t, w), y: q => v.yOf(q, h), t: x => v.tOf(x, w), p: y => v.pOf(y, h), w, h };
+  }
+
+  /**
+   * The candle under `x` as the map draws it, for the magnet: the one whose drawn body (narrowed beside the footprint's rows) is nearest,
+   * within its slot; its time is the middle of its slot, which is where a point caught on it is kept whatever the zoom.
+   */
+  candleAt(x: number): CandleUnder | null {
+    const state = this.store.state; if (!state.show.candles) return null;
+    const candles = state.candles, tf = TIMEFRAMES[state.timeframe] ?? 3_600_000, v = this.view, pw = this.plotW, ph = this.plotH;
+    if (!candles.length || !(pw > 0)) return null;
+    const bar = Math.max(1, pw * tf / (v.t1 - v.t0)), layout = footprintLayout(bar), narrowing = this.#lodFrame.narrowing;
+    const at = v.tOf(x, pw);
+    // The candles are in time order: the one whose slot holds the pointer, and its neighbours (a narrowed body sits left of its slot's middle).
+    let lo = 0, hi = candles.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (candles[mid]![0] <= at) lo = mid; else hi = mid - 1; }
+    let best: CandleUnder | null = null, bestD = Infinity;
+    for (let i = Math.max(0, lo - 1); i <= Math.min(candles.length - 1, lo + 1); i++) {
+      const c = candles[i]!, xClassic = v.xOf(c[0] + tf / 2, pw), cx = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing, d = Math.abs(cx - x);
+      if (d > bar / 2 + 1 || d >= bestD) continue;
+      best = { t: c[0] + tf / 2, x: cx, open: c[1], high: c[2], low: c[3], close: c[4], y: q => v.yOf(q, ph) }; bestD = d;
+    }
+    return best;
+  }
+
+  /** The walls of resting liquidity in the heat map's column under `x`, among the rows in view (draw/magnet.ts `wallRows`). */
+  wallsAt(x: number): { p: number; usd: number }[] {
+    const g = this.#grid; if (!g || replaying()) return [];
+    const v = this.view, b = g.bounds, t = v.tOf(x, this.plotW), gx = Math.floor((t - b.t0) / (b.t1 - b.t0) * g.w);
+    if (gx < 0 || gx >= g.w) return [];
+    const row = (p: number): number => Math.floor((p - b.p0) / (b.p1 - b.p0) * g.h);
+    const y0 = Math.max(0, row(v.p0)), y1 = Math.min(g.h - 1, row(v.p1));
+    if (y1 <= y0) return [];
+    const values = new Float32Array(y1 - y0 + 1);
+    for (let y = y0; y <= y1; y++) { const i = (y * g.w + gx) * 2; values[y - y0] = g.data[i]! + g.data[i + 1]!; }
+    return wallRows(values, i => b.p0 + (y0 + i + 0.5) / g.h * (b.p1 - b.p0));
+  }
+
+  /** The book's row around `price` now, in the rows the book profile beside the map shows: its resting USD by side and its size; null in a replay. */
+  restingAt(price: number): { bid: number; ask: number; step: number } | null {
+    const frame = this.store.state.levels; if (!frame || replaying()) return null;
+    const v = this.view, step = niceStep(v.p1 - v.p0, this.plotH / 3);
+    const g = groupLevels(this.kernels, frame, this.#enabledIds(), step, price - step, price + step), i = Math.floor(price / step) - g.bin0;
+    if (i < 0 || i >= g.nBins) return { bid: 0, ask: 0, step };
+    return { bid: g.totalBid[i]!, ask: g.totalAsk[i]!, step };
+  }
+
+  /** Centre the map on a stretch of time and prices (a drawing found in its list), widening the view where it does not fit. */
+  focusOn(box: { t0: number; t1: number; p0: number; p1: number }): void {
+    const v = this.view, span = Math.max(v.t1 - v.t0, (box.t1 - box.t0) * 1.4), pSpan = Math.max(v.p1 - v.p0, (box.p1 - box.p0) * 1.4);
+    const tm = (box.t0 + box.t1) / 2, pm = (box.p0 + box.p1) / 2;
+    v.set({ t0: tm - span / 2, t1: tm + span / 2, p0: pm - pSpan / 2, p1: pm + pSpan / 2 });
+    this.store.set({ followLive: false }); this.#liveMargin = v.t1 - pageNow(); this.#rasteredKey = ''; this.onView(); this.invalidate();
   }
 
   /**
@@ -1337,8 +1436,10 @@ export class HeatPane {
     const volume = this.#volumeAnalysis(state), hot = (i: number) => state.highlight.on && volume.found.flag[i] === 1;
     // A contrasting halo/outline keeps candles legible over both pink and green heat; it fades out over the dimmed footprint view.
     const edge = p.dark ? 'rgba(255,255,255,0.92)' : 'rgba(18,20,24,0.92)', halo = p.dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.7)', outline = 1 - 0.85 * narrowing;
-    // While the trade dust shows, a candle is its outline and a thin wick: a filled body (and its halo) would hide the orders inside it.
-    const hollow = this.#dustOn(state);
+    // While the trade dust shows, a candle is its outline and a thin wick: a filled body (and its halo) would hide the orders inside it. Outline
+    // candles are outlines always; OHLC bars and the line are drawn their own way (chart-type.ts).
+    const type = this.previewChartType ?? state.chartType, hollow = type === 'outline' || this.#dustOn(state);
+    if (type === 'line') { this.#paintCloseLine(ctx, state, pw, ph, tf, layout, narrowing, hot); return; }
     for (let ci = 0; ci < state.candles.length; ci++) {
       const c = state.candles[ci]!;
       if (c[0] + tf < v.t0 || c[0] > v.t1) continue;
@@ -1347,7 +1448,13 @@ export class HeatPane {
       const color = this.candleColor(c[0]) || (up ? p.candleUp : p.candleDown);
       const yh = v.yOf(c[2], ph), yl = v.yOf(c[3], ph), yo = v.yOf(c[1], ph), yc = v.yOf(c[4], ph), cx = Math.round(x) + 0.5;
       const top = Math.min(yo, yc), height = Math.max(1.5, Math.abs(yc - yo));
-      if (hollow) {
+      if (type === 'bars') {
+        // A line from the low to the high, the open a tick to the left and the close a tick to the right, over the same halo as a candle.
+        const tick = Math.max(2, Math.min(8, body / 2)), path = (): void => { ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.moveTo(cx - tick, Math.round(yo) + 0.5); ctx.lineTo(cx, Math.round(yo) + 0.5); ctx.moveTo(cx, Math.round(yc) + 0.5); ctx.lineTo(cx + tick, Math.round(yc) + 0.5); };
+        ctx.globalAlpha = outline; ctx.lineWidth = 3.6; ctx.strokeStyle = halo; path(); ctx.stroke();
+        ctx.globalAlpha = 1; ctx.lineWidth = 1.6; ctx.strokeStyle = color; path(); ctx.stroke();
+        ctx.lineWidth = 1;
+      } else if (hollow) {
         ctx.globalAlpha = 0.9; ctx.lineWidth = 1; ctx.strokeStyle = color;
         ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, top); ctx.moveTo(cx, top + height); ctx.lineTo(cx, yl); ctx.stroke();
         ctx.lineWidth = 1.5; ctx.strokeRect(Math.round(x - body / 2) + 0.75, Math.round(top) + 0.75, Math.max(1, Math.round(body) - 1.5), Math.max(1, Math.round(height) - 1.5));
@@ -1361,13 +1468,36 @@ export class HeatPane {
         ctx.globalAlpha = 1; ctx.fillStyle = color; ctx.fillRect(x - body / 2, top, body, height);
         if (body >= 3) { ctx.globalAlpha = outline; ctx.strokeStyle = edge; ctx.strokeRect(x - body / 2 + 0.5, top + 0.5, body - 1, Math.max(0.5, height - 1)); }
       }
-      // Hollow or filled, a candle of unusual volume keeps its ring (Highlights).
+      // Hollow, filled or a bar, a candle of unusual volume keeps its ring (Highlights).
       if (hot(ci)) { // unusually large volume: a glowing ring in the candle's own colour
         ctx.save(); ctx.globalAlpha = 1; ctx.shadowColor = color; ctx.shadowBlur = 12; ctx.strokeStyle = color; ctx.lineWidth = 2.4;
         ctx.strokeRect(x - body / 2 - 2.5, top - 2.5, body + 5, height + 5); ctx.restore();
       }
     }
     ctx.globalAlpha = 1;
+  }
+
+  /**
+   * The line through the closes: each candle's close at the middle of its body (narrowed beside the footprint's rows as the candles are),
+   * broken where a candle is missing, in the text's colour over a halo; a candle of unusual volume is ringed where its close is.
+   */
+  #paintCloseLine(ctx: CanvasRenderingContext2D, state: AppState, pw: number, ph: number, tf: number, layout: { candleCenter: number }, narrowing: number, hot: (i: number) => boolean): void {
+    const v = this.view, p = this.#palette, points: { x: number; y: number; i: number; t: number }[] = [];
+    for (let ci = 0; ci < state.candles.length; ci++) {
+      const c = state.candles[ci]!;
+      if (c[0] + tf < v.t0 - tf || c[0] > v.t1 + tf) continue;
+      const xClassic = v.xOf(c[0] + tf / 2, pw), x = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing;
+      points.push({ x, y: v.yOf(c[4], ph), i: ci, t: c[0] });
+    }
+    const path = (): void => {
+      ctx.beginPath();
+      points.forEach((q, k) => { if (k === 0 || q.t - points[k - 1]!.t > tf * 1.5) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y); });
+    };
+    ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = p.dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.75)'; ctx.lineWidth = 4; path(); ctx.stroke();
+    ctx.strokeStyle = p.text; ctx.lineWidth = 1.8; path(); ctx.stroke();
+    for (const q of points) if (hot(q.i)) { const color = this.candleColor(q.t) || p.text; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.strokeStyle = color; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0; }
+    ctx.restore();
   }
 
   /**
@@ -2746,20 +2876,23 @@ export class HeatPane {
       tap: p => {
         if (this.store.state.vwapAnchoring && p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH) { this.onAnchor?.(this.view.tOf(p.x, this.plotW)); return; }
         if (this.#bands.onHeader(p.x, p.y) || this.#onHiddenTag(p.x, p.y)) { this.onTopProfile(); return; }
+        if (p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH && this.draw?.click(p, false, true)) { this.#unpin(); return; }
         if (this.#pinActive() && Math.hypot(this.#pin!.x - p.x, this.#pin!.y - p.y) < 28) this.#unpin(); else this.#pinAt(p);
       },
-      doubleTap: () => { this.#unpin(); this.fit(); },
+      doubleTap: () => { if (this.draw?.placing) return; this.#unpin(); this.fit(); },
       // A short tick under the finger says the hold registered (where the browser allows it: it wants the page to have been used first).
       hold: p => { if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(8); this.#pinAt(p); },
       holdMove: p => this.#pinAt(p),
       panStart: p => {
         this.#unpin();
+        if (p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH && this.draw?.down(p, true)) { this.#touchDraw = true; return; }
         if (this.range?.armed && p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH) { this.#touchSelect = { start: p, at: p }; this.range.begin(this.#rangePoint(p.x, p.y)); return; }
         this.#panKind = p.y > this.plotH ? 'time' : p.x > this.#w - AXIS_W ? 'price' : 'map';
         this.#axisDrag = this.#panKind === 'map' ? null : { view: this.view.clone(), x: 0, y: 0 };
       },
-      pan: (d, at) => { if (this.#touchSelect) { this.#touchSelect.at = at; this.range?.move(this.#rangePoint(at.x, at.y)); return; } this.#touchPan(d); },
+      pan: (d, at) => { if (this.#touchDraw) { this.draw?.move(at, false, true); return; } if (this.#touchSelect) { this.#touchSelect.at = at; this.range?.move(this.#rangePoint(at.x, at.y)); return; } this.#touchPan(d); },
       panEnd: v => {
+        if (this.#touchDraw) { this.#touchDraw = false; this.draw?.up(); return; }
         const touch = this.#touchSelect;
         if (touch) { this.#touchSelect = null; if (v === null) this.range?.cancel(); else this.range?.end(this.#rangePoint(touch.at.x, touch.at.y), Math.hypot(touch.at.x - touch.start.x, touch.at.y - touch.start.y) < DRAG_MIN_PX); return; }
         const kind = this.#panKind; this.#panKind = null; this.#axisDrag = null;
@@ -2768,7 +2901,7 @@ export class HeatPane {
       pinchStart: info => this.#pinchBegin(info),
       pinch: info => this.#pinchTo(info),
       pinchEnd: () => { this.#pinch = null; },
-      cancel: () => { this.#panKind = null; this.#axisDrag = null; this.#pinch = null; if (this.#touchSelect) { this.#touchSelect = null; this.range?.cancel(); } },
+      cancel: () => { if (this.#touchDraw) { this.#touchDraw = false; this.draw?.cancelPointer(); } this.#panKind = null; this.#axisDrag = null; this.#pinch = null; if (this.#touchSelect) { this.#touchSelect = null; this.range?.cancel(); } },
     };
   }
 
@@ -2936,18 +3069,24 @@ export class HeatPane {
       }
       if (e.button === 2) { this.#zoomDrag = { x, y, view: this.view.clone() }; el.setPointerCapture(e.pointerId); return; }
       if (e.button !== 0) return;
+      // The drawing tools come next: a press on the selected drawing's handle or stroke drags it instead of the map.
+      if (onPlot && this.draw?.down({ x, y }, false)) { this.#press = null; el.setPointerCapture(e.pointerId); return; }
+      this.#press = onPlot ? { x, y, moved: false } : null;
       if (this.#onScale(x, y)) {
         // Dragging the price scale zooms it (up zooms in, down zooms out) about the current price, or the price under the pointer when that is off the map.
         const v = this.view, ph = this.plotH, mark = this.store.state.mark.price;
         this.#scaleDrag = { y, view: v.clone(), hold: holdPixel({ axis: 'price', pointer: y, size: ph, alt: false, follow: false, mark, markPixel: v.yOf(mark, ph), nowPixel: 0 }) };
         el.setPointerCapture(e.pointerId); el.style.cursor = 'ns-resize'; return;
       }
-      this.#drag = { x, y, shift: e.shiftKey }; el.setPointerCapture(e.pointerId);
+      this.#drag = { x, y, shift: e.shiftKey, panning: false }; el.setPointerCapture(e.pointerId);
     });
     el.addEventListener('pointermove', e => {
       if (e.pointerType === 'touch') return;
       const { x, y } = local(e);
       if (this.#scaleDrag) { this.#dragScale(y); return; }
+      if (this.draw?.dragging) { this.draw.move({ x, y }, e.altKey, false); el.style.cursor = 'grabbing'; return; }
+      const press = this.#press;
+      if (press && !press.moved && Math.hypot(x - press.x, y - press.y) >= DRAG_MIN_PX) press.moved = true;
       if (this.#columnSelect && this.range) {
         const { from, to } = this.#tradedWindow(), band = this.#columnBand(this.#columnSelect.y, y);
         this.range.move({ t: to, p: band.p1 }, { t: from, p: band.p0 });
@@ -2960,7 +3099,13 @@ export class HeatPane {
         return;
       }
       const overColumn = this.#columnAt(x) !== null && y <= this.plotH;
-      el.style.cursor = this.#onScale(x, y) ? 'ns-resize' : this.#bands.onHeader(x, y) || this.#onHiddenTag(x, y) ? 'pointer' : overColumn || ((this.range?.armed || this.store.state.vwapAnchoring) && x >= 0 && x <= this.plotW && y <= this.plotH) ? 'crosshair' : '';
+      const onPlot = x >= 0 && x <= this.plotW && y <= this.plotH;
+      // The drawing tools follow the pointer: the next point's preview with a tool armed, else what of the drawings is under it.
+      if (onPlot && !this.#drag?.panning) this.draw?.move({ x, y }, e.altKey, false); else if (!onPlot) this.draw?.leave();
+      const drawHover = onPlot && !this.draw?.placing ? this.draw?.hover ?? null : null;
+      el.style.cursor = this.#onScale(x, y) ? 'ns-resize' : this.#bands.onHeader(x, y) || this.#onHiddenTag(x, y) ? 'pointer'
+        : drawHover ? (drawHover.part === 'handle' ? 'grab' : drawHover.id === this.draw!.selected && drawHover.part === 'stroke' ? 'move' : 'pointer')
+        : overColumn || ((this.range?.armed || this.store.state.vwapAnchoring || this.draw?.placing) && onPlot) ? 'crosshair' : '';
       if (this.#zoomDrag) {
         // Drag right zooms the time axis in, drag up zooms the price axis in (left/down zoom out).
         const z = this.#zoomDrag, k = 0.006, pw = this.plotW, ph = this.plotH;
@@ -2972,9 +3117,9 @@ export class HeatPane {
         this.#liveMargin = this.view.t1 - pageNow(); this.#rasteredKey = ''; this.onView(); this.invalidate();
         return;
       }
-      if (this.#drag) {
+      if (this.#drag && (this.#drag.panning || !this.draw?.placing || press?.moved)) {
         const dx = x - this.#drag.x, dy = this.#drag.shift ? 0 : y - this.#drag.y;
-        this.view.pan(dx, dy, this.plotW, this.plotH); this.#drag.x = x; this.#drag.y = y; touched();
+        this.view.pan(dx, dy, this.plotW, this.plotH); this.#drag.x = x; this.#drag.y = y; this.#drag.panning = true; touched();
       }
       if (x >= 0 && x <= this.plotW && y <= this.plotH) this.store.set({ hover: { t: this.view.tOf(x, this.plotW), price: this.view.pOf(y, this.plotH), y, source: 'heat' } });
       else this.store.set({ hover: null });
@@ -2985,6 +3130,7 @@ export class HeatPane {
     });
     el.addEventListener('pointerup', e => {
       if (e.pointerType === 'touch') return;
+      if (this.draw?.dragging) { this.draw.up(); if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId); el.style.cursor = ''; return; }
       const column = this.#columnSelect;
       if (column && this.range) {
         // A click without a drag selects the one row under it.
@@ -3000,9 +3146,14 @@ export class HeatPane {
         if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         return;
       }
+      // A press that did not move is a click: the drawing tools place a point, or select (or let go of) a drawing.
+      const press = this.#press; this.#press = null;
+      if (press && !press.moved && e.button === 0 && this.draw) { const at = local(e); if (this.draw.click(at, e.altKey, false)) this.#drawClickAt = performance.now(); }
       this.#drag = null; this.#zoomDrag = null; this.#scaleDrag = null; el.style.cursor = this.#onScale(local(e).x, local(e).y) ? 'ns-resize' : ''; if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId); });
-    el.addEventListener('pointerleave', e => { if (e.pointerType === 'touch') return; if (!this.#scaleDrag) el.style.cursor = ''; this.#profileHover = null; this.#tradedHover = null; if (!this.#drag && !this.#zoomDrag) { this.store.set({ hover: null }); this.invalidate(); } });
-    el.addEventListener('dblclick', () => this.fit());
+    el.addEventListener('pointercancel', e => { if (e.pointerType === 'touch') return; this.#press = null; this.draw?.cancelPointer(); });
+    el.addEventListener('pointerleave', e => { if (e.pointerType === 'touch') return; if (!this.draw?.dragging) this.draw?.leave(); if (!this.#scaleDrag) el.style.cursor = ''; this.#profileHover = null; this.#tradedHover = null; if (!this.#drag && !this.#zoomDrag) { this.store.set({ hover: null }); this.invalidate(); } });
+    // A double click recentres the map, except while a tool is armed or when it selected a drawing (its first click was the drawing tools').
+    el.addEventListener('dblclick', () => { if (this.draw?.placing || performance.now() - this.#drawClickAt < 600) return; this.fit(); });
     bindTouch(el, new GestureRecognizer(this.#touchHandlers()), () => this.#left);
   }
 }
