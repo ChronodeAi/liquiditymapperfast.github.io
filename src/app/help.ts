@@ -250,16 +250,30 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
 /** Open the guide at a section. It is loaded on demand, so the page does not carry it until it is wanted. */
 export const showGuide = (section?: string): void => { void lazy(() => import('./guide/guide.ts')).then(m => m?.openGuide(section)); };
 
+/** What a "?" opens: a title, its lead sentence, short paragraphs, and the section of the guide that goes further (without one, no link). */
+export interface Explanation { title: string; tip: string; body: readonly string[]; guide?: string }
+
+/** The round "?" itself, named for what it explains. */
+export const questionButton = (title: string): HTMLButtonElement =>
+  el('button', { type: 'button', class: 'help', textContent: '?', tip: t('What is this? {topic}', { topic: title }), ariaLabel: t('Explain: {topic}', { topic: title }) });
+
+/** Write an explanation into `body`: its lead sentence, its paragraphs and, where the guide goes further, the way there. */
+export function explain(body: HTMLElement, topic: Explanation): void {
+  body.classList.add('help-body');
+  body.append(el('p', { class: 'lead', textContent: topic.tip }));
+  for (const paragraph of topic.body) body.append(note(paragraph));
+  const guide = topic.guide;
+  if (guide !== undefined) body.append(el('button', { type: 'button', class: 'more', textContent: t('More in the guide →'), onclick: () => { showGuide(guide); } }));
+}
+
+/** Open an explanation in a panel of its own beside `anchor`, or close it when it is the one open there. */
+export const toggleExplanation = (anchor: HTMLElement, topic: Explanation): void => { togglePanel(anchor, { title: topic.title, width: 340, align: 'left' }, (_tools, body) => explain(body, topic)); };
+
 /** A small "?" button that opens the explanation of `id`; the panel closes with Esc, a click elsewhere, or the same button. */
 export function helpButton(id: HelpId): HTMLButtonElement {
   const topic = HELP[id];
-  const button = el('button', { type: 'button', class: 'help', textContent: '?', tip: t('What is this? {topic}', { topic: topic.title }), ariaLabel: t('Explain: {topic}', { topic: topic.title }) });
-  const fill = (body: HTMLElement): void => {
-    body.classList.add('help-body');
-    body.append(el('p', { class: 'lead', textContent: topic.tip }));
-    for (const paragraph of topic.body) body.append(note(paragraph));
-    body.append(el('button', { type: 'button', class: 'more', textContent: t('More in the guide →'), onclick: () => { showGuide(topic.guide); } }));
-  };
+  const button = questionButton(topic.title);
+  const fill = (body: HTMLElement): void => explain(body, topic);
   // A panel draws its tools again on every change; the new "?" shows as open while its text is still showing below it.
   queueMicrotask(() => { if (button.closest('.panel')?.querySelector(`.help-inline[data-topic="${id}"]`)) button.classList.add('open'); });
   button.onclick = event => {
@@ -275,7 +289,7 @@ export function helpButton(id: HelpId): HTMLButtonElement {
       openedPanel()?.reposition();
       return;
     }
-    togglePanel(button, { title: topic.title, width: 340, align: 'left' }, (_tools, body) => fill(body));
+    toggleExplanation(button, topic);
   };
   return button;
 }

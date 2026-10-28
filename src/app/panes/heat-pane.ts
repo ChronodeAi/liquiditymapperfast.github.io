@@ -175,11 +175,11 @@ const TIME_H = 22;
 
 /** A plot narrower than this (a phone, a split screen) gets the compact legend, whole-dollar prices and a shorter history note. */
 const NARROW_PLOT = 420;
-/** The legend's script lines: how many at most (the others are counted), and the room at a line's right for its two buttons (px). */
-const SCRIPT_LINES = 6, SCRIPT_TOOLS_W = 60;
+/** The legend's script lines: how many at most (the others are counted), and the room each of a line's buttons takes (px), on a phone too. */
+const SCRIPT_LINES = 6, SCRIPT_TOOL_W = 20, SCRIPT_TOOL_W_TOUCH = 28;
 
-/** A line of the map's legend for a script drawn on the map (given by the Scripts pane): its name, colour, and values or state. */
-export interface ScriptLegendLine { id: string; name: string; color: string; text: string; tone: 'text' | 'muted' | 'error' }
+/** A line of the map's legend for a script drawn on the map (given by the Scripts pane): its name, colour, values or state, and how many buttons it has. */
+export interface ScriptLegendLine { id: string; name: string; color: string; text: string; tone: 'text' | 'muted' | 'error'; tools: number }
 /** A map pane narrower than this gets the narrow price axis and profile column. */
 const COMPACT_PANE = 520;
 
@@ -1038,16 +1038,17 @@ export class HeatPane {
     detail = fitText(wide, detail, room);
     const extra = [phone && borrowed ? borrowed.replace(/^\s*·\s*/, '') : '', this.#overviewLegend(state)].filter(Boolean).join('  ·  ');
     const note = fitText(wide, extra, room), noteW = note ? wide(note) : 0, detailW = detail ? wide(detail) : 0;
-    // The scripts drawn on the map, a line each under the candle's: a swatch of its colour, its name, its two buttons right after the name
+    // The scripts drawn on the map, a line each under the candle's: a swatch of its colour, its name, its buttons right after the name
     // (where they stay whatever the values beside them, so they do not move from under a pointer coming to them), then its values at this
     // candle or what it is doing. At most a few, the others counted. In a phone's arrangement the buttons are a finger's size (as their
     // style makes them) and the lines as tall; there, and on a narrow map, the names alone.
-    const touch = isPhone(), namesOnly = phone || touch, toolsW = touch ? 84 : SCRIPT_TOOLS_W, lineH = touch ? 24 : 16;
+    const touch = isPhone(), namesOnly = phone || touch, lineH = touch ? 24 : 16;
     const scripts = this.scriptLegend(hovered ? hovered[0] : null, namesOnly ? 0 : SCRIPT_LINES), listed = scripts.slice(0, SCRIPT_LINES), unlisted = scripts.length - listed.length;
-    const scriptNames = listed.map(s => fitText(wide, s.name, room - toolsW - 30));
-    const scriptValues = listed.map((s, k) => namesOnly || !s.text ? '' : fitText(wide, s.text, Math.max(0, room - 30 - wide(scriptNames[k]!) - toolsW - 12)));
+    const toolsW = listed.map(s => s.tools * (touch ? SCRIPT_TOOL_W_TOUCH : SCRIPT_TOOL_W));
+    const scriptNames = listed.map((s, k) => fitText(wide, s.name, room - toolsW[k]! - 30));
+    const scriptValues = listed.map((s, k) => namesOnly || !s.text ? '' : fitText(wide, s.text, Math.max(0, room - 30 - wide(scriptNames[k]!) - toolsW[k]! - 12)));
     const moreScripts = unlisted > 0 ? tn(unlisted, '+{n} more script', '+{n} more scripts') : '';
-    const scriptsW = Math.max(0, ...listed.map((_, k) => 18 + wide(scriptNames[k]!) + 6 + toolsW + (scriptValues[k] ? 6 + wide(scriptValues[k]!) : 0)), moreScripts ? wide(moreScripts) : 0);
+    const scriptsW = Math.max(0, ...listed.map((_, k) => 18 + wide(scriptNames[k]!) + 6 + toolsW[k]! + (scriptValues[k] ? 6 + wide(scriptValues[k]!) : 0)), moreScripts ? wide(moreScripts) : 0);
     const textH = (detail ? 36 : 22) + (note ? 14 : 0), scriptRows = listed.length + (moreScripts ? 1 : 0);
     ctx.font = '600 12px ui-sans-serif, system-ui, sans-serif';
     const shownTitle = fitText(wide, phone ? `${name}  ${state.timeframe}` : title, room - tailW), titleW = wide(shownTitle);
@@ -1069,7 +1070,7 @@ export class HeatPane {
       ctx.fillStyle = !scriptValues[k] && s.tone === 'error' ? p.ask : !scriptValues[k] && s.tone === 'muted' ? p.muted : p.text; ctx.fillText(scriptNames[k]!, 24, y);
       const toolsX = 24 + wide(scriptNames[k]!) + 6;
       places.push({ id: s.id, x: toolsX, y: y - (touch ? 11 : 8) });
-      if (scriptValues[k]) { ctx.fillStyle = s.tone === 'error' ? p.ask : p.muted; ctx.fillText(scriptValues[k]!, toolsX + toolsW + 6, y); }
+      if (scriptValues[k]) { ctx.fillStyle = s.tone === 'error' ? p.ask : p.muted; ctx.fillText(scriptValues[k]!, toolsX + toolsW[k]! + 6, y); }
       y += lineH;
     });
     if (moreScripts) { ctx.fillStyle = p.muted; ctx.fillText(moreScripts, 12, y); }

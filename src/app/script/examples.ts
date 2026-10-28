@@ -1,15 +1,18 @@
 import { t } from '../i18n.ts';
 import type { ScriptRecord } from './records.ts';
-import { HEATMAP_SOURCE, VWAP_SOURCE } from './starter.ts';
+import { HEATMAP_ID, HEATMAP_SOURCE, STARTER_ID, VWAP_SOURCE } from './starter.ts';
+
+/** Each example's key, the same in every language: the starters' ids, and the start of the id of a script added from an example (about.ts). */
+export type ExampleKey = typeof STARTER_ID | typeof HEATMAP_ID | 'bar-patterns' | 'buyer-and-seller-vwaps' | 'liquidations' | 'volume-anomalies' | 'cumulative-delta' | 'spot-and-perpetual-cvd' | 'delta-histogram' | 'buy-share';
 
 /** Scripts to start from, written for this page: the two a page starts with first, then the others. */
-export function examples(): { name: string; source: string; place?: ScriptRecord['place'] }[] {
+export function examples(): { key: ExampleKey; name: string; source: string; place?: ScriptRecord['place'] }[] {
   return [
-    { name: t('VWAP with bands'), source: VWAP_SOURCE, place: 'map' },
-    { name: t('Stochastic heat map'), source: HEATMAP_SOURCE },
+    { key: STARTER_ID, name: t('VWAP with bands'), source: VWAP_SOURCE, place: 'map' },
+    { key: HEATMAP_ID, name: t('Stochastic heat map'), source: HEATMAP_SOURCE },
     // What each candle did to the range of the one before (inside, outside, up, down), and the patterns that follow from it (breakout,
     // failed break, rejection, engulfing) marked where they happen, with their levels and what the order flow did there when pointed at.
-    { name: t('Bar patterns'), source: `// Bar patterns: what each candle did to the range of the candle before it, and the few patterns that follow from that,
+    { key: 'bar-patterns', name: t('Bar patterns'), source: `// Bar patterns: what each candle did to the range of the candle before it, and the few patterns that follow from that,
 // marked where they happen, with what the order flow did there.
 //
 // A candle can do four things to the range before it: stay inside it (in), go past both ends (out), or go past one
@@ -186,7 +189,7 @@ if (paint && move == IN) $price.color = insideColor
 if (paint && move == OUT) $price.color = outsideColor
 `, place: 'map' },
     // The volume-weighted prices of aggressive buyers and of aggressive sellers over the last candles, each with its band, on the map.
-    { name: t('Buyer and seller VWAPs'), source: `// Buyer and seller VWAPs: the average price aggressive buyers paid (what was bought at market, weighted by its dollars)
+    { key: 'buyer-and-seller-vwaps', name: t('Buyer and seller VWAPs'), source: `// Buyer and seller VWAPs: the average price aggressive buyers paid (what was bought at market, weighted by its dollars)
 // and the average price aggressive sellers got, over the last candles, each with a band one deviation wide. Where the
 // buyers' line is above the sellers', buying came in at higher prices than selling; where it is below, selling led.
 
@@ -214,7 +217,7 @@ line(sellers, title="Sellers", color=sellColor, lineWidth=2)
 `, place: 'map' },
     // Liquidations as a cascade reads: shorts liquidated up, longs down, heights compressed so one cascade does not flatten the rest,
     // and each bar as bright as the candle's liquidations are unusual against the last candles; the line is the net pressure.
-    { name: t('Liquidations'), source: `// Liquidations: shorts liquidated (forced buys) up in violet, longs liquidated (forced sells) down in amber. Heights are
+    { key: 'liquidations', name: t('Liquidations'), source: `// Liquidations: shorts liquidated (forced buys) up in violet, longs liquidated (forced sells) down in amber. Heights are
 // compressed so one cascade does not flatten every other bar. A bar is dim while the candle's liquidations are ordinary
 // and burns to full as they become unusual against the last candles, so a cascade reads before you look at the axis.
 // The line is the net pressure, brightening as it becomes unusual too.
@@ -262,7 +265,7 @@ if (markCandles && z > cascadeZ) $price.color = shorts >= longs ? "rgb(150,105,2
 ` },
     // Each candle's volume by the side that led it, dim while ordinary and bright when unusual, with a mark where its delta is unusual
     // too.
-    { name: t('Volume anomalies'), source: `// Volume anomalies: each candle's volume, in the buy colour where more was bought at market and the sell colour where more
+    { key: 'volume-anomalies', name: t('Volume anomalies'), source: `// Volume anomalies: each candle's volume, in the buy colour where more was bought at market and the sell colour where more
 // was sold. A bar is dim while its volume is ordinary and bright when it is more than Threshold deviations above its average
 // over the last candles. A grey bar marks a candle whose delta (bought less sold) is unusual in the same way.
 
@@ -293,10 +296,10 @@ if (showDelta && size > dMean + mult * dSpread) histogram({ time: time, value: s
 
 if (colorCandles && unusual) $price.color = bought ? upBright : downBright
 ` },
-    { name: t('Cumulative delta'), source: '// What was bought at market less what was sold, added up candle after candle.\nline(cum(vbuy - vsell), title=CVD)\n' },
-    { name: t('Spot and perpetual CVD'), source: '// The cumulative delta of the spot markets and of the perpetuals, apart.\nspotColor = option(type=color, default=#2e9bff, label=Spot)\nperpColor = option(type=color, default=#ff9f1c, label=Perpetual)\nspotDelta = source(vbuy, type=spot) - source(vsell, type=spot)\nperpDelta = source(vbuy, type=perp) - source(vsell, type=perp)\nline(cum(spotDelta), title=Spot, color=spotColor)\nline(cum(perpDelta), title=Perp, color=perpColor, priceScaleId=perp)\n' },
-    { name: t('Delta histogram'), source: '// Each candle\'s delta, in the buy colour where buyers led and the sell colour where sellers did.\nup = option(type=color, default=rgb(38,166,154), label=Buys)\ndown = option(type=color, default=rgb(239,83,80), label=Sells)\nvar delta = vbuy - vsell\nhistogram({ time: time, value: delta, color: delta > 0 ? up : down }, title=Delta)\n' },
-    { name: t('Buy share'), source: '// The share of the volume bought at market over the last candles, in percent.\nlength = option(default=20, min=1, label=Candles)\nline(100 * sum(vbuy, length) / sum(vbuy + vsell, length), title="Buy share %")\nline(50, color=rgba(128,128,128,0.6), title=Even)\n' },
+    { key: 'cumulative-delta', name: t('Cumulative delta'), source: '// What was bought at market less what was sold, added up candle after candle.\nline(cum(vbuy - vsell), title=CVD)\n' },
+    { key: 'spot-and-perpetual-cvd', name: t('Spot and perpetual CVD'), source: '// The cumulative delta of the spot markets and of the perpetuals, apart.\nspotColor = option(type=color, default=#2e9bff, label=Spot)\nperpColor = option(type=color, default=#ff9f1c, label=Perpetual)\nspotDelta = source(vbuy, type=spot) - source(vsell, type=spot)\nperpDelta = source(vbuy, type=perp) - source(vsell, type=perp)\nline(cum(spotDelta), title=Spot, color=spotColor)\nline(cum(perpDelta), title=Perp, color=perpColor, priceScaleId=perp)\n' },
+    { key: 'delta-histogram', name: t('Delta histogram'), source: '// Each candle\'s delta, in the buy colour where buyers led and the sell colour where sellers did.\nup = option(type=color, default=rgb(38,166,154), label=Buys)\ndown = option(type=color, default=rgb(239,83,80), label=Sells)\nvar delta = vbuy - vsell\nhistogram({ time: time, value: delta, color: delta > 0 ? up : down }, title=Delta)\n' },
+    { key: 'buy-share', name: t('Buy share'), source: '// The share of the volume bought at market over the last candles, in percent.\nlength = option(default=20, min=1, label=Candles)\nline(100 * sum(vbuy, length) / sum(vbuy + vsell, length), title="Buy share %")\nline(50, color=rgba(128,128,128,0.6), title=Even)\n' },
   ];
 }
 
