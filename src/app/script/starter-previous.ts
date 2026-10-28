@@ -69,3 +69,37 @@ if (showAverage) line(average, title="Average", color=lineColor, lineWidth=2)
 if (colorCandles) $price.color = shade(average)
 `,
 ];
+
+/** The VWAP with bands as earlier versions wrote it into a browser (`updateStarters`): one that still reads exactly so is brought to the
+ * current version. Kept as written, never edited. */
+export const PREVIOUS_VWAP_SOURCES: readonly string[] = [
+  // 2026-10-26 to 2026-10-28, master 249b08f to 3290195: weighted by the flow recorded on the page (vbuy + vsell), so a page that had not
+  // recorded the last 48 candles (the public site, which reads the exchanges from the browser) drew nothing.
+  `// VWAP with bands: the volume-weighted average of the typical price, (high + low + close) / 3, over the last candles.
+// It rolls with the candles (it is not anchored to a session), and its bands are that price's deviation around it.
+
+// option(...) is a setting: change it under the text, no need to edit the script.
+len = option(type=number, default=48, min=4, step=1, label="Window (candles)")
+mult = option(type=number, default=1.8, min=0.2, step=0.1, label="Band width (deviations)")
+midColor = option(type=color, default="rgba(255,64,255,0.95)", label="VWAP")
+bandColor = option(type=color, default="rgba(255,64,255,0.6)", label="Bands")
+
+// A var is worked out again on every candle. vbuy and vsell are the dollars bought and sold at market in the candle.
+var typical = ($price.high + $price.low + $price.close) / 3
+var vol = vbuy + vsell
+var num = sma(typical * vol, len)
+var den = sma(vol, len)
+var num2 = sma(typical * typical * vol, len)
+
+// A name set without var keeps its value from candle to candle: mid[1] would be the VWAP one candle back.
+// Where the flow was not recorded, vbuy reads NaN: with no volume to weigh by, the lines leave a gap there.
+mid = den > 0 ? num / den : NaN
+var sd = Math.sqrt(Math.max(0, num2 / den - mid * mid))
+upper = mid + mult * sd
+lower = mid - mult * sd
+
+line(mid, title="VWAP", color=midColor, lineWidth=2)
+line(upper, title="+SD", color=bandColor)
+line(lower, title="-SD", color=bandColor)
+`,
+];

@@ -41,6 +41,8 @@ const spawnScriptWorker = (): WorkerLike => new Worker(new URL('../script/script
 
 /** The replay candle the page is at (a run's inputs stop at the candles closed by then), or -1 live. */
 const replayKey = (tf: number): number => replaying() ? Math.floor(pageNow() / tf) : -1;
+/** Whether a script reads the taker flow (`vbuy`, `vsell`, `bar.recorded`): its run then asks for the chart market's own candles where the page recorded none. */
+const readsFlow = (a: Analysis): boolean => a.inputs.has('vbuy') || a.inputs.has('vsell') || a.inputs.has('recorded');
 
 /**
  * How many of an answer's candles may be shown: all of them live; in a replay only those closed by its moment, whatever moment the answer
@@ -328,7 +330,7 @@ export class ScriptPane extends TimePane {
     // A run under way is waited for; one still waiting for its worker to load is replaced by a newer request; one being asked for is not asked twice.
     if (this.#starting || (this.#running && !this.#host.loading)) return;
     const tf = TIMEFRAMES[state.timeframe] ?? 3_600_000;
-    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replayKey(tf), oi: state.oi, oiParts: state.oiParts, theme: this.#theme };
+    const seen = { candles: state.candles, loads: this.hub.flow.loads, data: this.#data.version, version: this.#version, tf: state.timeframe, markets: state.markets, venues: state.disabledVenues, scope: state.scope, inst: state.seriesInstrument, replay: replayKey(tf), oi: state.oi, oiParts: state.oiParts, theme: this.#theme, taker: this.hub.candleTaker(tf).version };
     const was = this.#seen, now = Date.now();
     const changed = !was || Object.keys(seen).some(k => (seen as Record<string, unknown>)[k] !== (was as Record<string, unknown>)[k]);
     // Nothing changed: run again at the refresh anyway (the candle under way fills in from the flow), on a timer, so a quiet page still refreshes.
@@ -389,7 +391,7 @@ export class ScriptPane extends TimePane {
     if (!('program' in a)) return { result: { id: 'trial', ok: false, error: a }, warnings: [], candles: 0 };
     if (this.#trialBusy) return 'busy';
     const state = this.store.state, filters = new Map<string, SourceFilter>([['', {}], ...sourcesWith(a, options)]);
-    const inputs = this.#withTheme(this.#data.inputs(state, filters, a.inputs.has('oichg')));
+    const inputs = this.#withTheme(this.#data.inputs(state, filters, a.inputs.has('oichg'), readsFlow(a)));
     if (!inputs) return null;
     const warnings = this.#pageWarnings(a, options, this.#data.markets(state, filters));
     // Counted now: the run hands the inputs' arrays over to the worker, which leaves them empty here.
@@ -443,7 +445,8 @@ export class ScriptPane extends TimePane {
     // A look that runs nothing is paced like a run, or a map drawn again for its errors would look again at once, frame after frame.
     if (!runnable.length) { this.#host.dropUnsent(); this.#lastRun = Date.now(); return; }
     // The change in open interest is worked out only for a run in which a script reads it.
-    const inputs = this.#withTheme(this.#data.inputs(state, filters, runnable.some(r => (this.#analyze(r.source) as Analysis).inputs.has('oichg'))));
+    const read = runnable.map(r => this.#analyze(r.source) as Analysis);
+    const inputs = this.#withTheme(this.#data.inputs(state, filters, read.some(a => a.inputs.has('oichg')), read.some(readsFlow)));
     if (!inputs) { this.#host.dropUnsent(); return; }
     const markets = this.#data.markets(state, filters);
     for (const r of runnable) this.#warnings.set(r.id, this.#pageWarnings(this.#analyze(r.source) as Analysis, r.options, markets));
@@ -459,6 +462,13 @@ export class ScriptPane extends TimePane {
       if (!results.length) { this.refresh(); return; }
       // Scripts changed while it ran (edited, switched off, deleted): its answer is stale, and the next run is due at once.
       if (version !== this.#version) { this.refresh(); return; }
+      // The oldest candle a run alerts at: the last one closed, or the newest when none is under way.
+      const since = time.length ? time[Math.max(0, time.length - (inputs.forming ? 2 : 1))]! : 0;
+      // Alerts only from a live answer for the chart as it is now, with Scripts on: one that comes after Scripts was switched off, the chart
+      // changed or a replay began says nothing. Taken before the theme is checked: an alert says what the chart did, not in which colours,
+      // and the run that replaces one thrown away for its colours may no longer meet it.
+      const cur = this.store.state, live = at === Infinity && !replaying() && cur.show.script && cur.seriesInstrument === inst && (TIMEFRAMES[cur.timeframe] ?? 3_600_000) === tf;
+      if (live) for (const res of results) { const r = runnable.find(x => x.id === res.id); if (r && res.ok) this.#takeAlerts(r, res, inst, tf, since); }
       // The theme changed while it ran (picked, or previewed from the menu): its colours are the other theme's, and the next run is due.
       if (theme !== this.#theme) { this.refresh(); return; }
       // The run's own time (a worker that waited to load, or never did, is not a slow script): a slow script runs less often, spaced
@@ -466,12 +476,6 @@ export class ScriptPane extends TimePane {
       this.#runMs = ms; this.#lastRun = Date.now() - ms;
       for (const res of results) this.#held.set(res.id, { result: res, time, tf, inst, at });
       this.#held = new Map(this.#held); this.#heldGen++;
-      // The oldest candle a run alerts at: the last one closed, or the newest when none is under way.
-      const since = time.length ? time[Math.max(0, time.length - (inputs.forming ? 2 : 1))]! : 0;
-      // Alerts only from a live answer for the chart as it is now, with Scripts on: one that comes after Scripts was switched off, the chart
-      // changed or a replay began says nothing.
-      const cur = this.store.state, live = at === Infinity && !replaying() && cur.show.script && cur.seriesInstrument === inst && (TIMEFRAMES[cur.timeframe] ?? 3_600_000) === tf;
-      if (live) for (const res of results) { const r = runnable.find(x => x.id === res.id); if (r && res.ok) this.#takeAlerts(r, res, inst, tf, since); }
       this.invalidate();
       this.onMapChanged();
       this.#refreshPanel();

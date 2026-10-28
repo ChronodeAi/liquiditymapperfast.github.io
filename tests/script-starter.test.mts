@@ -1,20 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyze, runScript } from '../src/app/script/lang/engine.ts';
-import { SCRIPTS_KEY, loadScripts, storeScripts } from '../src/app/script/records.ts';
+import { SCRIPTS_KEY, SCRIPT_API, loadScripts, storeScripts } from '../src/app/script/records.ts';
 import { HEATMAP_ID, HEATMAP_SOURCE, STARTER_ID, VWAP_SOURCE, starterScripts, updateStarters } from '../src/app/script/starter.ts';
-import { PREVIOUS_HEATMAP_SOURCES } from '../src/app/script/starter-previous.ts';
+import { PREVIOUS_HEATMAP_SOURCES, PREVIOUS_VWAP_SOURCES } from '../src/app/script/starter-previous.ts';
 import { createRunner, sameCandles } from '../src/app/script/lang/engine.ts';
 import type { BarInputs, ScriptTheme } from '../src/app/script/inputs.ts';
 
 const MIN = 60_000;
-/** Candles 0..n-1 whose typical price is 100 + i, with 15·(i+1) dollars traded in each. */
+/** Candles 0..n-1 whose typical price is 100 + i, with 15·(i+1) traded in each (the candle's volume, and the dollars at market). */
 function inputs(n = 8): BarInputs {
   const time = Float64Array.from({ length: n }, (_, i) => i * MIN);
   return {
     tf: MIN, time,
     open: Float64Array.from(time, (_, i) => 100 + i), high: Float64Array.from(time, (_, i) => 101 + i), low: Float64Array.from(time, (_, i) => 99 + i),
-    close: Float64Array.from(time, (_, i) => 100 + i), volume: Float64Array.from(time, () => 1),
+    close: Float64Array.from(time, (_, i) => 100 + i), volume: Float64Array.from(time, (_, i) => 15 * (i + 1)),
     sources: { '': { vbuy: Float64Array.from(time, (_, i) => 10 * (i + 1)), vsell: Float64Array.from(time, (_, i) => 5 * (i + 1)), lbuy: new Float64Array(n), lsell: new Float64Array(n), markets: 1 } },
     forming: false,
   };
@@ -54,13 +54,34 @@ test('the VWAP reads, runs without a warning and draws its line inside its bands
   // Four candles back from the last (typical 104..107, volumes 75..120): its options change what it draws.
   const want = [104, 105, 106, 107].reduce((s, p, k) => s + p * 15 * (5 + k), 0) / [5, 6, 7, 8].reduce((s, k) => s + 15 * k, 0);
   assert.ok(Math.abs(short.plots[0]!.fields.value![7]! - want) < 1e-9);
-  // A candle whose flow was not recorded: nothing drawn there, and the next candles go on from the ones before.
-  const gap = inputs(), src = gap.sources['']!;
-  src.vbuy[3] = NaN; src.vsell[3] = NaN;
+  // The flow this page recorded plays no part: with none at all (a page that reads the exchanges from the browser has none from before it
+  // opened), every candle weighs by its volume as before.
+  const unrecorded = inputs(), src = unrecorded.sources['']!;
+  src.vbuy.fill(NaN); src.vsell.fill(NaN);
+  const u = runScript('vwap', VWAP_SOURCE, {}, unrecorded);
+  assert.ok(u.ok);
+  assert.deepEqual(u.plots.map(p => [...p.fields.value!]), r.plots.map(p => [...p.fields.value!]), 'the same lines with no flow recorded');
+  // A candle with no volume reported: nothing drawn there, and the next candles go on from the ones before.
+  const gap = inputs();
+  gap.volume[3] = NaN;
   const g = runScript('vwap', VWAP_SOURCE, {}, gap);
   assert.ok(g.ok);
   assert.ok(g.plots.every(p => Number.isNaN(p.fields.value![3]!)), 'a gap, not the close');
   assert.ok(Number.isFinite(g.plots[0]!.fields.value![4]!) && Math.abs(g.plots[0]!.fields.value![4]! - 100) < 10);
+});
+
+test('an untouched VWAP with bands of an earlier version, the starter or a copy from the examples, is brought to the current one', () => {
+  const old = { id: STARTER_ID, name: 'VWAP with bands', source: PREVIOUS_VWAP_SOURCES[0]!, options: { len: 24 }, on: true, api: 1, height: 60, place: 'map' as const };
+  const [now] = updateStarters([old]);
+  assert.equal(now!.source, VWAP_SOURCE);
+  assert.deepEqual(now!.options, { len: 24 }, 'its settings stay');
+  assert.equal(now!.api, SCRIPT_API, 'its new text reads $price.volume: a version-2 script');
+  assert.equal(updateStarters([{ ...old, id: 'vwap-with-bands-2' }])[0]!.source, VWAP_SOURCE, 'a copy added from the examples');
+  assert.equal(updateStarters([{ ...old, source: old.source.replace(/\n/g, '\r\n') }])[0]!.source, VWAP_SOURCE, 'line ends as a file wrote them');
+  const edited = { ...old, source: `${old.source}// mine\n` };
+  assert.equal(updateStarters([edited])[0]!.source, edited.source, 'edited by the person: kept');
+  assert.ok(PREVIOUS_VWAP_SOURCES[0]!.includes('var vol = vbuy + vsell'), 'the earlier text, as it was written');
+  assert.ok(!VWAP_SOURCE.includes('vbuy'), 'the current one reads no recorded flow');
 });
 
 const DARK: ScriptTheme = { dark: true, background: '#000000', text: '#00ff00', up: '#11af00', down: '#ff6363' };
@@ -126,6 +147,7 @@ test('a script reads the theme, a member it does not have is warned of, and a ru
 test('a kept heat map of an earlier version is brought to the current one, unless the person edited or coloured it', () => {
   const old = { id: HEATMAP_ID, name: 'Stochastic heat map', source: PREVIOUS_HEATMAP_SOURCES[0]!, options: {}, on: true, api: 1, height: 160, place: 'pane' as const };
   assert.equal(updateStarters([old])[0]!.source, HEATMAP_SOURCE);
+  assert.equal(updateStarters([old])[0]!.api, SCRIPT_API, 'its new text reads theme: a version-2 script');
   assert.deepEqual(updateStarters([{ ...old, options: { scale: 2 } }])[0]!.options, { scale: 2 }, 'its other options stay');
   assert.equal(updateStarters([{ ...old, options: { scale: 2 } }])[0]!.source, HEATMAP_SOURCE);
   assert.equal(updateStarters([{ ...old, options: { highColor: '#ff0000' } }])[0]!.source, old.source, 'coloured by the person: kept');
