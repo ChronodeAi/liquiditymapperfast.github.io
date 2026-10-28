@@ -706,9 +706,11 @@ html[data-frame="textmode"] .toolbar.cockpit .split > .split-cfg { width: 14px; 
 .script-row > .script-on { display: inline-flex; flex: none; }
 .script-row > button:nth-child(2) { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .script-row .layout-date.error { color: var(--ask); }
-.script-example > .script-example-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A script's "?" in the list and among the examples, and its description in a box under the row (script/panel.ts aboutToggle). */
+.script-example > .script-example-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A script's "?" in the list and among the examples, right after its name as a pane's is after its title, and its description in a box
+   under the row (script/panel.ts aboutToggle). */
 .layout-row > button.help { margin: 0; }
+.script-example > .layout-date { margin-left: auto; }
 .panel-body .script-about { margin: 2px 0 8px; border: 1px solid var(--line); border-radius: var(--radius); }
 /* The Scripts pane's row buttons (script-pane.ts #placeRowTools): open the script, switch it off; after the row's name, over the canvas. */
 .script-row-tool { position: absolute; z-index: 2; display: inline-flex; gap: 2px; }
