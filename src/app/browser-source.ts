@@ -193,7 +193,13 @@ export class BrowserSource implements DataSource, VenueControl {
     // market already does not (every market is listed from the start).
     if (!this.#waited) {
       this.#waited = true;
-      if (options?.quick) return { ...boot, dataMode: 'browser', layers: {} };
+      if (options?.quick) {
+        // No venue may be live yet, so none is said to record yet: every market without a recording starts it this minute, as the engine says
+        // of a live venue about to be sampled (the map frames what is recorded from it).
+        const minute = Math.floor(Date.now() / boot.columnMs) * boot.columnMs, recorded = { ...boot.recorded };
+        for (const m of boot.markets) if (m.instrumentId && !recorded[m.instrumentId]) recorded[m.instrumentId] = { first: minute, last: minute };
+        return { ...boot, recorded, dataMode: 'browser', layers: {} };
+      }
       const deadline = Date.now() + FIRST_PRICE_MS;
       while (!boot.markInstrumentId && Date.now() < deadline) { await new Promise<void>(resolve => setTimeout(resolve, 250)); boot = await this.#call({ method: 'bootstrap' }); }
     }
