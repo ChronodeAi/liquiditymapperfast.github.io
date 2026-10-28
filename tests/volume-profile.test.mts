@@ -262,7 +262,7 @@ test('from the recording only what it still holds is offered: as many days or se
   assert.equal(readTraded({}).source, 'recorded', 'a save from before the choice');
   assert.equal(readTraded({ source: 'candles' }).source, 'candles'); assert.equal(readTraded({ source: 'tea leaves' }).source, 'recorded');
   // Profiles on the chart: one kind or none; a save from when they followed the columns' period keeps them for that period.
-  assert.equal(readTraded({}).profiles, 'day', 'the days\', until chosen otherwise');
+  assert.equal(readTraded({}).profiles, null, 'none until chosen (the days\' lines are on, their profiles not)');
   assert.equal(readTraded({ profiles: 'week' }).profiles, 'week'); assert.equal(readTraded({ profiles: 'year' }).profiles, null);
   assert.deepEqual([readTraded({ period: 'day', pastProfiles: true }).lines, readTraded({ period: 'day', pastProfiles: true }).profiles], [['day'], 'day']);
   assert.equal(readTraded({ period: 'view', pastProfiles: true }).profiles, null, 'what is on the chart had no profiles of its own');
