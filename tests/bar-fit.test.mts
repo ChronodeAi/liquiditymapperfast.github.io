@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BAR_ZOOM_FLOOR, fitBar, rowsOf } from '../src/app/bar-fit.ts';
+import { BAR_ZOOM_FLOOR, ROWS_ORDER, arrangeBar, fitBar, rowsOf } from '../src/app/bar-fit.ts';
 
 /** The decks of the full top bar as measured in Chrome (2026-10-25): Market, Time, Heatmap, Panels, Chart, Alerts and the page's own, with their gaps and padding. */
 const DECKS = [238, 139, 298, 270, 384, 106, 117], GAP = 3, PAD = 12;
@@ -74,4 +74,27 @@ test('degenerate inputs leave the bar alone', () => {
   assert.deepEqual(fitBar(DECKS, GAP, PAD, 0), { zoom: 1, breaks: [] }, 'a bar not laid out yet');
   assert.deepEqual(fitBar(DECKS, GAP, PAD, NaN), { zoom: 1, breaks: [] });
   assert.equal(fitBar(DECKS, GAP, PAD, 300).breaks.length, DECKS.length - 1, 'narrower than any deck: a deck a row, at the floor');
+});
+
+const IDS = ['market', 'time', 'heat', 'panels', 'chart', 'alerts', 'tools'];
+
+test('one row keeps the decks in their own order; rows put Alerts beside Heatmap, and come out even', () => {
+  for (const width of [1600, 1440, 1366]) assert.deepEqual(arrangeBar(IDS, DECKS, GAP, PAD, width).order, [0, 1, 2, 3, 4, 5, 6], `${width}`);
+  const rows = arrangeBar(IDS, DECKS, GAP, PAD, 1280);
+  assert.deepEqual(rows.order.map(k => IDS[k]), [...ROWS_ORDER]);
+  assert.deepEqual(rows.fit, { zoom: 1, breaks: [4] }, 'Market, Time, Heatmap, Alerts over Panels, Chart and the page\'s own');
+  const lens = (order: readonly number[], breaks: readonly number[]): number[] => rowsOf(order.map(k => DECKS[k]!), breaks).map(rowWidth);
+  const even = lens(rows.order, rows.fit.breaks), own = lens([0, 1, 2, 3, 4, 5, 6], fitBar(DECKS, GAP, PAD, 1280).breaks);
+  assert.ok(Math.max(...even) / Math.min(...even) < 1.05, `rows of ${even.join(', ')} px`);
+  assert.ok(Math.max(...own) / Math.min(...own) > 1.25, `in their own order ${own.join(', ')} px`);
+  // Whatever the width, every row it gives fits.
+  for (let width = 1340; width >= 520; width -= 10) {
+    const a = arrangeBar(IDS, DECKS, GAP, PAD, width);
+    for (const r of lens(a.order, a.fit.breaks)) assert.ok(r * a.fit.zoom <= width + 1e-9, `${width}`);
+  }
+});
+
+test('a deck the rows order does not name follows, in its own order', () => {
+  const a = arrangeBar(['market', 'extra', 'time', 'heat', 'panels', 'chart', 'alerts', 'tools'], [238, 50, 139, 298, 270, 384, 106, 117], GAP, PAD, 1000);
+  assert.deepEqual(a.order, [0, 2, 3, 6, 4, 5, 7, 1]);
 });

@@ -54,3 +54,30 @@ export function fitBar(widths: readonly number[], gap: number, pad: number, avai
     if (zoom >= floor || rows === widths.length) return { zoom: Math.max(floor, zoom), breaks };
   }
 }
+
+/**
+ * The order of the decks when the bar is in rows (Karl, 2026-10-27, measured over 16 themes and languages): Alerts beside Heatmap. In the
+ * decks' own order two rows came out uneven (the longer 38 % longer on average, so one row's decks stretched far more than the other's);
+ * this order makes them even (6 %, at most 12 %), the evenest any order with Market first and the page's own deck last gives, and it puts
+ * the context and its colouring on the first row (Market, Time, Heatmap, Alerts) and the switches of what is drawn on the second (Panels,
+ * Chart). One row keeps the decks' own order.
+ */
+export const ROWS_ORDER: readonly string[] = ['market', 'time', 'heat', 'alerts', 'panels', 'chart', 'tools'];
+
+export interface BarArrangement {
+  fit: BarFit;
+  /** The decks as they stand, each the index of one in the order given; `fit.breaks` are positions in this. */
+  order: readonly number[];
+}
+
+/**
+ * How the decks `ids` (in their own order, of `widths`) sit: one row in their own order where that fits at the floor or over, else rows in
+ * `rowsOrder` (decks it does not name follow, in their own order), broken as `fitBar` breaks them.
+ */
+export function arrangeBar(ids: readonly string[], widths: readonly number[], gap: number, pad: number, available: number, floor: number = BAR_ZOOM_FLOOR, rowsOrder: readonly string[] = ROWS_ORDER): BarArrangement {
+  const own = ids.map((_, k) => k), one = fitBar(widths, gap, pad, available, floor);
+  if (!one.breaks.length) return { fit: one, order: own };
+  const rank = (k: number): number => { const r = rowsOrder.indexOf(ids[k]!); return r < 0 ? rowsOrder.length + k : r; };
+  const order = [...own].sort((a, b) => rank(a) - rank(b));
+  return { fit: fitBar(order.map(k => widths[k]!), gap, pad, available, floor), order };
+}
