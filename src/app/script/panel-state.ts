@@ -39,6 +39,9 @@ export function statusOf(host: ScriptsHost, r: ScriptRecord): { text: string; er
   return { text: `${r.place === 'map' ? t('On the map') : t('In its own row')} · ${status}`, error: r.on && !!res && !res.ok };
 }
 
+/** What `editing` holds for a script not kept yet: no script's id can be it (ids are lowercase letters, digits and dashes). */
+export const NEW_SCRIPT = '+new';
+
 /** A value written with the keys of its objects in order, so two option sets compare by what they hold, not by the order they were set in. */
 const stable = (v: unknown): string => JSON.stringify(v, (_k, x: unknown) => Object.is(x, -0) ? { '-0': true } // -0 is not 0 to a script (1 / x)
   : x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : x);

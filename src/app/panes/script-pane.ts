@@ -24,7 +24,7 @@ import { paintPlot, plotColorAt, scaleIdOf, scalesOf, shortNumber, visibleRange,
 import { errorText } from '../script/messages.ts';
 import { safeColor } from '../script/lang/colors.ts';
 import type { SourceFilter } from '../script/inputs.ts';
-import { unsaved, type ScriptsPanelState } from '../script/panel-state.ts';
+import { NEW_SCRIPT, unsaved, type ScriptsPanelState } from '../script/panel-state.ts';
 import { lazy } from '../lazy.ts';
 
 /**
@@ -340,6 +340,8 @@ export class ScriptPane extends TimePane {
    * kept, drawn or saved. 'busy' while another trial runs; null while the chart has no candles. `signal` drops a trial not yet started.
    */
   async tryScript(source: string, options: Record<string, OptionValue>, signal?: AbortSignal): Promise<{ result: ScriptResult; warnings: Warning[]; candles: number } | 'busy' | null> {
+    // Given up on before it started: never sent (the listener below only drops a trial given up on later).
+    signal?.throwIfAborted();
     const a = this.#analyze(source);
     if (!('program' in a)) return { result: { id: 'trial', ok: false, error: a }, warnings: [], candles: 0 };
     if (this.#trialBusy) return 'busy';
@@ -375,7 +377,7 @@ export class ScriptPane extends TimePane {
     if (this.#ui.editing && unsaved(this, this.#ui)) return 'busy';
     const r = p.id === undefined ? null : this.#records.find(x => x.id === p.id) ?? null;
     if (p.id !== undefined && !r) return 'unknown-script';
-    this.#ui.editing = r ? r.id : 'new';
+    this.#ui.editing = r ? r.id : NEW_SCRIPT;
     this.#ui.draft = { name: p.name || r?.name || '', source: p.source, options: r ? { ...r.options } : {}, place: p.place ?? r?.place ?? 'pane' };
     this.#ui.message = { text: t('An assistant in your browser wrote this script. Read it, then press Save to keep it, or Back to drop it.'), error: false };
     this.#ui.armed = null;

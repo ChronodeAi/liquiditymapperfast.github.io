@@ -89,17 +89,50 @@ test('fit cuts the longest list first and leaves the lists it was given whole', 
   assert.equal(big.length, 200);
 });
 
-test('read_script gives every line once, a page at a time, numbered as errors count them', async () => {
-  const s = script(0), tools = agentTools(page({}, [s]).page), all = s.source.split('\n');
-  const seen: number[] = [];
-  let from: number | undefined = 1;
-  for (let pages = 0; from !== undefined && pages < 1000; pages++) {
-    const a = await tool(tools, 'read_script').execute({ id: s.id, from_line: from }) as { text: string; next_line?: number; lines: number };
-    assert.equal(a.lines, all.length);
-    for (const row of a.text.split('\n')) seen.push(Number(row.split(' | ')[0]));
-    from = a.next_line;
+test('read_script gives the whole text once, a page at a time within ANSWER_CHARS, long lines in pieces by column', async () => {
+  const slash = String.fromCharCode(92), smile = String.fromCodePoint(0x1f600);
+  const sources = [
+    script(0).source,
+    // Characters JSON writes twice as long: the page must count them as written.
+    Array.from({ length: 3 }, (_, k) => `// ${slash.repeat(380)} ${k}`).join('\n'),
+    // One line longer than any page, code at its end.
+    `/*${'x'.repeat(4_000)}*/ line(99)`,
+    // A character written as a pair, wherever a cut falls.
+    `${smile.repeat(3_000)}\nline(1)`,
+    '', 'line(1)',
+  ];
+  for (const source of sources) {
+    const s = script(0, { id: 'a', source }), tools = agentTools(page({}, [s]).page), all = source.split('\n');
+    const got = all.map(() => '');
+    let at: { next_line?: number; next_column?: number } | null = { next_line: 1 };
+    for (let pages = 0; at?.next_line !== undefined && pages < 2_000; pages++) {
+      const a = await tool(tools, 'read_script').execute({ id: s.id, from_line: at.next_line, ...(at.next_column ? { from_column: at.next_column } : {}) }) as { text: string; next_line?: number; next_column?: number; lines: number };
+      assert.ok(size(a) <= ANSWER_CHARS, `${size(a)} characters`);
+      assert.equal(a.lines, all.length);
+      for (const row of a.text.split('\n')) {
+        const m = /^(\d+)(?::(\d+))? \| /.exec(row);
+        assert.ok(m, row.slice(0, 40));
+        const line = Number(m[1]) - 1, column = Number(m[2] ?? 1);
+        assert.equal(column, got[line]!.length + 1, 'a piece starts where the last one stopped');
+        got[line] += row.slice(m[0].length);
+      }
+      at = a.next_line === undefined ? null : a;
+    }
+    assert.deepEqual(got, all, 'every line whole, once');
   }
-  assert.deepEqual(seen, all.map((_, k) => k + 1));
+});
+
+test('list_scripts pages skip no script, however long the ids, names and statuses', async () => {
+  const many = Array.from({ length: 20 }, (_, k) => script(k, { id: `${'i'.repeat(60)}-${String(k).padStart(2, '0')}`, result: null }));
+  const tools = agentTools(page({}, many).page), seen: string[] = [];
+  let offset: number | undefined = 0;
+  for (let pages = 0; offset !== undefined && pages < 40; pages++) {
+    const a = await tool(tools, 'list_scripts').execute({ offset }) as { scripts: { id: string }[]; next?: number };
+    assert.ok(size(a) <= ANSWER_CHARS, `${size(a)} characters`);
+    seen.push(...a.scripts.map(x => x.id));
+    offset = a.next;
+  }
+  assert.deepEqual(seen, many.map(s => s.id));
 });
 
 test('a script\'s text keeps to its lines: separators a reader takes for a line break are written as escapes', async () => {
@@ -115,6 +148,11 @@ test('try_script passes the text and well-formed options, says busy, and refuses
   const tools = agentTools(p), t = tool(tools, 'try_script');
   await t.execute({ source: 'line(options.len)', options: { len: 5, 'bad key': 1, deep: { x: 1 }, on: true, f: Infinity } });
   assert.deepEqual(calls.tried[0], { source: 'line(options.len)', options: { len: 5, on: true } });
+  // Names that would reach the object's machinery instead of a value, as an agent's JSON can carry them.
+  await t.execute({ source: 'line(1)', options: JSON.parse('{"__proto__": 5, "constructor": 1, "prototype": 2, "len": 3}') });
+  const given = calls.tried[1]!.options as Record<string, unknown>;
+  assert.deepEqual(Object.keys(given), ['len']);
+  assert.equal(Object.getPrototypeOf(given), Object.prototype);
   await assert.rejects(t.execute({ source: 'x'.repeat(MAX_SOURCE_CHARS + 1) }));
   await assert.rejects(t.execute({}));
   const busy = agentTools(page({ tryScript: async () => 'busy' }).page);

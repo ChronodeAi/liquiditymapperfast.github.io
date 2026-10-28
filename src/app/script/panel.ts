@@ -7,7 +7,7 @@ import type { ScriptResult, Warning } from './protocol.ts';
 import { MAX_SCRIPTS, MAX_SOURCE_CHARS, ROW_DEFAULT, SCRIPT_API, cleanName, exportFile, importText, inferredOption, mergeScripts, newId, type OptionValue, type ScriptRecord } from './records.ts';
 import { errorText, warningText } from './messages.ts';
 import { exampleHeight, examples } from './examples.ts';
-import { sameOptions, statusOf, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
+import { NEW_SCRIPT, sameOptions, statusOf, type ScriptsHost, type ScriptsPanelState } from './panel-state.ts';
 import { aiBundle, type BundleInput } from './lang/reference.ts';
 import { newestOf } from './protocol.ts';
 
@@ -91,7 +91,7 @@ export function buildScriptsPanel(host: ScriptsHost, body: HTMLElement, redraw: 
     add.disabled = full;
     body.append(el('div', { class: 'layout-row script-example' }, el('span', { class: 'script-example-name', textContent: ex.name }), el('span', { class: 'layout-date', textContent: place === 'map' ? t('On the map') : t('In its own row') }), add));
   }
-  const create = button(t('New script'), () => { ui.editing = 'new'; ui.draft = { name: '', source: '', options: {}, place: 'pane' }; ui.message = null; redraw(); }, t('Write a script, or paste one (an indicator file or a workspace works too)'));
+  const create = button(t('New script'), () => { ui.editing = NEW_SCRIPT; ui.draft = { name: '', source: '', options: {}, place: 'pane' }; ui.message = null; redraw(); }, t('Write a script, or paste one (an indicator file or a workspace works too)'));
   create.disabled = full;
   body.append(el('div', { class: 'layout-tools' }, create));
   if (full) body.append(note(t('At most {n} scripts: delete one first.', { n: MAX_SCRIPTS })));
@@ -175,7 +175,7 @@ function buildEditor(host: ScriptsHost, body: HTMLElement, redraw: () => void, u
   }
 
   // Its options, as the text reads now: the declared ones and those it reads without declaring.
-  const probe: ScriptRecord = { id: existing?.id ?? 'new', name: draft.name || 'x', source: draft.source, options: draft.options, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: draft.place };
+  const probe: ScriptRecord = { id: existing?.id ?? NEW_SCRIPT, name: draft.name || 'x', source: draft.source, options: draft.options, on: true, api: SCRIPT_API, height: ROW_DEFAULT, place: draft.place };
   const rows = optionRows(host.analysisOf(probe), draft.options);
   if (rows.length) {
     body.append(heading(t('Options')));

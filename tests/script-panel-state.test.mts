@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { panelClosed, sameOptions, statusOf, unsaved, type ScriptsHost, type ScriptsPanelState } from '../src/app/script/panel-state.ts';
+import { NEW_SCRIPT, panelClosed, sameOptions, statusOf, unsaved, type ScriptsHost, type ScriptsPanelState } from '../src/app/script/panel-state.ts';
 import { ROW_DEFAULT, SCRIPT_API, type ScriptRecord } from '../src/app/script/records.ts';
 import type { ScriptResult } from '../src/app/script/protocol.ts';
 
@@ -42,6 +42,10 @@ test('a script opened and left unchanged opens on the list next time; one with c
   assert.equal(unsaved(h, empty), false, 'a new script nothing was written in');
   panelClosed(h, empty);
   assert.equal(empty.editing, null);
+  // A new script is never taken for a kept one, even one whose id reads "new" (an imported file may name it so).
+  const named = host([{ ...vwap, id: 'new', source: 'line(2)' }]);
+  assert.equal(unsaved(named, { editing: NEW_SCRIPT, draft: { name: '', source: 'line(2)', options: {}, place: 'map' }, message: null, armed: null }), true);
+  assert.ok(!/^[a-z0-9][a-z0-9-]{0,63}$/.test(NEW_SCRIPT), 'no id can be the marker');
   const written: ScriptsPanelState = { editing: 'new', draft: { name: '', source: 'line(1)', options: {}, place: 'pane' }, message: null, armed: null };
   panelClosed(h, written);
   assert.equal(written.editing, 'new');
