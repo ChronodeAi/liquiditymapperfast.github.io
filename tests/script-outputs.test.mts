@@ -45,6 +45,11 @@ test('a colour the page makes and reads back is the text it would read it as, an
   assert.throws(() => { (red as unknown as number[])[0] = 0; });
   assert.deepEqual(parseColor('red'), [255, 0, 0, 1]);
   assert.equal(safeColor(7, 'fallback'), 'fallback');
+  // A long text or a function among the colours is read as before (it is no colour), only not kept after the call.
+  const long = `rgb(1, 2, 3)${' '.repeat(100)}`;
+  assert.equal(parseColor(long)?.join(), '1,2,3,1');
+  assert.equal(safeColor(long, ''), 'rgb(1, 2, 3)');
+  for (let k = 0; k < 2; k++) assert.equal(interpolateColors(0.5, ['x'.repeat(1000), (): number => 1, 'red', 'blue']), 'rgb(128, 0, 128)');
 });
 
 test('what a script declares is found before what it keeps, however the faster lookups reach it', () => {

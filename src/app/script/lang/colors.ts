@@ -40,12 +40,18 @@ export type Channels = readonly [number, number, number, number];
 /**
  * What reading a text as a colour gave, kept by the text: a script hands the same few colours over on every candle (a heat map's three, its
  * rows' blends) and the page reads them again on every frame, and reading one with patterns was the larger part of running such a script
- * (2026-10-27). Bounded: a full table starts again. The channels are frozen, since every reader of the same text shares them.
+ * (2026-10-27). Bounded: a full table starts again, and only short texts are kept (a colour is; a script's text may be 100,000 characters,
+ * and is read as before without being kept). The channels are frozen, since every reader of the same text shares them.
  */
-const CACHED = 4096;
+const CACHED = 4096, KEPT_CHARS = 64;
 const parsed = new Map<string, Channels | null>();
 const safe = new Map<string, string | null>();
-const remember = <T>(table: Map<string, T>, key: string, value: T): T => { if (table.size >= CACHED) table.clear(); table.set(key, value); return value; };
+const remember = <T>(table: Map<string, T>, key: string, value: T): T => {
+  if (key.length > KEPT_CHARS) return value;
+  if (table.size >= CACHED) table.clear();
+  table.set(key, value);
+  return value;
+};
 
 /** A colour's channels (0..255, alpha 0..1), or null when it is not one this page reads. */
 export function parseColor(raw: unknown): Channels | null {
@@ -105,14 +111,17 @@ export function interpolateColors(ratio: number, colors: readonly unknown[]): st
   return rgb(mixed);
 }
 
-/** The last list of colours read, and the ones of it that read as colours: a script blends between the same few on every call. */
-let lastList: readonly unknown[] = [], lastRead: readonly Channels[] = [];
+/**
+ * The last list of colours read, and the ones of it that read as colours: a script blends between the same few on every call. Only a short
+ * list of short texts is kept: anything else a script passes (a function, a long text) is read without being held after the call.
+ */
+let lastList: readonly string[] = [], lastRead: readonly Channels[] = [];
 function readList(colors: readonly unknown[]): readonly Channels[] {
   let same = colors.length === lastList.length;
   for (let k = 0; same && k < colors.length; k++) same = colors[k] === lastList[k];
   if (same) return lastRead;
   const out: Channels[] = [];
   for (const c of colors) { const ch = parseColor(c); if (ch) out.push(ch); }
-  lastList = colors.slice(); lastRead = out;
+  if (colors.length <= 16 && colors.every(c => typeof c === 'string' && c.length <= KEPT_CHARS)) { lastList = colors.slice() as string[]; lastRead = out; }
   return out;
 }
