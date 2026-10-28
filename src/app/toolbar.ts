@@ -251,8 +251,8 @@ export class Toolbar {
   #sheet: Sheet | null = null;
   /** Where Recenter lives on the full toolbar's screens: in a corner of the map it acts on, not among the venues (null until the map exists). */
   #mapHost: HTMLElement | null = null;
-  /** What the full bar was last fitted to (`#fit`), and the element that breaks it into two rows where it is. */
-  #fitted: BarFit | null = null; #deckBreak: HTMLElement | null = null; #fitFrame = 0;
+  /** What the full bar was last fitted to (`#fit`), and the elements that break it into rows where it is. */
+  #fitted: BarFit | null = null; #deckBreaks: HTMLElement[] = []; #fitFrame = 0;
   /** Settings' "Keep screen on" switch (only where the browser can hold the screen awake). */
   #awake = el('input', { type: 'checkbox' });
   #recenter = el('button', { textContent: t('Recenter'), tip: t('Jump back to the live edge and fit the price range to the recent candles (keyboard: R, Home, or double-click the chart).') });
@@ -524,7 +524,7 @@ export class Toolbar {
       // onto a second row at 1,600 px, doubling the bar, and the top edge holds the title.
       const tools = deck('tools', 'LiquidityMapperFast', [this.#guide, this.#shot], [this.#author, this.#install.root, ...(host ? [] : [this.#zone, this.#language, this.#theme, this.#glass, this.#status])]);
       tools.append(this.#collapse);
-      this.#deckBreak = null; this.#fitted = null;
+      this.#deckBreaks = []; this.#fitted = null;
       this.root.replaceChildren(
         deck('market', t('Market'), [this.#coin, this.#market], [this.#scope, this.#venuesButton!]),
         deck('time', t('Time'), [this.#timeframes], inCorner ? [] : [this.#recenter]),
@@ -551,34 +551,59 @@ export class Toolbar {
   }
 
   /**
-   * Scale the full bar, or break it into two rows, to fit its window (`fitBar`, bar-fit.ts). The decks are measured at their own size, the bar
-   * laid out as one row at zoom 1 (`.fitting`); what is applied is `--bar-zoom` (the stylesheet's `zoom`) and a break before one deck. Nothing
-   * is written when the answer is the one already applied, so a bar that has not changed does not move.
+   * Scale the full bar, or break it into rows, to fit its window (`fitBar`, bar-fit.ts). The decks are measured at their own size, the bar
+   * laid out as one row at zoom 1 (`.fitting`); what is applied is `--bar-zoom` (the stylesheet's `zoom`), a break before each deck that begins
+   * a row, and each deck's own width as how much it grows with its row (`--deck-grow`): the decks of a row grow by one factor, keeping their
+   * proportions. Nothing is written when the answer is the one already applied, so a bar that has not changed does not move.
    */
   #fit(): void {
     const bar = this.root;
     // A bar folded away has no decks to measure (they are not laid out): its fit stays, and is right again the moment it unfolds.
     if (!bar.classList.contains('cockpit') || !bar.isConnected || bar.classList.contains('collapsed')) return;
-    bar.classList.add('fitting');
     const decks = [...bar.querySelectorAll<HTMLElement>(':scope > .deck')], style = getComputedStyle(bar);
-    const widths = decks.map(d => d.getBoundingClientRect().width), available = bar.getBoundingClientRect().width;
     const gap = parseFloat(style.columnGap) || 0, pad = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
-    bar.classList.remove('fitting');
+    // The decks' own widths with the bar scaled by `zoom`, in the bar's own px: text drawn at a fractional zoom is a little wider than the
+    // scale alone says (0.3 % for Latte at 0.86, 4 % for Japanese in the text-mode face), enough to push the last deck of a row that just
+    // fits onto a row of its own (Karl, 2026-10-27).
+    const measure = (zoom: number): { widths: number[]; available: number } => {
+      bar.style.setProperty('--fit-zoom', String(zoom)); bar.classList.add('fitting');
+      const widths = decks.map(d => d.getBoundingClientRect().width / zoom), available = bar.getBoundingClientRect().width;
+      bar.classList.remove('fitting');
+      return { widths, available };
+    };
     // The bevel frame is not scaled: held, a button's borders go from 1 + 1 px to 2 + 0, and under a fractional zoom those snap apart (1 + 1 px, then 1 + 0:
     // the box loses a pixel when it is pressed or switched on). It takes the two balanced rows at its own size instead.
-    const fit = fitBar(widths, gap, pad, available, document.documentElement.dataset.frame === 'bevel' ? 1 : BAR_ZOOM_FLOOR), was = this.#fitted;
-    if (was && was.zoom === fit.zoom && was.breakBefore === fit.breakBefore) return;
+    const floor = document.documentElement.dataset.frame === 'bevel' ? 1 : BAR_ZOOM_FLOOR;
+    const first = measure(1), available = first.available;
+    let widths = first.widths, fit = fitBar(widths, gap, pad, available, floor), at = 1;
+    // A scaled bar is measured again at its scale, and fitted with each deck's widest width so far, until the scale it takes is one it was
+    // measured at: what it is fitted with is never narrower than what it draws, so no row it is given overflows.
+    for (let tries = 0; tries < 4 && fit.zoom !== at; tries++) {
+      const there = measure(fit.zoom).widths; at = fit.zoom;
+      widths = widths.map((w, k) => Math.max(w, there[k] ?? 0));
+      fit = fitBar(widths, gap, pad, available, floor);
+    }
+    const was = this.#fitted;
+    if (was && was.zoom === fit.zoom && was.breaks.join() === fit.breaks.join()) return;
     this.#fitted = fit;
     bar.style.setProperty('--bar-zoom', String(fit.zoom));
-    this.#deckBreak?.remove(); this.#deckBreak = null;
-    const at = fit.breakBefore === null ? undefined : decks[fit.breakBefore];
-    if (at) { this.#deckBreak = el('span', { class: 'deck-break', ariaHidden: 'true' }); at.before(this.#deckBreak); }
-    bar.classList.toggle('wrapped', this.#deckBreak !== null);
+    for (const b of this.#deckBreaks) b.remove();
+    this.#deckBreaks = [];
+    for (const k of fit.breaks) {
+      const at = decks[k]; if (!at) continue;
+      const b = el('span', { class: 'deck-break', ariaHidden: 'true' }); at.before(b); this.#deckBreaks.push(b);
+    }
+    // Its own width is where it starts in its row, not what its contents would ask for (a grid of even columns asks for its widest times
+    // their number), and half a pixel under it, so that rounding never moves a deck of a row that just fits onto the next: the row is broken
+    // where the fit broke it.
+    decks.forEach((d, k) => { d.style.setProperty('--deck-grow', String(Math.round(widths[k]!))); d.style.setProperty('--deck-w', `${Math.max(0, widths[k]! - 0.5).toFixed(2)}px`); });
+    bar.classList.toggle('wrapped', this.#deckBreaks.length > 0);
   }
   /** The compact bar is not scaled or broken: what the full bar applied is let go. */
   #unfit(): void {
     this.root.style.removeProperty('--bar-zoom'); this.root.classList.remove('fitting', 'wrapped');
-    this.#deckBreak?.remove(); this.#deckBreak = null; this.#fitted = null;
+    for (const b of this.#deckBreaks) b.remove();
+    this.#deckBreaks = []; this.#fitted = null;
   }
 
   #toggleSheet(): void {
