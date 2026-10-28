@@ -219,3 +219,13 @@ test('a series whose answers came back empty is framed when a later load brings 
   void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([[T, 1, 1, 1, 2, 1, 1]]); await turn();
   assert.equal(refilled, 1, 'once');
 });
+
+test('an empty reload of a series on screen does not frame it again when the next one is good (a zoom made meanwhile stays)', async () => {
+  const { hub, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  let refilled = 0; hub.onSeriesRefilled = () => refilled++;
+  const T = Math.floor(Date.now() / HOUR) * HOUR;
+  void hub.loadSeries(true); await turn(); source.asked[0]!.resolve([[T, 1, 1, 1, 1, 1, 1]]); await turn();
+  void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([]); await turn();
+  void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([[T, 1, 1, 1, 2, 1, 1]]); await turn();
+  assert.equal(refilled, 0);
+});

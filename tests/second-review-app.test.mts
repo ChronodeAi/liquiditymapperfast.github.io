@@ -322,3 +322,17 @@ test('a kept one-minute series brought up to date by a read behind the stream ke
   await answer(source, [M, 1, 1, 1, 1, 105, 1]);
   assert.equal(store.state.candles.at(-1)![5], 120, 'a read behind the stream lowers nothing');
 });
+
+test('a switch whose read fails clears the screen, and the load that first fills it is framed', async () => {
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  let refilled = 0; hub.onSeriesRefilled = () => refilled++;
+  void hub.loadSeries(true); await turn();
+  await answer(source, [BASE, 1, 1, 1, 1, 5, 1]);
+  store.set({ timeframe: '5m' });
+  const failed = hub.loadSeries().catch(() => 'failed'); await turn();
+  source.candleCalls.at(-1)!.reject(new Error('the server did not answer in time')); await failed;
+  assert.equal(store.state.candles.length, 0);
+  void hub.loadSeries(true); await turn();
+  await answer(source, [BASE, 1, 1, 1, 1, 5, 1]);
+  assert.deepEqual([refilled, store.state.candles.length], [1, 1]);
+});

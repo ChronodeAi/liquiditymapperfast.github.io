@@ -177,7 +177,11 @@ export class Hub {
   #reading: { key: string; generation: number } | null = null;
   /** The context whose last read came back with nothing while no reference market was known (`#learnReference` reads it again). */
   #emptyRead = '';
-  /** A context whose answer came back with nothing: the first load that shows candles for it says so (`onSeriesRefilled`), whichever it is. */
+  /**
+   * A context whose answer came back with nothing: the first load that shows candles of a read for it says so (`onSeriesRefilled`),
+   * whichever it is. A live candle alone on an empty read does not: framed on one minute's range the price axis would be all but flat, and
+   * the frame the first price gave stays until history comes.
+   */
   #refill = '';
   /** The context shown from `#seriesKept` and grown by the stream since, until a read of it answers (`rebaseLive`). */
   #fromKept: string | null = null;
@@ -623,7 +627,8 @@ export class Hub {
       if (this.#reading === reading) this.#reading = null;
       if (key === this.#series && generation === this.#seriesGen) {
         // A refresh of what is on screen that fails leaves it as it is; candles (and open interest) of another timeframe or market are not left standing under this label.
-        if (this.#loaded?.key !== key) { this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; this.#onScreen = key; }
+        // (A screen cleared this way is framed by the load that first fills it: the page's own framing waits on this read, which failed.)
+        if (this.#loaded?.key !== key) { this.store.set({ candles: [], candlesTimeframe: timeframe, seriesInstrument: marketId, oi: [], oiInstrument: '', oiParts: [] }); this.#loaded = null; this.#onScreen = key; this.#refill = key; }
         this.#series = this.#loaded?.key ?? '';
       }
       throw error;
@@ -640,7 +645,8 @@ export class Hub {
     this.#fromKept = null;
     // Nothing for this market while no reference market was known yet (a quick start, an exchange blocked here): read again once one is.
     this.#emptyRead = !candles.length && seriesInstrument === marketId && !this.#reference ? key : '';
-    if (!candles.length) this.#refill = key;
+    // Not for a reload of what is on screen and framed: its next good answer must not frame it again over a zoom made meanwhile.
+    if (!candles.length && !again) this.#refill = key;
     // Within a candle the stream and the snapshot cannot be put in order (the last tick may be older or newer than the moment the snapshot was taken), and the next tick settles it:
     // the live candle goes on top only where nothing in the snapshot can be later than it, a candle the snapshot does not have yet.
     this.#show(key, candles, seriesInstrument, timeframe, again);
