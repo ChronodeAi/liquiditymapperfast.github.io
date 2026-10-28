@@ -296,7 +296,7 @@ export class Toolbar {
     this.#market.onchange = () => this.onSelectMarket(this.#market.value);
     this.#chartType.onclick = () => {
       const items = CHART_TYPES.map(id => ({ id, label: chartTypeName(id) }));
-      openMenu(this.#chartType, items, this.store.state.chartType, { onPreview: id => this.onPreviewChartType(id as ChartType | null), onSelect: id => this.store.set({ chartType: id as ChartType }) }, 'left', { title: t('Chart type') });
+      openMenu(this.#chartType, items, this.store.state.chartType, { onPreview: id => this.onPreviewChartType(id as ChartType | null), onSelect: id => { this.onPreviewChartType(null); this.store.set({ chartType: id as ChartType }); } }, 'left', { title: t('Chart type') });
     };
     for (const tf of Object.keys(TIMEFRAMES)) this.#timeframes.append(el('button', { textContent: tf, tip: t('{timeframe} candles. The footprint, the bar stats and the open-interest bars follow this too.', { timeframe: TIMEFRAME_NAMES[tf] ?? tf }), onclick: () => this.store.set({ timeframe: tf }) }));
     this.#timeframes.append(this.#chartType);

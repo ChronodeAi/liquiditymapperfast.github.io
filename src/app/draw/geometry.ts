@@ -51,7 +51,9 @@ export function fibLevels(d: Drawing, pr: Projection): FibLevel[] {
 
 /** The channel's two lines: the one through its first two points, and its parallel through the third (the same price offset all along). */
 export function channelLines(d: Drawing, pr: Projection): { base: Segment | null; parallel: Segment | null; offset: number } {
-  const [a, b, c] = d.points as [Anchor, Anchor, Anchor];
+  const [first, second, c] = d.points as [Anchor, Anchor, Anchor];
+  // Left and right are by time: a line placed from right to left runs on to the right past the point that is on the right.
+  const [a, b] = first.t <= second.t ? [first, second] : [second, first];
   const slope = b.t !== a.t ? (b.p - a.p) / (b.t - a.t) : 0, offset = c.p - (a.p + slope * (c.t - a.t));
   const line = (dp: number): Segment | null => extendSegment({ x: pr.x(a.t), y: pr.y(a.p + dp) }, { x: pr.x(b.t), y: pr.y(b.p + dp) }, d.extendLeft, d.extendRight, BOX);
   return { base: line(0), parallel: line(offset), offset };
@@ -69,7 +71,7 @@ export function strokesOf(d: Drawing, pr: Projection): Segment[] {
   switch (d.kind) {
     case 'level': { const y = pts[0]!.y; return [{ a: { x: d.extendLeft ? -FAR : pts[0]!.x, y }, b: { x: FAR, y } }]; }
     case 'vline': { const x = pts[0]!.x; return [{ a: { x, y: -FAR }, b: { x, y: FAR } }]; }
-    case 'trend': { const s = extendSegment(pts[0]!, pts[1]!, d.extendLeft, d.extendRight, BOX); return s ? [s] : []; }
+    case 'trend': { const [a, b] = pts[0]!.x <= pts[1]!.x ? [pts[0]!, pts[1]!] : [pts[1]!, pts[0]!]; const s = extendSegment(a, b, d.extendLeft, d.extendRight, BOX); return s ? [s] : []; }
     case 'zone': {
       const x0 = Math.min(pts[0]!.x, pts[1]!.x), x1 = d.extendRight ? FAR : Math.max(pts[0]!.x, pts[1]!.x), y0 = Math.min(pts[0]!.y, pts[1]!.y), y1 = Math.max(pts[0]!.y, pts[1]!.y);
       return [{ a: { x: x0, y: y0 }, b: { x: x1, y: y0 } }, { a: { x: x0, y: y1 }, b: { x: x1, y: y1 } }, { a: { x: x0, y: y0 }, b: { x: x0, y: y1 } }, ...(d.extendRight ? [] : [{ a: { x: x1, y: y0 }, b: { x: x1, y: y1 } }])];
@@ -129,7 +131,7 @@ export function hitDrawing(q: Pt, drawings: readonly Drawing[], pr: Projection, 
 
 /** Whether `q` lies between a channel's two lines, within the stretch of time they are drawn over. */
 function insideChannel(q: Pt, d: Drawing, pr: Projection): boolean {
-  const [a, b] = d.points as [Anchor, Anchor];
+  const [first, second] = d.points as [Anchor, Anchor], [a, b] = first.t <= second.t ? [first, second] : [second, first];
   const xa = pr.x(a.t), xb = pr.x(b.t);
   if (!d.extendLeft && q.x < Math.min(xa, xb)) return false;
   if (!d.extendRight && q.x > Math.max(xa, xb)) return false;

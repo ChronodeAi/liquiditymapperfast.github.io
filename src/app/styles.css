@@ -766,7 +766,7 @@ html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px
 .draw-rail .draw-icon.on, .draw-editor .draw-icon.on { background: var(--text); color: var(--bg); border-color: var(--text); }
 .draw-icon:disabled { opacity: 0.35; cursor: default; }
 .draw-sep { flex: 0 0 1px; align-self: stretch; margin: 2px; background: var(--line); }
-.draw-rail .draw-magnet { flex-direction: column; height: 38px; gap: 0; }
+.draw-rail .draw-magnet { flex-direction: column; height: 38px; gap: 0; width: auto; min-width: 28px; padding: 0 3px; }
 .draw-rail .draw-magnet.on { background: transparent; color: var(--text); border-color: var(--line); }
 .draw-rail .draw-magnet:not(.on) { color: var(--muted); }
 .draw-magnet-mode { font-size: 9px; line-height: 1; }
@@ -795,9 +795,9 @@ html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px
 .draw-files { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .toolbar .deck-time .seg .chart-type { display: inline-flex; align-items: center; justify-content: center; }
 /* A phone: the Draw key over the map's top right; the rail a strip along the map's foot, the selected drawing's bar and the next step over it. */
-html[data-layout^="phone"] .pane.heat .map-draw-phone { display: inline-flex; position: absolute; z-index: 3; top: 8px; right: calc(var(--gutter, 0px) + 8px); width: 42px; height: 36px; padding: 0 0 0 14px;
+html:is([data-layout^="phone"], [data-bar="compact"]) .pane.heat .map-draw-phone { display: inline-flex; position: absolute; z-index: 3; top: 8px; right: calc(var(--gutter, 0px) + 8px); width: 42px; height: 36px; padding: 0 0 0 14px;
   align-items: center; justify-content: center; border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 90%, transparent); box-shadow: 3px 3px 0 var(--shadow); }
-html[data-layout^="phone"] .pane.heat .map-draw-phone::before { left: 7px; }
+html:is([data-layout^="phone"], [data-bar="compact"]) .pane.heat .map-draw-phone::before { left: 7px; }
 .draw-rail.phone { flex-direction: row; flex-wrap: wrap; left: 6px; right: calc(var(--gutter, 0px) + 6px); bottom: 28px; top: auto; max-height: none; overflow: visible; }
 .draw-rail.phone .draw-icon { flex: 0 0 auto; width: 38px; height: 38px; }
 .draw-rail.phone .draw-magnet, .draw-rail.phone .draw-list-btn { height: 38px; }

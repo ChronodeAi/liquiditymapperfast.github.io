@@ -373,6 +373,8 @@ export class HeatPane {
   /** The liquidations drawn this frame (half-diagonal `r`), for the pointer. */
   #diamonds: { x: number; y: number; r: number; liq: Liquidation }[] = [];
   #grid: { data: Float32Array; w: number; h: number; bounds: Bounds } | null = null;
+  /** The raster as the walls are read from it (the type of `#grid`). */
+  get grid(): { data: Float32Array; w: number; h: number; bounds: Bounds } | null { return this.#grid; }
   /** Where the liquidity under the pointer comes from: asked of the worker once per map cell and kept while the pointer stays in it. */
   #sources: { key: string; text: string } | null = null;
   #sourcesAsked = '';
@@ -924,7 +926,8 @@ export class HeatPane {
 
   /**
    * The candle under `x` as the map draws it, for the magnet: the one whose drawn body (narrowed beside the footprint's rows) is nearest,
-   * within its slot; its time is the middle of its slot, which is where a point caught on it is kept whatever the zoom.
+   * within its slot; its time is where its body is drawn (the middle of its slot, or left of it beside the footprint's rows), so a point
+   * caught on it lands on the body seen.
    */
   candleAt(x: number): CandleUnder | null {
     const state = this.store.state; if (!state.show.candles) return null;
@@ -939,7 +942,7 @@ export class HeatPane {
     for (let i = Math.max(0, lo - 1); i <= Math.min(candles.length - 1, lo + 1); i++) {
       const c = candles[i]!, xClassic = v.xOf(c[0] + tf / 2, pw), cx = xClassic + (v.xOf(c[0], pw) + layout.candleCenter - xClassic) * narrowing, d = Math.abs(cx - x);
       if (d > bar / 2 + 1 || d >= bestD) continue;
-      best = { t: c[0] + tf / 2, x: cx, open: c[1], high: c[2], low: c[3], close: c[4], y: q => v.yOf(q, ph) }; bestD = d;
+      best = { t: narrowing > 0 ? v.tOf(cx, pw) : c[0] + tf / 2, x: cx, open: c[1], high: c[2], low: c[3], close: c[4], y: q => v.yOf(q, ph) }; bestD = d;
     }
     return best;
   }
@@ -947,6 +950,18 @@ export class HeatPane {
   /** The walls of resting liquidity in the heat map's column under `x`, among the rows in view (draw/magnet.ts `wallRows`). */
   wallsAt(x: number): { p: number; usd: number }[] {
     const g = this.#grid; if (!g || replaying()) return [];
+    const key = this.#wallsKey(x, g), held = this.#walls;
+    if (held && held.key === key && held.grid === g) return held.walls;
+    const walls = this.#wallsOf(x, g);
+    this.#walls = { key, grid: g, walls };
+    return walls;
+  }
+  #walls: { key: string; grid: object; walls: { p: number; usd: number }[] } | null = null;
+  #wallsKey(x: number, g: NonNullable<HeatPane['grid']>): string {
+    const v = this.view, b = g.bounds, gx = Math.floor((v.tOf(x, this.plotW) - b.t0) / (b.t1 - b.t0) * g.w);
+    return `${gx}|${v.p0}|${v.p1}`;
+  }
+  #wallsOf(x: number, g: NonNullable<HeatPane['grid']>): { p: number; usd: number }[] {
     const v = this.view, b = g.bounds, t = v.tOf(x, this.plotW), gx = Math.floor((t - b.t0) / (b.t1 - b.t0) * g.w);
     if (gx < 0 || gx >= g.w) return [];
     const row = (p: number): number => Math.floor((p - b.p0) / (b.p1 - b.p0) * g.h);
@@ -2893,14 +2908,15 @@ export class HeatPane {
       holdMove: p => this.#pinAt(p),
       panStart: p => {
         this.#unpin();
-        if (p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH && this.draw?.down(p, true)) { this.#touchDraw = true; return; }
+        if (!this.range?.armed && p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH && this.draw?.down(p, true)) { this.#touchDraw = true; return; }
         if (this.range?.armed && p.x >= 0 && p.x <= this.plotW && p.y <= this.plotH) { this.#touchSelect = { start: p, at: p }; this.range.begin(this.#rangePoint(p.x, p.y)); return; }
         this.#panKind = p.y > this.plotH ? 'time' : p.x > this.#w - AXIS_W ? 'price' : 'map';
         this.#axisDrag = this.#panKind === 'map' ? null : { view: this.view.clone(), x: 0, y: 0 };
       },
       pan: (d, at) => { if (this.#touchDraw) { this.draw?.move(at, false, true); return; } if (this.#touchSelect) { this.#touchSelect.at = at; this.range?.move(this.#rangePoint(at.x, at.y)); return; } this.#touchPan(d); },
       panEnd: v => {
-        if (this.#touchDraw) { this.#touchDraw = false; this.draw?.up(); return; }
+        // No velocity: the gesture was cancelled (a second finger, the browser took it), and the drawing goes back to where it was.
+        if (this.#touchDraw) { this.#touchDraw = false; if (v === null) this.draw?.cancelPointer(); else this.draw?.up(); return; }
         const touch = this.#touchSelect;
         if (touch) { this.#touchSelect = null; if (v === null) this.range?.cancel(); else this.range?.end(this.#rangePoint(touch.at.x, touch.at.y), Math.hypot(touch.at.x - touch.start.x, touch.at.y - touch.start.y) < DRAG_MIN_PX); return; }
         const kind = this.#panKind; this.#panKind = null; this.#axisDrag = null;

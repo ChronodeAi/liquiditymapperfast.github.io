@@ -132,6 +132,9 @@ export function readDrawing(raw: unknown): Drawing | null {
   };
 }
 
+/** Whether a drawing can be kept as it is: every point a time on the chart and a price above zero (what `readDrawing` will read back). */
+export const fits = (d: Pick<Drawing, 'points'>): boolean => d.points.every(q => readAnchor(q) !== null);
+
 /** The drawings kept, by coin. */
 export interface DrawDoc { version: 1; coins: Record<string, Drawing[]> }
 export const DRAW_DOC_VERSION = 1;
@@ -169,7 +172,7 @@ export function capReached(doc: DrawDoc, coin: string, adding = 1): 'coin' | 'to
 
 /** The file drawings are written to and read back from. */
 export const DRAW_FILE_FORMAT = 'liquiditymapperfast-drawings';
-export const MAX_IMPORT_CHARS = 1_048_576;
+export const MAX_IMPORT_CHARS = 4 * 1_048_576;
 
 /**
  * Drawings read from a file, added to what a document holds: each coin's after its own, each with a new id where its id is taken, nothing

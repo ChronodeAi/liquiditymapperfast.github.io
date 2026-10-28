@@ -58,3 +58,12 @@ test('a pointer\'s move is the same time and price wherever it starts', () => {
   assert.deepEqual(deltaOf(pr, { x: 100, y: 100 }, { x: 150, y: 90 }), { dt: H / 2, dp: 2 });
   assert.deepEqual(deltaOf(pr, { x: 700, y: 400 }, { x: 750, y: 390 }), { dt: H / 2, dp: 2 });
 });
+
+test('left and right are by time: a line placed from right to left runs on to the right edge past its right-hand point', () => {
+  const backwards = { ...newDrawing('trend', [at(6, 150), at(2, 130)], T), extendRight: true };
+  const [s] = strokesOf(backwards, pr);
+  assert.ok(Math.max(s!.a.x, s!.b.x) > 1000 && Math.min(s!.a.x, s!.b.x) === 200, 'from its left point at 2 h on past the right edge');
+  const ch = { ...newDrawing('channel', [at(6, 170), at(2, 150), at(4, 140)], T), extendRight: true };
+  const { base } = channelLines(ch, pr);
+  assert.ok(Math.max(base!.a.x, base!.b.x) > 1000);
+});

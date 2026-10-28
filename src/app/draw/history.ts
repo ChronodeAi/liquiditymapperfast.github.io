@@ -22,6 +22,10 @@ export class History {
     this.#redo = [];
   }
 
+  /** What Undo and Redo would go to, without going there (the caller checks it fits first). */
+  peekUndo(): readonly Drawing[] | null { return this.#undo[this.#undo.length - 1]?.before ?? null; }
+  peekRedo(): readonly Drawing[] | null { return this.#redo[this.#redo.length - 1]?.after ?? null; }
+
   /** The list to go back to, or null. */
   undo(): readonly Drawing[] | null {
     const step = this.#undo.pop(); if (!step) return null;

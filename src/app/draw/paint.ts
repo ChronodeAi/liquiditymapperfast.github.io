@@ -52,6 +52,20 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
   ctx.restore();
 }
 
+/** Notes laid out, by text (a few hundred at most: a coin keeps 100 drawings). */
+const noteCache = new Map<string, { lines: string[]; size: { w: number; h: number } }>();
+function noteLayout(ctx: CanvasRenderingContext2D, text: string): { lines: string[]; size: { w: number; h: number } } {
+  let hit = noteCache.get(text);
+  if (hit) return hit;
+  const lines = noteLines(ctx, text);
+  ctx.save(); ctx.font = NOTE_FONT;
+  const size = { w: Math.max(...lines.map(l => ctx.measureText(l).width)) + 14, h: lines.length * 15 + 8 };
+  ctx.restore();
+  if (noteCache.size > 400) noteCache.clear();
+  hit = { lines, size }; noteCache.set(text, hit);
+  return hit;
+}
+
 /** A note's lines: the text cut at words to fit `NOTE_W`, at most `NOTE_LINES` (the last ends with an ellipsis when there is more). */
 export function noteLines(ctx: CanvasRenderingContext2D, text: string): string[] {
   ctx.save(); ctx.font = NOTE_FONT;
@@ -64,19 +78,20 @@ export function noteLines(ctx: CanvasRenderingContext2D, text: string): string[]
   }
   if (lines.length < NOTE_LINES && line) lines.push(line);
   else if (line && lines.length === NOTE_LINES) lines[NOTE_LINES - 1] = `${lines[NOTE_LINES - 1]}…`;
-  for (let i = 0; i < lines.length; i++) while (ctx.measureText(lines[i]!).width > NOTE_W && lines[i]!.length > 1) lines[i] = `${lines[i]!.slice(0, -2)}…`;
+  // A word longer than a line is cut to fit, found by halving (a 500-letter word is a dozen measurements, not five hundred).
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (ctx.measureText(line).width <= NOTE_W) continue;
+    let lo = 1, hi = line.length;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ctx.measureText(`${line.slice(0, mid)}…`).width <= NOTE_W) lo = mid; else hi = mid - 1; }
+    lines[i] = `${line.slice(0, lo)}…`;
+  }
   ctx.restore();
   return lines;
 }
 
 /** The size of a note's text box. */
-export function noteSizeOf(ctx: CanvasRenderingContext2D, d: Drawing): { w: number; h: number } {
-  const lines = noteLines(ctx, d.text);
-  ctx.save(); ctx.font = NOTE_FONT;
-  const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 14;
-  ctx.restore();
-  return { w, h: lines.length * 15 + 8 };
-}
+export function noteSizeOf(ctx: CanvasRenderingContext2D, d: Drawing): { w: number; h: number } { return noteLayout(ctx, d.text).size; }
 
 /** A small bell, for a level that sounds when the price reaches it. */
 function bell(ctx: CanvasRenderingContext2D, x: number, y: number, color: string): void {
@@ -140,14 +155,14 @@ export function paintDrawing(ctx: CanvasRenderingContext2D, d: Drawing, pr: Proj
       return;
     }
     case 'note': {
-      const x = pr.x(d.points[0]!.t), y = pr.y(d.points[0]!.p), size = noteSizeOf(ctx, d), box = noteBox(d, pr, size);
+      const x = pr.x(d.points[0]!.t), y = pr.y(d.points[0]!.p), layout = noteLayout(ctx, d.text), box = noteBox(d, pr, layout.size);
       if (d.leader) strokeSegments(ctx, strokesOf(d, pr), color, 1, false, p, alpha);
       ctx.save();
       ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 0.94 * alpha; ctx.fillStyle = p.panel; ctx.fillRect(box.x, box.y, box.w, box.h);
       ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = w; ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1);
       ctx.fillStyle = p.text; ctx.font = NOTE_FONT; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
-      noteLines(ctx, d.text).forEach((line, i) => ctx.fillText(line, box.x + 7, box.y + 5 + i * 15));
+      layout.lines.forEach((line, i) => ctx.fillText(line, box.x + 7, box.y + 5 + i * 15));
       ctx.restore();
       return;
     }
@@ -179,7 +194,16 @@ export function paintDrawings(ctx: CanvasRenderingContext2D, draw: DrawControlle
   return tags;
 }
 
-const FIELD_WORDS = (): Record<SnapField, string> => ({ open: t('Open'), high: t('High'), low: t('Low'), close: t('Close'), wall: t('Wall') });
+/** What the magnet caught, as the label beside its ring says it. */
+function caughtText(field: SnapField, price: string, size: string): string {
+  switch (field) {
+    case 'open': return t('Open {price}', { price });
+    case 'high': return t('High {price}', { price });
+    case 'low': return t('Low {price}', { price });
+    case 'close': return t('Close {price}', { price });
+    case 'wall': return t('Wall {usd} at {price}', { usd: size, price });
+  }
+}
 
 /** What belongs to editing, on its own canvas: the hovered drawing lit, the selection's handles, the drawing being placed, the magnet's catch. */
 export function paintEditing(ctx: CanvasRenderingContext2D, draw: DrawController, pr: Projection, p: Palette): void {
@@ -206,10 +230,10 @@ export function paintEditing(ctx: CanvasRenderingContext2D, draw: DrawController
     for (const q of draft?.points ?? []) { ctx.fillStyle = p.text; ctx.beginPath(); ctx.arc(pr.x(q.t), kind === 'vline' ? pr.h / 2 : pr.y(q.p), 3.5, 0, Math.PI * 2); ctx.fill(); }
   }
   if (cursor?.snap) {
-    const s = cursor.snap, words = FIELD_WORDS();
+    const s = cursor.snap;
     ctx.strokeStyle = p.text; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cursor.x, cursor.y, 6, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = p.text; ctx.beginPath(); ctx.arc(cursor.x, cursor.y, 2, 0, Math.PI * 2); ctx.fill();
-    const text = s.field === 'wall' ? `${words.wall} ${usd(s.usd ?? 0)} · ${fmtPrice(s.p)}` : `${words[s.field]} ${fmtPrice(s.p)}`;
+    const text = caughtText(s.field, fmtPrice(s.p), usd(s.usd ?? 0));
     const right = cursor.x > pr.w - 170;
     label(ctx, text, right ? cursor.x - 10 : cursor.x + 10, cursor.y - 14, p.text, p, right ? 'right' : 'left');
   }

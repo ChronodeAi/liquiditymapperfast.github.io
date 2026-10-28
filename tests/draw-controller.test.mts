@@ -185,3 +185,25 @@ test('the settings are read field by field, a weak magnet from the first visit',
   assert.deepEqual(readDrawSettings(undefined), { magnet: 'weak', walls: true, keep: false, shown: true, locked: false });
   assert.deepEqual(readDrawSettings({ magnet: 'mega', walls: 'no', keep: true }), { magnet: 'weak', walls: true, keep: true, shown: true, locked: false });
 });
+
+test('a drag stops where a drawing could not be kept; Undo never goes past the caps; a newer save in another tab locks this one; Lock all stops a file', () => {
+  const s = setup({ settings: { magnet: 'off' } });
+  s.draw.arm('level'); s.draw.click({ x: 500, y: y(110) }, false, false);
+  const id = s.draw.selected!;
+  s.draw.down({ x: 500, y: y(110) }, false); s.draw.move({ x: 500, y: 1200 }, false, false); s.draw.up();
+  assert.ok(s.draw.get(id)!.points[0]!.p > 0, 'never at or below zero');
+  const many = { version: 1 as const, coins: { ETH: Array.from({ length: MAX_PER_COIN }, (_, i) => newDrawing('level', [{ t: T + i, p: 150 }], T + i)) } };
+  const c = setup({ settings: { magnet: 'off' } });
+  c.draw.arm('level'); c.draw.click({ x: 500, y: 250 }, false, false);
+  c.draw.remove(c.draw.selected!);
+  // Another tab fills the page to the brim (ten coins of a hundred), then this tab undoes the delete.
+  const full = { version: 1 as const, coins: Object.fromEntries(Array.from({ length: 10 }, (_, k) => [`C${k}`, many.coins.ETH])) };
+  c.otherTab(full);
+  assert.equal(c.draw.undo(), false, 'nothing to undo after the other tab: its steps were let go');
+  const n = setup({ settings: { magnet: 'off' } });
+  n.otherTab(null as never);
+  assert.equal(n.draw.readOnly, true, 'a newer page wrote them in another tab');
+  n.draw.arm('level'); assert.equal(n.draw.tool, null);
+  const l = setup({ settings: { locked: true } });
+  assert.match(l.draw.importText('{"format":"liquiditymapperfast-drawings","version":1,"coins":{}}'), /locked/);
+});

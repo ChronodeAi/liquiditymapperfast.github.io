@@ -54,3 +54,11 @@ test('a vertical line takes the centre of the candle under the pointer when it i
   assert.equal(snapTime(312, candle, 'strong', false), 1_000);
   assert.equal(snapTime(305, null, 'weak', false), null);
 });
+
+test('a wall caught stays caught while the pointer slides along it (its time follows the pointer)', () => {
+  const at = (t: number) => wallTargets([{ p: 160, usd: 9e6 }, { p: 162, usd: 5e6 }], t, 300, y);
+  const held = snapPoint(200, at(1_000), 'weak', false, null)!;
+  assert.equal(held.p, 160);
+  // Moved a pixel right and a little up: the wall at 162 is now nearer, but the one held is within its release distance.
+  assert.equal(snapPoint(193, at(1_060), 'weak', false, held)?.p, 160);
+});

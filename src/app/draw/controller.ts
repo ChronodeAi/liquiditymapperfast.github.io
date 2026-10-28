@@ -1,7 +1,7 @@
 import { t } from '../i18n.ts';
 import { price as fmtPrice } from '../format.ts';
 import type { View } from '../view.ts';
-import { ANCHORS, capReached, duplicate as copyOf, exportText, importInto, moved, newDrawing, type Anchor, type DrawDoc, type DrawKind, type Drawing } from './model.ts';
+import { ANCHORS, MAX_PER_COIN, MAX_TOTAL, capReached, duplicate as copyOf, exportText, fits, importInto, moved, newDrawing, totalOf, type Anchor, type DrawDoc, type DrawKind, type Drawing } from './model.ts';
 import { deltaOf, hitDrawing, type Hit, type Projection, type Pt } from './geometry.ts';
 import { candleTargets, snapPoint, snapTime, wallTargets, type CandleUnder, type SnapTarget } from './magnet.ts';
 import { History } from './history.ts';
@@ -58,8 +58,8 @@ const TOL = { mouse: 6, touch: 12 };
 
 export class DrawController {
   #doc: DrawDoc;
-  /** A newer page saved the drawings: none is shown and nothing is written over them. */
-  readonly #newer: boolean;
+  /** A newer page saved the drawings (when this one opened, or since, in another tab): none is shown and nothing is written over them. */
+  #newer: boolean;
   readonly #histories = new Map<string, History>();
   #coin = '';
   #drag: Drag | null = null;
@@ -148,7 +148,13 @@ export class DrawController {
 
   /** Another tab kept its drawings: they are read again, and what was in hand here is let go (its steps no longer fit what is kept). */
   #reload(): void {
-    const doc = this.store.load(); if (!doc) return;
+    const doc = this.store.load();
+    if (!doc) {
+      // A newer page wrote them in another tab: this one holds an older copy, which must never be saved over theirs.
+      this.#newer = true; this.#doc = { version: 1, coins: {} }; this.#histories.clear(); this.draft = null; this.cursor = null; this.#drag = null; this.selected = null; this.tool = null;
+      this.message = { text: t('These drawings were saved by a newer version of the page: reload it to see and change them.'), warn: true };
+      this.#changed(); return;
+    }
     this.#doc = doc; this.#histories.clear(); this.draft = null; this.cursor = null; this.#drag = null;
     if (this.selected && !this.get(this.selected)) this.selected = null;
     this.#changed();
@@ -230,7 +236,7 @@ export class DrawController {
         const { dt, dp } = deltaOf(this.#proj(), drag.from, q);
         next = moved(o, dt, dp);
       }
-      this.#write(this.list().map(d => d.id === o.id ? next : d), null);
+      if (fits(next)) this.#write(this.list().map(d => d.id === o.id ? next : d), null);
       this.host.redraw();
       return true;
     }
@@ -291,6 +297,7 @@ export class DrawController {
   #commit(d: Drawing): void {
     const before = this.list(), cap = capReached(this.#doc, this.#coin);
     this.draft = null; this.cursor = null; this.#held = null;
+    if (!fits(d)) { this.message = { text: t('A drawing needs its points on the chart, at prices above zero.'), warn: true }; this.#changed(); return; }
     if (cap) {
       this.message = { text: cap === 'coin' ? t('This coin has as many drawings as it can keep (100): delete one to add another.') : t('The page keeps 1,000 drawings in all: delete some to add more.'), warn: true };
       this.tool = null; this.#changed(); return;
@@ -308,6 +315,7 @@ export class DrawController {
     if (this.readOnly) return;
     const before = this.list(), d = before.find(x => x.id === id); if (!d) return;
     if (d.locked && !(Object.keys(patch).length === 1 && 'locked' in patch)) return;
+    if (!fits({ ...d, ...patch })) return;
     this.#write(before.map(x => x.id === id ? { ...x, ...patch } : x), { before });
     this.#changed();
   }
@@ -325,7 +333,7 @@ export class DrawController {
     if (this.readOnly) return;
     const before = this.list(), d = before.find(x => x.id === id); if (!d) return;
     if (capReached(this.#doc, this.#coin)) { this.message = { text: t('This coin has as many drawings as it can keep (100): delete one to add another.'), warn: true }; this.onChange(); return; }
-    const v = this.host.view, copy = copyOf(d, (v.t1 - v.t0) * 0.03, -(v.p1 - v.p0) * 0.03);
+    const v = this.host.view, down = copyOf(d, (v.t1 - v.t0) * 0.03, -(v.p1 - v.p0) * 0.03), copy = fits(down) ? down : copyOf(d, (v.t1 - v.t0) * 0.03, (v.p1 - v.p0) * 0.03);
     this.#write([...before, copy], { before });
     this.selected = copy.id;
     this.#changed();
@@ -341,9 +349,21 @@ export class DrawController {
     this.#changed();
   }
 
+  /** Whether a coin's list can become `next` within the caps (Undo or Redo after drawings were added since). */
+  #room(next: readonly Drawing[]): boolean {
+    const now = this.list().length;
+    if (next.length <= now) return true;
+    if (next.length > MAX_PER_COIN || totalOf(this.#doc) - now + next.length > MAX_TOTAL) {
+      this.message = { text: t('That step cannot be taken back: it would keep more drawings than the page can (100 a coin, 1,000 in all).'), warn: true };
+      this.onChange(); return false;
+    }
+    return true;
+  }
+
   undo(): boolean {
     if (this.readOnly) return false;
-    const back = this.#history().undo(); if (!back) return false;
+    const h = this.#history(), peek = h.peekUndo(); if (!peek || !this.#room(peek)) return false;
+    const back = h.undo(); if (!back) return false;
     this.#write(back, null); this.#save();
     if (this.selected && !this.get(this.selected)) this.selected = null;
     this.#changed();
@@ -352,7 +372,8 @@ export class DrawController {
 
   redo(): boolean {
     if (this.readOnly) return false;
-    const forward = this.#history().redo(); if (!forward) return false;
+    const h = this.#history(), peek = h.peekRedo(); if (!peek || !this.#room(peek)) return false;
+    const forward = h.redo(); if (!forward) return false;
     this.#write(forward, null); this.#save();
     if (this.selected && !this.get(this.selected)) this.selected = null;
     this.#changed();
@@ -361,7 +382,9 @@ export class DrawController {
 
   /** Read drawings from a file into what is kept, as one step for this coin (and kept for the others); what it did, in words. */
   importText(text: string): string {
-    if (this.#newer || this.host.replaying()) return t('Drawings are added on the live chart, not during a replay.');
+    if (this.#newer) return t('These drawings were saved by a newer version of the page: reload it to see and change them.');
+    if (this.host.replaying()) return t('Drawings are added on the live chart, not during a replay.');
+    if (this.host.settings().locked) return t('The drawings are locked: unlock them in Drawings to add one.');
     const before = this.list(), read = importInto(this.#doc, text);
     if (read.error === 'size') return t('That file is too large to be drawings from this page.');
     if (read.error === 'version') return t('That file was written by a newer version of the page.');

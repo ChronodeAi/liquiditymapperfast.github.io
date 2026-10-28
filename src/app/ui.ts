@@ -82,7 +82,7 @@ export function openPanel(anchor: HTMLElement, options: PanelOptions, build: (to
     if (!root.contains(t) && !anchor.contains(t) && !(t instanceof Element && t.closest('.menu'))) panel.close();
   };
   const scrim = scrimFor(root, 59, () => panel.close());
-  const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') panel.close(); };
+  const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') { event.preventDefault(); panel.close(); } };
   const onResize = (): void => { scrim.sync(); reposition(true); };
   const stopMode = onLayoutMode(onResize);
   const panel: Panel = {

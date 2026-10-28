@@ -48,6 +48,8 @@ const GLYPHS = {
   lock: '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   copy: '<rect x="8" y="8" width="11" height="11" rx="1.5"/><path d="M5 15V6a1 1 0 0 1 1-1h9"/>',
   trash: '<path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/>',
+  eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/>',
+  eyeOff: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><path d="M4 4l16 16"/>',
 } as const;
 type GlyphName = keyof typeof GLYPHS;
 
@@ -76,6 +78,8 @@ const toolTip = (k: DrawKind): string => ({
   channel: t('Parallel channel: a line between two points and its parallel through a third.'),
 })[k];
 const magnetWord = (m: MagnetMode): string => ({ off: t('Off'), weak: t('Weak'), strong: t('Strong') })[m];
+/** How often a selected level's figures are taken again as the price and the book move (ms). */
+const FIGURES_EVERY_MS = 500;
 const colorName = (c: DrawColor): string => ({ ink: t('Ink'), blue: t('Blue'), amber: t('Amber'), purple: t('Purple'), bid: t('Buy colour'), ask: t('Sell colour') })[c];
 
 /** A short name for a drawing in the list: its kind and its price, time or text. */
@@ -181,6 +185,8 @@ export class DrawBar {
   #armedDelete = false;
   /** The last frame's places, so a frame that moves nothing writes nothing. */
   #placed = '';
+  /** When the selected drawing's figures were last taken (a level's change with the price and the book). */
+  #figuresAt = 0;
 
   constructor(private draw: DrawController, private host: DrawBarHost) {
     for (const node of [this.rail, this.editor, this.say]) node.setAttribute('data-no-capture', '');
@@ -233,9 +239,7 @@ export class DrawBar {
     (this.#listButton.lastChild as HTMLElement).textContent = n ? String(n) : '';
     this.#listButton.setAttribute('aria-label', tn(n, '{n} drawing', '{n} drawings'));
     this.#syncSelection();
-    const sel = d.get(d.selected);
-    this.#figures.textContent = sel ? readout(sel, this.host.mark(), sel.kind === 'level' && !this.host.replaying() ? this.host.restingAt(sel.points[0]!.p) : null) : '';
-    this.#figures.hidden = !this.#figures.textContent;
+    this.#figuresAt = 0; this.#syncFigures(performance.now());
     const words = d.message?.text ?? d.hint(isCoarse()) ?? (open && this.host.replaying() ? t('Drawings are shown but not changed during a replay.') : '');
     this.say.hidden = !words;
     this.#sayText.textContent = words;
@@ -251,12 +255,15 @@ export class DrawBar {
    */
   place(f: DrawFrame): void {
     const d = this.draw, sel = d.open ? d.shown().find(x => x.id === d.selected) ?? null : null, phone = compactBar();
+    if (sel?.kind === 'level') this.#syncFigures(performance.now());
+    const railRight = this.rail.hidden ? 4 : 6 + (this.rail.offsetWidth || 36) + 6, room = `${Math.max(160, f.pr.w - railRight - 8)}px`;
+    if (!phone && this.editor.style.maxWidth !== room) this.editor.style.maxWidth = room;
     let editor = '';
     if (sel && !phone) {
-      const at = editorPlace(sel, f.pr, { w: this.editor.offsetWidth || 300, h: this.editor.offsetHeight || 56 }, f.legendBottom + 6, this.rail.hidden ? 4 : 6 + (this.rail.offsetWidth || 36) + 6);
+      const at = editorPlace(sel, f.pr, { w: this.editor.offsetWidth || 300, h: this.editor.offsetHeight || 56 }, f.legendBottom + 6, railRight);
       editor = at ? `${Math.round(f.left + at.x)},${Math.round(at.y)}` : 'none';
     }
-    const key = `${f.left}|${Math.round(f.legendBottom)}|${f.pr.w}|${f.pr.h}|${editor}|${phone}|${phone ? this.rail.offsetHeight : 0}`;
+    const key = `${f.left}|${Math.round(f.legendBottom)}|${f.pr.w}|${f.pr.h}|${editor}|${phone}|${phone ? `${this.rail.offsetHeight}|${this.editor.offsetHeight}|${this.editor.hidden}` : ''}`;
     if (key === this.#placed) return;
     this.#placed = key;
     if (!phone) {
@@ -266,13 +273,24 @@ export class DrawBar {
     } else {
       // A phone: the strip along the map's foot (two rows when it needs them), the selected drawing's bar and the next step stacked over it.
       for (const node of [this.rail, this.say]) { node.style.left = ''; node.style.top = ''; node.style.maxHeight = ''; }
-      const over = `${28 + (this.rail.hidden ? 0 : this.rail.offsetHeight) + 6}px`;
-      this.editor.style.bottom = over; this.say.style.bottom = over;
+      const over = 28 + (this.rail.hidden ? 0 : this.rail.offsetHeight) + 6;
+      this.editor.style.bottom = `${over}px`;
+      this.say.style.bottom = `${over + (this.editor.hidden ? 0 : this.editor.offsetHeight + 6)}px`;
     }
     const show = !!sel && editor !== 'none';
     this.editor.hidden = !show;
     if (show && !phone) { const [x, y] = editor.split(',').map(Number); this.editor.style.left = `${x}px`; this.editor.style.top = `${y}px`; }
     else if (phone) { this.editor.style.left = ''; this.editor.style.top = ''; }
+  }
+
+  /** The selected drawing's figures, written only when they changed. */
+  #syncFigures(now: number): void {
+    if (now - this.#figuresAt < FIGURES_EVERY_MS) return;
+    this.#figuresAt = now;
+    const sel = this.draw.get(this.draw.selected);
+    const text = sel ? readout(sel, this.host.mark(), sel.kind === 'level' && !this.host.replaying() ? this.host.restingAt(sel.points[0]!.p) : null) : '';
+    if (this.#figures.textContent !== text) this.#figures.textContent = text;
+    this.#figures.hidden = !text;
   }
 
   /** The selected drawing's controls: built when another is selected, updated in place otherwise (a field being typed in keeps its focus). */
@@ -363,7 +381,8 @@ export class DrawBar {
     for (const x of list) {
       const name = el('button', { type: 'button', class: 'draw-list-name' + (x.id === d.selected ? ' on' : ''), textContent: describe(x), tip: t('Select it and show it on the map') });
       name.onclick = () => d.find(x.id);
-      const eye = el('button', { type: 'button', class: 'draw-action', textContent: x.hidden ? t('Show') : t('Hide'), onclick: () => d.update(x.id, { hidden: !x.hidden }) });
+      const eye = iconButton(x.hidden ? 'eyeOff' : 'eye', x.hidden ? t('Show it on the map') : t('Hide it from the map'), x.hidden ? t('Hidden: show it on the map again') : t('Shown: hide it from the map, keeping it'), 'draw-icon draw-action');
+      eye.onclick = () => d.update(x.id, { hidden: !x.hidden });
       const lock = el('button', { type: 'button', class: 'draw-action', textContent: x.locked ? t('Unlock') : t('Lock'), onclick: () => d.update(x.id, { locked: !x.locked }) });
       const del = el('button', { type: 'button', class: 'draw-action danger', textContent: t('Delete'), disabled: x.locked, onclick: () => d.remove(x.id) });
       const swatch = el('i', { class: 'draw-list-swatch' }); swatch.style.background = colorOf(x.style.color, this.host.palette());
@@ -371,7 +390,11 @@ export class DrawBar {
     }
     body.append(rows);
     const file = el('input', { type: 'file', accept: 'application/json,.json', hidden: true });
-    file.onchange = () => { const f = file.files?.[0]; if (!f) return; void f.text().then(text => { d.message = { text: d.importText(text), warn: false }; this.sync(); }); file.value = ''; };
+    file.onchange = () => {
+      const f = file.files?.[0]; if (!f) return;
+      void f.text().then(text => { const said = d.importText(text), failed = d.message?.warn ? d.message.text : ''; d.message = failed ? { text: `${said} ${failed}`, warn: true } : { text: said, warn: false }; this.sync(); });
+      file.value = '';
+    };
     const save = button(t('Save to a file'), () => { const url = URL.createObjectURL(new Blob([d.exportText()], { type: 'application/json' })); el('a', { href: url, download: 'liquiditymapperfast-drawings.json' }).click(); window.setTimeout(() => URL.revokeObjectURL(url), 10_000); }, t('Every coin\'s drawings, in a file to keep or to read on another computer'));
     const open = button(t('Read a file'), () => file.click(), t('Add the drawings of a file saved here before; nothing held is replaced'));
     const all = button(this.#armedDelete ? t('Press again to delete them') : t('Delete all'), () => { if (this.#armedDelete) { this.#armedDelete = false; d.removeAll(); } else { this.#armedDelete = true; this.sync(); } }, t('Delete this coin\'s drawings that are not locked (Undo takes it back)'), 'danger');

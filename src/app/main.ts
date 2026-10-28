@@ -32,6 +32,8 @@ import { DrawController } from './draw/controller.ts';
 import { DrawBar } from './draw/bar.ts';
 import { browserStore } from './draw/storage.ts';
 import { PALETTES } from './theme.ts';
+import { openedPanel } from './ui.ts';
+import { openedSheet } from './sheet.ts';
 import { topShown } from './measures/strip.ts';
 import { tableHeight } from './panes/bar-stats.ts';
 import { Layout } from './layout.ts';
@@ -252,7 +254,7 @@ async function main(): Promise<void> {
   // The keyboard shortcuts (shortcuts.ts: the table, and when a key is left alone).
   window.addEventListener('keydown', e => {
     // The drawing tools' keys first (Esc, Delete, Undo and Redo), when no field or window has them.
-    if (draw.key(e, document.querySelector('dialog[open]') !== null)) { e.preventDefault(); return; }
+    if (draw.key(e, document.querySelector('dialog[open]') !== null || openedPanel() !== null || openedSheet() !== null)) { e.preventDefault(); return; }
     const hit = matchShortcut(e, document.querySelector('dialog[open]') !== null);
     if (!hit) return;
     e.preventDefault();

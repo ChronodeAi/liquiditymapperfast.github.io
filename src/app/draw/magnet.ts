@@ -65,7 +65,7 @@ export function snapPoint(pointerY: number, targets: readonly SnapTarget[], mode
   if (mode === 'off' || !targets.length) return null;
   const radius = MAGNET_PX[mode][touch ? 'touch' : 'mouse'];
   if (held) {
-    const still = targets.find(q => q.field === held.field && q.p === held.p && q.t === held.t);
+    const still = targets.find(q => q.field === held.field && q.p === held.p && (q.field === 'wall' || q.t === held.t));
     if (still && Math.abs(still.y - pointerY) <= radius * RELEASE) return still;
   }
   let best: SnapTarget | null = null, bestD = Infinity;
