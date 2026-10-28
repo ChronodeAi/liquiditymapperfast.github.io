@@ -177,6 +177,8 @@ export class Hub {
   #reading: { key: string; generation: number } | null = null;
   /** The context whose last read came back with nothing while no reference market was known (`#learnReference` reads it again). */
   #emptyRead = '';
+  /** A context whose answer came back with nothing: the first load that shows candles for it says so (`onSeriesRefilled`), whichever it is. */
+  #refill = '';
   /** The context shown from `#seriesKept` and grown by the stream since, until a read of it answers (`rebaseLive`). */
   #fromKept: string | null = null;
   /** The series read as the page starts, before the source has said anything (`start`), for the first load to take. */
@@ -284,7 +286,7 @@ export class Hub {
     return h;
   }
   onLiquidationsChanged: () => void = () => {};
-  /** A series that came back empty was read again once the reference market was known, and has candles now: the page frames them. */
+  /** A series whose answer came back empty has candles now (the reference market's, read once it was known, or a later reload): the page frames them. */
   onSeriesRefilled: () => void = () => {};
   /** 'unavailable': the source has no liquidations (a server from before them); asked again a minute later. */
   liquidationsState: 'ready' | 'unavailable' = 'ready';
@@ -546,9 +548,8 @@ export class Hub {
     if (this.#reference || !id) return;
     this.#reference = id;
     if (this.#emptyRead && this.#emptyRead === this.#series) {
-      const key = this.#emptyRead;
       this.#emptyRead = '';
-      void this.loadSeries(true).then(() => { if (this.#onScreen === key && this.store.state.candles.length) this.onSeriesRefilled(); }, () => undefined);
+      void this.loadSeries(true).catch(() => undefined);
     }
   }
 
@@ -578,6 +579,7 @@ export class Hub {
     this.#loaded = { key, instrument: seriesInstrument }; this.#onScreen = key;
     // Open interest belongs to the candles it was loaded for: another timeframe's or market's bars are not shown under these while theirs are on their way.
     this.store.set({ candles: opens ? mergeLive(candles, live, tf, this.#liveTrack) : candles, candlesTimeframe: timeframe, seriesInstrument, ...(again ? {} : { oi: [], oiInstrument: '', oiParts: [] }) });
+    if (candles.length && this.#refill === key) { this.#refill = ''; this.onSeriesRefilled(); }
   }
 
   /**
@@ -638,6 +640,7 @@ export class Hub {
     this.#fromKept = null;
     // Nothing for this market while no reference market was known yet (a quick start, an exchange blocked here): read again once one is.
     this.#emptyRead = !candles.length && seriesInstrument === marketId && !this.#reference ? key : '';
+    if (!candles.length) this.#refill = key;
     // Within a candle the stream and the snapshot cannot be put in order (the last tick may be older or newer than the moment the snapshot was taken), and the next tick settles it:
     // the live candle goes on top only where nothing in the snapshot can be later than it, a candle the snapshot does not have yet.
     this.#show(key, candles, seriesInstrument, timeframe, again);
@@ -1226,6 +1229,19 @@ export class Hub {
 export interface LiveTrack { bucket: number; base: number; minutes: Map<number, number> }
 
 /**
+ * The read's candles followed by those the stream opened after its newest, as shown (their open and range are the stream's, and so is
+ * the live track on the newest), the read's newest widened by what was shown of it: its range and volume only grow, its close is the
+ * read's. Null when the stream opened none after the read.
+ */
+function withNewer(loaded: CandleRow[], shown: readonly CandleRow[]): CandleRow[] | null {
+  const last = loaded[loaded.length - 1]; if (!last) return null;
+  const newer = shown.filter(c => c[0] > last[0]); if (!newer.length) return null;
+  const at = shown.find(c => c[0] === last[0]);
+  const head: CandleRow[] = at ? [...loaded.slice(0, -1), [last[0], last[1], Math.max(last[2], at[2]), Math.min(last[3], at[3]), last[4], Math.max(last[5], at[5]), last[6]]] : loaded;
+  return [...head, ...newer];
+}
+
+/**
  * A kept series brought up to date by its read (`loadSeries`), against what was shown of it (the kept candles and what the stream added).
  * Candles the stream opened after the read's newest are kept as shown, with their track (their open and range are the stream's). A read
  * no further on than what was shown (taken before the stream's latest) leaves the open candle's volume and track as they were, its range
@@ -1237,8 +1253,8 @@ export interface LiveTrack { bucket: number; base: number; minutes: Map<number, 
 export function rebaseLive(loaded: CandleRow[], shown: readonly CandleRow[], track: { current: LiveTrack | null }): CandleRow[] {
   const last = loaded[loaded.length - 1];
   if (!last) { track.current = null; return loaded; }
-  const newer = shown.filter(c => c[0] > last[0]);
-  if (newer.length) return [...loaded, ...newer];
+  const followed = withNewer(loaded, shown);
+  if (followed) return followed;
   const was = shown[shown.length - 1];
   if (!was || was[0] !== last[0]) { track.current = null; return loaded; }
   const high = Math.max(last[2], was[2]), low = Math.min(last[3], was[3]);
@@ -1258,7 +1274,9 @@ export function rebaseLive(loaded: CandleRow[], shown: readonly CandleRow[], tra
  */
 export function keepGrowth(loaded: CandleRow[], shown: readonly CandleRow[], track: LiveTrack | null, tfMs: number, now: number): CandleRow[] {
   const last = loaded[loaded.length - 1], was = shown[shown.length - 1];
-  if (!last || !was || was[0] !== last[0]) return loaded;
+  if (!last || !was) return loaded;
+  if (was[0] > last[0]) return withNewer(loaded, shown) ?? loaded;
+  if (was[0] !== last[0]) return loaded;
   const volume = Math.max(last[5], was[5]), high = Math.max(last[2], was[2]), low = Math.min(last[3], was[3]);
   if (track && track.bucket === last[0]) {
     let counted = 0; for (const minute of track.minutes.values()) counted += minute;

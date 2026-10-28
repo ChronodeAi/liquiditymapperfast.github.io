@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Hub, mergeLive, defaultMarket, prefetchOrder } from '../src/app/hub.ts';
+import { Hub, mergeLive, defaultMarket, prefetchOrder, rebaseLive, keepGrowth } from '../src/app/hub.ts';
 import { Store, initialState, type CandleRow } from '../src/app/store.ts';
 import type { BootstrapState, DataSource, LiveHandlers, TickMessage } from '../src/app/source.ts';
 import type { FlowFrame } from '../src/shared/flow.ts';
@@ -197,4 +197,25 @@ test('an empty answer leaves what was kept of the series', async () => {
   let shown = 0;
   store.set({ timeframe: '1h' }); void hub.loadSeries(true, () => shown++); await turn();
   assert.deepEqual([shown, store.state.candles.at(-1)?.[4]], [1, 5], 'the hour kept from before the empty answer');
+});
+
+test('a read that ends before the candle the stream opened: that candle stays as shown, and the newest of the read is widened by what was shown of it', () => {
+  const read: CandleRow[] = [[0, 1, 1, 1, 1, 105, 1]];
+  const shown: CandleRow[] = [[0, 1, 2, 0.5, 1.5, 120, 1], [60_000, 1.5, 1.6, 1.4, 1.5, 7, 1]];
+  const want: CandleRow[] = [[0, 1, 2, 0.5, 1, 120, 1], [60_000, 1.5, 1.6, 1.4, 1.5, 7, 1]];
+  assert.deepEqual(rebaseLive(read, shown, { current: null }), want, 'a kept series brought up to date');
+  assert.deepEqual(keepGrowth(read, shown, null, 60_000, 120_000), want, 'a reload of what is on screen');
+});
+
+test('a series whose answers came back empty is framed when a later load brings its candles, whichever load that is', async () => {
+  const { hub, store, source } = await rig({ marketId: 'ref:BTC', timeframe: '1h', seriesInstrument: 'ref:BTC', candles: [] });
+  let refilled = 0; hub.onSeriesRefilled = () => refilled++;
+  void hub.loadSeries(true); await turn(); source.asked[0]!.resolve([]); await turn();
+  void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([]); await turn();
+  assert.equal(refilled, 0);
+  const T = Math.floor(Date.now() / HOUR) * HOUR;
+  void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([[T, 1, 1, 1, 1, 1, 1]]); await turn();
+  assert.deepEqual([refilled, store.state.candles.length], [1, 1]);
+  void hub.loadSeries(true); await turn(); source.asked.at(-1)!.resolve([[T, 1, 1, 1, 2, 1, 1]]); await turn();
+  assert.equal(refilled, 1, 'once');
 });
