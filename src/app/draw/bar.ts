@@ -256,14 +256,19 @@ export class DrawBar {
       const at = editorPlace(sel, f.pr, { w: this.editor.offsetWidth || 300, h: this.editor.offsetHeight || 56 }, f.legendBottom + 6, this.rail.hidden ? 4 : 6 + (this.rail.offsetWidth || 36) + 6);
       editor = at ? `${Math.round(f.left + at.x)},${Math.round(at.y)}` : 'none';
     }
-    const key = `${f.left}|${Math.round(f.legendBottom)}|${f.pr.w}|${f.pr.h}|${editor}|${phone}`;
+    const key = `${f.left}|${Math.round(f.legendBottom)}|${f.pr.w}|${f.pr.h}|${editor}|${phone}|${phone ? this.rail.offsetHeight : 0}`;
     if (key === this.#placed) return;
     this.#placed = key;
     if (!phone) {
       this.rail.style.left = `${f.left + 6}px`; this.rail.style.top = `${Math.round(f.legendBottom + 8)}px`;
       this.rail.style.maxHeight = `${Math.max(120, f.pr.h - f.legendBottom - 16)}px`;
       this.say.style.left = `${f.left + f.pr.w / 2}px`; this.say.style.top = `${f.pr.h - 34}px`;
-    } else for (const node of [this.rail, this.say]) { node.style.left = ''; node.style.top = ''; node.style.maxHeight = ''; }
+    } else {
+      // A phone: the strip along the map's foot (two rows when it needs them), the selected drawing's bar and the next step stacked over it.
+      for (const node of [this.rail, this.say]) { node.style.left = ''; node.style.top = ''; node.style.maxHeight = ''; }
+      const over = `${28 + (this.rail.hidden ? 0 : this.rail.offsetHeight) + 6}px`;
+      this.editor.style.bottom = over; this.say.style.bottom = over;
+    }
     const show = !!sel && editor !== 'none';
     this.editor.hidden = !show;
     if (show && !phone) { const [x, y] = editor.split(',').map(Number); this.editor.style.left = `${x}px`; this.editor.style.top = `${y}px`; }

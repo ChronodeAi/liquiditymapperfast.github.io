@@ -788,10 +788,10 @@ html[data-layout^="phone"] .script-row-tool > button { width: 26px; height: 22px
 html[data-layout^="phone"] .pane.heat .map-draw-phone { display: inline-flex; position: absolute; z-index: 3; top: 8px; right: calc(var(--gutter, 0px) + 8px); width: 42px; height: 36px; padding: 0 0 0 14px;
   align-items: center; justify-content: center; border-radius: var(--radius); background: color-mix(in srgb, var(--panel) 90%, transparent); box-shadow: 3px 3px 0 var(--shadow); }
 html[data-layout^="phone"] .pane.heat .map-draw-phone::before { left: 7px; }
-.draw-rail.phone { flex-direction: row; left: 6px; right: calc(var(--gutter, 0px) + 6px); bottom: 28px; top: auto; overflow-x: auto; overflow-y: hidden; }
+.draw-rail.phone { flex-direction: row; flex-wrap: wrap; left: 6px; right: calc(var(--gutter, 0px) + 6px); bottom: 28px; top: auto; max-height: none; overflow: visible; }
 .draw-rail.phone .draw-icon { flex: 0 0 auto; width: 38px; height: 38px; }
 .draw-rail.phone .draw-magnet, .draw-rail.phone .draw-list-btn { height: 38px; }
-.draw-editor.phone { left: 6px; right: calc(var(--gutter, 0px) + 6px); bottom: 76px; top: auto; max-width: none; }
+.draw-editor.phone { left: 6px; right: calc(var(--gutter, 0px) + 6px); top: auto; max-width: none; }
 .draw-editor.phone .draw-icon { width: 36px; height: 36px; }
 .draw-editor.phone .draw-swatch { width: 26px; height: 26px; }
-.draw-say.phone { left: 50%; bottom: 76px; top: auto; white-space: normal; max-width: calc(100% - 24px); }
+.draw-say.phone { left: 50%; top: auto; white-space: normal; max-width: calc(100% - 24px); }

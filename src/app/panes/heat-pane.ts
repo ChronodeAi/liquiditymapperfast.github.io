@@ -1455,9 +1455,16 @@ export class HeatPane {
         ctx.globalAlpha = 1; ctx.lineWidth = 1.6; ctx.strokeStyle = color; path(); ctx.stroke();
         ctx.lineWidth = 1;
       } else if (hollow) {
-        ctx.globalAlpha = 0.9; ctx.lineWidth = 1; ctx.strokeStyle = color;
+        const rect = [Math.round(x - body / 2) + 0.75, Math.round(top) + 0.75, Math.max(1, Math.round(body) - 1.5), Math.max(1, Math.round(height) - 1.5)] as const;
+        // Outline candles chosen as the chart's type read over bright heat as the filled ones do, on the same halo; under the trade dust the
+        // outline stays bare, so the orders inside the body show.
+        if (type === 'outline') {
+          ctx.globalAlpha = outline; ctx.strokeStyle = halo; ctx.lineWidth = 3.5;
+          ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, top); ctx.moveTo(cx, top + height); ctx.lineTo(cx, yl); ctx.stroke(); ctx.strokeRect(...rect);
+        }
+        ctx.globalAlpha = type === 'outline' ? 1 : 0.9; ctx.lineWidth = type === 'outline' ? 1.4 : 1; ctx.strokeStyle = color;
         ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, top); ctx.moveTo(cx, top + height); ctx.lineTo(cx, yl); ctx.stroke();
-        ctx.lineWidth = 1.5; ctx.strokeRect(Math.round(x - body / 2) + 0.75, Math.round(top) + 0.75, Math.max(1, Math.round(body) - 1.5), Math.max(1, Math.round(height) - 1.5));
+        ctx.lineWidth = 1.5; ctx.strokeRect(...rect);
       } else {
         ctx.globalAlpha = outline;
         ctx.lineWidth = 3.5; ctx.strokeStyle = halo; ctx.beginPath(); ctx.moveTo(cx, yh); ctx.lineTo(cx, yl); ctx.stroke();
