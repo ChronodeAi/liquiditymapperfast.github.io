@@ -58,6 +58,9 @@ export class TradeCoverage {
 
   #list(id: string): Held[] { let list = this.#spans.get(id); if (!list) { list = []; this.#spans.set(id, list); } return list; }
 
+  /** Every instrument with a stretch held. */
+  get instruments(): string[] { return [...this.#spans.keys()]; }
+
   /**
    * One pass of the loop: whether every feed carrying `id`'s trades is live now. A live pass extends the open stretch to `now` when the pass
    * before was live and recent, and otherwise closes it as it was and opens another. A pass that is not live closes the open stretch, cut back
@@ -128,13 +131,20 @@ export class TradeCoverage {
    * the oldest of the stretch that begins where it ends (by time, a stretch whose seam trade is outside the window does not count).
    */
   gaps(id: string, from: number, to: number): CoverGap[] {
-    const list = this.#spans.get(id) ?? [], out: CoverGap[] = [];
-    for (const [a, b] of complement(union(list, from, to), from, to)) {
-      const before = list.filter(s => s.to === a && s.from < a && s.last).sort((x, y) => y.last!.t - x.last!.t)[0]?.last ?? null;
-      const after = list.filter(s => s.from === b && s.to > b && s.first).sort((x, y) => x.first!.t - y.first!.t)[0]?.first ?? null;
-      out.push({ from: a, to: b, before: a > from || (before && before.t >= from) ? before : null, after: b < to ? after : null });
+    const list = this.#spans.get(id) ?? [], holes = complement(union(list, from, to), from, to);
+    if (!holes.length) return [];
+    // The seams by where their stretch ends and begins, found once (a server's week holds hundreds of stretches, and as many gaps): of
+    // several, the newest last trade and the oldest first trade, the earlier stretch on a tie.
+    const ends = new Map<number, SeamTrade>(), starts = new Map<number, SeamTrade>();
+    for (const s of list) {
+      if (!(s.to > s.from)) continue;
+      if (s.last) { const had = ends.get(s.to); if (!had || s.last.t > had.t) ends.set(s.to, s.last); }
+      if (s.first) { const had = starts.get(s.from); if (!had || s.first.t < had.t) starts.set(s.from, s.first); }
     }
-    return out;
+    return holes.map(([a, b]) => {
+      const before = ends.get(a) ?? null, after = starts.get(b) ?? null;
+      return { from: a, to: b, before: a > from || (before && before.t >= from) ? before : null, after: b < to ? after : null };
+    });
   }
 
   /**
@@ -182,6 +192,12 @@ export function complement(merged: readonly (readonly [number, number])[], from:
 export function coveredMs(merged: readonly (readonly [number, number])[], from: number, to: number): number {
   let ms = 0; for (const [a, b] of merged) ms += Math.max(0, Math.min(b, to) - Math.max(a, from));
   return ms;
+}
+/** The index of the first of merged, ordered stretches that ends after `t` (their count when none does), found by halving. */
+export function firstEndingAfter(merged: readonly (readonly [number, number])[], t: number): number {
+  let lo = 0, hi = merged.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (merged[mid]![1] <= t) lo = mid + 1; else hi = mid; }
+  return lo;
 }
 /**
  * How many minutes of [from, to) `id`'s trades were recorded in: the time its stretches cover, in minutes, and a minute the recording holds

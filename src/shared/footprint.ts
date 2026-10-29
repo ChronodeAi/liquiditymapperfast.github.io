@@ -332,6 +332,11 @@ export class FootprintRecorder {
   readonly #sums = new Map<string, Map<number, MinuteSum>>();
   readonly #steps = new Map<string, number>();
   readonly #seen = new Map<string, Set<string>>();
+  /**
+   * The fills a recovery took (shared/recovery.ts), apart from the live ones: a recovery can bring thousands at once, and in the live set
+   * they would push out the ids of the feed's recent trades, which a feed manager hands over again on every pass and would then count twice.
+   */
+  readonly #recoveredSeen = new Map<string, Set<string>>();
   readonly #store: FootprintStore | null;
   /** Minutes changed since they were last written, as `instrument|minute`. */
   readonly #dirty = new Set<string>();
@@ -486,9 +491,10 @@ export class FootprintRecorder {
    * marked seen) but kept, and taken first with the next fills (at most UNTAKEN_MAX; one whose minute the retention has passed meanwhile is
    * let go, as that minute was): a connector's trade comes once, and one handed over again (the feed's recent trades come on every pass)
    * is then seen and taken once. Only a fill more than `memoryMs` late reads the store at all. `taken` is told each fill accepted (the
-   * coverage record's seam: a list handed over whole every pass says which of its fills are new only here).
+   * coverage record's seam: a list handed over whole every pass says which of its fills are new only here). `recovered`: fills read back from
+   * a venue's history, checked against every fill seen and remembered apart (`#recoveredSeen`).
    */
-  ingest(trades: Iterable<TradeLike>, taken?: (trade: TradeLike) => void): number {
+  ingest(trades: Iterable<TradeLike>, taken?: (trade: TradeLike) => void, { recovered = false }: { recovered?: boolean } = {}): number {
     let accepted = 0;
     const cutoff = this.now() - this.#retentionMs, kept = new Set<string>();
     // A waiting fill whose minute the retention has passed goes, counted as seen, as it would have been had it been taken (a copy handed
@@ -508,7 +514,7 @@ export class FootprintRecorder {
       const side = String(trade.side).toLowerCase();
       if (!id || !key || !(price > 0) || !(usd > 0) || !Number.isFinite(t) || (side !== 'buy' && side !== 'sell')) continue;
       let seen = this.#seen.get(id); if (!seen) { seen = new Set(); this.#seen.set(id, seen); }
-      if (seen.has(key)) continue;
+      if (seen.has(key) || this.#recoveredSeen.get(id)?.has(key)) continue;
       const minute = Math.floor(t / MINUTE) * MINUTE;
       // Read back first: a store that fails here leaves the fill unseen and nothing changed.
       let bins: Bins | undefined;
@@ -520,8 +526,10 @@ export class FootprintRecorder {
         continue;
       }
       const restored = bins !== undefined;
-      seen.add(key);
-      if (seen.size > 30_000) { const keep = [...seen].slice(-10_000); seen.clear(); for (const k of keep) seen.add(k); }
+      const remember = recovered ? this.#recoveredSeen.get(id) ?? new Set<string>() : seen;
+      if (recovered) this.#recoveredSeen.set(id, remember);
+      remember.add(key);
+      if (remember.size > 30_000) { const keep = [...remember].slice(-10_000); remember.clear(); for (const k of keep) remember.add(k); }
       let step = this.#steps.get(id);
       if (!step) { step = gridStepFor(price) / FINE_DIV; this.#steps.set(id, step); }
       const minutes = this.#minute(id);

@@ -4,7 +4,7 @@ import type { CandleRow } from '../store.ts';
 import { t } from '../i18n.ts';
 import { usd } from '../format.ts';
 import { VOLUME_WORDS } from '../traded.ts';
-import { anomalies } from '../anomaly.ts';
+import { anomalies } from '../../shared/anomaly.ts';
 import { emphasisFloor, medianRow, splitStyles } from '../traded/emphasis.ts';
 import { bucketAt, bucketSpan, gapText, timeText, type TimeGap, type TimeRows } from './model.ts';
 import { timeWords } from './registry.ts';

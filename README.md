@@ -82,7 +82,7 @@ The page is arranged for the screen it is on. `src/app/device.ts` decides once, 
 
 ## How it works
 
-**Resilience.** `LiveFeedManager.start()` retires the old feeds before its metadata requests, so a failure in between used to leave a running server with no feed at all (`Research_Findings.md`). A failed start now schedules a recovery with the last configuration that finished, a watchdog restarts a start that hangs or a manager with no feed, and `/api/diagnostics` reports `feedManager`.
+**Resilience.** `LiveFeedManager.start()` retires the old feeds before its metadata requests, so a failure in between used to leave a running server with no feed at all (`Research_Findings.md`). A failed start now schedules a recovery with the last configuration that finished, a watchdog restarts a start that hangs or a manager with no feed, and `/api/diagnostics` reports `feedManager`. An order book that hands on nothing usable for a minute has its one feed reconnected (`feedManager.books`). The trades a restart, a reconnect or an outage left out are read back from the venues' trade history in the background and recorded as the live ones are (`tradeRecovery`); Deribit and MEXC have no such history, and Bybit and Hyperliquid only their newest page.
 
 ```
 exchange feeds ─▶ LiveFeedManager ─▶ reducers (src/server/http.mts) ─▶ state

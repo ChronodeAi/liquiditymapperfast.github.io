@@ -1,5 +1,6 @@
 import type { Print } from '../prints.ts';
 import type { Scope } from '../store.ts';
+import { WARN_MIN_SCORE } from '../../shared/volatility/jev.ts';
 
 /** A size class of trade. A trade belongs to the highest tier whose threshold it reaches, and sounds only when that tier is on. */
 export interface Tier { id: string; name: string; usd: number; on: boolean }
@@ -24,6 +25,8 @@ export interface PanelSounds {
   depthPane: { extreme: boolean; range: number; pct: number; hours: number };
   /** Open interest: a candle closed with an unusual change in open interest (the sensitivity is Highlights'). */
   oi: { jump: boolean };
+  /** Jev, asked once a minute by the local server, thinks a volatile move is coming while price is still quiet (`alerts.ts`): at least `score` of 4. */
+  volatility: { on: boolean; score: number };
 }
 
 export const DEFAULT_PANEL_SOUNDS: Readonly<PanelSounds> = Object.freeze({
@@ -34,6 +37,7 @@ export const DEFAULT_PANEL_SOUNDS: Readonly<PanelSounds> = Object.freeze({
   // The 99th percentile of six hours: on 36 hours of BTC (2026-10-10, ±20 %) that sounded 10 times, the 95th 18 times.
   depthPane: { extreme: false, range: 0.2, pct: 99, hours: 6 },
   oi: { jump: false },
+  volatility: { on: false, score: WARN_MIN_SCORE },
 });
 /** The bands the depth sound can add up, as the Depth pane's Range offers them. */
 export const DEPTH_RANGES = [0.01, 0.02, 0.05, 0.1, 0.2] as const;
@@ -45,6 +49,7 @@ const bound = (value: unknown, min: number, max: number, fallback: number): numb
 /** Panel sounds from storage, field by field, clamped. */
 export function readPanelSounds(saved: unknown): PanelSounds {
   const o = (saved && typeof saved === 'object' ? saved : {}) as Record<string, Record<string, unknown> | undefined>, d = DEFAULT_PANEL_SOUNDS;
+  const v = o.volatility ?? o.sharp; // Saved as `sharp` before 2026-10-20.
   return {
     flow: { burst: flag(o.flow?.burst, d.flow.burst), usd: Math.round(bound(o.flow?.usd, 100_000, 1_000_000_000, d.flow.usd)), sensitivity: bound(o.flow?.sensitivity, 2, 10, d.flow.sensitivity) },
     bars: { delta: flag(o.bars?.delta, d.bars.delta), usd: Math.round(bound(o.bars?.usd, 100_000, 1_000_000_000, d.bars.usd)) },
@@ -53,6 +58,7 @@ export function readPanelSounds(saved: unknown): PanelSounds {
     depthPane: { extreme: flag(o.depthPane?.extreme, d.depthPane.extreme), range: DEPTH_RANGES.includes(o.depthPane?.range as never) ? o.depthPane!.range as number : d.depthPane.range,
       pct: Math.round(bound(o.depthPane?.pct, 90, 99.9, d.depthPane.pct) * 10) / 10, hours: Math.round(bound(o.depthPane?.hours, 2, DEPTH_MAX_HOURS, d.depthPane.hours)) },
     oi: { jump: flag(o.oi?.jump, d.oi.jump) },
+    volatility: { on: flag(v?.on, d.volatility.on), score: Math.round(bound(v?.score, 2, 4, d.volatility.score) * 2) / 2 },
   };
 }
 
@@ -165,7 +171,7 @@ export function chimeNotes(volume: number): Note[] {
 }
 
 /** What an alert sounds like. Each panel has its own register and wave, so the ear can tell the panel before the eye finds it. */
-export type AlertKind = 'flow-burst' | 'bar-delta' | 'wall-appeared' | 'wall-pulled' | 'imbalance' | 'depth-extreme' | 'oi-jump' | 'script';
+export type AlertKind = 'flow-burst' | 'bar-delta' | 'wall-appeared' | 'wall-pulled' | 'imbalance' | 'depth-extreme' | 'oi-jump' | 'script' | 'volatile-move';
 
 /**
  * The notes of a script's alert (`alert(text, sound=...)`), from the sounds the page already makes: the candle chime, the bar sound rising
@@ -201,5 +207,6 @@ export function alertNotes(kind: AlertKind, side: 'buy' | 'sell' | null, volume:
     case 'depth-extreme': return (up ? [220, 329.63] : [329.63, 220]).map((freq, i) => ({ freq, gain: (i ? 0.26 : 0.22) * v, decay: i ? 0.9 : 0.6, delay: i * 0.22, wave: 'sine' as const }));
     case 'oi-jump': return [{ freq: 1046.5, gain: 0.1 * v, decay: 0.12, delay: 0, wave: 'sine' }, { freq: 1046.5, gain: 0.1 * v, decay: 0.12, delay: 0.11, wave: 'sine' }];
     case 'script': return chimeNotes(v);
+    case 'volatile-move': return (up ? [523.25, 659.25, 783.99] : [783.99, 659.25, 523.25]).map((freq, i) => ({ freq, gain: 0.16 * v, decay: 0.4, delay: i * 0.12, wave: 'sine' as const }));
   }
 }

@@ -1,3 +1,6 @@
+import type { VolatilityAnswer, VolatilityVerdict } from '../shared/volatility/jev.ts';
+import { SIGNAL_KINDS, type Signal, type SignalAfter, type SignalAnswer } from '../shared/volatility/signals.ts';
+import { AHEAD_TFS, type AheadWarning } from '../shared/volatility/ahead.ts';
 import type { PrintSumsAnswer, SumRow } from '../shared/print-sums.ts';
 import { parseLsSeries, type LsMetric, type LsSeries } from '../shared/long-short.ts';
 import { COLUMNS_PER_REQUEST } from '../shared/columns.ts';
@@ -71,6 +74,78 @@ export async function getOi(inst: string, tf: string, from: number, to: number, 
 export async function getLongShort(inst: string, metric: LsMetric, tf: string, from: number, to: number, signal?: AbortSignal, budgetMs?: number): Promise<LsSeries> {
   const budget = budgetMs === undefined ? '' : `&budget=${Math.max(0, Math.round(budgetMs))}`;
   return parseLsSeries(await (await request(`/api/v2/long-short?inst=${encodeURIComponent(inst)}&metric=${metric}&tf=${tf}&from=${Math.floor(from)}&to=${Math.ceil(to)}${budget}`, signal, budgetMs === 0 ? 'low' : 'high')).json());
+}
+/**
+ * Jev's volatility assessments (a server from before them answers 404, which is an error here). Checked field by field: a verdict that
+ * is not what `VolatilityVerdict` says is dropped rather than sounded.
+ */
+export async function getVolatility(): Promise<VolatilityAnswer> {
+  const body = await (await request('/api/v2/volatility')).json() as { enabled?: unknown; reason?: unknown; lastError?: unknown; coin?: unknown; verdicts?: unknown };
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const verdicts = (Array.isArray(body.verdicts) ? body.verdicts : []).filter((v: Partial<Record<keyof VolatilityVerdict, unknown>> | null): v is VolatilityVerdict =>
+    typeof v === 'object' && v !== null && finite(v.t) && typeof v.coin === 'string' && finite(v.price) && (typeof v.underway === 'boolean' || v.underway === null)
+    && finite(v.score) && v.score >= 0 && v.score <= 4 && finite(v.scoreConfidence)
+    && (v.direction === 'up' || v.direction === 'down') && finite(v.directionP) && typeof v.model === 'string' && typeof v.concepts === 'object' && v.concepts !== null);
+  return {
+    enabled: body.enabled === true,
+    ...(typeof body.reason === 'string' ? { reason: body.reason } : {}),
+    ...(typeof body.lastError === 'string' ? { lastError: body.lastError } : {}),
+    coin: typeof body.coin === 'string' ? body.coin : null,
+    verdicts,
+  };
+}
+/**
+ * The volatility watch's entry signals in [from, to) (a server from before them answers 404, which is an error here). Checked field by
+ * field: a signal that is not what `Signal` says is dropped rather than drawn.
+ */
+export async function getSignals(from: number, to: number): Promise<SignalAnswer> {
+  const response = await fetch(`/api/v2/signals?from=${Math.floor(from)}&to=${Math.ceil(to)}`, { cache: 'no-store' });
+  if (!response.ok) throw Object.assign(new Error(`signals failed: ${response.status}`), { status: response.status });
+  const body = await response.json().catch(() => null) as { coin?: unknown; signals?: unknown; ahead?: unknown } | null;
+  if (!body || typeof body !== 'object') throw new Error('signals answered with something else');
+  const rows = (v: unknown): unknown[] => Array.isArray(v) ? v : [];
+  return {
+    coin: typeof body.coin === 'string' ? body.coin : null,
+    signals: rows(body.signals).flatMap(row => { const s = readSignal(row); return s ? [s] : []; }),
+    // An older server answers no warnings.
+    ahead: rows(body.ahead).flatMap(row => { const w = readAhead(row); return w ? [w] : []; }),
+  };
+}
+/** One volatility-ahead warning as `AheadWarning` says it is, or null. */
+function readAhead(row: unknown): AheadWarning | null {
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const orNull = (v: unknown): number | null | undefined => v === null ? null : finite(v) ? v : undefined;
+  if (typeof row !== 'object' || row === null) return null;
+  const w = row as Record<string, unknown>, a = w.after as Record<string, unknown> | null | undefined;
+  if (!(AHEAD_TFS as readonly unknown[]).includes(w.tf) || !finite(w.t) || !(finite(w.price) && w.price > 0) || !finite(w.z) || !finite(w.times) || !(finite(w.sigma) && w.sigma > 0)) return null;
+  if (typeof a !== 'object' || a === null || (a.moved !== 'up' && a.moved !== 'down' && a.moved !== null) || typeof a.done !== 'boolean') return null;
+  const at = orNull(a.at), up = orNull(a.up), down = orNull(a.down);
+  if (at === undefined || up === undefined || down === undefined) return null;
+  return { tf: w.tf as AheadWarning['tf'], t: w.t, price: w.price, z: w.z, times: w.times, sigma: w.sigma, after: { moved: a.moved, at, up, down, done: a.done } };
+}
+/** One signal as `Signal` says it is, or null. */
+function readSignal(row: unknown): Signal | null {
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const orNull = (v: unknown): number | null | undefined => v === null ? null : finite(v) ? v : undefined;
+  if (typeof row !== 'object' || row === null) return null;
+  const s = row as Record<string, unknown>;
+  if (!(SIGNAL_KINDS as readonly unknown[]).includes(s.kind) || !finite(s.t) || !finite(s.price) || (s.side !== 'long' && s.side !== 'short')) return null;
+  const a = s.after as Record<string, unknown> | null | undefined;
+  if (typeof a !== 'object' || a === null) return null;
+  const after = { r5: orNull(a.r5), r15: orNull(a.r15), r30: orNull(a.r30), best15: orNull(a.best15), worst15: orNull(a.worst15) };
+  if (Object.values(after).some(v => v === undefined)) return null;
+  const out: Signal = { kind: s.kind as Signal['kind'], t: s.t, price: s.price, side: s.side, after: after as SignalAfter };
+  if (s.jev !== undefined) {
+    const j = s.jev as Record<string, unknown> | null;
+    if (typeof j !== 'object' || j === null || !finite(j.score) || !finite(j.confidence) || !finite(j.p) || (typeof j.underway !== 'boolean' && j.underway !== null)) return null;
+    out.jev = { score: j.score, confidence: j.confidence, p: j.p, underway: j.underway };
+  }
+  if (s.confluence !== undefined) {
+    const c = s.confluence as Record<string, unknown> | null;
+    if (typeof c !== 'object' || c === null || !finite(c.score) || !finite(c.agree) || !finite(c.against) || !Array.isArray(c.triggers) || !c.triggers.every(x => typeof x === 'string')) return null;
+    out.confluence = { score: c.score, agree: c.agree, against: c.against, triggers: [...c.triggers as string[]] };
+  }
+  return out;
 }
 /** Taker flow per second for the instruments, as the server records it. */
 export async function getFlow(ids: string[], from: number, to: number): Promise<FlowFrame> {

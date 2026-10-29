@@ -108,6 +108,8 @@ export interface RouteServices {
   admitRetainedMutation?: <T>(candidate: unknown, context: MutationContext, mutation: () => T, onReject?: ((reservation: MutationReservation) => void) | null) => MutationResult<T>;
   /** The open-interest sampler's per-venue outcomes (oi-sampler.mts), for the diagnostics route. */
   sampledOiStatus?: () => Record<string, unknown> | null;
+  /** The trade recovery's backlog, last action and failures (v2/recovery.mts), for the diagnostics route. */
+  tradeRecoveryStatus?: () => object | null;
 }
 export interface CandleReclaimOptions { history?: HistoryStore | null; feeds?: FeedOwner | null; targetBytes?: number; protectedInstrumentIds?: Set<string>; instrumentId?: string; startupCandleInstrumentIds?: readonly string[] | Set<string>; }
 export type BookSerializationOptions = { compact?: boolean; serverLevelsPerSide?: number };

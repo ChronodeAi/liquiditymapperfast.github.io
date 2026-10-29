@@ -3,6 +3,7 @@ import type { BootstrapState, DataSource, FootprintResponse, TickMessage } from 
 import { PrintBook, fromWire, type Print } from './prints.ts';
 import { LiquidationBook, fromWire as liquidationFromWire } from './liquidations.ts';
 import { LIQUIDATIONS_PER_ANSWER } from '../shared/liquidations.ts';
+import { SignalBook } from './signals.ts';
 import { FlowBook } from './flow-book.ts';
 import type { AppState, Store, CandleRow, OiBar } from './store.ts';
 import type { WorkerIn, WorkerOut, RasterStats } from './worker/raster.worker.ts';
@@ -33,6 +34,8 @@ import { ColumnHolds, columnReach, settledBefore, type ColumnDrop } from './colu
 
 export const TIMEFRAMES: Readonly<Record<string, number>> = { '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000 };
 const MINUTE = 60_000;
+/** How often signals are asked again while the window reaches the present. */
+const SIGNALS_REFRESH_MS = 30_000;
 /** The most absorption groups one question asks of each instrument (the largest). */
 const ABSORPTION_PER_INSTRUMENT = 4_000;
 
@@ -296,6 +299,13 @@ export class Hub {
   liquidationsState: 'ready' | 'unavailable' = 'ready';
   #liquidationsWindow: { t0: number; t1: number; min: number; cut: boolean; live: boolean } | null = null;
   #liquidationsLoading = false; #liquidationsRetryAt = 0;
+  /** The volatility watch's entry signals held for the map (a local server's only), and a call when they change. */
+  readonly signals = new SignalBook();
+  onSignalsChanged: () => void = () => {};
+  /** 'unavailable': the source makes no signals (the browser, an older server); a failed request is asked again 15 s later. */
+  signalsState: 'ready' | 'unavailable' = 'ready';
+  #signalsWindow: { t0: number; t1: number; live: boolean; at: number } | null = null;
+  #signalsLoading = false; #signalsRetryAt = 0;
   /** Taker flow per second for every instrument that has traded: the CVD column reads it, and sounds read what it just got. */
   readonly flow = new FlowBook();
   /** Called when the flow book changed (new seconds or history), about once a second. */
@@ -471,7 +481,7 @@ export class Hub {
     this.source.venues.watch?.(() => { clearTimeout(pending); pending = setTimeout(() => void this.refreshMarkets(), 300); });
     this.#live = this.source.connect({
       onOpen: () => {
-        this.#connection++; this.#printsWindow = null; this.#liquidationsWindow = null; this.#absorptionCover = null;
+        this.#connection++; this.#printsWindow = null; this.#liquidationsWindow = null; this.#signalsWindow = null; this.#absorptionCover = null;
         // What the stream said while it was down is in the recordings and not in the book: ask for the history again (the first open has nothing to repair).
         if (this.#dropped) { this.#dropped = false; this.flow.invalidate(); }
         this.store.set({ connected: true, status: t('live') });
@@ -864,6 +874,29 @@ export class Hub {
       if (connection === this.#connection) this.#liquidationsWindow = { t0: from, t1: to, min: minUsd, cut: rows.length >= LIQUIDATIONS_PER_ANSWER, live };
       this.onLiquidationsChanged();
     }, () => { this.liquidationsState = 'unavailable'; this.#liquidationsRetryAt = Date.now() + 15_000; this.onLiquidationsChanged(); }).finally(() => { this.#liquidationsLoading = false; });
+  }
+
+  /**
+   * Make sure the signal book covers [from, to), as `ensureLiquidations` does: asked once per window with margins, again when the view leaves
+   * it, and, while the window reaches the present, again at most every 30 s so new minutes and the results of earlier ones come in.
+   */
+  ensureSignals(from: number, to: number): void {
+    const source = this.source;
+    if (!source.signals) { this.signalsState = 'unavailable'; return; }
+    if (this.#signalsLoading || !(to > from)) return;
+    const now = Date.now();
+    if (this.signalsState === 'unavailable' && now < this.#signalsRetryAt) return;
+    const have = this.#signalsWindow;
+    if (have && have.t0 <= from && (have.live ? now - have.at < SIGNALS_REFRESH_MS : have.t1 >= Math.min(to, now))) return;
+    const span = to - from, t0 = Math.max(0, Math.floor(from - span * 0.5)), t1 = Math.ceil(Math.min(to + span * 0.1, now + MINUTE)), live = t1 >= now;
+    if (!(t1 > t0)) return;
+    this.#signalsLoading = true;
+    const connection = this.#connection;
+    source.signals(t0, t1).then(answer => {
+      this.signals.add(answer.signals, { from: t0, to: t1 }); this.signals.addAhead(answer.ahead); this.signalsState = 'ready';
+      if (connection === this.#connection) this.#signalsWindow = { t0, t1, live, at: Date.now() };
+      this.onSignalsChanged();
+    }, () => { this.signalsState = 'unavailable'; this.#signalsRetryAt = Date.now() + 15_000; this.onSignalsChanged(); }).finally(() => { this.#signalsLoading = false; });
   }
 
   /**

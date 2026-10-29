@@ -34,7 +34,9 @@
     "report:venues": "npm run build:tools && node build/tools/scripts/venue-report.mjs",
     "parity": "npm run build:tools && node build/tools/scripts/parity.mjs",
     "i18n:template": "npm run build:tools && node build/tools/scripts/i18n-keys.mjs",
-    "i18n:guide": "npm run build:tools && node build/tools/scripts/i18n-guide.mjs"
+    "i18n:guide": "npm run build:tools && node build/tools/scripts/i18n-guide.mjs",
+    "volatility:eval": "npm run build:tools && node build/tools/scripts/volatility-eval.mjs",
+    "volatility:episodes": "npm run build:tools && node build/tools/scripts/volatility-episodes.mjs"
   },
   "dependencies": {
     "vite": "^6.0.7",

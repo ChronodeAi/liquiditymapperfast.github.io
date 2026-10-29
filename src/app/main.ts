@@ -23,6 +23,10 @@ import { LadderPane } from './panes/ladder-pane.ts';
 import { CvdPane } from './panes/cvd-pane.ts';
 import { BarStatsPane, DepthPane, LtPane, OiPane } from './panes/lower-panes.ts';
 import { DeltaPane } from './panes/delta-pane.ts';
+import { TofPane } from './panes/tof-pane.ts';
+import { TofBook } from './tof/book.ts';
+import { SwingPane } from './panes/swing-pane.ts';
+import { SwingBook } from './swing/book.ts';
 import { LsPane } from './panes/ls-pane.ts';
 import { ScriptPane } from './panes/script-pane.ts';
 import { CandlePane } from './panes/candle-pane.ts';
@@ -110,6 +114,13 @@ async function main(): Promise<void> {
   const oi = new OiPane(chart, store, heat.view, hub.flow);
   const delta = new DeltaPane(chart, store, heat.view, hub);
   heat.divergences = () => delta.divergences; delta.onDivergences = () => heat.invalidate();
+  // The TOF pane and the levels it leaves on the map read one model (tof/book.ts).
+  const tofBook = new TofBook();
+  const tof = new TofPane(chart, store, heat.view, hub, tofBook);
+  heat.tof = { book: tofBook, hub };
+  // The Swing pane reads its candles from the public price history (swing/book.ts): it reaches back before the recording.
+  const priceRead = hub.source.priceHistory?.bind(hub.source);
+  const swing: SwingPane = new SwingPane(chart, store, heat.view, new SwingBook(priceRead ? (id, tf, from, to, signal) => priceRead(id, tf, from, to, signal) : null, () => swing.invalidate()));
   const ls = new LsPane(chart, store, heat.view, hub);
   const lt = new LtPane(chart, store, heat.view, hub);
   const script = new ScriptPane(chart, store, heat.view, hub);
@@ -137,19 +148,21 @@ async function main(): Promise<void> {
     { id: 'depth', root: depth.root, height: 132, min: 70, head: depth.header },
     { id: 'oi', root: oi.root, height: 150, min: 60, head: oi.header },
     { id: 'delta', root: delta.root, height: 150, min: 60, head: delta.header },
+    { id: 'tof', root: tof.root, height: 130, min: 60, head: tof.header },
+    { id: 'swing', root: swing.root, height: 200, min: 110, head: swing.header },
     { id: 'ls', root: ls.root, height: 120, min: 60, head: ls.header },
     { id: 'lt', root: lt.root, height: 128, min: 70, head: lt.header },
     { id: 'script', root: script.root, height: 220, min: 60, head: script.header },
   ], flowCol);
-  const lower = () => { depth.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.followMap(); };
+  const lower = () => { depth.invalidate(); oi.invalidate(); delta.invalidate(); tof.invalidate(); swing.invalidate(); ls.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.followMap(); };
   // Replay: the map's candle under way is rebuilt from the flow, so flow arriving while paused redraws it too (live, the map has its own pace).
   // The volume profile along the top of the map draws traded volume from the flow too: history that has landed redraws it (a live second
   // does not, `loads`; the map is drawn several times a second while frames come anyway), with the Delta pane hidden as well.
   let stripLoads = hub.flow.loads;
   // The open-interest markets are worked out from the flow and the books on the map, which come after the candles: asked again as they do.
-  hub.onFlowChanged = () => { cvd.invalidate(); delta.invalidate(); script.refresh(); const landed = stripLoads !== hub.flow.loads; stripLoads = hub.flow.loads; if (replaying() || (landed && topShown(store.state))) heat.invalidate(); hub.refreshOiMarkets(); };
+  hub.onFlowChanged = () => { cvd.invalidate(); delta.invalidate(); tof.invalidate(); script.refresh(); const landed = stripLoads !== hub.flow.loads; stripLoads = hub.flow.loads; if (replaying() || (landed && topShown(store.state))) heat.invalidate(); hub.refreshOiMarkets(); };
   // A finger on a pane under the map moves the time axis it shares with the map.
-  for (const pane of [depth, oi, delta, ls, lt, bars, script]) pane.useTimeGestures(heat.timeGestures());
+  for (const pane of [depth, oi, delta, tof, swing, ls, lt, bars, script]) pane.useTimeGestures(heat.timeGestures());
   heat.onFrame = lower; heat.onView = lower;
   heat.onTopProfile = () => toolbar.openTradedPanel();
   heat.onArrangedChange = () => toolbar.refreshTradedPanel();
@@ -157,7 +170,7 @@ async function main(): Promise<void> {
   toolbar.profileRoom = () => heat.profileRoom();
   // The Range tool: a drag on the map, on a pane under it or across the flow column selects, and its panel adds up what happened there.
   const range = new RangeTool(store, hub); range.anchor = toolbar.rangeButton; range.mapWindow = () => ({ t0: heat.view.t0, t1: heat.view.t1 });
-  heat.range = range; cvd.range = range; for (const pane of [depth, oi, delta, ls, lt, bars, script]) pane.useRange(range);
+  heat.range = range; cvd.range = range; for (const pane of [depth, oi, delta, tof, swing, ls, lt, bars, script]) pane.useRange(range);
   toolbar.onRange = () => range.toggle();
   toolbar.onRecenter = () => { heat.fit(); ladder.recenter(); };
   // The countdown under the price tag: a redraw a second when nothing else draws the map.
@@ -178,7 +191,7 @@ async function main(): Promise<void> {
   toolbar.onVenuesApplied = () => { void hub.refreshMarkets(); window.setTimeout(() => void hub.refreshMarkets(), 15_000); };
   const sounds = new Sounds(store); toolbar.attachSounds(sounds); sounds.start();
   // Sounds the panels may make about what happens in them (flow bursts, walls, the balance, the depth, candle closes); the bursts are also marked on the flow column.
-  const alerts = new Alerts(store, hub.flow, sounds.engine, Date.now, (ids, from) => { void hub.ensureFlow(ids, from); }, (ids, from, to) => hub.source.columns(ids, from, to, 60_000));
+  const alerts = new Alerts(store, hub.flow, sounds.engine, Date.now, (ids, from) => { void hub.ensureFlow(ids, from); }, (ids, from, to) => hub.source.columns(ids, from, to, 60_000), hub.source.volatility ? () => hub.source.volatility!() : undefined);
   toolbar.attachAlerts(alerts); alerts.start();
   // A script's alerts sound through the same Sounds switch, cap and list as the panels'.
   script.onAlert = a => alerts.script(Date.now(), a.text, a.sound, a.key);
@@ -235,6 +248,9 @@ async function main(): Promise<void> {
   hub.onLiquidationsChanged = () => { heat.invalidate(); range.refreshHeld(); };
   // Candles that came after the first frame (an exchange blocked here, the reference market read once known) are framed, unless the map was moved.
   hub.onSeriesRefilled = () => { if (store.state.followLive) heat.fit(); lower(); };
+  hub.onSignalsChanged = () => heat.invalidate();
+  toolbar.signalsInfo = () => ({ available: !!source.signals && hub.signalsState !== 'unavailable', inView: hub.signals.visible(heat.view.t0, heat.view.t1, store.state.signals),
+    aheadInView: hub.signals.aheadVisible(heat.view.t0, heat.view.t1, store.state.signals) });
   toolbar.keyHistory = hub.keyHistory;
   toolbar.profileHistory = barMs => hub.profileHistory(barMs);
   toolbar.whaleInfo = () => ({ since: hub.whale?.since ?? null, state: hub.whaleState, browser: source.kind === 'browser' });
@@ -244,7 +260,7 @@ async function main(): Promise<void> {
   hub.onAbsorptionChanged = () => { heat.invalidate(); range.refreshHeld(); };
   toolbar.absorptionInfo = () => heat.absorptionThresholdText();
   // Hovering a theme shows it everywhere without saving it; leaving the menu puts the saved one back.
-  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; glass.setPalette(applyTheme(name)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle]) p.setPalette(name); toolbar.previewTheme(name); };
+  toolbar.onPreviewTheme = id => { const name = id ?? store.state.theme; glass.setPalette(applyTheme(name)); for (const p of [heat, ladder, depth, oi, delta, tof, swing, ls, lt, bars, script, cvd, candle]) p.setPalette(name); toolbar.previewTheme(name); };
   heat.onStats = () => toolbar.sync(store.state, heat.window);
 
   // An address like #guide/mirror opens the guide there.
@@ -284,7 +300,7 @@ async function main(): Promise<void> {
   const layout = () => {
     const s = store.state;
     gutters();
-    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.stats; script.root.hidden = !scriptRows(s);
+    depth.root.hidden = !s.show.depth; oi.root.hidden = !s.show.oi; delta.root.hidden = !s.show.delta; tof.root.hidden = !s.show.tof; swing.root.hidden = !s.show.swing; ls.root.hidden = !s.show.ls; lt.root.hidden = !s.show.lt; bars.root.hidden = !s.show.stats; script.root.hidden = !scriptRows(s);
     // The two side panels vanish and return at once: nothing is rebuilt, a hidden column is simply not laid out.
     cvd.root.hidden = !s.show.cvd; ladder.root.hidden = !s.show.book;
     arrange.columns({ flow: s.show.cvd, book: s.show.book });
@@ -301,7 +317,7 @@ async function main(): Promise<void> {
     if (changed.has('keepAwake')) wake.set(state.keepAwake);
     // Every time on the page is written from the one setting: say it changed, and have what shows times draw again.
     if (changed.has('timeZone')) { setTimeZone(state.timeZone); heat.invalidate(); lower(); cvd.invalidate(); showStatus(); }
-    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle]) p.setPalette(state.theme); }
+    if (changed.has('theme')) { glass.setPalette(applyTheme(state.theme)); for (const p of [heat, ladder, depth, oi, delta, tof, swing, ls, lt, bars, script, cvd, candle]) p.setPalette(state.theme); }
     if (changed.has('material')) { applyMaterial(); hub.setTape(tapeWanted()); }
     if (changed.has('cvd')) cvd.settingsChanged();
     if (changed.has('status') || changed.has('connected') || changed.has('mark')) showStatus();
@@ -317,7 +333,7 @@ async function main(): Promise<void> {
     if (changed.has('oiMarkets') || changed.has('disabledVenues') || changed.has('scope') || changed.has('customMarkets') || (changed.has('markets') && store.state.oiMarkets === 'custom')) void hub.loadOi();
     else if (changed.has('levels') || changed.has('markets') || changed.has('bookGone')) hub.refreshOiMarkets();
     if (changed.has('highlight')) { heat.invalidate(); oi.invalidate(); depth.invalidate(); }
-    if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('keyLevels') || changed.has('traded') || changed.has('vwap') || changed.has('vwapAnchoring') || changed.has('footprint') || changed.has('customMarkets') || changed.has('barStatOptions')) heat.invalidate();
+    if (changed.has('absorption') || changed.has('tradeBubbles') || changed.has('liquidations') || changed.has('signals') || changed.has('keyLevels') || changed.has('traded') || changed.has('vwap') || changed.has('vwapAnchoring') || changed.has('footprint') || changed.has('customMarkets') || changed.has('barStatOptions')) heat.invalidate();
     // Placing a VWAP anchor, selecting a Range and placing a drawing all take the next press on the map: arming one ends the others.
     if (changed.has('rangeTool') && state.rangeTool && state.vwapAnchoring) store.set({ vwapAnchoring: false });
     if ((changed.has('rangeTool') && state.rangeTool) || (changed.has('vwapAnchoring') && state.vwapAnchoring)) draw.disarm();
@@ -350,8 +366,9 @@ async function main(): Promise<void> {
     if (changed.has('barStatOptions') || changed.has('footprint') || changed.has('barStats')) bars.refresh();
     if (changed.has('grouping') || changed.has('ladderMode') || changed.has('ladderShow') || changed.has('ladderCurves') || changed.has('cvd') || changed.has('pullStack') || changed.has('ladderVenue') || changed.has('ladderVenues') || changed.has('disabledVenues') || changed.has('scope')) { ladder.invalidate(); ladder.syncControls(); }
     if (changed.has('range')) { heat.invalidate(); oi.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.invalidate(); }
-    if (changed.has('hover')) { heat.invalidate(); oi.invalidate(); delta.invalidate(); ls.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.syncHover(); }
+    if (changed.has('hover')) { heat.invalidate(); oi.invalidate(); delta.invalidate(); tof.invalidate(); swing.invalidate(); ls.invalidate(); depth.invalidate(); lt.invalidate(); bars.invalidate(); script.invalidate(); cvd.syncHover(); }
     if (changed.has('delta')) delta.settingsChanged();
+    if (changed.has('tof')) { tof.settingsChanged(); heat.invalidate(); }
     if ((changed.has('oi') || changed.has('oiParts')) && topShown(state)) heat.invalidate();
     if (changed.has('marketId')) candle.marketChanged();
     if (['levels', 'mark', 'disabledVenues', 'scope', 'markets', 'footprint', 'customMarkets', 'replay', 'bookGone', 'show'].some(k => changed.has(k as never))) candle.invalidate();
@@ -359,11 +376,11 @@ async function main(): Promise<void> {
     // The panes follow the room the bar leaves or takes by themselves (each watches its own size).
     if (changed.has('barCollapsed')) toolbar.setCollapsed(state.barCollapsed);
     if (['show', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'oiMarkets', 'customMarkets', 'oiInstrument', 'oiParts', 'seriesInstrument', 'range'].some(k => changed.has(k as never))) ls.invalidate();
-    if (['show', 'candles', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'traded', 'timeZone', 'range', 'oi', 'oiInstrument', 'oiParts'].some(k => changed.has(k as never))) delta.invalidate();
-    if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'chartType'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
+    if (['show', 'candles', 'timeframe', 'marketId', 'disabledVenues', 'scope', 'markets', 'traded', 'timeZone', 'range', 'oi', 'oiInstrument', 'oiParts'].some(k => changed.has(k as never))) { delta.invalidate(); tof.invalidate(); swing.invalidate(); }
+    if (['markets', 'marketId', 'timeframe', 'layer', 'show', 'heat', 'theme', 'status', 'connected', 'disabledVenues', 'heatmapSource', 'levels', 'scope', 'sounds', 'soundState', 'lastSound', 'timeZone', 'absorption', 'highlight', 'range', 'rangeTool', 'liquidations', 'signals', 'keyLevels', 'vwap', 'footprint', 'chartType'].some(k => changed.has(k as never))) toolbar.sync(state, heat.window);
   });
 
-  for (const p of [heat, ladder, depth, oi, delta, ls, lt, bars, script, cvd, candle]) p.setPalette(store.state.theme);
+  for (const p of [heat, ladder, depth, oi, delta, tof, swing, ls, lt, bars, script, cvd, candle]) p.setPalette(store.state.theme);
   layout(); ladder.syncControls(); lt.refresh();
   arrange.setPaneHeight('bars', tableHeight(store.state.barStats, store.state.barStatOptions));
   toolbar.sync(store.state, heat.window);

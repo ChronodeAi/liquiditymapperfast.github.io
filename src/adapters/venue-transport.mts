@@ -43,7 +43,8 @@ export function venueControlFrame(venue: string, request: unknown, operation: un
   if (key === 'bybit' || key === 'okx' || key === 'bitget') return { op, args: recordValue(request).args };
   if (key === 'gateio') return { time: Math.floor(now / 1000), channel: recordValue(request).channel, event: op, payload: recordValue(request).args };
   if (key === 'deribit') return { jsonrpc: '2.0', id: requestId, method: `public/${op}`, params: { channels: recordValue(request).args } };
-  if (key === 'coinbase') return { type: op, product_ids: recordValue(request).args, channels: [recordValue(request).channel] };
+  // Coinbase's heartbeat channel sends one frame a second per product: the feed's sign of life, which a quiet book does not give.
+  if (key === 'coinbase') return { type: op, product_ids: recordValue(request).args, channels: [recordValue(request).channel, 'heartbeat'] };
   if (key === 'kraken') return { method: op, params: { channel: recordValue(request).channel, symbol: [recordValue(request).symbol], depth: recordValue(request).depth, ...(op === 'subscribe' ? { snapshot: recordValue(request).snapshot } : {}) } };
   if (key === 'kucoin') return { id: recordValue(request).id, type: op, topic: recordValue(request).topic, response: true };
   if (key === 'mexc') return op === 'subscribe' ? { method: recordValue(request).method, param: recordValue(request).param } : { method: 'usub.depth.full', param: { symbol: recordValue(request).symbol } };

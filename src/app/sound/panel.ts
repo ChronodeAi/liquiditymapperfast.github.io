@@ -129,6 +129,13 @@ function panelSounds(store: Store, p: PanelSounds, alerts: Alerts, set: (change:
     switchRow(t('Unusual open interest change'), t('A candle closed with an open-interest change that Highlights calls unusual. Two quick ticks.'), p.oi.jump, jump => change('oi', { jump })),
     tests('oi-jump', false));
 
+  const said = alerts.volatilityStatus;
+  body.append(heading(t('Volatile move (Jev)')),
+    switchRow(t('Volatile move likely'), t('Once a minute the server asks TypeSafe Jev whether a volatile move is coming from spot and perp flow, the books, liquidations and open interest. Needs a local server with TYPESAFE_API_KEY set. Three notes, rising for up. Quiet while price is already moving: it warns before a move, not during one.'), p.volatility.on, on => change('volatility', { on })),
+    numberRow(t('Minimum score'), t("Jev's score from 0 to 4 for a volatile move within 15 minutes; it must also be fairly sure of it."), { min: 2, max: 4, step: 0.5, value: p.volatility.score }, score => change('volatility', { score })),
+    ...(!alerts.volatilityAvailable ? [note(t('Not available without a local server'))] : said?.reason || said?.lastError ? [note(said.reason || said.lastError || '')] : []),
+    tests('volatile-move'));
+
   const recent = alerts.log.slice(-5).reverse();
   body.append(heading(t('Recent')));
   body.append(recent.length ? el('div', { class: 'alert-log' }, ...recent.map(e => el('p', { class: 'panel-note', textContent: `${clock(e.at)}  ${e.text}${e.audible ? '' : ' ' + t('(not heard: sound was locked)')}` }))) : note(t('Nothing yet.')));

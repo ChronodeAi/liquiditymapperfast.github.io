@@ -11,7 +11,7 @@ import { t } from './i18n.ts';
  * button opens (Trades, Absorption, Highlights, Sounds) has it in its panel's tool strip; a settings window opened from a pane's header
  * shares that pane's. Windows that only do a job (About, Install, the venue menu, the venue and coin pickers) explain themselves and have none.
  */
-export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane' | 'script' | 'scriptPane';
+export type HelpId = 'profile' | 'traded' | 'absorption' | 'depth' | 'oi' | 'candles' | 'footprint' | 'lt' | 'mirror' | 'volume' | 'bubbles' | 'heatmap' | 'depthPane' | 'oiPane' | 'ltPane' | 'stats' | 'orderBook' | 'cvd' | 'book' | 'highlights' | 'sounds' | 'range' | 'liquidations' | 'keyLevels' | 'vwap' | 'delta' | 'deltaPane' | 'tof' | 'tofPane' | 'swing' | 'swingPane' | 'ls' | 'lsPane' | 'replay' | 'candlePane' | 'script' | 'scriptPane';
 
 export interface HelpTopic {
   title: string;
@@ -77,6 +77,34 @@ export const HELP: Readonly<Record<HelpId, HelpTopic>> = {
       t('With the OI pane\'s Venues on All perpetuals (the default), each venue\'s change of open interest is given to the side that traded at market on that venue, and the venues are then added up: one venue\'s buyers say nothing about who opened positions on another.'),
       t('A market\'s change is measured between its own readings and shown in the candle of its new one, given to its takers over the whole stretch since the reading before: a venue read only hourly (older history) changes once an hour, and the popup says so. A candle can hold new longs on one venue and new shorts on another; the popup lists the four parts and reads it as both ways. Deribit counts its open interest in dollars, so it is put in coins at one price, the newest close: a move of the price alone opens and closes nothing.'),
       t('As (with NL/NS shown): Net is one series, longs less shorts, as bars with their running sum. Longs and shorts draws two lines instead: the running sum of the longs (new longs less longs closed) and of the shorts (new shorts less shorts closed). A rising line is that side adding positions, a falling one that side closing them.')],
+  },
+  tof: {
+    title: 'TOF', guide: 'lower-panes',
+    tip: t('A pane under the map: toxic flow, how hard takers hit each exchange in each candle against its own recent candles, and the levels those candles leave on the map.'),
+    body: [],
+  },
+  tofPane: {
+    title: t('Toxic flow (TOF)'), guide: 'lower-panes',
+    tip: t('Toxic flow: how hard takers hit each exchange in each candle, against its own recent candles.'),
+    body: [t('Each exchange\'s reading is the volume taken at market on its perpetual in the candle, weighted by how far price went in it (the square root of the candle\'s high-to-low range over its open), so a burst that moved price weighs more than the same volume that did not. One line per exchange: Binance\'s in yellow, Bybit\'s in purple, where the page records them.'),
+      t('Venues chooses the markets: Binance and Bybit (as the widely used toxic-flow readings show them); Every perpetual the flow column adds up, a line each, with the popup putting the venue that stood out most first, so a burst led by OKX or Bitget shows as theirs; or All markets together, spot and perpetual, as one line. The shading and the levels on the map come from the markets chosen, together. Each venue is judged against its own history, so a small venue\'s burst counts as much as a large one\'s; together, the large ones weigh most.'),
+      t('Each reading is judged against the same exchange\'s last 288 candles as a z score: above 2 is a toxic burst (a dot on the line, and the candle shaded amber when the exchanges together are one), from 1 elevated (shaded lighter), within 1 either side normal, under -1 quiet. Raw dollars are not comparable across coins or timeframes; the z is. Hovering a candle gives each exchange\'s reading, its multiple of the usual, its z, and the share of its volume bought at market.'),
+      t('A burst says how hard the market was hit, not which way it goes next. Measured on Binance BTCUSDT from 2024 to 2026, a burst while price was quiet was followed by a 2σ move within 6 candles 55 to 67 % of the time against about 22 % for other quiet candles (the Signals panel\'s amber rings), and the buying or selling in it said nothing about the side.'),
+      t('On the map, with Levels on, each candle leaves a dot at its open, sized by its reading, until a later candle trades through that price; From chooses which candles leave one. The dots still there are where moves went on and price has not come back. That is why they sit so neatly at the starts of moves: the ones whose move failed were taken. Taken shows those too, faint. By price adds up the untapped levels\' reading by price along the right edge of the map.'),
+      t('It needs the chart\'s own candles (their range weighs the volume) and the flow the page holds: a day a second at a time, and older minutes where the server keeps them (a week).')],
+  },
+  swing: {
+    title: t('Swing'), guide: 'lower-panes',
+    tip: t('A pane under the map: where price sits in its recent range, fast and slow, coloured by its trend; and under it how cheap or hot price is.'),
+    body: [],
+  },
+  swingPane: {
+    title: t('Swing'), guide: 'lower-panes',
+    tip: t('Where price sits in its recent range, fast and slow, coloured by its trend; and under it how cheap or hot price is.'),
+    body: [t('Swing, the bars: two readings of where price sits in its recent range, 0 at the bottom and 100 at the top, and the bar spans the two. The slow line is where the close sits among the last 31 closes, averaged over 8 candles; the fast line is where a Kalman estimate of the close (a steady gain of about 0.1) sits among its last 16 values, smoothed over about 4. A bar is green while a Kalman estimate of each candle\'s average of open, high, low and close is higher than 5 candles before, red while it is lower. A bar reaching into the shaded floor (15 and under) is at the bottom of the range, into the ceiling (92 and over) at its top.'),
+      t('Cheap/hot, the dark area: 100 less where each close sits between the lowest low of the last 33 candles and the highest high of the last 22, averaged over 2 and smoothed over about 20 candles. The top is judged over the shorter stretch, so a rally runs hot soon after an older, higher high drops out of it, while a low keeps counting for longer. From 50 up price is cheap against its last month or so of candles, under 18.2 hot, between neutral.'),
+      t('Both say where price sits in its range, not where it goes next: a floor or a cheap reading can stay one through a falling market. They have not been tested here as signals. Their lengths were chosen to follow a published pair of such readings on BTC: the bars track four of their charts (daily, 12-hour and 2-hour, from a few weeks to two years) to about 7 to 14 points in 100 and reach their floor and ceiling in 54 of their 58 visits there; the area follows their charts from 1-hour to daily to under 1 point on average, and fifteen values they printed to 0.2 on average (0.8 at most).'),
+      t('The candles are LMF\'s own index of the coin: the average, candle by candle, of every venue the page reads that lists it (for BTC eleven: Binance, Bybit, OKX and Bitget, each perpetual and spot, with Hyperliquid, Deribit and Coinbase), from their public price histories at the chart\'s timeframe, up to 2,000 candles, so the pane reaches back before the page recorded anything and works on every timeframe. A candle counts once at least half of the venues have it, and a venue that cannot be read is left out until it can. They are read again every minute; where the chart shows one of those markets, the candle under way moves with its trades. The first readings need about 40 candles before them.')],
   },
   ls: {
     title: t('Long/Short'), guide: 'lower-panes',

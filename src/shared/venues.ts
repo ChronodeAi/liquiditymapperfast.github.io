@@ -200,7 +200,7 @@ abstract class OkxBook extends MarketBook {
   /** Coins per unit of size. */
   contract = this.market.contract ?? 1;
   #seq = -1;
-  protected url() { return 'wss://ws.okx.com:8443/ws/v5/public'; }
+  protected url() { return 'wss://ws.okx.com/ws/v5/public'; }
   protected open(send: (p: unknown) => void) { send({ op: 'subscribe', args: [{ channel: 'books', instId: this.symbol }, { channel: 'trades', instId: this.symbol }] }); }
   override keepalive() { return { everyMs: 20_000, frame: () => 'ping' }; }
   protected override usdOf(price: number, size: number) { return price * size * this.contract; }
@@ -370,6 +370,13 @@ export class DeribitConnector extends MarketBook {
   #changeId = -1;
   protected url() { return 'wss://www.deribit.com/ws/api/v2'; }
   protected open(send: (p: unknown) => void) { send({ jsonrpc: '2.0', id: 1, method: 'public/subscribe', params: { channels: [`book.${this.symbol}.100ms`, `trades.${this.symbol}.100ms`] } }); }
+  /**
+   * Deribit closes a socket that has sent it nothing for ten minutes (code 1000, 600 s after the subscription; measured 2026-10-26), and
+   * this connector only listens once subscribed: the server's Deribit trades, which it carries, were not covered for 3 to 4 s every
+   * 600 to 603 s while it reconnected (since 2026-10-18 at least). Asking for the server's version keeps the socket open; the answer
+   * carries no `params`, so `onMessage` passes it by.
+   */
+  override keepalive() { return { everyMs: 30_000, frame: () => ({ jsonrpc: '2.0', id: 2, method: 'public/test', params: {} }) }; }
   protected override usdOf(price: number, size: number) { return this.market.inverse ? size : price * size; }
   /**
    * A full-book side as [price, amount] rows: a deleted level is 0, which takes it away. A row that cannot be read throws (the frame is

@@ -36,6 +36,8 @@ export interface FlowStore {
   load(since: number): Iterable<FlowMinuteRow>;
   save(rows: FlowMinuteRow[], expireBefore: number): void;
   close(): void;
+  /** One stored minute read back (null: none stored), where the store can read one at once (the server's): a recovery reaching past memory changes it. */
+  minute?(inst: string, t: number): FlowMinuteRow | null;
 }
 /**
  * One instrument's flow a minute at a time, for windows older than the seconds the page holds: per minute from `t0` (ms), the USD bought
@@ -75,11 +77,28 @@ function priceOf(bins: Float64Array, index: number): number {
   return priced > 0 ? priced / qty : 0;
 }
 
+/** A stored minute as bins (see BINS). */
+function binsOf(row: FlowMinuteRow): Float64Array {
+  const priced = row.px?.length === 60, bins = new Float64Array(priced ? BINS : BINS_WITH_UNPRICED); bins.set(row.buy, 0); bins.set(row.sell, 60);
+  // The quantity is what the price is worked back from, so a trade that arrives late for a minute read from the store still averages in.
+  if (priced) for (let i = 0; i < 60; i++) { const p = row.px![i]!; if (p > 0) bins[120 + i] = (bins[i]! + bins[60 + i]!) / p; }
+  // A minute recorded before prices were kept has none to work back from: all of its USD is unpriced, so a late trade's price is its own, not a blend with that.
+  else for (let i = 0; i < 60; i++) bins[BINS + i] = bins[i]! + bins[60 + i]!;
+  return bins;
+}
+
 /** Per-instrument, per-second taker buy and sell USD, and the volume-weighted price of each second. */
 export class FlowRecorder {
   /** inst -> minute start -> [buy of second 0..59, sell of second 0..59, base quantity of second 0..59] (a second's price is its USD over its quantity) */
   readonly #minutes = new Map<string, Map<number, Float64Array>>();
   readonly #seen = new Map<string, Set<string>>();
+  /** The trades a recovery took, remembered apart so a large one does not push the feed's recent trades out of `#seen` (see FootprintRecorder). */
+  readonly #recoveredSeen = new Map<string, Set<string>>();
+  /**
+   * Minutes older than memory holds that a recovery added to (it reaches back through the store's week), read back from the store and
+   * written to it again, whole, at the next flush; their totals are kept with the others' at once.
+   */
+  readonly #late = new Map<string, Map<number, Float64Array>>();
   readonly #dirty = new Set<string>();
   /** inst -> seconds (ms) changed since the last take() */
   readonly #changed = new Map<string, Set<number>>();
@@ -101,12 +120,7 @@ export class FlowRecorder {
     if (store) for (const row of store.load(now() - storeMs)) {
       if (row.buy.length !== 60 || row.sell.length !== 60) continue;
       if (row.t < memoryFrom) { this.#keepOld(row.inst, row.t, summarise(row.buy, row.sell, i => row.px?.[i] ?? 0)); continue; }
-      const priced = row.px?.length === 60, bins = new Float64Array(priced ? BINS : BINS_WITH_UNPRICED); bins.set(row.buy, 0); bins.set(row.sell, 60);
-      // The quantity is what the price is worked back from, so a trade that arrives late for a minute read from the store still averages in.
-      if (priced) for (let i = 0; i < 60; i++) { const p = row.px![i]!; if (p > 0) bins[120 + i] = (bins[i]! + bins[60 + i]!) / p; }
-      // A minute recorded before prices were kept has none to work back from: all of its USD is unpriced, so a late trade's price is its own, not a blend with that.
-      else for (let i = 0; i < 60; i++) bins[BINS + i] = bins[i]! + bins[60 + i]!;
-      this.#of(row.inst).set(row.t, bins);
+      this.#of(row.inst).set(row.t, binsOf(row));
     }
   }
 
@@ -120,10 +134,13 @@ export class FlowRecorder {
   #of(inst: string): Map<number, Float64Array> { let m = this.#minutes.get(inst); if (!m) { m = new Map(); this.#minutes.set(inst, m); } return m; }
   get instruments(): string[] { return [...this.#minutes.keys()]; }
 
-  /** Add every trade not seen before. Returns the number accepted. */
-  ingest(trades: Iterable<TradeLike>): number {
+  /**
+   * Add every trade not seen before. Returns the number accepted. `recovered`: trades read back from a venue's history (shared/recovery.ts),
+   * remembered apart; one older than memory holds goes into its stored minute, read back first, where the store can (else it is dropped).
+   */
+  ingest(trades: Iterable<TradeLike>, { recovered = false }: { recovered?: boolean } = {}): number {
     let accepted = 0;
-    const oldest = this.now() - this.#memoryMs;
+    const oldest = this.now() - this.#memoryMs, late = new Set<string>();
     for (const trade of trades) {
       const id = String(trade.instrumentId ?? ''), key = String(trade.tradeId ?? '');
       const price = Number(trade.price), usd = Number(trade.notionalUsd ?? Number(trade.amount) * price);
@@ -131,23 +148,55 @@ export class FlowRecorder {
       const side = String(trade.side).toLowerCase();
       if (!id || !key || !(usd > 0) || !Number.isFinite(t) || (side !== 'buy' && side !== 'sell')) continue;
       let seen = this.#seen.get(id); if (!seen) { seen = new Set(); this.#seen.set(id, seen); }
-      if (seen.has(key)) continue;
-      if (t < oldest) { this.dropped++; continue; }
-      if (!this.#minutes.has(id) && this.#minutes.size >= MAX_INSTRUMENTS) { this.dropped++; continue; }
-      seen.add(key);
-      if (seen.size > SEEN_MAX) { const keep = [...seen].slice(-SEEN_MAX / 3); seen.clear(); for (const k of keep) seen.add(k); }
+      if (seen.has(key) || this.#recoveredSeen.get(id)?.has(key)) continue;
       const minute = Math.floor(t / MINUTE) * MINUTE, second = Math.floor((t - minute) / FLOW_SEC);
-      const minutes = this.#of(id);
+      let minutes: Map<number, Float64Array>;
+      // A minute memory still holds takes the trade there, however old (it is written from there, before it leaves).
+      const isLate = t < oldest && !this.#minutes.get(id)?.has(minute);
+      if (isLate) {
+        const held = recovered ? this.#lateMinutes(id, minute) : null;
+        if (!held) { this.dropped++; continue; }
+        minutes = held; late.add(`${id}|${minute}`);
+      } else {
+        if (!this.#minutes.has(id) && this.#minutes.size >= MAX_INSTRUMENTS) { this.dropped++; continue; }
+        minutes = this.#of(id);
+      }
+      const remember = recovered ? this.#recoveredSeen.get(id) ?? new Set<string>() : seen;
+      if (recovered) this.#recoveredSeen.set(id, remember);
+      remember.add(key);
+      if (remember.size > SEEN_MAX) { const keep = [...remember].slice(-SEEN_MAX / 3); remember.clear(); for (const k of keep) remember.add(k); }
       let bins = minutes.get(minute); if (!bins) { bins = new Float64Array(BINS); minutes.set(minute, bins); }
       if (!(price > 0) && bins.length === BINS) { const wider = new Float64Array(BINS_WITH_UNPRICED); wider.set(bins); minutes.set(minute, wider); bins = wider; }
       bins[(side === 'buy' ? 0 : 60) + second]! += usd;
       if (price > 0) bins[120 + second]! += usd / price; else bins[BINS + second]! += usd;
+      accepted++;
+      // A minute older than memory is not one the page holds seconds of: it is only written, and its totals kept.
+      if (isLate) continue;
       this.#dirty.add(`${id}|${minute}`);
       let changed = this.#changed.get(id); if (!changed) { changed = new Set(); this.#changed.set(id, changed); }
       changed.add(minute + second * FLOW_SEC);
-      accepted++;
+    }
+    for (const key of late) {
+      const at = key.lastIndexOf('|'), id = key.slice(0, at), t = Number(key.slice(at + 1)), bins = this.#late.get(id)!.get(t)!;
+      this.#keepOld(id, t, summarise(bins.subarray(0, 60), bins.subarray(60, 120), i => priceOf(bins, i)));
     }
     return accepted;
+  }
+
+  /**
+   * The minutes older than memory that `id`'s recovered trades go into, with `minute` among them (read back from the store, or begun empty
+   * when it stored none); null when the store cannot read one back, or the minute is past what it keeps.
+   */
+  #lateMinutes(id: string, minute: number): Map<number, Float64Array> | null {
+    const store = this.#store;
+    if (!store?.minute || minute < this.now() - this.#storeMs) return null;
+    let minutes = this.#late.get(id); if (!minutes) { minutes = new Map(); this.#late.set(id, minutes); }
+    if (!minutes.has(minute)) {
+      let row: FlowMinuteRow | null;
+      try { row = store.minute(id, minute); } catch { return null; }
+      minutes.set(minute, row && row.buy.length === 60 && row.sell.length === 60 ? binsOf(row) : new Float64Array(BINS));
+    }
+    return minutes;
   }
 
   /** The seconds that changed since the last call, with their totals so far (oldest first within an instrument). */
@@ -173,8 +222,6 @@ export class FlowRecorder {
    */
   flush(final = false): void {
     const now = this.now(), cutoff = now - this.#memoryMs, open = Math.floor(now / MINUTE) * MINUTE, kept = now - this.#storeMs;
-    // A minute leaving memory keeps its totals, for windows older than memory; those go when the store would forget them.
-    for (const [inst, minutes] of this.#minutes) for (const [t, bins] of minutes) if (t < cutoff) { this.#keepOld(inst, t, summarise(bins.subarray(0, 60), bins.subarray(60, 120), i => priceOf(bins, i))); minutes.delete(t); }
     for (const days of this.#old.values()) for (const day of days.keys()) if (day + DAY <= kept) days.delete(day);
     const store = this.#store, rows: FlowMinuteRow[] = [], settled: string[] = [];
     for (const key of [...this.#dirty]) {
@@ -184,8 +231,35 @@ export class FlowRecorder {
       if (bins && store) rows.push({ inst: id, t, buy: Float32Array.from(bins.subarray(0, 60)), sell: Float32Array.from(bins.subarray(60, 120)), px: Float32Array.from({ length: 60 }, (_, i) => priceOf(bins, i)) });
       if (t < open) settled.push(key);
     }
+    // The minutes a recovery added to past memory go back to the store whole; they stay until it has taken them.
+    if (store) for (const [id, minutes] of this.#late) for (const [t, bins] of minutes) rows.push({ inst: id, t, buy: Float32Array.from(bins.subarray(0, 60)), sell: Float32Array.from(bins.subarray(60, 120)), px: Float32Array.from({ length: 60 }, (_, i) => priceOf(bins, i)) });
     store?.save(rows, now - this.#storeMs);
     for (const key of settled) this.#dirty.delete(key);
+    // A minute leaving memory keeps its totals, for windows older than memory; those go when the store would forget them. It leaves only
+    // once it has been written above, so a trade that came late for it is not lost.
+    for (const [inst, minutes] of this.#minutes) for (const [t, bins] of minutes) if (t < cutoff) { this.#keepOld(inst, t, summarise(bins.subarray(0, 60), bins.subarray(60, 120), i => priceOf(bins, i))); minutes.delete(t); }
+    this.#late.clear();
+  }
+
+  /**
+   * The start of the first second reaching into [from, to) in which a trade of `id` is recorded, or null when none is. Past memory the
+   * stored minute is read back; where the store cannot, a minute whose kept totals hold trades counts from its start.
+   */
+  firstRecorded(id: string, from: number, to: number): number | null {
+    const oldest = this.now() - this.#memoryMs, days = this.#old.get(id), store = this.#store;
+    for (let minute = Math.floor(from / MINUTE) * MINUTE; minute < to; minute += MINUTE) {
+      let bins: ArrayLike<number> | undefined = this.#minutes.get(id)?.get(minute) ?? this.#late.get(id)?.get(minute);
+      if (!bins && minute < oldest) {
+        if (store?.minute) { const row = store.minute(id, minute); if (row && row.buy.length === 60 && row.sell.length === 60) bins = Float64Array.from([...row.buy, ...row.sell]); }
+        else { const block = days?.get(Math.floor(minute / DAY) * DAY), k = (minute % DAY) / MINUTE * 5; if (block && (block[k]! > 0 || block[k + 1]! > 0)) return minute; }
+      }
+      if (!bins) continue;
+      for (let i = 0; i < 60; i++) {
+        const s = minute + i * FLOW_SEC;
+        if (s + FLOW_SEC > from && s < to && (bins[i]! > 0 || bins[60 + i]! > 0)) return s;
+      }
+    }
+    return null;
   }
   close(): void { this.flush(true); this.#store?.close(); }
 

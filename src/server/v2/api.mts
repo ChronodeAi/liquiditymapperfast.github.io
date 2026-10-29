@@ -24,6 +24,7 @@ import { FootprintRecorder } from './footprint.mts';
 import { inverseOiId, oiInstrument, oiProfileOf, type OiSeries } from '../../shared/oi-profile.ts';
 import { MAX_CUT_USD, MAX_CUTS, MAX_PROFILE_INSTRUMENTS, MAX_PROFILE_SPAN_MS, MAX_RANGE_INSTRUMENTS, MAX_SIZES_MINUTES, MAX_SIZES_WINDOWS, MAX_VALUE_AREA_SPAN_MS, MAX_VALUE_AREA_WINDOWS, parseCuts, type TradeLike } from '../../shared/footprint.ts';
 import { RecordedBefore } from '../../shared/restart.ts';
+import { TradeRecovery } from './recovery.mts';
 import { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, TradeCoverage, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageMetric } from './coverage.mts';
 import { venueForFeedId } from '../../core/venue-status.mts';
 import { FLOW_SEC, FlowRecorder, encodeFlowFrame, encodeFlowMinutes } from './flow.mts';
@@ -37,10 +38,14 @@ import { CoinList } from './coin-list.mts';
 import { guardRequest, guardUpgrade } from '../request-guard.mts';
 import { sendVerdict, type FrameKind } from './backpressure.mts';
 import { TIMEFRAMES, aggregateCandles, aggregateOi, quoteRows, timeframeMs, withLiveOi, type CandleRow, type OiRow } from './series.mts';
+import { VolatilityWatch, binanceSpotIdOf, subqArmsFrom } from './volatility.mts';
+import { HEAT_MINUTES, HEAT_ROWS, HEAT_ROW_BP, VOLATILITY_HISTORY_MS, type VolatilityInputs } from '../../shared/volatility/features.ts';
+import { SUBQ_ARMS } from '../../shared/volatility/jev.ts';
+import { ltIndex } from '../../shared/lt-sample.ts';
 
 type App = ReturnType<typeof createLocalServer>;
-/** `oiSampling`: read the open interest of the venues the feed manager does not (oi-sampler.mts); a live server only, never a test. */
-export interface V2Options { dataDir: string; liveMs?: number; persist?: boolean; heartbeatMs?: number; oiSampling?: boolean; priceHistoryGet?: Fetcher }
+/** `oiSampling`: read the open interest of the venues the feed manager does not (oi-sampler.mts); `tradeRecovery`: fill the trade recording's gaps from the venues' history (recovery.mts). A live server only, never a test. */
+export interface V2Options { dataDir: string; liveMs?: number; persist?: boolean; heartbeatMs?: number; oiSampling?: boolean; tradeRecovery?: boolean; priceHistoryGet?: Fetcher }
 export interface V2Handle {
   recorder: DepthRecorder; footprint: FootprintRecorder; prints: PrintStream; liquidations: LiquidationStream; flow: FlowRecorder; absorption: AbsorptionRecorder; extra: ExtraVenues; close(): void; handle(req: IncomingMessage, res: ServerResponse): boolean;
   /** Venues (the part of an instrument id before the colon) whose book is being left off the map, with the reason. */
@@ -108,7 +113,7 @@ const BAD_CUTS = (floor: number): string => `cuts must be up to ${MAX_CUTS} size
 const BAD_SERIES = 'inst and a supported tf are required';
 
 /** Attach the v2 data plane (depth recorder, live WebSocket, series endpoints) to a running local server. */
-export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, heartbeatMs = HEARTBEAT_MS, oiSampling = false, priceHistoryGet = webGet }: V2Options): V2Handle {
+export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, heartbeatMs = HEARTBEAT_MS, oiSampling = false, tradeRecovery = false, priceHistoryGet = webGet }: V2Options): V2Handle {
   let store: SqliteColumnStore | null = null;
   if (persist) { fs.mkdirSync(dataDir, { recursive: true }); store = new SqliteColumnStore(path.join(dataDir, 'depth-v2.sqlite')); }
   // A day of columns in memory; older ones are read back from the store when a question reaches them.
@@ -145,6 +150,9 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
   /** How far the recordings reach (read now, before any trade): what a venue sends again after a restart is not counted twice. */
   const recorded = new RecordedBefore(flow, footprint);
   const unrecorded = (trades: readonly TradeLike[]): TradeLike[] => trades.filter(trade => !recorded.holds(String(trade.instrumentId ?? ''), Number(trade.sourceTimestamp ?? trade.receivedAt)));
+  /** The recording's gaps filled from the venues' trade history in the background (recovery.mts); built before any trade, as `recorded` is. */
+  const recovery = tradeRecovery ? new TradeRecovery({ recordings: { footprints: footprint, flows: flow, prints, coverage }, file: persist ? path.join(dataDir, 'trade-recovery.json') : null }) : null;
+  if (recovery) app.setTradeRecoveryStatus(() => recovery.status());
   /** Market orders rebuilt from their fills (see shared/orders.ts): the prints and the size statistics count these, not fills. */
   const orders = new OrderBuilder();
   /** Absorption candidates (see shared/absorption.ts): every fill the builder took, once each. */
@@ -358,6 +366,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     if (now - lastSources >= 5_000) { lastSources = now; flowSources.sync(new Set([...Object.keys(app.state.books ?? {}), ...extra.enabledInstrumentIds])); syncFar(Object.keys(app.state.books ?? {})); oiSampler?.sync(Object.keys(app.state.books ?? {}).filter(perpetual)); oiSampler?.setFast(oiFastVenues()); }
     // Each store on its own: one that cannot write (a full disk) keeps its rows for the next round and does not stop the others or the rest of this pass.
     if (now - lastFlush >= 30_000) { lastFlush = now; for (const store of [footprint, prints, liquidations, flow, absorption, coverage]) { try { store.flush(); } catch (error) { fault('recordings could not be saved; will try again:', error); } } }
+    recovery?.poll(now);
     if (now - lastPrune >= 3_600_000) { lastPrune = now; recorder.prune(now); }
     const fresh = prints.takeFresh(), found = absorption.takeFresh(), forced = liquidations.takeFresh();
     // Taken whether or not anyone listens, so the changed seconds do not pile up while nobody is connected.
@@ -786,6 +795,103 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
       markets: [...(s.markets ?? []), ...extra.markets()], layers: s.layers, layerMeta: s.layerMeta, statuses, steps: Object.fromEntries(recorder.steps), recorded: recorder.coverage(), columnMs: COLUMN_MS, timeframes: Object.keys(TIMEFRAMES) });
   };
 
+  /** The coin of the chart's own market and every spot and perpetual market of it the server lists, with the reference perpetual (Binance's, else the first). */
+  const coinMarkets = () => {
+    type Row = { instrumentId?: unknown; id?: unknown; venue?: unknown; base?: unknown; baseNormalized?: unknown; marketType?: unknown; symbol?: unknown };
+    const all = [...(app.state.markets ?? []), ...extra.markets()] as Row[];
+    const idOf = (m: Row): string => String(m.instrumentId ?? m.id ?? '');
+    const coinOf = (m: Row): string => String(m.baseNormalized ?? m.base ?? '').toUpperCase().replace(/^XBT$/, 'BTC');
+    const markId = String(app.state.markInstrumentId ?? '');
+    const mark = all.find(m => idOf(m) === markId);
+    // Without the market in the list the coin is the symbol's prefix before its quote.
+    const coin = mark ? coinOf(mark) : markId.split(':').pop()!.replace(/-PERP$/, '').replace(/(USDT|USDC|USD)$/, '').toUpperCase();
+    if (!coin) return null;
+    const mine = all.filter(m => coinOf(m) === coin && idOf(m));
+    const spotIds = mine.filter(m => m.marketType === 'spot').map(idOf), perpIds = mine.filter(m => m.marketType === 'perpetual').map(idOf);
+    const binancePerp = mine.find(m => m.marketType === 'perpetual' && m.venue === 'binance');
+    return { coin, spotIds, perpIds, refPerpId: binancePerp ? idOf(binancePerp) : perpIds[0] ?? null, venues: mine.map(m => ({ id: idOf(m), venue: m.venue, marketType: m.marketType })) };
+  };
+
+  /**
+   * What the volatility watch reads (shared/volatility/features.ts, docs/volatility-watch.md): the coin of the chart's own market, and every spot and
+   * perpetual market of it the server records, as the recordings hold them for the minute that ends at `now`.
+   */
+  const volatilityRead = (now: number): VolatilityInputs | null => {
+    const markets = coinMarkets(); if (!markets) return null;
+    const { coin, spotIds, perpIds, refPerpId } = markets, ids = [...spotIds, ...perpIds];
+    const frame = flow.minutes(ids, now - VOLATILITY_HISTORY_MS, now);
+    const spot = frame.instruments.filter(s => spotIds.includes(s.id)), perp = frame.instruments.filter(s => perpIds.includes(s.id));
+    const binanceSpotId = binanceSpotIdOf(markets.venues, new Set(spot.map(s => s.id)));
+
+    // Resting liquidity within 1 % of each book's own middle, and the tracker at the 25 bp half-life, minute by minute over six hours, with the
+    // books summed (in `ids` order, so the same books give the same key).
+    const lt = ltIndex(25), depthByMinute = new Map<number, VolatilityInputs['depth'][number]>();
+    for (const id of ids) {
+      const step = recorder.steps.get(id); if (!step) continue;
+      for (const column of recorder.query(id, now - 6 * 3_600_000, now)) {
+        let bestBid = -Infinity, bestAsk = Infinity;
+        for (let i = 0; i < column.bins.length; i++) { const bin = column.bins[i]!; if (column.bid[i]! > 0 && bin > bestBid) bestBid = bin; if (column.ask[i]! > 0 && bin < bestAsk) bestAsk = bin; }
+        if (!Number.isFinite(bestBid) && !Number.isFinite(bestAsk)) continue;
+        const middle = ((Number.isFinite(bestBid) ? bestBid : bestAsk) + (Number.isFinite(bestAsk) ? bestAsk : bestBid) + 1) / 2 * step;
+        let row = depthByMinute.get(column.t); if (!row) { row = { t: column.t, books: '', bidUsd: 0, askUsd: 0, ltBid: 0, ltAsk: 0 }; depthByMinute.set(column.t, row); }
+        row.books = row.books ? `${row.books},${id}` : id;
+        for (let i = 0; i < column.bins.length; i++) {
+          if (Math.abs((column.bins[i]! + 0.5) * step - middle) > middle * 0.01) continue;
+          row.bidUsd += column.bid[i]!; row.askUsd += column.ask[i]!;
+        }
+        if (column.lt && lt >= 0) { row.ltBid += column.lt[lt]!; row.ltAsk += column.lt[lt + 1]!; }
+      }
+    }
+    // The image arm's heatmap (when that arm is asked): the last two hours of minute columns around the price, summed over the coin's books.
+    let heat: VolatilityInputs['heat'];
+    const refSeries = perp.find(s => s.id === refPerpId) ?? perp[0] ?? spot[0];
+    const p0 = refSeries ? [...refSeries.px].reverse().find(p => p > 0) ?? 0 : 0;
+    if (subqKey && subqArms.arms.includes('subqImage') && p0 > 0) {
+      const from = now - HEAT_MINUTES * 60_000, cells = HEAT_MINUTES * HEAT_ROWS;
+      heat = { bid: new Float64Array(cells), ask: new Float64Array(cells), price: new Float64Array(HEAT_MINUTES) };
+      for (const id of ids) {
+        const step = recorder.steps.get(id); if (!step) continue;
+        for (const column of recorder.query(id, from, now)) {
+          const c = Math.floor((column.t - from) / 60_000); if (c < 0 || c >= HEAT_MINUTES) continue;
+          for (let i = 0; i < column.bins.length; i++) {
+            const r = Math.floor(((column.bins[i]! + 0.5) * step / p0 - 1) * 1e4 / HEAT_ROW_BP) + HEAT_ROWS / 2;
+            if (r < 0 || r >= HEAT_ROWS) continue;
+            heat.bid[c * HEAT_ROWS + r]! += column.bid[i]!; heat.ask[c * HEAT_ROWS + r]! += column.ask[i]!;
+          }
+        }
+      }
+      if (refSeries) for (let k = 0; k < refSeries.px.length; k++) {
+        const c = Math.round((refSeries.t0 + k * 60_000 - from) / 60_000);
+        if (c >= 0 && c < HEAT_MINUTES && refSeries.px[k]! > 0) heat.price[c] = refSeries.px[k]!;
+      }
+    }
+    const idSet = new Set(ids);
+    const band = prints.sums.bands[2] ?? prints.sums.bands.at(-1) ?? NaN;
+    return {
+      now, coin, spot, perp, binanceSpotId, refPerpId,
+      depth: [...depthByMinute.values()].sort((a, b) => a.t - b.t),
+      liquidations: liquidations.query(now - VOLATILITY_HISTORY_MS, now, LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER).filter(l => idSet.has(l.id)).map(l => ({ t: l.t, side: l.side, usd: l.usd })),
+      oi: refPerpId ? oiBarsOf(refPerpId, 60_000, now - 2 * 3_600_000, now, false).map(b => ({ t: b[0], close: b[4] })) : [],
+      whale: (prints.printSums(ids, now - 3_600_000, now, band, 60_000)?.rows ?? []).map(r => ({ t: r[0], buyUsd: r[1], sellUsd: r[3] })),
+      ...(heat ? { heat } : {}),
+    };
+  };
+  const subqKey = process.env.SUBQ_API_KEY || undefined, subqArms = subqArmsFrom(process.env.SUBQ_ARMS);
+  if (subqArms.unknown.length) console.warn(`volatility: SUBQ_ARMS names no arm ${subqArms.unknown.join(', ')} (the arms: ${SUBQ_ARMS.join(', ')})`);
+  /** The reference perpetual's minutes for the volatility-ahead warnings (shared/volatility/ahead.ts): the volume it was measured on. */
+  const aheadMinutes = (from: number, to: number) => {
+    const ref = coinMarkets()?.refPerpId;
+    return ref ? flow.minutes([ref], from, to).instruments.find(s => s.id === ref) ?? null : null;
+  };
+  const volatility = new VolatilityWatch({ dir: persist ? dataDir : null, read: volatilityRead, minutes: aheadMinutes, apiKey: process.env.TYPESAFE_API_KEY || undefined, subqKey, subqArms: subqArms.arms });
+  volatility.start();
+  const volatilityRoute = (res: ServerResponse) => sendJson(res, volatility.answer());
+  /** The chart's entry signals in [from, to) (shared/volatility/signals.ts), from the watch's minutes, read back from its log at start. */
+  const signalsRoute = (url: URL, res: ServerResponse) => {
+    const span = windowOf(url, Date.now() + 60_000, 24 * 3_600_000); if (!span) return sendJson(res, { error: BAD_WINDOW }, 400);
+    sendJson(res, volatility.signals(span.from, span.to));
+  };
+
   /**
    * The footprint's lists of large orders for the minutes recorded before they were kept (see `FootprintRecorder.fillLists`), filled from the
    * prints ten minutes per turn of the event loop, newest first, once the server is up: a week of them in one read held the loop for 12 s.
@@ -824,6 +930,8 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
           case '/api/v2/price-history': priceHistoryRoute(url, res); return true;
           case '/api/v2/oi': oi(url, res); return true;
           case '/api/v2/long-short': longShortRoute(url, res); return true;
+          case '/api/v2/volatility': volatilityRoute(res); return true;
+          case '/api/v2/signals': signalsRoute(url, res); return true;
           case '/api/v2/footprint': footprintRoute(url, res); return true;
           case '/api/v2/prints': printsRoute(url, res); return true;
           case '/api/v2/print-sums': printSumsRoute(url, res); return true;
@@ -850,7 +958,7 @@ export function attachV2(app: App, { dataDir, liveMs = 250, persist = true, hear
     },
     close() {
       closed = true;
-      clearInterval(loop); clearTimeout(absorptionWarm); clearTimeout(ltWarm); syncFar([]); oiSampler?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
+      clearInterval(loop); clearTimeout(absorptionWarm); clearTimeout(ltWarm); volatility.stop(); syncFar([]); oiSampler?.close(); recovery?.close(); coins?.close(); (app.server as Server).off('upgrade', onUpgrade);
       for (const client of wss.clients) client.terminate();
       // Each part gets its turn even when one of them fails, so what can still be written is (the open minutes and the open orders are written here).
       for (const part of [() => takeOrders(true), () => recorder.flush(), () => store?.close(), () => lsStore?.close(), () => footprint.close(), () => coverage.close(), () => prints.close(), () => liquidations.close(), () => flow.close(), () => absorption.close(), () => flowSources.close(), () => extra.close()]) {

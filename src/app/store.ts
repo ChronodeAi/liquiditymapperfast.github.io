@@ -6,18 +6,20 @@ import { clampContrast } from './heatmap/window.ts';
 import { LT_DEFAULTS, LT_OLD_HALF_LIFE_BP, type LtParams } from './lt.ts';
 import { resolveThemeId } from './theme.ts';
 import { readStatOptions, type StatOptions } from './stat-options.ts';
-import { readHighlight, type HighlightOptions } from './anomaly.ts';
+import { readHighlight, type HighlightOptions } from '../shared/anomaly.ts';
 import { DEFAULT_SOUNDS, readSounds, type SoundSettings } from './sound/rules.ts';
 import { readCvd, type CvdSettings } from './cvd/settings.ts';
 import { readAbsorption, type AbsorptionSettings } from './absorption.ts';
 import { readBubbles, type BubbleSettings } from './prints.ts';
 import { readLiquidations, type LiquidationSettings } from './liquidations.ts';
+import { readSignals, type SignalSettings } from './signals.ts';
 import { readKeyLevels, type KeyLevelSettings } from './keylevels/settings.ts';
 import { readVwap, type VwapSettings } from './vwap/settings.ts';
 import { readDrawSettings, type DrawSettings } from './draw/settings.ts';
 import { readChartType, type ChartType } from './chart-type.ts';
 import { readFootprint, type FootprintSettings } from './footprint/settings.ts';
 import { readDelta, type DeltaSettings } from './delta/settings.ts';
+import { readTof, type TofSettings } from './tof/settings.ts';
 import { isCoarse, isPhone } from './device.ts';
 import { LS_METRICS, type LsMetric } from '../shared/long-short.ts';
 import { readCustomMarkets, type CustomMarkets } from './market-choice.ts';
@@ -51,7 +53,7 @@ export interface LayerLevel { id: string; side: string; price: number; notionalU
  * Which panes are on the first time. No pane under the map is (Karl, 2026-10-17: depth and open interest were, and no extra pane should be):
  * each is one switch away. The flow column and the book beside the map are on.
  */
-export const DEFAULT_SHOW: AppState['show'] = { profile: true, traded: false, depth: false, oi: false, delta: false, ls: false, candles: true, footprint: false, stats: false, lt: false, mirror: true, volume: true, bubbles: true, cvd: true, book: true, script: true };
+export const DEFAULT_SHOW: AppState['show'] = { profile: true, traded: false, depth: false, oi: false, delta: false, tof: false, swing: false, ls: false, candles: true, footprint: false, stats: false, lt: false, mirror: true, volume: true, bubbles: true, cvd: true, book: true, script: true };
 /**
  * The panes a first visit starts with. The flow column and the book each take a few hundred pixels beside the map, so on a window that is wide enough
  * for the map to stay readable with both (a phone has its tabs instead) they start on; a medium window (a tablet held sideways, a small laptop)
@@ -99,7 +101,7 @@ export interface AppState {
   oiParts: OiPart[];
   /** One market's `oi` from an inverse market: the one price its coins are put at (its USD over it, `Hub.oiSeries`); 0 for a linear market. */
   oiPrice: number;
-  show: { profile: boolean; /** The traded-volume column beside the profile (not on phones). */ traded: boolean; depth: boolean; oi: boolean; /** The Delta pane under the map (taker delta and CVD by candle). */ delta: boolean; /** The Long/Short pane (the venues' published long/short account ratios). */ ls: boolean; candles: boolean; footprint: boolean; /** The Bar stats table under the map (its own switch since 2026-10-20; it was the footprint's before). */ stats: boolean; lt: boolean; mirror: boolean; volume: boolean; bubbles: boolean; /** The taker-flow (CVD) column left of the map, and the order book column right of it. */ cvd: boolean; book: boolean; /** The Scripts pane under the map: a row for each of the person's scripts (script/). */ script: boolean };
+  show: { profile: boolean; /** The traded-volume column beside the profile (not on phones). */ traded: boolean; depth: boolean; oi: boolean; /** The Delta pane under the map (taker delta and CVD by candle). */ delta: boolean; /** The TOF pane under the map (toxic flow per venue by candle) and its levels on the map. */ tof: boolean; /** The Swing pane under the map (where price sits in its range, and how cheap or hot it is). */ swing: boolean; /** The Long/Short pane (the venues' published long/short account ratios). */ ls: boolean; candles: boolean; footprint: boolean; /** The Bar stats table under the map (its own switch since 2026-10-20; it was the footprint's before). */ stats: boolean; lt: boolean; mirror: boolean; volume: boolean; bubbles: boolean; /** The taker-flow (CVD) column left of the map, and the order book column right of it. */ cvd: boolean; book: boolean; /** The Scripts pane under the map: a row for each of the person's scripts (script/). */ script: boolean };
   /** The CVD column's settings. */
   cvd: CvdSettings;
   /** What counts as standing out (anomalous volume, OI change, ...), shared by every pane. */
@@ -110,6 +112,8 @@ export interface AppState {
   tradeBubbles: BubbleSettings;
   /** The liquidations drawn on the map (liquidations.ts). */
   liquidations: LiquidationSettings;
+  /** The volatility watch's entry signals drawn on the map (signals.ts; a local server's only). */
+  signals: SignalSettings;
   /** The previous day's, week's and month's levels on the map (keylevels/). */
   keyLevels: KeyLevelSettings;
   /** The VWAP lines: the session's, its bands and the anchored ones (vwap/). */
@@ -124,6 +128,8 @@ export interface AppState {
   footprint: FootprintSettings;
   /** The Delta pane's settings: bars or CVD candles, where the CVD restarts, divergences. */
   delta: DeltaSettings;
+  /** What the TOF pane draws on the main chart (tof/settings.ts). */
+  tof: TofSettings;
   /** The Binance series the Long/Short pane shows: every account, its top traders' accounts or their positions (the other venues publish one each). */
   lsMetric: LsMetric;
   /** Sound notifications: master switch, volume, which trades count and the size tiers. */
@@ -180,7 +186,7 @@ export interface AppState {
    * Shared cursor: `t` is authoritative; each pane converts it to its own x. `price` is only set by the heatmap. `touch` marks a hover
    * that a finger pinned (it stays until the next tap or drag, and its readouts sit above the finger).
    */
-  hover: { t: number; price: number | null; y: number; source: 'heat' | 'depth' | 'oi' | 'lt' | 'bars' | 'cvd' | 'delta' | 'ls' | 'script'; touch?: boolean } | null;
+  hover: { t: number; price: number | null; y: number; source: 'heat' | 'depth' | 'oi' | 'lt' | 'bars' | 'cvd' | 'delta' | 'tof' | 'swing' | 'ls' | 'script'; touch?: boolean } | null;
   /** The Range tool's selection (a box on the map, or a stretch of time), being dragged or made; and whether the next drag selects (range/). Not saved. */
   range: RangeSelection | null;
   rangeTool: boolean;
@@ -190,7 +196,7 @@ export interface AppState {
 
 type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 
-const PERSISTED: (keyof AppState)[] = ['keepAwake', 'barCollapsed', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'draw', 'chartType'];
+const PERSISTED: (keyof AppState)[] = ['keepAwake', 'barCollapsed', 'material', 'timeZone', 'timeframe', 'layer', 'show', 'cvd', 'heatmapSource', 'disabledVenues', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'signals', 'keyLevels', 'vwap', 'footprint', 'delta', 'tof', 'sounds', 'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'ladderVenue', 'ladderVenues', 'theme', 'themePicked', 'defaultsRev', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'draw', 'chartType'];
 function readSaved(): Partial<AppState> {
   try { const raw = window.localStorage.getItem('hlm-app-v2'); return raw ? JSON.parse(raw) as Partial<AppState> : {}; } catch { return {}; }
 }
@@ -200,7 +206,7 @@ export const LADDER_CURVES = [0, 3, 5, 8] as const;
 export type LadderCurves = (typeof LADDER_CURVES)[number];
 
 /** The settings a saved layout holds: what the chart shows and how, never the coin, the venues, the theme, the time zone or the sounds. */
-export const LAYOUT_KEYS = ['timeframe', 'layer', 'show', 'cvd', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'keyLevels', 'vwap', 'footprint', 'delta',
+export const LAYOUT_KEYS = ['timeframe', 'layer', 'show', 'cvd', 'scope', 'highlight', 'absorption', 'tradeBubbles', 'liquidations', 'signals', 'keyLevels', 'vwap', 'footprint', 'delta', 'tof',
   'heat', 'lt', 'barStats', 'barStatOptions', 'grouping', 'ladderMode', 'ladderShow', 'ladderCurves', 'pullStack', 'ladderCues', 'traded', 'oiMarkets', 'lsMetric', 'customMarkets', 'chartType'] as const satisfies readonly (keyof AppState)[];
 export type Settings = Pick<AppState, (typeof LAYOUT_KEYS)[number]>;
 
@@ -239,8 +245,8 @@ export function readSettings(saved: Partial<Record<keyof AppState, unknown>>): S
     layer: AVAILABLE_LAYERS.includes(saved.layer as Layer) ? saved.layer as Layer : 'liquidity',
     show: strip?.on ? { ...show, traded: true } : show,
     cvd: readCvd(saved.cvd), highlight: readHighlight(saved.highlight), absorption: readAbsorption(saved.absorption), tradeBubbles: readBubbles(saved.tradeBubbles),
-    liquidations: readLiquidations(saved.liquidations), keyLevels: readKeyLevels(saved.keyLevels), vwap: readVwap(saved.vwap), footprint: readFootprint(saved.footprint),
-    delta: readDelta(saved.delta), lsMetric: (LS_METRICS as readonly unknown[]).includes(saved.lsMetric) ? saved.lsMetric as LsMetric : 'accounts', pullStack: readPullWindow(saved.pullStack),
+    liquidations: readLiquidations(saved.liquidations), signals: readSignals(saved.signals), keyLevels: readKeyLevels(saved.keyLevels), vwap: readVwap(saved.vwap), footprint: readFootprint(saved.footprint),
+    delta: readDelta(saved.delta), tof: readTof(saved.tof), lsMetric: (LS_METRICS as readonly unknown[]).includes(saved.lsMetric) ? saved.lsMetric as LsMetric : 'accounts', pullStack: readPullWindow(saved.pullStack),
     ladderCues: readLadderCues(saved.ladderCues),
     traded,
     scope: saved.scope === 'spot' || saved.scope === 'perp' ? saved.scope : 'all',

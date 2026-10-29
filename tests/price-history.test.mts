@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BTC, type Coin } from '../src/shared/coins.ts';
-import { PriceHistoryCache, PRICE_QUERY_BARS, parsePriceHistory, priceListing, priceTarget, type PriceTarget } from '../src/shared/price-history.ts';
+import { PRICE_CACHE_SERIES, PriceHistoryCache, PRICE_QUERY_BARS, parsePriceHistory, priceListing, priceTarget, type PriceTarget } from '../src/shared/price-history.ts';
 import type { Fetcher } from '../src/shared/history.ts';
 
 const HOUR = 3_600_000, MINUTE = 60_000, T0 = Date.UTC(2025, 0, 1);
@@ -138,10 +138,10 @@ test('cache bounds count empty time slots and never evict an active read to star
   const gate = new Promise<void>(resolve => { release = resolve; }), read = exchange([]);
   const busy = new PriceHistoryCache(async (url, init) => { await gate; return read(url, init); }, () => T0 + 10_000 * HOUR);
   const coin = (n: number): PriceTarget => ({ ...target, id: `binance:COIN${n}USDT`, listing: { symbol: `COIN${n}USDT`, unit: 1 } });
-  const active = Array.from({ length: 8 }, (_, n) => busy.series(coin(n), HOUR, T0, T0 + HOUR));
-  await assert.rejects(busy.series(coin(9), HOUR, T0, T0 + HOUR), /busy/);
+  const active = Array.from({ length: PRICE_CACHE_SERIES }, (_, n) => busy.series(coin(n), HOUR, T0, T0 + HOUR));
+  await assert.rejects(busy.series(coin(PRICE_CACHE_SERIES + 1), HOUR, T0, T0 + HOUR), /busy/);
   release(); await Promise.all(active);
-  assert.equal((await busy.series(coin(9), HOUR, T0, T0 + HOUR)).status, 'ok');
+  assert.equal((await busy.series(coin(PRICE_CACHE_SERIES + 1), HOUR, T0, T0 + HOUR)).status, 'ok');
   await assert.rejects(cache.series(target, HOUR, T0, T0 + (PRICE_QUERY_BARS + 1) * HOUR), /window/);
 });
 

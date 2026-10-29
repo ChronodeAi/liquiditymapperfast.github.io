@@ -16,7 +16,9 @@ export interface PriceHistoryAnswer {
 export interface PriceTarget { id: string; listing: HistoryListing; kind: 'spot' | 'perp' }
 
 export const PRICE_QUERY_BARS = 2_000;
-const CACHE_SERIES = 8, CACHE_BARS = 4_000, REFRESH_MS = 60_000, RETRY_MS = 60_000, PAGE_LIMIT = 32;
+/** Series a cache holds: the Swing pane reads one per venue (eleven for BTC), on a timeframe or two, beside the chart's price overview. */
+export const PRICE_CACHE_SERIES = 48;
+const CACHE_BARS = 4_000, REFRESH_MS = 60_000, RETRY_MS = 60_000, PAGE_LIMIT = 32;
 
 /** The server's Binance spot alias and the browser's id name the same instrument. */
 export const priceInstrument = (id: string): string => id.replace(/^([^:]+):([^:]+):spot$/, '$1spot:$2');
@@ -78,8 +80,9 @@ function candlePage(venue: string, answer: unknown): boolean {
 }
 
 /**
- * One bounded cache for either data source: eight series, 4,000 time slots each, one read per series. Ended bars stay; only missing dates
- * and the live tail are fetched. Failed reads keep their old data, and every read, including a fetcher that never settles, has a deadline.
+ * One bounded cache for either data source: `PRICE_CACHE_SERIES` series, 4,000 time slots each, one read per series. Ended bars stay; only
+ * missing dates and the live tail are fetched. Failed reads keep their old data, and every read, including a fetcher that never settles, has
+ * a deadline.
  */
 export class PriceHistoryCache {
   readonly #entries = new Map<string, Entry>();
@@ -92,7 +95,7 @@ export class PriceHistoryCache {
     const key = `${target.id}|${target.listing.symbol}|${target.listing.unit}|${tfMs}`;
     let e = this.#entries.get(key);
     if (!e) {
-      if (this.#entries.size >= CACHE_SERIES) {
+      if (this.#entries.size >= PRICE_CACHE_SERIES) {
         const old = [...this.#entries].find(([, entry]) => !entry.pending);
         if (!old) throw new Error('Price history is busy');
         this.#entries.delete(old[0]);
