@@ -16,7 +16,7 @@ import { QuotaLedger } from '../src/core/quota.mts';
 const MIN = 60_000, T0 = 1_800_000_000_000;
 const trade = (id: string, side: string, usd: number, t: number, inst = 'x:BTC') => ({ instrumentId: inst, tradeId: id, side, price: 85_000, notionalUsd: usd, sourceTimestamp: t });
 
-test('recorded flow survives a restart and what is past retention is dropped on write', () => {
+test('recorded flow survives a restart; what is past the week stays on disk (30 days) but is not loaded', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hlm-flow-'));
   const file = path.join(dir, 'f.sqlite');
   try {
@@ -37,8 +37,11 @@ test('recorded flow survives a restart and what is past retention is dropped on 
     now = T0 + 8 * 24 * 3_600_000;
     again.ingest([trade('9', 'buy', 5, now)]); now += MIN; again.flush(); again.close();
     const check = new DatabaseSync(file);
-    assert.equal((check.prepare('SELECT COUNT(*) AS n FROM flow_minutes WHERE t = ?').get(T0) as { n: number }).n, 0, 'the week-old minute was pruned');
+    assert.equal((check.prepare('SELECT COUNT(*) AS n FROM flow_minutes WHERE t = ?').get(T0) as { n: number }).n, 1, 'the 8-day-old minute is kept on disk');
     check.close();
+    const reopened = new FlowRecorder(file, () => now);
+    assert.ok(reopened.coverage()['x:BTC']!.first > T0, 'the start loads only the week');
+    reopened.close();
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

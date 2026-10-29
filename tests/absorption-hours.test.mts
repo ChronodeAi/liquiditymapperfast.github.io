@@ -294,12 +294,14 @@ test('the retention lets packed hours go with the groups the store lets go of, a
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'absorption-hours-')), db = path.join(dir, 'depth.sqlite');
   const ids = ['x:BTC', 'y:BTC'], day = dayOf(8, 3_000, ids, T0, 10 * HOUR);
   let now = T0 + 10 * HOUR + 5 * MIN;
-  const store = new SqliteAbsorptionStore(db);
+  // A disk that keeps what the recorder keeps (its clock a disk retention ahead, so `keepBefore` is the recorder's own cutoff): the server's disk keeps 30 days.
+  const store = new SqliteAbsorptionStore(db, () => now + 31 * 24 * HOUR);
   try {
     store.save(day.groups, day.minutes, 0);
     const view: AbsorptionStore = { load: s => store.load(s), save: () => {}, query: (...a) => store.query(...a), minutes: (...a) => store.minutes(...a), eachHour: (...a) => store.eachHour(...a), close: () => {} };
     const recorder = new AbsorptionRecorder(store, () => now, { retentionMs: 6 * HOUR });
-    assertSame(await recorder.profile(ids, [FLOOR, FLOOR], T0, now, 5), await new AbsorptionRecorder(view, () => now).profile(ids, [FLOOR, FLOOR], T0, now, 5), 'before');
+    // A question is cut to the recorder's own retention before the store is asked (the server's disk keeps more days than that), so the plain read has the same six hours.
+    assertSame(await recorder.profile(ids, [FLOOR, FLOOR], T0, now, 5), await new AbsorptionRecorder(view, () => now, { retentionMs: 6 * HOUR }).profile(ids, [FLOOR, FLOOR], T0, now, 5), 'before');
     // Hours 5, 6 and 7 are whole, inside the retention and before memory; hour 4 crosses the retention's line.
     assert.equal(recorder.packed.hours, 3 * ids.length);
     now += 2 * HOUR;

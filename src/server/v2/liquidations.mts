@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { LiquidationStream as LiquidationCore, type Liquidation, type LiquidationStore } from '../../shared/liquidations.ts';
+import { keepBefore } from './keep.mts';
 
 export { LIQUIDATION_FLOOR_USD, LIQUIDATIONS_PER_ANSWER, toWire } from '../../shared/liquidations.ts';
 
@@ -12,7 +13,9 @@ const COLUMNS = 't, inst, side, price, usd, reported, kind';
 /** Liquidations in the history database. */
 export class SqliteLiquidationStore implements LiquidationStore {
   readonly #db: DatabaseSync;
-  constructor(dbPath: string) {
+  readonly #now: () => number;
+  constructor(dbPath: string, now: () => number = Date.now) {
+    this.#now = now;
     this.#db = new DatabaseSync(dbPath);
     this.#db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS liquidations (t INTEGER NOT NULL, inst TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL, usd REAL NOT NULL, reported REAL NOT NULL, kind TEXT NOT NULL); CREATE INDEX IF NOT EXISTS liquidations_t ON liquidations(t);');
   }
@@ -29,7 +32,7 @@ export class SqliteLiquidationStore implements LiquidationStore {
     db.exec('BEGIN');
     try {
       for (const l of rows) insert.run(l.t, l.id, l.side, l.price, l.usd, l.reported, l.kind);
-      db.prepare('DELETE FROM liquidations WHERE t < ?').run(expireBefore);
+      db.prepare('DELETE FROM liquidations WHERE t < ?').run(keepBefore(expireBefore, this.#now()));
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -38,5 +41,5 @@ export class SqliteLiquidationStore implements LiquidationStore {
 
 /** Liquidations across the venues that publish them, persisted in SQLite (`dbPath`) or kept in memory when there is none. */
 export class LiquidationStream extends LiquidationCore {
-  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqliteLiquidationStore(dbPath) : null, now); }
+  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqliteLiquidationStore(dbPath, now) : null, now); }
 }

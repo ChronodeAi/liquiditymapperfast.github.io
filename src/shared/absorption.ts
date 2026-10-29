@@ -104,8 +104,8 @@ export interface AbsorptionStore {
    * credit, so the hour is packed once (shared/absorption-hours.ts) and every later threshold answered from it.
    */
   readHour?(id: string, hour: number): { groups: AbsorptionGroup[]; minutes: AbsorptionMinute[] };
-  /** The instruments it holds groups of (a server packs their recent hours after it starts). */
-  instruments?(): string[];
+  /** The instruments it holds groups of from `since` on (a server packs their recent hours after it starts; a store may keep more days than the retention). */
+  instruments?(since?: number): string[];
   close(): void;
 }
 
@@ -584,7 +584,9 @@ export class AbsorptionRecorder {
     const recentFloors = this.#memoryMinutesOf(ids, from, to, memoryFrom), recentMinutes = this.#memoryMinutesOf(ids, since, Infinity, memoryFrom);
     const found: AbsorptionGroup[] = [];
     // One more than the limit, so an instrument with exactly `limit` groups is not reported as cut.
-    if (this.#store && from < memoryFrom) for (const g of await this.#store.query(ids, mins, from, Math.min(to, memoryFrom), limit + 1)) found.push(g);
+    // The store may keep more days than the retention (a server's disk does): nothing older is asked of it.
+    const lowest = Math.max(from, this.now() - this.#retentionMs);
+    if (this.#store && lowest < memoryFrom) for (const g of await this.#store.query(ids, mins, lowest, Math.min(to, memoryFrom), limit + 1)) found.push(g);
     for (const g of recent) found.push(g);
     // A group found again (trades sent again after a restart) is one group: the store keeps one row, and memory may hold both.
     const byId = new Map<string, AbsorptionGroup[]>(), keys = new Set<string>();
@@ -625,21 +627,22 @@ export class AbsorptionRecorder {
     }
     // Each instrument once: the store's part is not looked up group by group.
     const asked = [...new Set(ids.filter(id => typeof judged.get(id) === 'number'))];
-    if (this.#store && from < split && asked.length) {
+    const lowest = Math.max(from, this.now() - this.#retentionMs);
+    if (this.#store && lowest < split && asked.length) {
       // A store keeps a group once, and answers only before where memory answered from.
       const store = this.#store, mins = asked.map(id => judged.get(id)!);
       const take = (groups: readonly AbsorptionGroup[], minutes: readonly AbsorptionMinute[]): void => {
         for (const g of groups) out.add(g, true);
         for (const m of minutes) out.floor(m.id, m.t, m.floor);
       };
-      if (!this.#hours) await store.eachHour(asked, mins, from, split, take);
+      if (!this.#hours) await store.eachHour(asked, mins, lowest, split, take);
       else {
         // Packing ahead (`warm`) waits while a question reads.
         this.#asking++;
         try {
           // Whole stored hours from their packed groups; the part hours at either end, and an hour the retention cuts, read as they are.
           const whole: number[] = [];
-          for (const part of hoursOf(from, split)) {
+          for (const part of hoursOf(lowest, split)) {
             if (part.to - part.from === HOUR && part.from >= this.#packFrom) whole.push(part.from);
             else await store.eachHour(asked, mins, part.from, part.to, take);
           }
@@ -679,7 +682,7 @@ export class AbsorptionRecorder {
     const started = performance.now();
     let count = 0, turn = started;
     try {
-      const ids = store.instruments();
+      const ids = store.instruments(this.#packFrom);
       for (let hour = Math.floor(this.#memoryFrom / HOUR) * HOUR - HOUR; hour >= this.#packFrom; hour -= HOUR) {
         for (const id of ids) {
           // A question reading meanwhile goes first: it packs what it needs itself.
@@ -707,7 +710,8 @@ export class AbsorptionRecorder {
 
   /** The stored minutes of `ids` in [from, to) before `memoryFrom` (memory answers from there on). */
   async #storedMinutesOf(ids: readonly string[], from: number, to: number, memoryFrom: number): Promise<AbsorptionMinute[]> {
-    return this.#store && from < memoryFrom ? await this.#store.minutes(ids, from, Math.min(to, memoryFrom)) : [];
+    const lowest = Math.max(from, this.now() - this.#retentionMs);   // as in `query`: a store may keep more days than the retention
+    return this.#store && lowest < memoryFrom ? await this.#store.minutes(ids, lowest, Math.min(to, memoryFrom)) : [];
   }
 }
 

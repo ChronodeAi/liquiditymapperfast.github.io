@@ -121,12 +121,14 @@ export class PrintStream {
   query(from: number, to: number, minUsd = this.floorUsd, limit = PRINTS_PER_ANSWER): Print[] {
     const out: Print[] = [];
     const memoryStart = this.#recent[0]?.t ?? Infinity;
+    // The store may keep more days than the retention (a server's disk does): nothing older is asked of it.
+    const lowest = Math.max(from, this.now() - this.#retentionMs);
     if (this.#store?.query && from <= memoryStart) {
       // The store is asked through the millisecond memory begins at: prints share milliseconds, and the ones memory dropped from it
       // are not in memory. The ones it kept are, so they are left out of what the store answers.
       const kept = new Set<string>();
       for (const p of this.#recent) { if (p.t > memoryStart) break; kept.add(`${p.id}|${p.t}|${p.price}|${p.usd}`); }
-      for (const p of this.#store.query(from, Math.min(to, memoryStart + 1), minUsd, limit)) if (!kept.has(`${p.id}|${p.t}|${p.price}|${p.usd}`)) out.push(p);
+      for (const p of this.#store.query(lowest, Math.min(to, memoryStart + 1), minUsd, limit)) if (!kept.has(`${p.id}|${p.t}|${p.price}|${p.usd}`)) out.push(p);
     }
     for (const p of this.#recent) if (p.t >= from && p.t < to && p.usd >= minUsd) out.push(p);
     return largestPrints(out, limit);
@@ -140,7 +142,7 @@ export class PrintStream {
     const firstUnsaved = this.#unsaved.reduce((a, p) => Math.min(a, p.t), Infinity), store = this.#store;
     if (store?.eachIn) {
       const seen = new Set<string>();
-      store.eachIn(from, to, p => { seen.add(`${p.id}|${p.t}|${p.price}|${p.usd}`); take(p); });
+      store.eachIn(Math.max(from, this.now() - this.#retentionMs), to, p => { seen.add(`${p.id}|${p.t}|${p.price}|${p.usd}`); take(p); });
       if (to > firstUnsaved) for (const p of this.#unsaved) if (p.t >= from && p.t < to && !seen.has(`${p.id}|${p.t}|${p.price}|${p.usd}`)) take(p);
       return;
     }

@@ -93,7 +93,7 @@ test('the Liquidity Tracker is kept per minute, measured at each sample from tha
 });
 
 test('the kept tracker survives SQLite, a minute reopened after a restart, and the wire; minutes without one stay without', () => {
-  const store = new SqliteColumnStore(':memory:');
+  const store = new SqliteColumnStore(':memory:', () => T0 + 31 * 86_400_000);
   const lt = Float32Array.from({ length: LT_LENGTH }, (_, i) => i + 0.5);
   store.save('x:BTC', { t: T0, n: 3, bins: Int32Array.of(4), bid: Float32Array.of(1.5), ask: Float32Array.of(0), lt, ltN: 3 }, 20);
   store.save('x:BTC', { t: T0 + COLUMN_MS, n: 2, bins: Int32Array.of(4), bid: Float32Array.of(2), ask: Float32Array.of(0) }, 20);
@@ -137,7 +137,7 @@ test('query merges minutes into wider steps weighted by observed samples', () =>
 });
 
 test('columns persist to and reload from SQLite', () => {
-  const store = new SqliteColumnStore(':memory:');
+  const store = new SqliteColumnStore(':memory:', () => T0 + 31 * 86_400_000);
   const column: Column = { t: T0, n: 3, bins: Int32Array.from([4, 5]), bid: Float32Array.from([1.5, 0]), ask: Float32Array.from([0, 2.5]) };
   store.save('x:BTC', column, 20);
   const rows = [...store.load(0)];
@@ -541,7 +541,7 @@ test('the store prunes and reads the day back through the (inst, t) index, never
   // Karl's store was 1.4 GB of columns (2026-10-23): `DELETE ... WHERE t < ?` scanned all of it at every start and every hour, holding the loop.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depth-store-')), file = path.join(dir, 'depth-v2.sqlite');
   try {
-    const store = new SqliteColumnStore(file);
+    const store = new SqliteColumnStore(file, () => T0 + 31 * 86_400_000);
     for (let i = 0; i < 6; i++) for (const id of ['a:BTC', 'b:BTC']) store.save(id, { t: T0 + i * COLUMN_MS, n: 1, bins: Int32Array.of(4), bid: Float32Array.of(1), ask: Float32Array.of(0), lt: new Float32Array(LT_LENGTH).fill(1), ltN: 1 }, 20);
     store.prune(T0 + 3 * COLUMN_MS);
     const rows = [...store.load(0)];

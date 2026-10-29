@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { PrintStream as PrintCore, spanOf, type Print, type PrintStore } from '../../shared/prints.ts';
+import { keepBefore } from './keep.mts';
 
 export { PRINT_FLOOR_USD, PRINTS_PER_ANSWER, toWire, type Print, type WirePrint } from '../../shared/prints.ts';
 
@@ -14,7 +15,9 @@ const COLUMNS = 't, inst, side, price, usd, lo, hi, n';
 /** Large market orders in the history database (rows written before orders were rebuilt have no span or fill count). */
 export class SqlitePrintStore implements PrintStore {
   readonly #db: DatabaseSync;
-  constructor(dbPath: string) {
+  readonly #now: () => number;
+  constructor(dbPath: string, now: () => number = Date.now) {
+    this.#now = now;
     this.#db = new DatabaseSync(dbPath);
     this.#db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS prints (t INTEGER NOT NULL, inst TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL, usd REAL NOT NULL); CREATE INDEX IF NOT EXISTS prints_t ON prints(t);');
     // Databases written before orders were rebuilt gain the span and the fill count; their old rows simply have none.
@@ -45,7 +48,7 @@ export class SqlitePrintStore implements PrintStore {
     db.exec('BEGIN');
     try {
       for (const p of rows) insert.run(p.t, p.id, p.side, p.price, p.usd, p.lo ?? null, p.hi ?? null, p.n ?? null);
-      db.prepare('DELETE FROM prints WHERE t < ?').run(expireBefore);
+      db.prepare('DELETE FROM prints WHERE t < ?').run(keepBefore(expireBefore, this.#now()));
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -54,5 +57,5 @@ export class SqlitePrintStore implements PrintStore {
 
 /** Large trades across all venues, persisted in SQLite (`dbPath`) or kept in memory when there is none. */
 export class PrintStream extends PrintCore {
-  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqlitePrintStore(dbPath) : null, now); }
+  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqlitePrintStore(dbPath, now) : null, now); }
 }

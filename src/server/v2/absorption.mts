@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { AbsorptionRecorder as AbsorptionCore, hoursOf, peakOf, type AbsorptionGroup, type AbsorptionMinute, type AbsorptionStep, type AbsorptionStore } from '../../shared/absorption.ts';
+import { deleteMinutesBefore, keepBefore } from './keep.mts';
 
 export { ABSORPTION_WINDOW_MS, GROUP_FLOOR_USD, GROUPS_PER_MINUTE, MAX_ABSORPTION_INSTRUMENTS, type AbsorptionAnswer, type AbsorptionGroup, type AbsorptionMinute } from '../../shared/absorption.ts';
 
@@ -48,7 +49,9 @@ export class SqliteAbsorptionStore implements AbsorptionStore {
   readonly #hourText;
   readonly #hourMinutes;
   readonly #instruments;
-  constructor(dbPath: string) {
+  readonly #now: () => number;
+  constructor(dbPath: string, now: () => number = Date.now) {
+    this.#now = now;
     this.#db = new DatabaseSync(dbPath);
     this.#db.exec(`PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS absorption_groups (inst TEXT NOT NULL, t0 INTEGER NOT NULL, side TEXT NOT NULL, price REAL NOT NULL, peak REAL NOT NULL, steps TEXT NOT NULL);
@@ -73,16 +76,18 @@ export class SqliteAbsorptionStore implements AbsorptionStore {
         FROM absorption_groups WHERE inst = ? AND t0 >= ? AND t0 < ?`);
     } else this.#hourText = null;
     this.#hourMinutes = this.#db.prepare('SELECT inst, t, n, mean, m2, floor FROM absorption_minutes WHERE inst = ? AND t >= ? AND t < ?');
-    // Each instrument found by one step along the index from the one before, not by reading every row.
+    // Each instrument found by one step along the index from the one before, not by reading every row; those with a group from `since` on are
+    // kept (one seek on the (inst, t0) index each: the disk holds more than the days that are asked about).
     this.#instruments = this.#db.prepare(`WITH RECURSIVE i(inst) AS (SELECT MIN(inst) FROM absorption_groups
-      UNION ALL SELECT (SELECT MIN(inst) FROM absorption_groups WHERE inst > i.inst) FROM i WHERE i.inst IS NOT NULL) SELECT inst FROM i WHERE inst IS NOT NULL`);
+      UNION ALL SELECT (SELECT MIN(inst) FROM absorption_groups WHERE inst > i.inst) FROM i WHERE i.inst IS NOT NULL)
+      SELECT inst FROM i WHERE inst IS NOT NULL AND EXISTS (SELECT 1 FROM absorption_groups g WHERE g.inst = i.inst AND g.t0 >= ?)`);
   }
   readHour(id: string, hour: number): { groups: AbsorptionGroup[]; minutes: AbsorptionMinute[] } {
     const minutes = (this.#hourMinutes.all(id, hour, hour + HOUR) as MinuteRow[]).map(asMinute);
     const groups = this.#hourText ? groupsOfText(id, (this.#hourText.get(id, hour, hour + HOUR) as { groups: string | null }).groups) : null;
     return { groups: groups ?? (this.#hourGroups.all(id, hour, hour + HOUR) as GroupRow[]).flatMap(row => asGroup(row) ?? []), minutes };
   }
-  instruments(): string[] { return (this.#instruments.all() as { inst: string }[]).map(row => row.inst); }
+  instruments(since = -Infinity): string[] { return (this.#instruments.all(Number.isFinite(since) ? since : Number.MIN_SAFE_INTEGER) as { inst: string }[]).map(row => row.inst); }
   load(since: number): { groups: AbsorptionGroup[]; minutes: AbsorptionMinute[] } {
     const groups = (this.#db.prepare('SELECT inst, t0, side, price, steps FROM absorption_groups WHERE t0 >= ? ORDER BY t0').all(since) as GroupRow[]).flatMap(row => asGroup(row) ?? []);
     const minutes = (this.#db.prepare('SELECT inst, t, n, mean, m2, floor FROM absorption_minutes WHERE t >= ?').all(since) as MinuteRow[]).map(asMinute);
@@ -119,8 +124,9 @@ export class SqliteAbsorptionStore implements AbsorptionStore {
     try {
       for (const g of groups) group.run(g.id, g.t0, g.side, g.price, peakOf(g), JSON.stringify(g.steps));
       for (const m of minutes) minute.run(m.id, m.t, m.n, m.mean, m.m2, m.floor);
-      db.prepare('DELETE FROM absorption_groups WHERE t0 < ?').run(expireBefore);
-      db.prepare('DELETE FROM absorption_minutes WHERE t < ?').run(expireBefore);
+      const before = keepBefore(expireBefore, this.#now());
+      db.prepare('DELETE FROM absorption_groups WHERE t0 < ?').run(before);
+      deleteMinutesBefore(db, 'absorption_minutes', before);
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -129,5 +135,5 @@ export class SqliteAbsorptionStore implements AbsorptionStore {
 
 /** The absorption recorder persisted in SQLite (`dbPath`), or kept in memory when there is none. */
 export class AbsorptionRecorder extends AbsorptionCore {
-  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqliteAbsorptionStore(dbPath) : null, now); }
+  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqliteAbsorptionStore(dbPath, now) : null, now); }
 }

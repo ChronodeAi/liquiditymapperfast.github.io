@@ -119,11 +119,12 @@ export class LiquidationStream {
   query(from: number, to: number, minUsd = this.floorUsd, limit = LIQUIDATIONS_PER_ANSWER): Liquidation[] {
     const out: Liquidation[] = [];
     const memoryStart = this.#recent[0]?.t ?? Infinity;
+    const lowest = Math.max(from, this.now() - this.#retentionMs);   // as with the prints: a store may keep more days than the retention
     if (this.#store?.query && from <= memoryStart) {
       // As with the prints: the store is asked through the millisecond memory begins at, and what memory holds of it is left out of its answer.
       const kept = new Set<string>();
       for (const l of this.#recent) { if (l.t > memoryStart) break; kept.add(liquidationKey(l)); }
-      for (const l of this.#store.query(from, Math.min(to, memoryStart + 1), minUsd, limit)) if (!kept.has(liquidationKey(l))) out.push(l);
+      for (const l of this.#store.query(lowest, Math.min(to, memoryStart + 1), minUsd, limit)) if (!kept.has(liquidationKey(l))) out.push(l);
     }
     for (const l of this.#recent) if (l.t >= from && l.t < to && l.usd >= minUsd) out.push(l);
     return largestLiquidations(out, limit);

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Column, ColumnStore } from './recorder.mts';
 import { LT_LENGTH } from '../../shared/lt-sample.ts';
 import type { LtMinute } from '../../shared/lt-windows.ts';
+import { keepBefore } from './keep.mts';
 
 /**
  * A stored row as a column, as `load` reads it: the blob is bins | bid | ask (one that is not whole is left out), and a tracker of another
@@ -27,7 +28,9 @@ export class SqliteColumnStore implements ColumnStore {
   readonly #insertLt;
   readonly #range;
   readonly #rangeLt;
-  constructor(path: string) {
+  readonly #now: () => number;
+  constructor(path: string, now: () => number = Date.now) {
+    this.#now = now;
     this.#db = new DatabaseSync(path);
     this.#db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       CREATE TABLE IF NOT EXISTS depth_columns (inst TEXT NOT NULL, t INTEGER NOT NULL, n INTEGER NOT NULL, step REAL NOT NULL, data BLOB NOT NULL, PRIMARY KEY (inst, t));
@@ -120,8 +123,10 @@ export class SqliteColumnStore implements ColumnStore {
    * 0.2 s there.
    */
   prune(beforeMs: number): void {
-    this.#db.prepare('DELETE FROM depth_columns WHERE rowid IN (SELECT rowid FROM depth_columns WHERE t < ?)').run(beforeMs);
-    this.#db.prepare('DELETE FROM depth_lt WHERE rowid IN (SELECT rowid FROM depth_lt WHERE t < ?)').run(beforeMs);
+    // The recorder's cutoff is its week; the disk keeps more (`keepBefore`), and every read of it starts at the recorder's own cutoff.
+    const before = keepBefore(beforeMs, this.#now());
+    this.#db.prepare('DELETE FROM depth_columns WHERE rowid IN (SELECT rowid FROM depth_columns WHERE t < ?)').run(before);
+    this.#db.prepare('DELETE FROM depth_lt WHERE rowid IN (SELECT rowid FROM depth_lt WHERE t < ?)').run(before);
   }
   close(): void { this.#db.close(); }
 }

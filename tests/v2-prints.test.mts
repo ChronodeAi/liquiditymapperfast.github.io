@@ -35,7 +35,7 @@ test('queries select a window and a size, and keep the newest when there are too
   assert.deepEqual(stream.query(T0, T0 + 10 * MIN, PRINT_FLOOR_USD, 3).map(p => (p.t - T0) / MIN), [7, 8, 9], 'the newest survive a limit');
 });
 
-test('prints survive a restart, older ones come from the database, and expired ones are dropped', () => {
+test('prints survive a restart, older ones come from the database, and what is past the memory week stays on disk but is not read', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hlm-prints-'));
   const file = path.join(dir, 'p.sqlite');
   try {
@@ -44,12 +44,13 @@ test('prints survive a restart, older ones come from the database, and expired o
     first.ingest([trade('a', 'buy', 200_000, T0 - 8 * 24 * 3_600_000), trade('b', 'sell', 300_000, T0 - 30 * MIN), trade('c', 'buy', 400_000, T0 - 5 * MIN)]);
     first.flush();
     const db = new DatabaseSync(file);
-    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM prints').get() as { n: number }).n, 2, 'the week-old print was pruned on write');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM prints').get() as { n: number }).n, 3, 'the 8-day-old print is kept on disk (the disk keeps 30 days)');
     db.close();
     first.close();
     now += MIN;
     const again = new PrintStream(file, () => now);
     assert.deepEqual(again.query(T0 - 40 * MIN, T0).map(p => [p.id, p.side, p.usd]), [['x:BTC', 'sell', 300_000], ['x:BTC', 'buy', 400_000]]);
+    assert.deepEqual(again.query(T0 - 9 * 24 * 3_600_000, T0).map(p => p.usd), [300_000, 400_000], 'a question reaching past the week does not read what the disk kept beyond it');
     assert.deepEqual(again.takeFresh(), [], 'reloaded prints are history, not news');
     assert.deepEqual(again.ingest([trade('c', 'buy', 400_000, T0 - 5 * MIN)]), [], 'a trade the feed repeats after a restart is recognised by its content');
     assert.equal(again.ingest([trade('d', 'buy', 400_000, T0)]).length, 1, 'a genuinely new one is not');

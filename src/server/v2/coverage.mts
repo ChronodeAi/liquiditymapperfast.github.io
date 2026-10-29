@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { TradeCoverage as CoverageCore, type CoverageRow, type CoverageStore, type SeamTrade, type SpanKind } from '../../shared/coverage.ts';
 import { RETENTION_MS } from '../../shared/recorder.ts';
+import { keepBefore } from './keep.mts';
 
 export { MAX_COVERAGE_INSTRUMENTS, MAX_COVERAGE_SPAN_MS, coverageWindow, depthAnswer, recordedMinutes, tradeAnswer, type CoverageMetric } from '../../shared/coverage.ts';
 
@@ -8,9 +9,11 @@ type Row = { inst: string; metric: string; t0: number; t1: number; kind: string;
 const seam = (id: string | null, t: number | null): SeamTrade | undefined => id !== null && t !== null && Number.isFinite(t) ? { id, t } : undefined;
 
 /** The coverage record's stretches in the history database, next to the minutes they say were recorded (a stretch is written again as it grows: its start is its key). */
-class SqliteCoverageStore implements CoverageStore {
+export class SqliteCoverageStore implements CoverageStore {
   readonly #db: DatabaseSync;
-  constructor(dbPath: string) {
+  readonly #now: () => number;
+  constructor(dbPath: string, now: () => number = Date.now) {
+    this.#now = now;
     this.#db = new DatabaseSync(dbPath);
     this.#db.exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS coverage (inst TEXT NOT NULL, metric TEXT NOT NULL, t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, kind TEXT NOT NULL,
       first_id TEXT, first_t INTEGER, last_id TEXT, last_t INTEGER, PRIMARY KEY (inst, metric, t0)); CREATE INDEX IF NOT EXISTS coverage_t1 ON coverage(t1);`);
@@ -27,7 +30,7 @@ class SqliteCoverageStore implements CoverageStore {
     db.exec('BEGIN');
     try {
       for (const r of rows) put.run(r.inst, r.metric, r.from, r.to, r.kind, r.first?.id ?? null, r.first?.t ?? null, r.last?.id ?? null, r.last?.t ?? null);
-      db.prepare('DELETE FROM coverage WHERE t1 < ?').run(expireBefore);
+      db.prepare('DELETE FROM coverage WHERE t1 < ?').run(keepBefore(expireBefore, this.#now()));
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -36,5 +39,5 @@ class SqliteCoverageStore implements CoverageStore {
 
 /** The trade coverage record persisted in SQLite (`dbPath`) for the server's week, or kept in memory when there is none. */
 export class TradeCoverage extends CoverageCore {
-  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqliteCoverageStore(dbPath) : null, now, RETENTION_MS); }
+  constructor(dbPath: string | null = null, now: () => number = Date.now) { super(dbPath ? new SqliteCoverageStore(dbPath, now) : null, now, RETENTION_MS); }
 }

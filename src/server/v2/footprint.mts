@@ -1,14 +1,17 @@
 import { DatabaseSync } from 'node:sqlite';
 import { FootprintRecorder as FootprintCore, parseStats, statsText, type FootprintMinuteRow, type FootprintStore, type StoredBin } from '../../shared/footprint.ts';
 import { HOT_MS, RETENTION_MS } from '../../shared/recorder.ts';
+import { deleteMinutesBefore, keepBefore } from './keep.mts';
 
 export { SIZE_EDGES, sizeBucket, parseStats, type TradeLike, type FootprintRow, type FootprintBar, type TradeStats } from '../../shared/footprint.ts';
 
 /** Recorded minutes in the history database, next to the depth columns. */
-class SqliteFootprintStore implements FootprintStore {
+export class SqliteFootprintStore implements FootprintStore {
   readonly #db: DatabaseSync;
   readonly #range;
-  constructor(dbPath: string) {
+  readonly #now: () => number;
+  constructor(dbPath: string, now: () => number = Date.now) {
+    this.#now = now;
     this.#db = new DatabaseSync(dbPath);
     this.#db.exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS footprint_minutes (inst TEXT NOT NULL, t INTEGER NOT NULL, step REAL NOT NULL, rows TEXT NOT NULL, PRIMARY KEY (inst, t));`);
     // Databases written before trade stats existed gain the column; their old minutes simply have none.
@@ -30,7 +33,7 @@ class SqliteFootprintStore implements FootprintStore {
     db.exec('BEGIN');
     try {
       for (const row of rows) insert.run(row.inst, row.t, row.step, JSON.stringify(row.bins), row.stats ? statsText(row.stats) : null);
-      db.prepare('DELETE FROM footprint_minutes WHERE t < ?').run(expireBefore);
+      deleteMinutesBefore(db, 'footprint_minutes', keepBefore(expireBefore, this.#now()));
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
@@ -42,5 +45,5 @@ class SqliteFootprintStore implements FootprintStore {
  * ones are read back when a question reaches them (`memoryMs`; HOT_MS by default).
  */
 export class FootprintRecorder extends FootprintCore {
-  constructor(dbPath: string | null = null, now: () => number = Date.now, memoryMs: number = HOT_MS) { super(dbPath ? new SqliteFootprintStore(dbPath) : null, now, RETENTION_MS, 1, memoryMs); }
+  constructor(dbPath: string | null = null, now: () => number = Date.now, memoryMs: number = HOT_MS) { super(dbPath ? new SqliteFootprintStore(dbPath, now) : null, now, RETENTION_MS, 1, memoryMs); }
 }
